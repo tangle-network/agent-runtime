@@ -146,7 +146,9 @@ async function ownerAttemptHasCapture(
 ): Promise<boolean> {
   const controlRef = attempt.controlByEnvironment.get(environmentId)
   const receipts = [
-    ...(attempt.result === undefined ? [] : [attempt.result.outRef]),
+    ...(attempt.result === undefined || attempt.result.outputFormat === 'json'
+      ? []
+      : [attempt.result.outRef]),
     ...attempt.evidence.map((event) => event.outRef),
   ]
   let verified = false

@@ -225,6 +225,8 @@ export class SpawnEventIndex {
       if (node.result) fail('has duplicate result')
       if (!node.admissions.has('dispatched')) fail('result precedes dispatch')
       if (!/^sha256:[0-9a-f]{64}$/.test(event.outRef)) fail('has an invalid result reference')
+      if (event.outputFormat !== undefined && event.outputFormat !== 'json')
+        fail('has an invalid output format')
       assertValidSpend(event.spent, 'retained execution result')
       executorFailureReason(event)
       return

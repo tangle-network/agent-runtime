@@ -2,6 +2,21 @@ import { createHash } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 
 export type Scenario =
+  | 'trace-owner'
+  | 'trace-owner-cancel'
+  | 'trace-owner-evidence'
+  | `trace-tree-${number}`
+  | 'json-incomplete'
+  | 'json-owner-capture'
+  | 'json-output'
+  | 'json-authority'
+  | 'json-overflow'
+  | 'json-no-terminal'
+  | 'json-malformed'
+  | 'json-malformed-always-true'
+  | 'json-tool-only'
+  | 'json-ambiguous'
+  | 'json-native-failed'
   | 'dispatch-refused'
   | 'dispatch-lost-reply'
   | 'terminal-ceiling'
@@ -37,6 +52,7 @@ export interface NativeRun {
   turnId?: string
   actionStarted?: boolean
   terminalReads: number
+  processResult?: { output: string; exitCode: number; startedAt: number; closedAt: number }
 }
 export interface ServiceState {
   scenario: Scenario
@@ -191,4 +207,146 @@ export function attachments(
   }
   visit(value)
   return found
+}
+
+export function terminal(run: NativeRun, scenario: Scenario) {
+  const processResult = run.processResult
+  if (
+    (scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
+    processResult !== undefined
+  ) {
+    const answer = {
+      type: 'message.part.updated',
+      data: { part: { id: 'final-answer', type: 'text', text: processResult.output } },
+    }
+    const tools = scenario === 'json-tool-only' || scenario === 'json-ambiguous'
+    const success = processResult.exitCode === 0
+    return [
+      {
+        type: 'execution.started',
+        data: {
+          sessionId: run.sessionId,
+          executionId: run.executionId,
+          runControlRef: run.runControlRef,
+          ...(scenario === 'json-output' ? { eventStreamComplete: false } : {}),
+        },
+      },
+      {
+        type: 'message.part.updated',
+        data: {
+          part: {
+            id: 'narration',
+            type: 'text',
+            text: tools ? processResult.output : 'Reading evidence.\n',
+          },
+        },
+      },
+      {
+        type: 'message.part.updated',
+        data: {
+          part: {
+            id: 'native-node-call',
+            type: 'tool',
+            tool: 'node-process',
+            callID: run.executionId,
+            state: {
+              status: 'completed',
+              input: { executable: process.execPath },
+              output: processResult.output,
+              title: 'Finite fixture process',
+              metadata: {},
+              time: { start: processResult.startedAt, end: processResult.closedAt },
+            },
+          },
+        },
+      },
+      ...(tools ? [] : [answer]),
+      {
+        type: 'result',
+        data: {
+          sessionId: run.sessionId,
+          executionId: run.executionId,
+          success,
+          status: success ? 'success' : 'failed',
+          finalText:
+            scenario === 'json-incomplete'
+              ? processResult.output
+              : tools
+                ? scenario === 'json-ambiguous'
+                  ? processResult.output
+                  : 'Reading evidence.\n'
+                : `Reading evidence.\n${processResult.output}`,
+          ...(success
+            ? {}
+            : {
+                error: 'fixture native process exited 7',
+                errorCode: 'NATIVE_PROCESS_EXIT',
+                statusCode: 502,
+              }),
+          usage: { inputTokens: 3, outputTokens: 2 },
+        },
+      },
+      {
+        type: 'done',
+        data: {
+          success,
+          status: success ? 'success' : 'failed',
+          ...(success ? { outcome: { type: 'completed' } } : {}),
+        },
+      },
+    ]
+  }
+  return [
+    {
+      type: 'execution.started',
+      data: {
+        sessionId: run.sessionId,
+        executionId: run.executionId,
+        runControlRef: run.runControlRef,
+      },
+    },
+    ...(scenario.startsWith('create-')
+      ? [
+          {
+            type: 'message.part.updated',
+            data: {
+              sessionId: run.sessionId,
+              executionId: run.executionId,
+              part: { type: 'reasoning', text: run.executionId },
+              delta: run.executionId,
+            },
+          },
+        ]
+      : []),
+    {
+      type: 'result',
+      data: {
+        sessionId: run.sessionId,
+        executionId: run.executionId,
+        success: true,
+        status: 'success',
+        response: '{"answer":"delivered"}',
+        text: '{"answer":"delivered"}',
+        usage: { inputTokens: 3, outputTokens: 2 },
+      },
+    },
+    {
+      type: 'done',
+      data: {
+        sessionId: run.sessionId,
+        executionId: run.executionId,
+        success: true,
+        status: 'success',
+        outcome: { type: 'completed' },
+        usage: { inputTokens: 3, outputTokens: 2 },
+      },
+    },
+  ]
+}
+
+export function nativeEventFile(executionId: string): string {
+  return 'native-' + sha256Bytes(executionId) + '.sse'
+}
+export function encodeFrame(frame: { type: string; data: object }, id: number): string {
+  return 'id: ' + id + '\nevent: ' + frame.type + '\ndata: ' + JSON.stringify(frame.data) + '\n\n'
 }

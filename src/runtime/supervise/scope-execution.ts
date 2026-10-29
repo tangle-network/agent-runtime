@@ -176,6 +176,7 @@ async function settleExecuted<C>(
   // (done, aborted, crash) so the journal always matches what the pool already debited.
   const ownMetered = executor.metered?.()
   const trace = await attempt.captureTrace()
+  await settleHarnessTranscript(executor)
   const childHarnessTranscript = await attempt.persistTranscript()
 
   if (

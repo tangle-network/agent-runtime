@@ -49,9 +49,18 @@ export function createProviderExecutor(
       `providerAsExecutor(${provider.name})`,
     )
   }
-  const node =
-    ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
+  const node = detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
+  if (
+    options.outputFormat !== undefined &&
+    (options.outputFormat !== 'json' ||
+      retention?.onEvidence === undefined ||
+      options.requireTerminalEvent === false)
+  ) {
+    throw new ValidationError(
+      'providerAsExecutor: JSON output requires Runtime-owned durable evidence and a native terminal receipt',
+    )
+  }
   // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
   // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
   // turn, so the stream ends and the harness session and the turn's usage are still read. Before,

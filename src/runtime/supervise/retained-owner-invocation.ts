@@ -134,7 +134,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         scope.signal.throwIfAborted()
         // The abort is decided once the result is stored. Hashing the completed turn's events
         // decides nothing, so an abort that arrives while they hash still commits the result.
-        const traceRoot = await traceRoots.write(outRef, result.out)
+        const traceRoot = await traceRoots.write(outRef, result)
         const event: Extract<SpawnEvent, { kind: 'execution-result' }> = {
           kind: 'execution-result',
           id: args.nodeId,
@@ -143,6 +143,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           spent: detachedSnapshot(result.spent, 'retained owner spend'),
           ...(result.verdict ? { verdict: result.verdict } : {}),
           ...(result.outcome ? { outcome: result.outcome } : {}),
+          ...(result.outputFormat === undefined ? {} : { outputFormat: result.outputFormat }),
           seq: ++sequence,
           at: new Date(args.now()).toISOString(),
         }
@@ -453,6 +454,7 @@ export async function scopeRetainedOwnerResult(
     spent: event.spent,
     ...(event.verdict ? { verdict: event.verdict } : {}),
     ...(event.outcome ? { outcome: event.outcome } : {}),
+    ...(event.outputFormat === undefined ? {} : { outputFormat: event.outputFormat }),
   }
 }
 

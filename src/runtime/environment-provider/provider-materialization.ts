@@ -48,6 +48,7 @@ export function providerMaterialization(
       provider: provider.name,
       destroyOnSettle: retention?.preserveEnvironment ? false : (options.destroyOnSettle ?? true),
       requireTerminalEvent: options.requireTerminalEvent ?? true,
+      ...(options.outputFormat === undefined ? {} : { outputFormat: options.outputFormat }),
       tokenLimits,
       ...(placement ? { placement } : {}),
     },
