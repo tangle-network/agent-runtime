@@ -1,17 +1,10 @@
 import { type ChildProcess, spawn } from 'node:child_process'
-import {
-  appendFileSync,
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-} from 'node:fs'
+import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import { build } from 'tsdown'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
 import {
@@ -31,6 +24,34 @@ export interface Executables {
   coordinator: string
   credential: string
 }
+export async function prepareExecutables(): Promise<{ bundle: string; executables: Executables }> {
+  const bundle = await mkdtemp(join(resolve('node_modules'), '.uncertain-create-'))
+  await build({
+    config: false,
+    entry: {
+      service: resolve('tests/integration/fixtures/uncertain-create-service.ts'),
+      'json-worker': resolve('tests/integration/fixtures/provider-json-worker.ts'),
+      coordinator: resolve('tests/integration/fixtures/uncertain-create-coordinator.ts'),
+      credential: resolve('tests/integration/fixtures/uncertain-create-credential.ts'),
+    },
+    outDir: bundle,
+    format: ['esm'],
+    platform: 'node',
+    target: 'es2022',
+    fixedExtension: true,
+    dts: false,
+    sourcemap: false,
+    deps: { neverBundle: true },
+    logLevel: 'error',
+  })
+  const executables = {
+    service: join(bundle, 'service.mjs'),
+    coordinator: join(bundle, 'coordinator.mjs'),
+    credential: join(bundle, 'credential.mjs'),
+  }
+  return { bundle, executables }
+}
+
 export class ProcessFixture {
   readonly children: Array<{ process: ChildProcess; closed: Promise<void> }> = []
   coordinator: ChildProcess | undefined
@@ -44,7 +65,6 @@ export class ProcessFixture {
     const directory = await mkdtemp(join(tmpdir(), 'uncertain-create-integration-'))
     const fixture = new ProcessFixture(directory, scenario, executables)
     try {
-      mkdirSync(join(directory, 'home'))
       fixture.credentialMode(
         scenario === 'unsupported-intent',
         scenario === 'unsupported-environment' ? 1 : undefined,
@@ -81,11 +101,12 @@ export class ProcessFixture {
     }
   }
   private launch(script: string, args: string[], name: string): ChildProcess {
-    // No account homes, auth, proxies or model keys cross the process boundary.
+    // Preserve the caller's path and home; no auth, proxies or model keys cross the boundary.
     const processHandle = spawn(process.execPath, [script, ...args], {
       env: {
-        PATH: process.env.PATH ?? '/usr/bin:/bin',
-        HOME: join(this.directory, 'home'),
+        ...Object.fromEntries(
+          Object.entries(process.env).filter(([key]) => key === 'PATH' || key === 'HOME'),
+        ),
         TMPDIR: tmpdir(),
         LANG: 'C.UTF-8',
         NODE_ENV: 'test',
@@ -152,7 +173,11 @@ export class ProcessFixture {
     const pid = this.coordinator.pid
     await this.wait('coordinator route ready', async () =>
       readRecords(join(this.directory, 'coordinator.jsonl')).some(
-        (row) => row.kind === 'coordinator-route-ready' && row.pid === pid,
+        (row) =>
+          row.kind ===
+            (this.scenario.startsWith('json-') || this.scenario.startsWith('trace-')
+              ? 'coordinator-entered'
+              : 'coordinator-route-ready') && row.pid === pid,
       ),
     )
   }
@@ -182,6 +207,44 @@ export class ProcessFixture {
       signal: AbortSignal.timeout(2000),
     })
     if (!response.ok) throw new Error(`fixture control returned ${response.status}`)
+  }
+  async acknowledgeNativeReplay(index: number, terminalUsage = false): Promise<void> {
+    let executionId: string | undefined
+    await this.wait('native tool frame actually consumed', async () => {
+      executionId = (await this.state()).runs[index]?.executionId
+      if (executionId === undefined) return false
+      if (terminalUsage) {
+        const events = await this.events()
+        const binding = events.find(
+          (row) =>
+            row.kind === 'execution-admitted' &&
+            row.admission.phase === 'dispatched' &&
+            row.admission.controlRef.executionId === executionId,
+        )
+        return events.some(
+          (row) =>
+            row.kind === 'progress' &&
+            row.id === binding?.id &&
+            typeof row.spend.tokens !== 'number' &&
+            row.spend.tokens.input === 3 &&
+            row.spend.tokens.output === 2,
+        )
+      }
+      const streamDirectory = join(this.directory, 'run', 'streams')
+      const paths = [join(this.directory, 'run', 'root-stream.jsonl')]
+      try {
+        for (const file of await readdir(streamDirectory)) paths.push(join(streamDirectory, file))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      return paths.some((path) =>
+        readRecords(path).some(
+          (row) =>
+            object(row.event).kind === 'tool_call' && object(row.event).toolCallId === executionId,
+        ),
+      )
+    })
+    await this.control({ nativeReplayObserved: executionId })
   }
   async events(): Promise<SpawnEvent[]> {
     const journal = new FileSpawnJournal(join(this.directory, 'run', 'spawn-journal.jsonl'))

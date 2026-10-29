@@ -19,6 +19,7 @@
  * replay copy the recorded receipt; they never derive a new one.
  */
 import { createHash } from 'node:crypto'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import {
   canonicalString,
   jsonDocument,
@@ -32,7 +33,7 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/content-address'
 import { createSandboxToolPartState, mapSandboxToolEvent } from '../sandbox-executor-output'
 
-import type { ResultBlobStore, TraceRootReceipt } from './types'
+import type { ExecutorResult, ResultBlobStore, TraceRootReceipt } from './types'
 
 /** Schema identifier of a stored {@link TraceRootArtifact}. */
 export const TRACE_ROOT_SCHEMA = 'agent-runtime.trace-root.v1'
@@ -64,7 +65,10 @@ export interface TraceRootArtifact {
 export interface TraceRootWriter {
   /** Store the trace root of the result `out` stored under `outRef`; `undefined` when it archived
    *  no events. */
-  write(outRef: string, out: unknown): Promise<TraceRootReceipt | undefined>
+  write(
+    outRef: string,
+    result: Pick<ExecutorResult<unknown>, 'out' | 'outputFormat'>,
+  ): Promise<TraceRootReceipt | undefined>
   /** As `write`, for evidence: also `undefined` when this node already rooted the same events
    *  under another output. */
   writeEvidence(outRef: string, out: unknown): Promise<TraceRootReceipt | undefined>
@@ -77,65 +81,50 @@ export function traceRootWriter(blobs: ResultBlobStore, nodeId: string): TraceRo
   const roots = new Map<string, Promise<TraceRootReceipt | undefined>>()
   /** Digests of the event arrays this node holds a stored root for. */
   const rooted = new Set<string>()
-  const persist = async (
-    outRef: string,
-    out: unknown,
-    evidence: boolean,
-  ): Promise<TraceRootReceipt | undefined> => {
-    const events = archivedEvents(out)
-    if (events === undefined) return undefined
-    if (evidence) {
-      // A root still being written counts once it is stored.
-      await Promise.allSettled([...roots.values()])
-      if (rooted.has(await eventsDigest(events))) return undefined
-    }
-    const stored = await persistTraceRoot(blobs, nodeId, outRef, events)
-    if (stored === undefined) return undefined
-    rooted.add(stored.digest)
-    return stored.receipt
-  }
   const memoized = (outRef: string, out: unknown, evidence: boolean) => {
     const known = roots.get(outRef)
     if (known !== undefined) return known
-    const pending = persist(outRef, out, evidence)
+    const pending = (async () => {
+      const events = archivedEvents(out)
+      if (events === undefined) return undefined
+      if (evidence) {
+        // A root still being written counts once it is stored.
+        await Promise.allSettled([...roots.values()])
+        if (rooted.has(await eventsDigest(events))) return undefined
+      }
+      const built = await traceRootArtifact(nodeId, outRef, events).catch((error) => {
+        // An event with no canonical JSON form (an unpaired surrogate) leaves the output unproven;
+        // it never fails the turn that produced it. 0 of 366 archives.
+        if (error instanceof LedgerCanonicalizationError) return undefined
+        throw error
+      })
+      if (built === undefined) return undefined
+      const { artifact, digest } = built
+      // The content address and the store's own encoding each walk the whole artifact (9.2 MB for
+      // the largest turn); each takes its own turn of the event loop.
+      await nextTurn()
+      const ref = contentAddress(artifact)
+      await nextTurn()
+      await blobs.put(ref, artifact)
+      rooted.add(digest)
+      return { root: artifact.root, ref, leafCount: artifact.leafCount }
+    })()
     roots.set(outRef, pending)
     // A failed write is retried by the next writer rather than remembered.
     pending.catch(() => roots.delete(outRef))
     return pending
   }
   return {
-    write: (outRef, out) => memoized(outRef, out, false),
+    write: (outRef, result) =>
+      result.outputFormat === 'json'
+        ? Promise.resolve(undefined)
+        : memoized(outRef, result.out, false),
     writeEvidence: (outRef, out) => memoized(outRef, out, true),
     async recorded(outRef) {
       if (outRef === undefined) return undefined
       return roots.get(outRef)?.catch(() => undefined)
     },
   }
-}
-
-async function persistTraceRoot(
-  blobs: ResultBlobStore,
-  nodeId: string,
-  outRef: string,
-  events: readonly unknown[],
-): Promise<{ receipt: TraceRootReceipt; digest: string } | undefined> {
-  let built: { artifact: TraceRootArtifact; digest: string }
-  try {
-    built = await traceRootArtifact(nodeId, outRef, events)
-  } catch (error) {
-    // An event with no canonical JSON form (an unpaired surrogate) leaves the output unproven;
-    // it never fails the turn that produced it. 0 of 366 archives.
-    if (error instanceof LedgerCanonicalizationError) return undefined
-    throw error
-  }
-  const { artifact, digest } = built
-  // The content address and the store's own encoding each walk the whole artifact (9.2 MB for
-  // the largest turn); each takes its own turn of the event loop.
-  await nextTurn()
-  const ref = contentAddress(artifact)
-  await nextTurn()
-  await blobs.put(ref, artifact)
-  return { receipt: { root: artifact.root, ref, leafCount: artifact.leafCount }, digest }
 }
 
 function archivedEvents(out: unknown): readonly unknown[] | undefined {
@@ -159,10 +148,6 @@ function slicer(): () => Promise<void> | undefined {
       started = performance.now()
     })
   }
-}
-
-function nextTurn(): Promise<void> {
-  return new Promise<void>((resolve) => setImmediate(resolve))
 }
 
 /** The identity of an event array as stored: the digest of each event's stored JSON, in order.

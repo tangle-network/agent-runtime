@@ -6,10 +6,14 @@ import type { SandboxOutcomeCarrier } from '../sandbox-outcome'
 import { errorText } from '../supervise/error-message'
 import { contentRef } from '../supervise/executor-outcome'
 import { RetainedExecutionPendingError } from '../supervise/retained-executor'
-import type { ExecutorResult, Spend, UsageEvent } from '../supervise/types'
+import type { ExecutorResult, UsageEvent } from '../supervise/types'
 import { unavailableSignalOfFailure } from '../supervise/upstream-unavailable'
 import { destroyExecutorEnvironment } from './provider-environment-teardown'
-import { failureStatusCode, resultFromEvents } from './provider-event-projection'
+import {
+  failureStatusCode,
+  jsonResultFromEvents,
+  resultFromEvents,
+} from './provider-event-projection'
 import type { ProviderLeafOut } from './provider-executor-admission'
 import type { ProviderInvocationEnd, StreamProviderExecutorArgs } from './provider-invocation'
 import { providerWorkspaceCaptureReceipt } from './provider-retention-lifecycle'
@@ -80,30 +84,26 @@ export class ProviderTurnSettlement {
   private handCaptureToOwner(
     reported: object,
     captureOutcome: AgentRunOutcome | undefined,
-    publish: boolean,
-    beforeCapture?: () => Promise<void>,
+    settled: boolean,
   ): void {
     const { args, environment } = this
+    this.finalCopyTaken = true
     args.retention?.onEndOfTurnWork?.(
       (async () => {
         // The final native copy runs beside the workspace capture, which replaces it as the
         // transcript when it settles; the retained owner waits for both. Run in sequence on canary
         // test-acceptance-canary-20261019o (Runtime 0.332.2), the copy took 17.8 s and the capture
         // started 59-66 s after the result. A failed copy leaves the capture as the retention boundary.
-        const finalCopy = (async () => {
-          try {
-            await beforeCapture?.()
-          } catch {
-            // The workspace receipt remains the owner's retention boundary.
-          }
-        })()
+        const copy = settled
+          ? args.scope.mirrors.finishNativeMirror(environment, 'settled').catch(() => undefined)
+          : Promise.resolve()
         let snapshot: Awaited<ReturnType<typeof args.captureWorkspace>>
         try {
           snapshot = await args.captureWorkspace(environment, captureOutcome)
         } finally {
-          await finalCopy
+          await copy
         }
-        if (publish) args.onPublishedSnapshot(snapshot)
+        if (settled) args.onPublishedSnapshot(snapshot)
         if (snapshot === undefined) return
         await args.retention?.onEvidence?.({
           ...reported,
@@ -169,9 +169,23 @@ export class ProviderTurnSettlement {
     // queued or failed capture cannot hide a completed result: Discovery's contract canary left two
     // finished Sandbox executions unjournaled for over 18 minutes behind capture.
     const deferCapture = this.ownerTakesCapture()
-    const { retainedWorkspace, workspaceCaptureFailure } = deferCapture
-      ? {}
-      : await this.captureSettledWorkspace(outcome)
+    /**
+     * A capture that fails or exceeds its deadline after settlement is a fact about the evidence,
+     * never the turn's outcome. On Runtime 0.295.4 a capture past its 1,200,000 ms
+     * deadline behind a two-slot queue shared by 34 workers threw an AbortError, the driver
+     * classified it terminal, and two research roots ended with 13 and 0 children settled. With no
+     * receipt the source stays preserved and the owner reads a retention failure; the turn is not re-run.
+     */
+    let retainedWorkspace: AgentCandidateWorkspaceSnapshotEvidence | undefined
+    let workspaceCaptureFailure: string | undefined
+    if (!deferCapture) {
+      try {
+        retainedWorkspace = await args.captureWorkspace(this.environment, outcome)
+      } catch (error) {
+        workspaceCaptureFailure = `${errorText(error instanceof Error ? error.message : error)}; source environment preserved`
+      }
+      args.onPublishedSnapshot(retainedWorkspace)
+    }
     const settledResult: ProviderLeafOut & SandboxOutcomeCarrier = {
       ...result,
       ...(workspaceCaptureFailure === undefined ? {} : { workspaceCaptureFailure }),
@@ -182,87 +196,49 @@ export class ProviderTurnSettlement {
             workspaceCapture: this.captureReceipt(retainedWorkspace),
           }),
     }
-    const settled = this.settledArtifact(result, settledResult, verdict, executionSpent)
+    const jsonOutput = args.options.outputFormat === 'json'
+    if (jsonOutput) await args.retention?.onEvidence?.(settledResult)
+    const output =
+      jsonOutput && outcome?.status !== 'failed'
+        ? jsonResultFromEvents(result.events)
+        : { out: settledResult }
+    const statusCode = failureStatusCode(outcome)
+    const nativeFailure =
+      outcome?.status === 'failed'
+        ? {
+            success: false,
+            ...(outcome.error ? { error: outcome.error } : {}),
+            ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+            ...(statusCode === undefined ? {} : { statusCode }),
+          }
+        : undefined
+    const settled: ExecutorResult<unknown> = {
+      ...(jsonOutput ? { outputFormat: 'json' } : {}),
+      ...(nativeFailure ? { outcome: nativeFailure } : {}),
+      ...output,
+      outRef: contentRef(`provider:${args.provider.name}`, output.out),
+      ...(verdict ? { verdict } : {}),
+      spent: executionSpent,
+    }
     this.settled = settled
-    this.unavailable = this.refusalOf(result)
+    if (args.mayContinue && this.retained && nativeFailure) {
+      const signal = unavailableSignalOfFailure({
+        ...nativeFailure,
+        error: nativeFailure.error ?? '',
+      })
+      if (signal !== undefined)
+        this.unavailable = { signal, cause: errorText(nativeFailure.error ?? '') }
+    }
     if (this.retained) await args.retention?.onResult(settled)
-    else if (retainedWorkspace !== undefined) await args.retention?.onEvidence?.(settledResult)
+    else if (retainedWorkspace !== undefined && !jsonOutput)
+      await args.retention?.onEvidence?.(settledResult)
     args.scope.state.pending = false
     args.scope.state.artifact = settled
     if (deferCapture) {
       // The session copy is taken first on the native queue, which never waits behind workspace
       // captures; the capture then reads an ended session. The owner holds both.
-      this.finalCopyTaken = true
-      this.handCaptureToOwner(settledResult, outcome, true, () =>
-        args.scope.mirrors.finishNativeMirror(this.environment, 'settled'),
-      )
+      this.handCaptureToOwner(settledResult, outcome, true)
     }
-  }
-
-  /**
-   * A capture that fails or exceeds its deadline after settlement is a fact about the evidence,
-   * never the turn's outcome. On Runtime 0.295.4 a capture past its 1,200,000 ms
-   * deadline behind a two-slot queue shared by 34 workers threw an AbortError, the driver
-   * classified it terminal, and two research roots ended with 13 and 0 children settled. With no
-   * receipt the source stays preserved and the owner reads a retention failure; the turn is not re-run.
-   */
-  private async captureSettledWorkspace(outcome: AgentRunOutcome | undefined): Promise<{
-    retainedWorkspace?: AgentCandidateWorkspaceSnapshotEvidence
-    workspaceCaptureFailure?: string
-  }> {
-    let retainedWorkspace: AgentCandidateWorkspaceSnapshotEvidence | undefined
-    let workspaceCaptureFailure: string | undefined
-    try {
-      retainedWorkspace = await this.args.captureWorkspace(this.environment, outcome)
-    } catch (error) {
-      workspaceCaptureFailure = `${errorText(error instanceof Error ? error.message : error)}; source environment preserved`
-    }
-    this.args.onPublishedSnapshot(retainedWorkspace)
-    return { retainedWorkspace, workspaceCaptureFailure }
-  }
-
-  private settledArtifact(
-    result: ProviderLeafOut & SandboxOutcomeCarrier,
-    settledResult: ProviderLeafOut & SandboxOutcomeCarrier,
-    verdict: ExecutorResult<unknown>['verdict'],
-    spent: Spend,
-  ): ExecutorResult<unknown> {
-    return {
-      ...(result.outcome?.status === 'failed'
-        ? {
-            outcome: {
-              success: false,
-              ...(result.outcome.error ? { error: result.outcome.error } : {}),
-              // The code, not the text, is what a retry policy may branch on.
-              ...(result.outcome.errorCode ? { errorCode: result.outcome.errorCode } : {}),
-              ...(failureStatusCode(result.outcome) === undefined
-                ? {}
-                : { statusCode: failureStatusCode(result.outcome) }),
-            },
-          }
-        : {}),
-      outRef: contentRef(`provider:${this.args.provider.name}`, settledResult),
-      out: settledResult,
-      ...(verdict ? { verdict } : {}),
-      spent,
-    }
-  }
-
-  /** A retained turn the upstream refused for capacity ends with its environment kept. */
-  private refusalOf(result: ProviderLeafOut & SandboxOutcomeCarrier) {
-    if (!this.args.mayContinue || !this.retained || result.outcome?.status !== 'failed') {
-      return undefined
-    }
-    const signal = unavailableSignalOfFailure({
-      error: result.outcome.error ?? '',
-      ...(result.outcome.errorCode ? { errorCode: result.outcome.errorCode } : {}),
-      ...(failureStatusCode(result.outcome) === undefined
-        ? {}
-        : { statusCode: failureStatusCode(result.outcome) }),
-    })
-    return signal === undefined
-      ? undefined
-      : { signal, cause: errorText(result.outcome.error ?? '') }
   }
 
   /** Record the turn's failure, then capture what evidence its environment still holds. */
@@ -295,7 +271,6 @@ export class ProviderTurnSettlement {
       // The owner takes this failed turn's capture over too, so the drive ends now and the
       // owner's release reads the capture's receipt before it decides what to destroy.
       if (!args.signal.aborted) await args.scope.mirrors.finishNativeMirror(environment, 'failed')
-      this.finalCopyTaken = true
       this.handCaptureToOwner(
         {
           ...resultFromEvents(this.observer.archive.events(), this.observer.text),
@@ -305,37 +280,31 @@ export class ProviderTurnSettlement {
         false,
       )
     } else {
-      await this.captureFailedTurn(error, failureOutcome)
+      try {
+        const retainedWorkspace = await args.captureWorkspace(this.environment, failureOutcome)
+        if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {
+          await args.retention.onEvidence({
+            ...resultFromEvents(this.observer.archive.events(), this.observer.text),
+            outcome: failureOutcome,
+            workspaceSnapshot: retainedWorkspace,
+            workspaceCapture: this.captureReceipt(retainedWorkspace),
+          })
+        }
+      } catch (captureError) {
+        // Keep the stream failure beside capture's cause; a shared persistence error must not be
+        // replaced or made to refer to itself when capture was the original failure.
+        if (!(captureError instanceof Error) || captureError === error) {
+          this.failure = captureError
+        } else if (captureError.cause === undefined) {
+          this.failure = Object.assign(captureError, { cause: this.failure })
+        } else {
+          this.failure = new AggregateError([captureError, this.failure], captureError.message, {
+            cause: captureError,
+          })
+        }
+      }
     }
     await this.readLiveTranscript()
-  }
-
-  private async captureFailedTurn(error: unknown, failureOutcome: AgentRunOutcome): Promise<void> {
-    const { args } = this
-    try {
-      const retainedWorkspace = await args.captureWorkspace(this.environment, failureOutcome)
-      if (retainedWorkspace !== undefined && args.retention?.onEvidence !== undefined) {
-        await args.retention.onEvidence({
-          ...resultFromEvents(this.observer.archive.events(), this.observer.text),
-          outcome: failureOutcome,
-          workspaceSnapshot: retainedWorkspace,
-          workspaceCapture: this.captureReceipt(retainedWorkspace),
-        })
-      }
-    } catch (captureError) {
-      // Keep the stream failure beside capture's cause; a shared persistence error must not be
-      // replaced or made to refer to itself when capture was the original failure.
-      if (captureError instanceof Error && captureError !== error) {
-        this.failure =
-          captureError.cause === undefined
-            ? Object.assign(captureError, { cause: this.failure })
-            : new AggregateError([captureError, this.failure], captureError.message, {
-                cause: captureError,
-              })
-      } else {
-        this.failure = captureError
-      }
-    }
   }
 
   /** Runs on every way the turn ends: the last session copy, then the environment's fate. */
@@ -367,33 +336,26 @@ export class ProviderTurnSettlement {
       !held &&
       (args.options.destroyOnSettle ?? true)
     ) {
-      await this.destroyEnvironment()
-    }
-  }
-
-  private async destroyEnvironment(): Promise<void> {
-    const cleanup = await destroyExecutorEnvironment(this.args.scope)
-    if (cleanup.destroyed) return
-    const error = new Error(cleanup.detail ?? 'provider environment teardown was not confirmed')
-    // ONCE THE TURN HAS SETTLED, TEARDOWN CANNOT CHANGE THE OUTCOME: a second DELETE answered 409,
-    // the rejection escaped this `finally`, and a completed run was reported as a failure. The
-    // resource fact is recorded beside the result; the result stands.
-    if (this.settled !== undefined) {
-      this.args.scope.state.artifact = {
-        ...this.settled,
-        teardown: { failed: true, error: error.message, at: new Date().toISOString() },
+      const cleanup = await destroyExecutorEnvironment(this.args.scope)
+      if (cleanup.destroyed) return
+      const error = new Error(cleanup.detail ?? 'provider environment teardown was not confirmed')
+      // ONCE THE TURN HAS SETTLED, TEARDOWN CANNOT CHANGE THE OUTCOME: a second DELETE answered 409,
+      // the rejection escaped this `finally`, and a completed run was reported as a failure. The
+      // resource fact is recorded beside the result; the result stands.
+      if (this.settled !== undefined) {
+        this.args.scope.state.artifact = {
+          ...this.settled,
+          teardown: { failed: true, error: error.message, at: new Date().toISOString() },
+        }
+      } else if (!this.failed) {
+        // Nothing settled and the body did not fail: the teardown failure IS the outcome, so a
+        // create-then-leak path still fails loudly.
+        this.failure = error
+        this.failed = true
+      } else if (this.failure instanceof Error) {
+        // The body already failed: its error stays the cause; the teardown failure rides as `cause`.
+        Object.assign(this.failure, { cause: this.failure.cause ?? error })
       }
-    } else if (!this.failed) {
-      // Nothing settled and the body did not fail: the teardown failure IS the outcome, so a
-      // create-then-leak path still fails loudly.
-      this.failure = error
-      this.failed = true
-    } else {
-      // The body already failed: its error stays the cause; the teardown failure rides as `cause`.
-      this.failure =
-        this.failure instanceof Error
-          ? Object.assign(this.failure, { cause: this.failure.cause ?? error })
-          : this.failure
     }
   }
 }
