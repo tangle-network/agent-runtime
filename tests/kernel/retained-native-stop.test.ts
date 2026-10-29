@@ -397,49 +397,6 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
 })
 
 describe('a deadline that ends a retained turn', () => {
-  // 2026-10-04 trace proof: the capture of a turn its deadline ended read a session the harness was
-  // still writing, so it was stored partial, and the harness ran on until teardown.
-  it('stops the harness before any capture of its session', async () => {
-    const directory = await scratch('native-stop-deadline-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'))
-    const retention = evidenceRetention()
-    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
-    const captures: Array<{ scope: string; harnessRunning: boolean }> = []
-    const workspaceRetention: ProviderWorkspaceRetentionPort = {
-      ...retention,
-      async capture(context) {
-        captures.push({ scope: 'workspace', harnessRunning: harnessRunning() })
-        return await retention.capture(context)
-      },
-      async captureNative(context) {
-        captures.push({ scope: `native:${context.phase}`, harnessRunning: harnessRunning() })
-        return await retention.capture(context)
-      },
-    }
-    const worker = retainedLeaf(live.provider, workspaceRetention)
-    let ended: unknown
-    await createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(worker, 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
-          })
-          ended = await scope.next()
-          return 'root done'
-        },
-      },
-      'root-task',
-      {
-        ...childRunContext(runDir),
-      },
-    )
-    expect(ended).toMatchObject({ kind: 'down', reason: 'child deadline exceeded' })
-    expect(captures.length).toBeGreaterThan(0)
-    expect(captures.filter((capture) => capture.harnessRunning)).toEqual([])
-  })
   // 2026-10-04 trace proof, second round: the scope settled the deadline node 3 ms after its
   // deadline with the transcript of its last running copy (`native_snapshot_live`), and the
   // harness stopped about 0.1 s later, so the node's settled record stayed partial.
@@ -480,7 +437,10 @@ describe('a deadline that ends a retained turn', () => {
             key: 'work',
             budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
           })
-          await scope.next()
+          expect(await scope.next()).toMatchObject({
+            kind: 'down',
+            reason: 'child deadline exceeded',
+          })
           return 'root done'
         },
       },
