@@ -378,6 +378,11 @@ try {
         const kernel = await import('@tangle-network/agent-runtime/kernel')
         const toolLoop = await import('@tangle-network/agent-runtime/tool-loop')
         const assert = (await import('node:assert/strict')).default
+        const reason = new kernel.RunCancellationReason('operator', 'packed stop', 'stop-1', 'consumer')
+        assert.equal(reason.source, 'operator')
+        assert.equal(reason.message, 'packed stop')
+        assert.equal(reason.operationId, 'stop-1')
+        assert.equal(reason.operator, 'consumer')
         const handle = kernel.createRootHandle()
         const supervisor = kernel.createSupervisor()
         supervisor.attach(handle)

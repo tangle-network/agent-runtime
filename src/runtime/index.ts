@@ -632,6 +632,7 @@ export * from './supervise/provision-supervisor'
 export * from './supervise/reentry'
 export * from './supervise/remote-supervisor'
 export type { EvidencePendingEvent } from './supervise/retained-executor'
+export { RunCancellationReason } from './supervise/abortable'
 export {
   cancelRun,
   type RunCancellation,
