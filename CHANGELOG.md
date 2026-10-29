@@ -1,3 +1,7 @@
+## 2.3.12
+
+Allow caller-owned `driveHarness` and `resolveDriveHarness` execution to retain authored subscription seats without an unused Runtime seat selector. Runtime-managed drivers still require `selectSeat` before execution.
+
 ## 2.3.11
 
 Allow explicitly delegated retained interactive control within private local Runtime state without replacing an attached terminal's provider lease, and serialize retry-safe observer turns across control processes.
