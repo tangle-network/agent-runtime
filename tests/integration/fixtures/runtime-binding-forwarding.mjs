@@ -109,6 +109,64 @@ try {
         candidateRoundTripPreserved: true,
       }),
     )
+  } else if (mode === 'mappers') {
+    const binding = { name: 'TOKEN', host: 'reports.example.com', header: 'Authorization' }
+    for (const secrets of [['TOKEN'], [], [{ ...binding, host: 'other.example.com' }]]) {
+      const client = providerAsSandboxClient(provider, { mapCreateOptions: () => ({ secrets }) })
+      await assert.rejects(
+        client.create({ backend: { type: 'opencode', profile }, secrets: [binding] }),
+        /stored host binding/,
+      )
+    }
+    const mutate = providerAsSandboxClient(provider, {
+      mapCreateOptions: (options) => {
+        options.secrets[0].host = 'other.example.com'
+        return { secrets: options.secrets }
+      },
+    })
+    await assert.rejects(
+      mutate.create({ backend: { type: 'opencode', profile }, secrets: [{ ...binding }] }),
+      /stored host binding/,
+    )
+    const defaults = providerAsSandboxClient(provider, {
+      defaults: { secrets: [binding] },
+      mapCreateOptions: () => ({ secrets: ['TOKEN'] }),
+    })
+    await assert.rejects(
+      defaults.create({ backend: { type: 'opencode', profile } }),
+      /stored host binding/,
+    )
+    assert.equal(creates.length, 0)
+    for (const mutate of [false, true]) {
+      const declaration = {
+        envName: 'TOKEN',
+        secretRef: { kind: 'secret-ref', key: 'TOKEN' },
+        hosts: [binding.host],
+        presentation: { type: 'bearer' },
+      }
+      const client = providerAsSandboxClient(provider, {
+        mapCreateOptions: (options) => {
+          if (mutate) options.backend.profile.proxySecrets.length = 0
+          return { profile }
+        },
+      })
+      await client.create({
+        backend: { type: 'opencode', profile: { ...profile, proxySecrets: [declaration] } },
+      })
+      assert.deepEqual(creates.at(-1).secrets, [binding])
+    }
+    const legacy = providerAsSandboxClient(provider, {
+      mapCreateOptions: () => ({ secrets: ['LEGACY_TARGET'] }),
+    })
+    await legacy.create({ backend: { type: 'opencode', profile }, secrets: ['LEGACY_SOURCE'] })
+    assert.deepEqual(creates.at(-1).secrets, ['LEGACY_TARGET'])
+    console.log(
+      JSON.stringify({
+        deniedBeforeCreate: 5,
+        authoredCustodyPreserved: 2,
+        legacyTranslationPreserved: true,
+      }),
+    )
   } else if (mode === 'identity') {
     const capture = async (secrets, proxySecrets) => {
       let intent

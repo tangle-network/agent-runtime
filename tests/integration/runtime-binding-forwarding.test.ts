@@ -37,6 +37,14 @@ it('preserves legacy string identity while binding retained intent to secret des
   })
 })
 
+it('holds custom mappers to requested custody before HTTP allocation while allowing legacy translations', async () => {
+  expect(await run('mappers')).toEqual({
+    deniedBeforeCreate: 5,
+    authoredCustodyPreserved: 2,
+    legacyTranslationPreserved: true,
+  })
+})
+
 it('retains authored bindings but refuses raw exact candidate execution before effects', async () => {
   expect(await run('raw-candidate')).toEqual({
     rawCandidateRefusedBeforeEffects: true,
