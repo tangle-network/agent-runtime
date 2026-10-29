@@ -78,8 +78,7 @@ export interface CoordinationMcpHandle {
   readonly control: CoordinationControlAccess
   /** Runtime-only credentials. Never put these headers in canonical profiles or journals. */
   readonly headers: Readonly<Record<string, string>>
-  /** The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
-   *  as the scope. */
+  /** Finite credential expiry from authentication.ttlMs or the run's absolute deadline. */
   readonly credentialExpiresAt: number | undefined
   /** Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts. */
   rotateCredential(): void
@@ -425,6 +424,7 @@ export async function serveCoordinationMcpForManager(
     toolNames: opts.toolNames,
     scopeSignal: opts.scope.signal,
     lifetimeSignal: lifetime,
+    lifetimeExpiresAt: opts.scope.rootDeadlineAtMs,
     isClosed: () => state.closed,
   })
   const ctx: CoordinationListenerContext = {

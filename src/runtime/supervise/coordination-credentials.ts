@@ -1,8 +1,4 @@
-/**
- * The credentials one coordination listener accepts: the manager's bearer token (random, or an HMAC
- * claim set under caller-owned signing keys), separate read-only and control tokens, rotation and the
- * revocation of every token it replaces.
- */
+/** Coordination bearer, independent observer/control tokens, expiry and rotation revocation. */
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { ConfigError } from '../../errors'
@@ -19,20 +15,18 @@ export const coordinationControlToolNames = Object.freeze([
 export interface CoordinationCredentials {
   /** Revoke the current token and mint another. */
   rotate(): void
-  /** Bind tokens to the endpoint they were minted for; set once the address is known. */
+  /** Bind tokens to their endpoint. */
   setAudience(audience: string): void
   /**
    * Why a supplied credential is refused, or undefined when valid. It lives as long as the scope
    * it fronts: until the scope's signal aborts (cancellation, the run's deadline, a lead stopping
-   * its child), within an explicit `ttlMs`, and until rotation revokes it. A child's own time box
+   * its child), within ttlMs or the run's deadline, and until rotation revokes it. A child's time box
    * does not abort it: the check-in (`deadline.ts` `DeadlineCheckIn`) asks it to submit through
    * these very tools, and refusing at the time box blocked that (eu-datacenter-power-2030-
    * 20261010b:s3, every call for its last 41 minutes).
    */
   refused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
-  /** Whether a supplied read-only credential is refused. */
   readerRefused(supplied: Buffer): boolean
-  /** The independent operator capability never authorizes the manager endpoint. */
   controllerRefused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
   readonly headers: Readonly<Record<string, string>>
   readonly expiresAt: number | undefined
@@ -53,6 +47,7 @@ export function createCoordinationCredentials(input: {
   readonly toolNames: ReadonlyArray<string>
   readonly scopeSignal: AbortSignal
   readonly lifetimeSignal?: AbortSignal
+  readonly lifetimeExpiresAt?: number
   readonly isClosed: () => boolean
 }): CoordinationCredentials {
   const { identity } = input
@@ -75,9 +70,10 @@ export function createCoordinationCredentials(input: {
     if (!input.authentication)
       throw new ConfigError('coordination authentication is not configured')
     if (input.isClosed()) throw new ConfigError('coordination server is closed')
-    // Without `ttlMs` the credential carries no expiry: it lives as long as the scope
-    // (`refused`), and a scope's deadline is not always its stop.
-    const nextExpiry = auth?.ttlMs === undefined ? undefined : Date.now() + auth.ttlMs
+    const nextExpiry =
+      auth?.ttlMs === undefined
+        ? input.lifetimeExpiresAt
+        : Math.min(Date.now() + auth.ttlMs, input.lifetimeExpiresAt ?? Number.POSITIVE_INFINITY)
     if (nextExpiry !== undefined && !Number.isSafeInteger(nextExpiry)) {
       throw new ConfigError('coordination credential expiry must remain a safe integer')
     }
@@ -139,8 +135,12 @@ export function createCoordinationCredentials(input: {
         claims.actor === identity.actorId &&
         claims.audience === audience &&
         claims.grants === grantDigest &&
-        ((claims.expires === null && auth?.ttlMs === undefined) ||
-          (Number.isSafeInteger(claims.expires) && claims.expires > Date.now()))
+        ((claims.expires === null &&
+          auth?.ttlMs === undefined &&
+          input.lifetimeExpiresAt === undefined) ||
+          (Number.isSafeInteger(claims.expires) &&
+            claims.expires > Date.now() &&
+            (input.lifetimeExpiresAt === undefined || claims.expires <= input.lifetimeExpiresAt)))
       )
     } catch {
       return false

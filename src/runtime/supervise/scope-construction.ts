@@ -40,10 +40,9 @@ import { createWorkerSlots, openSlotGroup } from './worker-slots'
 
 /** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
-  // Refuse a malformed check-in policy now, never inside a child's deadline timer.
+  if (args.depth === 0) args = { ...args, rootDeadlineAtMs: args.pool.readout().deadlineMs }
   checkInIdleMs(args.deadlineCheckIn)
   const children = new Map<NodeId, LiveChild>()
-  // Set once by `closeScopeAdmission` at the join barrier; never cleared.
   let admissionClosed = false
   const workerSlots = args.workerSlots ?? createWorkerSlots()
   const slotGroup = openSlotGroup(workerSlots, args.slotOwner)
@@ -52,8 +51,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const workers = new ScopeWorkers(args, children, now)
   const meter = new ScopeOwnerMeter(args, now)
   const { releaseHeld, heldReleases } = createHeldChildRelease(args, now)
-  // The spawner owns spawn order (`${parent}:s${ordinal}`, the `spawned` seq) and the cursor owns
-  // settlement order: separate namespaces so the two kinds never collide in the uniqueness guard.
   const { spawn, recordKeyedSettlement } = createScopeSpawner<Out>({
     args,
     children,
@@ -95,6 +92,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     interactive: workers.interactive,
     cancel: workers.cancel,
     signal: args.signal,
+    rootDeadlineAtMs: args.rootDeadlineAtMs || undefined,
     meter: (spend, detail) => meter.record(spend, detail),
     ...(resume ? { resume } : {}),
     get view(): TreeView {

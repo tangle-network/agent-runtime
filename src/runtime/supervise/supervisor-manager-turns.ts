@@ -551,6 +551,7 @@ async function invokeManagerHarness(
       scope,
       coordinationMcpUrl: mcp.url,
       coordinationMcpHeaders: mcp.headers,
+      coordinationCredentialExpiresAt: mcp.credentialExpiresAt,
       ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
       stopSignal: state.stopController.signal,
       coordinationTools: loop.coordinationTools,
@@ -560,8 +561,7 @@ async function invokeManagerHarness(
     })
     completed = true
   } catch (error) {
-    // After an accepted result, a later backend shutdown/timeout cannot erase it and there is
-    // nothing left to retry FOR; without one the error propagates into the retry decision.
+    // Preserve an accepted result across a later backend shutdown failure.
     if (!mcp.submittedResult() && !mcp.isStopped()) throw error
     completed = true
   } finally {

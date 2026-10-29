@@ -31,9 +31,7 @@ import type { Executor, ExecutorResult, Scope } from './types'
 
 type DriveArgs = Parameters<DriveHarness>[0]
 
-/** Run a harness-brained manager through the same executor factory as its children. The manager's
- * full profile is preserved, the live coordination server is added under one reserved alias, and
- * every streamed turn is charged to the manager's scope before it may continue. */
+/** Drive a manager through the child executor path, with scoped coordination and turn metering. */
 export function driveHarnessFromBackend(
   backend: ExecutorConfig,
   executionId: string,
@@ -42,8 +40,6 @@ export function driveHarnessFromBackend(
   rootStream?: RootStreamSink,
   seatSelection?: ManagerSeatSelection,
 ): DriveHarness {
-  // Same refusal the router arm makes in `driverAgent`: a negative cap would silently run zero
-  // turns and finalize an empty no-winner.
   if (maxTurns !== undefined && maxTurns < 0) {
     throw new ValidationError(
       'driveHarnessFromBackend: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
@@ -59,8 +55,6 @@ export function driveHarnessFromBackend(
     manager.switchedProviderCheckpointAt = undefined
     await manager.selectSeat(args, seatSelection, executionId, now)
     const retainedOwner = await bindDriveRetainedOwner(manager, args)
-    // Only a proven same-session turn gets the unmet items alone; a replacement environment gets
-    // the objective and the coordinator's run state.
     const driveTask =
       args.reentry === undefined
         ? args.task
@@ -93,6 +87,7 @@ export function driveHarnessFromBackend(
       scope,
       coordinationMcpUrl: args.coordinationMcpUrl,
       coordinationMcpHeaders: args.coordinationMcpHeaders,
+      coordinationCredentialExpiresAt: args.coordinationCredentialExpiresAt,
       peerMailUrl: args.peerMailUrl,
       stopSignal: args.stopSignal,
       coordinationTools: args.coordinationTools,
@@ -121,15 +116,20 @@ export function driveHarnessFromBackend(
   drive.deliverReady = (): boolean => state.activeExecutor !== undefined
   drive.traceSource = () => state.activeExecutor?.traceSource?.()
   drive.progress = () => manager.progress()
-  // Only the provider backend has a transcript port. Any other backend leaves the method off, so
-  // its managers keep settling as `executor-exposes-no-transcript`.
   if (state.boundBackend.backend === 'provider') {
     drive.harnessTranscript = () => manager.harnessTranscript()
     drive.harnessTranscriptSettled = () =>
       state.lastExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
   }
   drive.closeSeatSegment = async (reason) => {
-    await manager.closeSeatSegment(reason)
+    const results = await Promise.allSettled([
+      manager.closeSeatSegment(reason),
+      ...[...(state.coordinationSecrets?.values() ?? [])].map((secret) => secret.release()),
+    ])
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    )
+    if (failures.length) throw new AggregateError(failures, 'manager settlement cleanup failed')
   }
   return attestRuntimeOwnedScopeOwner(drive, manager.ownerRuntime)
 }
@@ -153,15 +153,11 @@ async function bindDriveRetainedOwner(
             profile: activeSeat ? seatProviderProfile(authoredProfile, activeSeat) : profile,
           },
     )
-    // Read from the active executor's receipt at spawn time: the environment does not exist yet,
-    // and a retry re-enters `drive` with a fresh executor.
     bindScopeRetainedOwnerEnvironmentId(scope, () => {
       if (state.activeExecutor === undefined) return undefined
       const execution = runtimeOwnedExecutorMaterialization(state.activeExecutor)?.execution
       return execution?.kind === 'environment' ? execution.id : undefined
     })
-    // The workspace capture the previous turn handed over reads the environment this turn
-    // would change, and its receipt belongs to that turn's invocation: it finishes first.
     await scopeRetainedOwnerTurnEnded(scope)
   }
   return retainedOwner
@@ -276,4 +272,8 @@ export interface DriverSessionState {
   lastExecutor: Executor<unknown> | undefined
   managerArtifact: ExecutorResult<unknown> | undefined
   driveTurns: number
+  coordinationSecrets?: Map<
+    string,
+    { ready: boolean; matches(value: string): boolean; release(): Promise<unknown> }
+  >
 }

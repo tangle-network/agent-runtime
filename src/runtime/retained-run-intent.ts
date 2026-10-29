@@ -9,22 +9,7 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 
-/**
- * Project environment creation input into public digest material.
- *
- * Opaque values never enter the material or its digest. Public scalar fields
- * remain bound directly, while opaque records retain only their key names.
- * Secret names remain public binding data, so changing requested credentials
- * still conflicts before provider effects begin.
- */
-/**
- * The pre-interface5 create-material projection: `requestedId`, `egress`,
- * `billingOwner`, and the workspace `snapshot` digest omitted — the shape
- * records persisted by the previous version digested. Accepted only when
- * validating replayed records (an upgrade must not strand an in-flight run
- * whose provider creation already completed); every new admission digests the
- * current projection.
- */
+/** Replay-only projection of the create identity persisted before Interface 5. */
 export function legacyRetainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
@@ -81,6 +66,7 @@ export function retainedCreateMaterial(
     ...(environment.secrets === undefined
       ? {}
       : { secretNames: retainedSecretNames(environment.secrets) }),
+    ...(environment.proxySecrets === undefined ? {} : { proxySecrets: environment.proxySecrets }),
     ...(environment.metadata === undefined
       ? {}
       : { metadataKeys: retainedObjectNames(environment.metadata) }),
@@ -140,8 +126,12 @@ function retainedObjectNames(value: Record<string, unknown>): string[] {
 
 function retainedSecretNames(
   secrets: NonNullable<CreateAgentEnvironmentInput['secrets']>,
-): string[] {
-  return Array.isArray(secrets) ? [...secrets].sort() : Object.keys(secrets).sort()
+): NonNullable<CreateAgentEnvironmentInput['secrets']> {
+  if (!Array.isArray(secrets)) return Object.keys(secrets).sort()
+  if (secrets.every((entry) => typeof entry === 'string')) return [...secrets].sort()
+  return [...secrets].sort((a, b) =>
+    canonicalCandidateDigest(a).localeCompare(canonicalCandidateDigest(b)),
+  )
 }
 
 /** Project one headless turn into the material that `freshTurnInput` forwards. */

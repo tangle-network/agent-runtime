@@ -133,10 +133,7 @@ export type ObserveSupervisorNodeEvent = (
   record: BusRecord<CoordinationEvent>,
 ) => void | Promise<void>
 
-/** How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
- *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
- *  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- *  so the harness calls spawn_worker / observe_agent / submit_result as native tools over the live scope. */
+/** Drive an external harness with the live scope's coordination tools mounted over MCP. */
 export interface DriveHarness {
   (args: {
     /** The exact provider-visible projection. Runtime-owned coordination tool declarations are
@@ -159,6 +156,7 @@ export interface DriveHarness {
     readonly coordinationMcpUrl: string
     /** Runtime-only transport credentials; never append them to the authored profile or task. */
     readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
+    readonly coordinationCredentialExpiresAt?: number
     /** Parent-minted peer post office. Runtime attachment only, never part of the profile. */
     readonly peerMailUrl?: string
     /** Fires when the coordination server accepts a result or declares completion. */
