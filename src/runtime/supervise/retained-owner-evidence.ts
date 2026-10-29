@@ -1,9 +1,4 @@
-/**
- * The workspace evidence of a retained owner's turns: which attempts hold a verified capture
- * receipt, recapture before a source is reused, and evidence debt. An accepted turn whose capture
- * fails owes its evidence; the node continues elsewhere, the source is never mutated, captures
- * retry on backoff while the supervisor lives, and the release keeps a source still owed.
- */
+/** Retained-owner capture receipts, source verification before reuse, and accepted-turn evidence debt. */
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -20,6 +15,7 @@ import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../r
 import { sleep } from '../util'
 import { runAbortable } from './abortable'
 import { executorFailureReason } from './executor-outcome'
+import { RetainedExecutionPendingError } from './retained-executor'
 import type { OwnerRegistration, OwnerState } from './retained-scope-owner'
 import type {
   ExecutionBindingReceipt,
@@ -150,7 +146,9 @@ async function ownerAttemptHasCapture(
 ): Promise<boolean> {
   const controlRef = attempt.controlByEnvironment.get(environmentId)
   const receipts = [
-    ...(attempt.result === undefined ? [] : [attempt.result.outRef]),
+    ...(attempt.result === undefined || attempt.result.outputFormat === 'json'
+      ? []
+      : [attempt.result.outRef]),
     ...attempt.evidence.map((event) => event.outRef),
   ]
   let verified = false
@@ -193,12 +191,7 @@ function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
   return { profileDigest: intent?.requestedProfileDigest, node }
 }
 
-/**
- * Recover evidence before reuse. A source without a complete receipt is never mutated. A failed
- * turn's capture failure is journaled as its evidence and the next invocation starts in another
- * environment. An accepted turn's failure is evidence debt ({@link owePendingEvidence}): the turn
- * stands, and neither the node nor its supervisor stops. Returns the sources whose capture failed.
- */
+/** Recover evidence before reuse. Failed unverified turns keep their invocation; accepted turns owe evidence. */
 export async function reconcileOwnerWorkspaceBeforeReuse(
   state: OwnerState,
   signal: AbortSignal,
@@ -228,8 +221,6 @@ export async function reconcileOwnerWorkspaceBeforeReuse(
         if (executorFailureReason(attempt.result) === undefined) {
           await owePendingEvidence(state, events, attempt, environmentId, failure)
         } else {
-          // Reuse the evidence journal, retaining the original attempt's coordinates. Neither a
-          // missing nor a partial receipt permits mutation or deletion of this source.
           await state.context.onEvidence!({
             executionId: attempt.executionId,
             environmentId,
@@ -237,6 +228,8 @@ export async function reconcileOwnerWorkspaceBeforeReuse(
             ...ownerCaptureIdentity(attempt, args),
             workspaceCaptureFailure: failure,
           })
+          // Preserve this failed invocation's admissions until its source is verified.
+          throw new RetainedExecutionPendingError(new Error(failure, { cause }), 'unobservable')
         }
         indebted.add(environmentId)
         state.forceNewSession = true

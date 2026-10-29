@@ -107,6 +107,8 @@ type WaitOutcome = {
   readonly outsideWake: boolean
   readonly quietHeartbeats: number
   readonly deadlineAt: number
+  /** The wait ended at the deadline warning, measured by its own capped debounce, not the clock. */
+  readonly deadlineDue?: boolean
 }
 
 async function awaitWake(env: WaitingEnv, input: AwaitWakeInput): Promise<ManagerWake | undefined> {
@@ -117,7 +119,7 @@ async function awaitWake(env: WaitingEnv, input: AwaitWakeInput): Promise<Manage
   if (!hasOpenWork(env) || input.signal.aborted) return undefined
   const waited = await waitForWakeCondition(env, input, startedAt)
   if (waited === undefined) return undefined
-  const { outsideWake, quietHeartbeats, deadlineAt } = waited
+  const { outsideWake, quietHeartbeats, deadlineAt, deadlineDue } = waited
   const events: Array<Record<string, unknown> & { readonly eventSeq: number }> = []
   const pulledKinds: ReadonlyArray<CoordinationEvent['type']> = workerQuestionPending(env)
     ? [...wakeEventKinds, 'question']
@@ -131,11 +133,13 @@ async function awaitWake(env: WaitingEnv, input: AwaitWakeInput): Promise<Manage
     events.push({ ...projectEvent(next.event), eventSeq: next.seq })
   }
   if (events.length === 0 && !outsideWake && !hasOpenWork(env)) return undefined
+  // A due deadline warning names the wake even when events ride along; otherwise the manager is
+  // woken once for the events and again, at once, for the warning.
   const reason =
-    events.length > 0 || outsideWake
-      ? 'events'
-      : Date.now() >= deadlineAt
-        ? 'deadline'
+    deadlineDue === true || Date.now() >= deadlineAt
+      ? 'deadline'
+      : events.length > 0 || outsideWake
+        ? 'events'
         : 'heartbeat'
   if (reason === 'deadline') state.deadlineNoticeDelivered = true
   return detachedFrozen<ManagerWake>({
@@ -249,22 +253,28 @@ async function waitForWakeCondition(
       await env.state.inFlightDrain.catch(() => false)
     }
     // Coalesce: whatever else lands within the debounce rides the same wake. Only while other
-    // workers still run: with none, nothing else is coming.
+    // workers still run: with none, nothing else is coming. The debounce never runs past the
+    // deadline warning: a 2 s wait there pushed a late settlement past the deadline itself.
+    const debounceMs = Math.min(input.debounceMs, Math.max(0, deadlineAt - Date.now()))
+    let deadlineDue = false
     if (
       bus.pending(wakeEventKinds) > 0 &&
-      input.debounceMs > 0 &&
+      debounceMs > 0 &&
       workers.openWork().running.length > 0
     ) {
       await Promise.race([
         new Promise<void>((resolve) => {
-          setTimeout(resolve, input.debounceMs)
+          setTimeout(resolve, debounceMs)
         }),
         aborted,
       ])
       if (input.signal.aborted) return undefined
+      // A timer can fire before Date.now() reaches its target when the event loop runs behind,
+      // so a debounce capped at the warning marks the warning due instead of re-reading the clock.
+      deadlineDue = debounceMs < input.debounceMs
       await settledWithoutDrain(env)
     }
-    return { outsideWake, quietHeartbeats, deadlineAt }
+    return { outsideWake, quietHeartbeats, deadlineAt, deadlineDue }
   } finally {
     unsubscribe?.()
     if (timer) clearTimeout(timer)

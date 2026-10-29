@@ -1,11 +1,15 @@
+import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
+import { runSettledCommand } from '../../../src/mcp/worktree-harness'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
 import {
   attachments,
   digest,
+  encodeFrame,
   localUrl,
   type NativeRun,
+  nativeEventFile,
   object,
   publicCreateMaterial,
   record,
@@ -13,6 +17,7 @@ import {
   runtimeCapabilities,
   type Scenario,
   type ServiceState,
+  terminal,
 } from './uncertain-create-protocol'
 
 const directory = process.argv[2]!
@@ -101,15 +106,19 @@ function writeFrames(
   offset = 0,
 ): void {
   frames.forEach((frame, index) => {
-    response.write(
-      `id: ${offset + index + 1}\nevent: ${frame.type}\ndata: ${JSON.stringify(frame.data)}\n\n`,
-    )
+    response.write(encodeFrame(frame, offset + index + 1))
   })
 }
-function sse(response: ServerResponse, frames: Array<{ type: string; data: object }>): void {
+function sse(
+  response: ServerResponse,
+  frames: Array<{ type: string; data: object }> | Buffer,
+): void {
   response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
-  writeFrames(response, frames)
-  response.end()
+  if (Buffer.isBuffer(frames)) response.end(frames)
+  else {
+    writeFrames(response, frames)
+    response.end()
+  }
 }
 function subscribeAccepted(run: NativeRun, response: ServerResponse, exactResult: boolean): void {
   if (exactResult) exactSubscribers.add(response)
@@ -122,7 +131,7 @@ function subscribeAccepted(run: NativeRun, response: ServerResponse, exactResult
     // A lost coordinator connection does not cancel the independent native execution.
   })
   response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
-  writeFrames(response, terminal(run).slice(0, 1))
+  writeFrames(response, terminal(run, scenario).slice(0, 1))
   note('healthy-stream-open', { executionId: run.executionId, environmentId: run.environmentId })
 }
 function flushAccepted(run: NativeRun): void {
@@ -132,7 +141,7 @@ function flushAccepted(run: NativeRun): void {
   const finish = (response: ServerResponse) => {
     if (response.destroyed || response.writableEnded) return
     // IDs 2 and 3 are the same canonical result/done positions as a completed replay.
-    writeFrames(response, terminal(run).slice(1), 1)
+    writeFrames(response, terminal(run, scenario).slice(1), 1)
     response.end()
     run.terminalReads += 1
   }
@@ -145,54 +154,6 @@ function flushAccepted(run: NativeRun): void {
     executionId: run.executionId,
     environmentId: run.environmentId,
   })
-}
-function terminal(run: NativeRun) {
-  return [
-    {
-      type: 'execution.started',
-      data: {
-        sessionId: run.sessionId,
-        executionId: run.executionId,
-        runControlRef: run.runControlRef,
-      },
-    },
-    ...(scenario.startsWith('create-')
-      ? [
-          {
-            type: 'message.part.updated',
-            data: {
-              sessionId: run.sessionId,
-              executionId: run.executionId,
-              part: { type: 'reasoning', text: run.executionId },
-              delta: run.executionId,
-            },
-          },
-        ]
-      : []),
-    {
-      type: 'result',
-      data: {
-        sessionId: run.sessionId,
-        executionId: run.executionId,
-        success: true,
-        status: 'success',
-        response: '{"answer":"delivered"}',
-        text: '{"answer":"delivered"}',
-        usage: { inputTokens: 3, outputTokens: 2 },
-      },
-    },
-    {
-      type: 'done',
-      data: {
-        sessionId: run.sessionId,
-        executionId: run.executionId,
-        success: true,
-        status: 'success',
-        outcome: { type: 'completed' },
-        usage: { inputTokens: 3, outputTokens: 2 },
-      },
-    },
-  ]
 }
 async function replay(
   run: NativeRun,
@@ -214,6 +175,10 @@ async function replay(
     })
     return
   }
+  if (scenario === 'json-incomplete' && !exactResult) {
+    subscribeAccepted(run, response, exactResult)
+    return
+  }
   const flushedAt = streamFlushedAt.get(run.executionId)
   if (exactResult && flushedAt !== undefined) {
     const wait = flushedAt + EXACT_RESULT_AFTER_STREAM_MS - Date.now()
@@ -221,8 +186,17 @@ async function replay(
   }
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
+  // Let the independently requested exact result win before this connection's first frame.
+  // The actual closed worker already supplied the terminal data; no observation is fabricated.
+  if (scenario === 'sql-conformance' && !exactResult)
+    await new Promise<void>((resolve) => setTimeout(resolve, 40))
   run.terminalReads += 1
-  sse(response, terminal(run))
+  sse(
+    response,
+    scenario.startsWith('trace-tree-') && run.processResult?.exitCode === 0
+      ? readFileSync(join(directory, nativeEventFile(run.executionId)))
+      : terminal(run, scenario),
+  )
   // A completed old invocation loses its environment before the next invocation starts.
   if (scenario === 'older-lost' && run.environmentId === 'box-1') state.lost.push('box-1')
 }
@@ -301,6 +275,34 @@ async function act(run: NativeRun): Promise<void> {
   if (run.actionStarted) return
   run.actionStarted = true
   const profile = runProfile(run)
+  if (
+    scenario.startsWith('json-') ||
+    scenario.startsWith('trace-') ||
+    scenario === 'sql-conformance'
+  ) {
+    const startedAt = Date.now()
+    const worker = await runSettledCommand({
+      command: process.execPath,
+      args: [
+        join(import.meta.dirname, 'json-worker.mjs'),
+        String(profile.name),
+        scenario,
+        JSON.stringify({ executionId: run.executionId, sessionId: run.sessionId }),
+      ],
+      cwd: directory,
+      timeoutMs: 5000,
+      signal: new AbortController().signal,
+    })
+    run.processResult = {
+      output: worker.stdout,
+      exitCode: worker.exitCode,
+      startedAt,
+      closedAt: Date.now(),
+    }
+    note('json-worker-closed', { executionId: run.executionId, code: worker.exitCode })
+    if (scenario === 'json-owner-capture' || scenario.startsWith('trace-owner'))
+      await tool(run, 'submit_result', { result: { answer: 'delivered' } })
+  }
   const name = String(profile.name)
   const spawnChild =
     (name === 'root' && (scenario.startsWith('unsupported-') || scenario === 'accepted')) ||
@@ -571,7 +573,11 @@ async function runtime(
       ...(typeof input.turnId === 'string' ? { turnId: input.turnId } : {}),
     }
     state.runs.push(run)
-    if (scenario.startsWith('create-')) {
+    if (
+      scenario.startsWith('create-') ||
+      ((scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
+        scenario !== 'json-incomplete')
+    ) {
       let observed!: () => void
       const received = new Promise<void>((resolve) => {
         observed = resolve
@@ -594,7 +600,7 @@ async function runtime(
       })
       return
     }
-    sse(response, terminal(run).slice(0, 1))
+    sse(response, terminal(run, scenario).slice(0, 1))
     if (scenario.startsWith('dispatch-')) {
       note('execution-started-sent', { environmentId, executionId: run.executionId })
       return
@@ -678,6 +684,13 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     return
   }
   if (url.pathname === '/fixture/hold-success') {
+    if (
+      (scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') &&
+      state.finish
+    ) {
+      json(response, 200, { ok: true })
+      return
+    }
     note('successful-attempt-observer-barrier', {
       phase: url.searchParams.get('phase') ?? 'native-result-committed',
     })
@@ -731,6 +744,8 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       })
     }
     if (typeof control.finish === 'boolean') state.finish = control.finish
+    if ((scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') && state.finish)
+      for (const held of holds) json(held, 200, { ok: true })
     if (
       ['unknown', 'cancel_requested', 'cancelled', 'not_live'].includes(
         String(control.cancelEffect),
@@ -809,6 +824,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       return
     }
     if (request.method === 'DELETE') {
+      if (scenario.startsWith('json-') && !state.finish) {
+        note('json-result-delete-held', { environmentId: id })
+        holds.add(response)
+        response.once('close', () => holds.delete(response))
+        return
+      }
       note('delete', { environmentId: id })
       state.lost.push(id)
       json(response, 200, { id, outcome: 'destroyed', removal: 'complete' })

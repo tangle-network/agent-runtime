@@ -31,6 +31,7 @@ import { errorText } from '../supervise/error-message'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { EnvironmentTeardownReceipt, ExecutorNodeContext } from '../supervise/types'
 import { sleep } from '../util'
+import { admittedEnvironmentId } from './provider-environment-teardown'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
 import type { StreamProviderExecutorArgs } from './provider-invocation'
 
@@ -338,6 +339,7 @@ const NATIVE_SETTLE_POLL_MS = 1_000
 interface ProviderNativeControlState {
   readonly retained: RetainedRunHandle | undefined
   harnessStopped: boolean
+  workspacePreservationRequired: boolean
   cancelledExplicitly(): boolean
 }
 
@@ -402,23 +404,26 @@ export function createProviderNativeControl(
   const withoutRunningHarness =
     (release: (signal: AbortSignal) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>) =>
     async (signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> => {
+      const stop = await awaitAbortable(stopNativeExecution(), signal).catch(() => undefined)
+      const stopped =
+        stop === undefined
+          ? 'native stop unconfirmed: no exact dispatch or cleanup interrupted'
+          : describeRetainedNativeStops([stop])
+      const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
+      const environmentId = controlRef?.environmentId ?? admittedEnvironmentId(retention)
+      if (environmentId !== undefined && !state.harnessStopped) {
+        state.workspacePreservationRequired = true
+        return [
+          {
+            provider: provider.name,
+            environmentId,
+            destroyed: false,
+            detail: stopped,
+            permanent: true,
+          },
+        ]
+      }
       const receipts = await release(signal)
-      if (receipts.every((receipt) => receipt.destroyed)) return receipts
-      const stop = await awaitAbortable(stopNativeExecution(), signal).catch(
-        (error: unknown): RetainedNativeStop | undefined => {
-          const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
-          return controlRef === undefined
-            ? undefined
-            : {
-                executionId: controlRef.executionId,
-                effect: 'unknown',
-                at: new Date().toISOString(),
-                error: errorText(error instanceof Error ? error.message : error),
-              }
-        },
-      )
-      if (stop === undefined) return receipts
-      const stopped = describeRetainedNativeStops([stop])
       return receipts.map((receipt) =>
         receipt.destroyed
           ? receipt

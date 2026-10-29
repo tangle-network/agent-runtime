@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import {
   discoverDurableSupervisionRun,
@@ -38,8 +39,8 @@ const graph: AgentGraph = {
 }
 
 // Real OS execution through the public leaf port: no provider protocol or model is emulated.
-function processLeaf(cwd: string, known: boolean, fail: boolean) {
-  return () => {
+function processLeaf(cwd: string, known: boolean, fail: boolean, iterations = 1) {
+  return (selected: AgentProfile = profile) => {
     const stop = new AbortController()
     let pending: Promise<ExecutorResult<string>> | undefined
     let result: ExecutorResult<string> | undefined
@@ -54,17 +55,24 @@ function processLeaf(cwd: string, known: boolean, fail: boolean) {
             : "process.stdout.write('delivered')") +
           ' }},10)'
         const started = performance.now()
-        pending = runProcess(process.execPath, ['-e', script], {
-          cwd,
-          signal: AbortSignal.any([signal, stop.signal]),
-          timeout: 5000,
-        }).then(({ stdout }) => {
+        pending = (async () => {
+          let stdout = ''
+          for (let step = 0; step < iterations; step++) {
+            const completed = await runProcess(process.execPath, ['-e', script], {
+              cwd,
+              signal: AbortSignal.any([signal, stop.signal]),
+              timeout: 5000,
+            })
+            stdout = completed.stdout
+          }
+          return { stdout }
+        })().then(({ stdout }) => {
           result = {
             out: stdout,
             outRef: `sha256:${createHash('sha256').update(JSON.stringify(stdout)).digest('hex')}`,
             verdict: { valid: true, score: 1 },
             spent: {
-              iterations: 1,
+              iterations,
               tokens: { input: 0, output: 0 },
               usd: 0,
               tokensKnown: known,
@@ -86,9 +94,9 @@ function processLeaf(cwd: string, known: boolean, fail: boolean) {
         return { destroyed: true }
       },
     }
-    const executorSpec: AgentSpec = { profile, harness: null, executor }
+    const executorSpec: AgentSpec = { profile: selected, harness: null, executor }
     return {
-      name: profile.name,
+      name: selected.name,
       act: async () => {
         throw new Error('executor owns execution')
       },
@@ -131,26 +139,43 @@ function expectUnknownWorkerLog(
 }
 
 it.each([
-  { known: true, fail: false },
-  { known: false, fail: false },
-  { known: false, fail: true },
+  { known: true, fail: false, refuse: false },
+  { known: false, fail: false, refuse: false },
+  { known: false, fail: true, refuse: false },
+  { known: true, fail: false, refuse: true },
 ])(
   'reads live and settled actual durable process history: %j',
-  async ({ known, fail }) => {
+  async ({ known, fail, refuse }) => {
     const root = await mkdtemp(join(tmpdir(), 'durable-top-reader-'))
     const runDir = join(root, 'durable')
     const runId = 'actual-runtime-run'
     const pursuitId = 'different-pursuit-identity'
     const stop = new AbortController()
-    const pending = superviseGraphPursuit(graph, {
+    const executionGraph: AgentGraph = refuse
+      ? {
+          ...graph,
+          nodes: [...graph.nodes, { id: 'review', profile: { ...profile, name: 'review' } }],
+          edges: [
+            {
+              kind: 'routes',
+              from: 'stage',
+              to: 'review',
+              directive: { surface: 'delegates/worker-brief', version: 1 },
+            },
+          ],
+          budget: { ...budget, maxIterations: 3 },
+        }
+      : graph
+    const pending = superviseGraphPursuit(executionGraph, {
       runDir,
       runId,
       pursuitId,
       signal: stop.signal,
-      makeLeafAgent: processLeaf(root, known, fail),
-      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      makeLeafAgent: processLeaf(root, known, fail, refuse ? 2 : 1),
+      perWorker: { maxIterations: refuse ? 2 : 1, maxTokens: 1000 },
       driverRetry: { enabled: false },
     })
+    let continuation: typeof pending | undefined
     try {
       await Promise.race([
         pending,
@@ -174,6 +199,22 @@ it.each([
       const finished = await pending
       const snapshot = await loadTopSnapshot(root, { runDir })
       expect(snapshot.pursuit).toEqual(finished.pursuit)
+      const rootView = snapshot.supervisors.find((row) => row.id === runId)
+      expect(rootView?.outcome?.kind).toBe(finished.result.result.kind)
+      if (refuse) {
+        expect(finished.result.result).toMatchObject({
+          kind: 'no-winner',
+          reason: 'budget-exhausted',
+        })
+        expect(finished.result.stopped).toMatchObject({ at: 'review', code: 'budget-exhausted' })
+        expect(rootView).toMatchObject({
+          status: 'no-winner',
+          outcome: { kind: 'no-winner', reason: 'budget-exhausted' },
+          lastRoute: { kind: 'stopped', at: 'review', code: 'budget-exhausted' },
+        })
+        expect(rootView?.reason).toContain('iterations')
+        expect(rootView?.workers).toHaveLength(1)
+      }
       const worker = snapshot.supervisors
         .flatMap((row) => row.workers)
         .find((row) => row.id === liveWorker?.id)
@@ -182,7 +223,13 @@ it.each([
       expect(observed?.runId).toBe(runId)
       expect(observed?.identity).toBeDefined()
       const recorded = await transcriptHistory(worker!, runDir, observed)
-      expect(recorded).toHaveLength(2)
+      // A delivered worker without a native conversation still shows what it delivered.
+      expect(recorded.map((row) => row.event.provenance)).toEqual(
+        fail
+          ? ['delegated-input', 'capture-unavailable']
+          : ['delegated-input', 'capture-unavailable', 'recorded-result'],
+      )
+      if (!fail) expect(recorded[2]?.event.text).toContain('delivered')
       expect(recorded[0]?.event).toMatchObject({ kind: 'notice', provenance: 'delegated-input' })
       expect(recorded[0]?.event.source).toContain('parent actual-runtime-run')
       expect(recorded[0]?.event.source).toContain('profile sha256:')
@@ -286,10 +333,61 @@ it.each([
       expect(legacyRecorded.supervisors[0]?.totals.usdKnown !== false).toBe(known && !fail)
       expect(legacyRecorded.supervisors[0]?.totals.tokensKnown !== false).toBe(known && !fail)
       if (!known || fail) expectUnknownWorkerLog(legacyRecorded, worker?.id, fail ? 'down' : 'done')
+      if (refuse) {
+        // Same run and graph, explicitly reopened with room for the refused stage.
+        await writeFile(join(runDir, 'observer.jsonl'), bytes)
+        await rm(join(root, 'started'))
+        await rm(join(root, 'release'))
+        continuation = superviseGraphPursuit(executionGraph, {
+          runDir,
+          runId,
+          pursuitId,
+          signal: stop.signal,
+          makeLeafAgent: processLeaf(root, known, false, 2),
+          perWorker: { maxIterations: 2, maxTokens: 1000 },
+          driverRetry: { enabled: false },
+          reopen: {
+            operator: 'process-proof',
+            reason: 'admit refused review',
+            operationId: 'review-room',
+            budget: { ...budget, maxIterations: 6, maxTokens: 20000 },
+          },
+        })
+        await Promise.race([
+          continuation,
+          expect
+            .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
+              timeout: 5000,
+            })
+            .toBeGreaterThan(0),
+        ])
+        const resumed = await loadTopSnapshot(root, { runDir })
+        expect(resumed.completeness).toBe('complete')
+        const resumedRoot = resumed.supervisors.find((row) => row.id === runId)
+        expect(resumedRoot).toMatchObject({ status: 'running', budget: 20000 })
+        expect(resumedRoot?.outcome).toBeUndefined()
+        expect(resumedRoot?.lastRoute).toBeUndefined()
+        expect(resumedRoot?.reason).toBeUndefined()
+        expect(resumedRoot?.completedAt).toBeUndefined()
+        expect(resumedRoot?.workers.filter((row) => row.status === 'running')).toHaveLength(1)
+        await writeFile(join(root, 'release'), '')
+        const winner = await continuation
+        expect(winner.result.result.kind).toBe('winner')
+        const completed = await loadTopSnapshot(root, { runDir })
+        expect(completed.completeness).toBe('complete')
+        const completedRoot = completed.supervisors.find((row) => row.id === runId)
+        expect(completedRoot).toMatchObject({ status: 'done', outcome: { kind: 'winner' } })
+        expect(completedRoot?.lastRoute).toBeUndefined()
+        expect(completedRoot?.reason).toBeUndefined()
+        expect(completed.pursuit?.runs.map((row) => [row.attemptIndex, row.status])).toEqual([
+          [0, 'done'],
+          [1, 'done'],
+        ])
+      }
     } finally {
       stop.abort()
       await writeFile(join(root, 'release'), '')
-      await pending.catch(() => undefined)
+      await Promise.allSettled([pending, ...(continuation ? [continuation] : [])])
       await rm(root, { recursive: true, force: true })
     }
   },

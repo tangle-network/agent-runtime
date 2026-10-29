@@ -134,25 +134,58 @@ async function spawnNode(
   profile: AgentProfile,
   task: unknown,
   key: string,
-  continuity: Exclude<ResolvedContinuity, { readonly error: string }>,
+  continuity: ResolvedContinuity,
+  traversal: Pick<
+    Extract<RouteFlowEvent, { kind: 'traversal' }>,
+    'from' | 'continuity' | 'sourceWorker'
+  >,
+  source: string,
 ): Promise<RuntimeSpawnOutcome> {
-  const { opts } = state
-  const spawned = await admitRuntimeSpawn(state.admitSpawn, {
-    profile,
-    args: { label: marker.node },
-    task,
-    key,
-    continuity,
-    // A back edge re-spawns a node that already settled in this flow; the new worker succeeds it.
-    successorOf: state.settledWorker.get(marker.node),
-    preflightProfile: () =>
-      opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
-    resourcesFromPath: [],
-    defaultLabel: marker.node,
-    route: Object.freeze({ ...marker }),
-  })
-  // A committed spawn is no running worker: a later route into its node is not `target-live`.
+  const spawned: RuntimeSpawnOutcome =
+    'error' in continuity
+      ? { refused: `${continuity.error}: ${continuity.hint}` }
+      : await admitRuntimeSpawn(state.admitSpawn, {
+          profile,
+          args: { label: marker.node },
+          task,
+          key,
+          continuity,
+          successorOf: state.settledWorker.get(marker.node),
+          preflightProfile: () =>
+            state.opts.resolveSpawnProfile
+              ? detachedFrozen(state.opts.resolveSpawnProfile(profile))
+              : profile,
+          resourcesFromPath: [],
+          defaultLabel: marker.node,
+          route: Object.freeze({ ...marker }),
+        })
+  if ('inDoubt' in spawned) {
+    await endInDoubt(state, marker.node, source)
+    return spawned
+  }
   if ('workerId' in spawned && !spawned.committed) setLive(state, marker.node, spawned.workerId)
+  await publish(state, {
+    kind: 'traversal',
+    edge: marker.edge,
+    to: marker.node,
+    ...traversal,
+    outcome: 'workerId' in spawned ? 'delivered' : 'unpropagated',
+    bytes: 'workerId' in spawned ? textBytes(task) : 0,
+    ...('workerId' in spawned ? { workerId: spawned.workerId } : { reason: spawned.refused }),
+  })
+  if ('refused' in spawned)
+    await end(
+      state,
+      {
+        kind: 'stopped',
+        edge: marker.edge,
+        at: marker.node,
+        workerId: source,
+        reason: spawned.refused,
+        ...('code' in spawned ? { code: spawned.code } : {}),
+      },
+      `flow spawn refused: ${spawned.refused}`,
+    )
   return spawned
 }
 
@@ -166,9 +199,6 @@ async function endInDoubt(state: FlowState, node: string, source: string): Promi
     `flow in-doubt:${node}`,
   )
 }
-
-const refusal = (spawned: RuntimeSpawnOutcome): string =>
-  'refused' in spawned ? spawned.refused : 'in-doubt'
 
 /** Settle the committed steps a spawn loop collected, stopping once the flow has ended. */
 async function settleCommittedSteps(
@@ -194,26 +224,13 @@ function start(state: FlowState): Promise<void> {
         entry.task,
         entry.key,
         { continuity: 'fresh' },
+        { from: 'entry', continuity: 'fresh' },
+        'entry',
       )
-      if ('inDoubt' in spawned) {
-        await endInDoubt(state, entry.node, 'entry')
-        return
-      }
+      if (state.ended) return
       if ('workerId' in spawned && spawned.committed) {
         committed.push({ workerId: spawned.workerId, node: entry.node })
       }
-      await publish(state, {
-        kind: 'traversal',
-        edge: entry.edge,
-        from: 'entry',
-        to: entry.node,
-        outcome: 'workerId' in spawned ? 'delivered' : 'unpropagated',
-        continuity: 'fresh',
-        bytes: 'workerId' in spawned ? textBytes(entry.task) : 0,
-        ...('workerId' in spawned
-          ? { workerId: spawned.workerId }
-          : { reason: `entry spawn refused: ${refusal(spawned)}` }),
-      })
     }
     await settleCommittedSteps(state, committed)
   })()
@@ -356,36 +373,23 @@ async function fireNodes(
       'error' in resolved && resolved.error === 'resume-no-prior'
         ? { continuity: 'fresh' as const }
         : resolved
-    const spawned =
-      'error' in continuity
-        ? { refused: `${continuity.error}: ${continuity.hint}` }
-        : await spawnNode(
-            state,
-            { edge: edge.edge, node: target.node },
-            target.profile,
-            task,
-            fork
-              ? `route:${edge.edge}#${traversal}:${target.node}`
-              : `route:${edge.edge}#${traversal}`,
-            continuity,
-          )
-    if ('inDoubt' in spawned) {
-      await endInDoubt(state, target.node, source)
-      return
-    }
+    const spawned = await spawnNode(
+      state,
+      { edge: edge.edge, node: target.node },
+      target.profile,
+      task,
+      fork ? `route:${edge.edge}#${traversal}:${target.node}` : `route:${edge.edge}#${traversal}`,
+      continuity,
+      {
+        ...row,
+        continuity: 'continuity' in continuity ? continuity.continuity : edge.continuity,
+      },
+      source,
+    )
+    if (state.ended) return
     if ('workerId' in spawned && spawned.committed) {
       committed.push({ workerId: spawned.workerId, node: target.node })
     }
-    await publish(state, {
-      ...row,
-      to: target.node,
-      outcome: 'workerId' in spawned ? 'delivered' : 'unpropagated',
-      continuity: 'continuity' in continuity ? continuity.continuity : edge.continuity,
-      bytes: 'workerId' in spawned ? textBytes(task) : 0,
-      ...('workerId' in spawned
-        ? { workerId: spawned.workerId }
-        : { reason: `route spawn refused: ${refusal(spawned)}` }),
-    })
   }
   // A committed target settles after every target of a fork is spawned, as live settles would.
   await settleCommittedSteps(state, committed)

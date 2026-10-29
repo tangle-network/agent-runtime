@@ -26,10 +26,9 @@
  *     contributes that declaration's own digest, because no record line would
  *     otherwise state that it moved.
  *
- * What this does NOT decide is whether a shape change is additive or breaking.
- * That is a subtyping question, and the record states structure. The comparison
- * calls every shape change breaking; see `surfaceSeverity` in
- * `lib/api-surface.mjs`.
+ * Each shape that can be split also records its parts (`partsOfOrigin`), from
+ * which `classifyShapeChange` in `lib/api-surface.mjs` tells an additive shape
+ * change from a breaking one.
  *
  * The parser is `oxc-parser`, not the TypeScript compiler API, and that is a
  * requirement rather than a preference. This repository set spans TypeScript 6
@@ -70,48 +69,23 @@ const requireRecord = args.includes('--record')
 const packageDirectories = args.filter((argument) => !argument.startsWith('--'))
 if (packageDirectories.length === 0) packageDirectories.push('.')
 
-/** Declaration kind of a top-level declaration node. */
-const declarationKind = (node) => {
-  switch (node.type) {
-    case 'TSInterfaceDeclaration':
-    case 'TSTypeAliasDeclaration':
-      return 'type'
-    case 'ClassDeclaration':
-    case 'FunctionDeclaration':
-    case 'TSDeclareFunction':
-    case 'TSEnumDeclaration':
-    case 'TSModuleDeclaration':
-    case 'VariableDeclaration':
-      return 'value'
-    default:
-      throw new Error(`unhandled exported declaration node ${node.type}`)
-  }
+/** One declaration inventory owns both recognition and its exported kind. */
+const DECLARATION_KINDS = {
+  TSInterfaceDeclaration: 'type', TSTypeAliasDeclaration: 'type', ClassDeclaration: 'value',
+  FunctionDeclaration: 'value', TSDeclareFunction: 'value', TSEnumDeclaration: 'value',
+  TSModuleDeclaration: 'value', VariableDeclaration: 'value',
 }
 
-const DECLARATION_TYPES = new Set([
-  'ClassDeclaration',
-  'FunctionDeclaration',
-  'TSDeclareFunction',
-  'TSEnumDeclaration',
-  'TSInterfaceDeclaration',
-  'TSModuleDeclaration',
-  'TSTypeAliasDeclaration',
-  'VariableDeclaration',
-])
-
 const declaredNames = (node) => {
-  const named = (identifier, context) => {
-    // A destructuring pattern carries no single name. It cannot appear in a
-    // declaration file, so reaching here means the parse is not what this
-    // reader assumes — record nothing rather than a key of `undefined`.
-    if (identifier?.type === 'Identifier') return identifier.name
-    if (identifier?.type === 'Literal') return identifier.value
-    throw new Error(`cannot read the exported name of a ${context} (${identifier?.type})`)
-  }
-  if (node.type === 'VariableDeclaration') {
-    return node.declarations.map((declarator) => named(declarator.id, 'variable declarator'))
-  }
-  return [named(node.id, node.type)]
+  const variable = node.type === 'VariableDeclaration'
+  const identifiers = variable ? node.declarations.map((declarator) => declarator.id) : [node.id]
+  // A destructuring pattern carries no single name. It cannot appear in a
+  // declaration file, so reaching here means the parse is not what this
+  // reader assumes — refuse it rather than record a key of `undefined`.
+  return identifiers.map((identifier) => {
+    if (identifier?.type === 'Identifier' || identifier?.type === 'Literal') return nameOf(identifier)
+    throw new Error(`cannot read the exported name of a ${variable ? 'variable declarator' : node.type} (${identifier?.type})`)
+  })
 }
 
 /** The name a specifier or module-export node states, written bare or quoted. */
@@ -157,14 +131,16 @@ const readModule = (file, modules) => {
   const starSources = []
   const declare = (node) => {
     for (const name of declaredNames(node)) {
-      const list = declarations.get(name)
-      if (list === undefined) declarations.set(name, [node])
-      else list.push(node)
+      declarations.set(name, [...(declarations.get(name) ?? []), node])
     }
   }
   for (const node of parsed.program.body) {
-    if (DECLARATION_TYPES.has(node.type)) {
-      declare(node)
+    const declaration = node.type === 'ExportNamedDeclaration' ? node.declaration : node
+    if (declaration && Object.hasOwn(DECLARATION_KINDS, declaration.type)) {
+      declare(declaration)
+      if (node.type === 'ExportNamedDeclaration')
+        for (const name of declaredNames(declaration))
+          exported.set(name, { local: name, kind: DECLARATION_KINDS[declaration.type], source: null })
       continue
     }
     switch (node.type) {
@@ -180,14 +156,7 @@ const readModule = (file, modules) => {
         }
         break
       case 'ExportNamedDeclaration': {
-        if (node.declaration) {
-          declare(node.declaration)
-          const kind = declarationKind(node.declaration)
-          for (const name of declaredNames(node.declaration)) {
-            exported.set(name, { local: name, kind, source: null })
-          }
-          break
-        }
+        if (node.declaration) throw new Error(`unhandled exported declaration node ${node.declaration.type}`)
         for (const specifier of node.specifiers) {
           // `export type { A }` marks the statement; `export { type A }` marks
           // the specifier. Either one makes the name type-only.
@@ -309,6 +278,11 @@ const exportsOfFile = (file, ctx, visiting = new Set()) => {
   return names
 }
 
+const REFERENCE_FIELDS = {
+  ClassDeclaration: 'superClass', TSTypeReference: 'typeName', TSTypeQuery: 'exprName',
+  TSInterfaceHeritage: 'expression', TSClassImplements: 'expression',
+}
+
 /** References to resolve, and literal spans whose whitespace is part of the type. */
 const declarationParts = (node) => {
   const references = []
@@ -329,27 +303,9 @@ const declarationParts = (node) => {
       for (const element of value) visit(element)
       return
     }
-    switch (value.type) {
-      case 'Literal':
-      case 'TemplateElement':
-        literals.push(value)
-        break
-      case 'ClassDeclaration':
-        take(leftmost(value.superClass))
-        break
-      case 'TSTypeReference':
-        take(leftmost(value.typeName))
-        break
-      case 'TSTypeQuery':
-        take(leftmost(value.exprName))
-        break
-      case 'TSInterfaceHeritage':
-      case 'TSClassImplements':
-        take(leftmost(value.expression))
-        break
-      default:
-        break
-    }
+    if (value.type === 'Literal' || value.type === 'TemplateElement') literals.push(value)
+    const field = REFERENCE_FIELDS[value.type]
+    if (field !== undefined) take(leftmost(value[field]))
     for (const key of Object.keys(value)) {
       if (key === 'type' || key === 'start' || key === 'end') continue
       visit(value[key])
@@ -461,18 +417,197 @@ const shapeOfOrigin = (origin, ctx, inlining = new Set()) => {
   const cached = inlining.size === 0 ? ctx.shapes.get(key) : undefined
   if (cached !== undefined) return cached
   const module = readModule(origin.file, ctx.modules)
-  if (origin.node !== undefined) {
-    return digestOf(normalizedDeclaration(module, origin.node, null, ctx, inlining))
-  }
-  const nodes = module.declarations.get(origin.name)
+  const nodes = origin.node ? [origin.node] : module.declarations.get(origin.name)
   if (nodes === undefined) {
     throw new Error(`${origin.file} states no declaration for "${origin.name}"`)
   }
   const digest = digestOf(
-    nodes.map((node) => normalizedDeclaration(module, node, origin.name, ctx, inlining)).join('\n'),
+    nodes.map((node) => normalizedDeclaration(module, node, origin.name ?? null, ctx, inlining)).join('\n'),
   )
   if (inlining.size === 0) ctx.shapes.set(key, digest)
   return digest
+}
+
+const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typeAnnotation) : type)
+
+/**
+ * The parts of one exported declaration a consumer depends on separately, so
+ * the comparison can tell an added optional member from a removed one. A part
+ * is its digest, `[digest, parts]` when it has parts of its own, or `1` when
+ * its key already carries its digest. Keys:
+ *
+ *   `name` `name?` `readonly name`  a property     `name()` `name?()`  a method
+ *   `(0)` `(1?)` `(...2)` `this`    a parameter    `=>`  the return type
+ *   `|<digest>` or `|tag:...` a union variant; `&<digest>` an opaque intersection part
+ *   `@0` `@1`    a signature of a function value         `<>` type parameters
+ *   `~form`     completely accounted declaration kind; private heritage is flattened
+ *   `~<digest>`  any other member (index, call or construct signature, accessor)
+ *
+ * Unsupported, cyclic or ambiguous declarations stay opaque. Only bounded local
+ * non-generic aliases, private property heritage and exact mutable const maps expand.
+ */
+const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
+  if (origin?.file === undefined || origin.name === undefined) return null
+  const key = originKey(origin)
+  if (visiting.has(key) || visiting.size >= 64) return null
+  const seen = new Set([...visiting, key])
+  const module = readModule(origin.file, ctx.modules)
+  const nodes = module.declarations.get(origin.name)
+  // A part is only ever compared with the same part of one other version, so a
+  // shorter digest keeps the record small without a meaningful collision risk.
+  const digest = (node) => digestOf(
+    node.type === 'TSLiteralType' && typeof node.literal.value === 'string'
+      ? JSON.stringify(node.literal.value) : normalizedDeclaration(module, node, origin.name, ctx, new Set()),
+  ).slice(0, 8)
+  const localParts = (name, projection = false) => {
+    if (name?.type !== 'Identifier') return null
+    const target = resolveBinding(module.file, name.name, ctx)
+    if (!projection && ctx.publicNames.has(originKey(target))) return null
+    const parts = partsOfOrigin(target, ctx, seen, projection)
+    if (parts === null || '<>' in parts) return null
+    const { '~form': _form, ...body } = parts
+    return body
+  }
+  const typePart = (type) => {
+    const parts = typeParts(unwrap(type))
+    return parts === null ? digest(unwrap(type)) : [digest(unwrap(type)), parts]
+  }
+  const functionParts = (node) => {
+    if (node.params.some((param) => param.decorators?.length)) return null
+    const parts = {}
+    if (node.typeParameters) parts['<>'] = digest(node.typeParameters)
+    let position = 0
+    for (const param of node.params) {
+      const annotation = param.typeAnnotation?.typeAnnotation
+      const key =
+        param.type === 'TSThisParameter' || param.name === 'this'
+          ? 'this'
+          : param.type === 'RestElement'
+            ? `(...${position++})`
+            : `(${position++}${param.optional ? '?' : ''})`
+      parts[key] = annotation ? typePart(annotation) : digest(param)
+    }
+    if (node.returnType) parts['=>'] = typePart(node.returnType.typeAnnotation)
+    return parts
+  }
+  const memberName = (member) => member.computed || !member.key ? undefined
+    : member.key.type === 'Identifier' ? member.key.name : JSON.stringify(String(member.key.value))
+  const memberParts = (members, parts) => {
+    for (const member of members) {
+      // A quoted key (`'@id'`) is written as JSON so it never reads as a structural key.
+      const name = memberName(member)
+      let key = null
+      if (name !== undefined && member.type === 'TSPropertySignature') {
+        key = `${member.readonly ? 'readonly ' : ''}${name}${member.optional ? '?' : ''}`
+      } else if (name !== undefined && member.type === 'TSMethodSignature' && member.kind === 'method') {
+        key = `${name}${member.optional ? '?' : ''}()`
+      }
+      if (key === null || key in parts) {
+        parts[`~${digest(member)}`] = 1
+      } else if (member.type === 'TSMethodSignature') {
+        parts[key] = [digest(member), functionParts(member)]
+      } else {
+        const annotation = member.typeAnnotation?.typeAnnotation
+        parts[key] = annotation ? typePart(annotation) : digest(member)
+      }
+    }
+    return parts
+  }
+  const unionParts = (types) => {
+    const variants = types.map(unwrap)
+    const literalValue = (member) => member.typeAnnotation.typeAnnotation.literal.value
+    const tags = (variant) => variant.type === 'TSTypeLiteral'
+      ? variant.members.filter((member) => member.type === 'TSPropertySignature' &&
+        !member.optional && memberName(member) !== undefined &&
+        member.typeAnnotation?.typeAnnotation.type === 'TSLiteralType' &&
+        ['string', 'number', 'boolean'].includes(typeof literalValue(member)))
+      : []
+    const candidates = tags(variants[0]).map(memberName).filter((name) => {
+      const values = variants.map((variant) => tags(variant).filter((tag) => memberName(tag) === name))
+      if (values.some((matches) => matches.length !== 1)) return false
+      return new Set(values.map(([tag]) => JSON.stringify(literalValue(tag)))).size === variants.length
+    })
+    return Object.fromEntries(variants.map((variant) => {
+      if (candidates.length !== 1) return [`|${digest(variant)}`, 1]
+      const tag = tags(variant).find((member) => memberName(member) === candidates[0])
+      return [`|tag:${JSON.stringify([candidates[0], literalValue(tag)])}`, typePart(variant)]
+    }))
+  }
+  const typeParts = (type) => {
+    switch (type?.type) {
+      case 'TSTypeLiteral':
+        return memberParts(type.members, {})
+      case 'TSFunctionType':
+        return functionParts(type)
+      case 'TSUnionType':
+        return unionParts(type.types)
+      case 'TSTypeReference':
+        return type.typeArguments ? null : localParts(type.typeName)
+      case 'TSMappedType': {
+        const constraint = type.constraint
+        const indexed = unwrap(type.typeAnnotation)
+        const query = constraint?.type === 'TSTypeOperator' && constraint.operator === 'keyof'
+          ? unwrap(constraint.typeAnnotation) : null
+        const object = unwrap(indexed?.objectType)
+        return type.readonly === '-' && !type.optional && !type.nameType &&
+          query?.type === 'TSTypeQuery' && !query.typeArguments &&
+          object?.type === 'TSTypeQuery' && !object.typeArguments &&
+          query.exprName.type === 'Identifier' && object.exprName.type === 'Identifier' &&
+          query.exprName.name === object.exprName.name && indexed?.type === 'TSIndexedAccessType' &&
+          indexed.indexType.type === 'TSTypeReference' && !indexed.indexType.typeArguments &&
+          indexed.indexType.typeName.name === type.key.name
+          ? localParts(query.exprName, true) : null
+      }
+      case 'TSIntersectionType': {
+        const parts = {}
+        for (const member of type.types.map(unwrap)) {
+          if (member.type === 'TSTypeLiteral') memberParts(member.members, parts)
+          else parts[`&${digest(member)}`] = 1
+        }
+        return parts
+      }
+      default:
+        return null
+    }
+  }
+  if (mutable && (nodes.length !== 1 || nodes[0].type !== 'VariableDeclaration')) return null
+  if (nodes.every((node) => node.type === 'TSDeclareFunction' || node.type === 'FunctionDeclaration')) {
+    if (nodes.some((node) => node.body || node.async || node.generator)) return null
+    return { '~form': 'function', ...Object.fromEntries(nodes.map((node, index) => [`@${index}`, [digest(node), functionParts(node)]])) }
+  }
+  if (nodes.length !== 1) return null
+  const [node] = nodes
+  let parts = null
+  if (node.type === 'TSInterfaceDeclaration') {
+    parts = {}
+    for (const parent of node.extends ?? []) {
+      const inherited = parent.typeArguments ? null : localParts(parent.expression)
+      if (inherited === null || Object.keys(inherited).some((key) =>
+        !/^(readonly )?[A-Za-z_$][\w$]*\??$/.test(key) || key in parts)) return null
+      Object.assign(parts, inherited)
+    }
+    if (node.extends?.length && node.body.body.some((member) =>
+      member.type !== 'TSPropertySignature' || member.computed || member.key.type !== 'Identifier' ||
+      Object.keys(parts).some((key) => key.replace(/^readonly /, '').replace(/\?$/, '') === member.key.name))) return null
+    memberParts(node.body.body, parts)
+  } else if (node.type === 'TSTypeAliasDeclaration') {
+    parts = typeParts(unwrap(node.typeAnnotation))
+  } else if (node.type === 'VariableDeclaration' && node.declarations.length === 1) {
+    // A function-typed binding is called like a declared function; its kind still matters.
+    if (node.declarations[0].init || node.declarations[0].definite || node.declarations[0].id.optional) return null
+    const type = unwrap(node.declarations[0].id.typeAnnotation?.typeAnnotation)
+    if (mutable) {
+      if (node.kind !== 'const' || type?.type !== 'TSTypeLiteral' || type.members.some(
+        (member) => member.type !== 'TSPropertySignature' || member.computed || member.optional || !member.typeAnnotation,
+      )) return null
+      parts = memberParts(type.members.map((member) => ({ ...member, readonly: false })), {})
+    } else if (type?.type === 'TSFunctionType') parts = { '@0': [digest(node), functionParts(type)] }
+  }
+  if (parts !== null) {
+    parts['~form'] = node.type === 'VariableDeclaration' ? `${node.type}:${node.kind}` : node.type
+    if (node.typeParameters) parts['<>'] = digest(node.typeParameters)
+  }
+  return parts
 }
 
 const surfaceOfPackage = (packageDirectory) => {
@@ -503,14 +638,18 @@ const surfaceOfPackage = (packageDirectory) => {
     }
   }
   const recorded = {}
+  const structure = {}
   for (const [subpath, names] of perEntry) {
     const stated = {}
     for (const [name, record] of names) {
-      stated[name] = `${record.kind} ${shapeOfOrigin(record.origin, ctx)}`
+      const shape = shapeOfOrigin(record.origin, ctx)
+      stated[name] = `${record.kind} ${shape}`
+      const parts = partsOfOrigin(record.origin, ctx)
+      if (parts !== null) structure[shape] = parts
     }
     recorded[subpath] = stated
   }
-  return { package: manifest.name, entries: recorded, assets }
+  return { package: manifest.name, entries: recorded, assets, structure }
 }
 
 const failures = []
@@ -545,6 +684,7 @@ for (const packageDirectory of packageDirectories) {
       ['kind narrowed', changes.narrowed],
       ['kind changed', changes.widened],
       ['shape changed', changes.changed],
+      ['shape extended', changes.extended],
     ]) {
       for (const change of list.slice(0, 20)) lines.push(`  ${label}: ${change}`)
       if (list.length > 20) lines.push(`  ${label}: ...and ${list.length - 20} more`)

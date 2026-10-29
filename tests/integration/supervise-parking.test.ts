@@ -2,36 +2,21 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { build } from 'tsdown'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { compileFixture } from '../helpers/compile-fixture'
 
 const exec = promisify(execFile)
+/** Each coordinator process's own bound; a hang fails there, naming the phase and keeping its dir. */
+const CHILD_TIMEOUT_MS = 15_000
 const dirs: string[] = []
-let fixtureDirectory: string
-let fixture: string
+let fixture: Awaited<ReturnType<typeof compileFixture>>
 beforeAll(async () => {
-  // Compile once; each child deadline measures Runtime execution rather than reloading the
-  // entire TypeScript source tree in every park, early-open and resume process.
-  fixtureDirectory = await mkdtemp(join(resolve('node_modules'), '.runtime-parking-'))
-  await build({
-    config: false,
-    entry: { coordinator: resolve('tests/integration/fixtures/parking-coordinator.ts') },
-    outDir: fixtureDirectory,
-    format: ['esm'],
-    platform: 'node',
-    target: 'es2022',
-    fixedExtension: true,
-    dts: false,
-    sourcemap: false,
-    deps: { neverBundle: true },
-    logLevel: 'error',
-  })
-  fixture = join(fixtureDirectory, 'coordinator.mjs')
+  fixture = await compileFixture('tests/integration/fixtures/parking-coordinator.ts')
 })
 afterAll(async () => {
-  if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true })
+  await fixture?.dispose()
 })
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
@@ -43,8 +28,8 @@ async function directory() {
 }
 async function coordinator(dir: string, mode: string, phase = 'park') {
   try {
-    const { stdout, stderr } = await exec(process.execPath, [fixture, dir, mode, phase], {
-      timeout: 15_000,
+    const { stdout, stderr } = await exec(process.execPath, [fixture.path, dir, mode, phase], {
+      timeout: CHILD_TIMEOUT_MS,
       maxBuffer: 2_000_000,
     })
     expect(stderr).not.toContain('TimeoutOverflowWarning')
@@ -111,6 +96,9 @@ describe('durable coordinator parking across real process exits', () => {
           journal.some((event) => event.kind === 'seat-segment' && event.phase === 'started'),
         ).toBe(true)
     },
+    // Three processes run in sequence. A 20 s whole-test bound fired before the second or third
+    // process's own bound under publisher load (1.9 s alone, over 20 s there) and lost its diagnosis.
+    3 * CHILD_TIMEOUT_MS + 5_000,
   )
 
   it('keeps the coordinator while its child is active and cancellation settles normally', async () => {

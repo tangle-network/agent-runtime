@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RunCancellationReason } from './abortable'
 import type { BridgeSeam } from './bridge-config'
 import {
@@ -150,13 +150,31 @@ describe('reconnectBackoff', () => {
   })
 
   it('doubles per attempt and stops at the ceiling', async () => {
-    const live = new AbortController()
-    const second = await elapsed(() => reconnectBackoff(2, live.signal))
-    expect(second).toBeGreaterThanOrEqual(BRIDGE_RECONNECT_BASE_BACKOFF_MS * 2 - 20)
-    // A long-lived run must not stall behind a delay that keeps growing.
-    const far = await elapsed(() => reconnectBackoff(20, live.signal))
-    expect(far).toBeLessThan(BRIDGE_RECONNECT_MAX_BACKOFF_MS + 500)
-  }, 10_000)
+    // On a fake clock the delay is exact: a loaded host stretched the real wait past the ceiling's
+    // margin and failed publication, though the backoff itself was right.
+    vi.useFakeTimers()
+    try {
+      const waits = async (attempt: number, ms: number) => {
+        let done = false
+        const waiting = reconnectBackoff(attempt, new AbortController().signal).then(() => {
+          done = true
+        })
+        await vi.advanceTimersByTimeAsync(ms - 1)
+        const early = done
+        await vi.advanceTimersByTimeAsync(1)
+        await waiting
+        return { early, done }
+      }
+      expect(await waits(2, BRIDGE_RECONNECT_BASE_BACKOFF_MS * 2)).toEqual({
+        early: false,
+        done: true,
+      })
+      // A long-lived run must not stall behind a delay that keeps growing.
+      expect(await waits(20, BRIDGE_RECONNECT_MAX_BACKOFF_MS)).toEqual({ early: false, done: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('returns at once when the turn is already aborted, and when it aborts mid-wait', async () => {
     // Waiting must never outlive the turn: a teardown or a steer has to take effect now.

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const notesDir = resolve(root, '.release-notes')
-const allowed = new Set(['patch', 'minor', 'major'])
+const allowed = new Set(['patch', 'major'])
 
 export function readReleaseNotes() {
   if (!existsSync(notesDir)) return []
@@ -16,9 +16,9 @@ export function readReleaseNotes() {
     .sort()
     .map((name) => {
       const raw = readFileSync(resolve(notesDir, name), 'utf8')
-      const match = /^type:\s*(patch|minor|major)\s*\n---\s*\n([\s\S]+?)\s*$/u.exec(raw)
+      const match = /^type:\s*(patch|major)\s*\n---\s*\n([\s\S]+?)\s*$/u.exec(raw)
       if (!match || !allowed.has(match[1])) {
-        throw new Error(`.release-notes/${name} must be "type: patch|minor|major", then "---", then release prose`)
+        throw new Error(`.release-notes/${name} must be "type: patch|major" (docs/release-versioning.md), then "---", then release prose`)
       }
       return { name, type: match[1], text: match[2].trim() }
     })
@@ -70,24 +70,23 @@ if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   if (process.argv.includes('--adoption')) {
     assertAdoptedPeers()
     const { parse } = await import('yaml')
-    const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
-    const workspace = parse(readFileSync(resolve(root, 'pnpm-workspace.yaml'), 'utf8'))
-    // Release versions, scripts, formatting and unrelated workspace policy do not change
-    // the adopted dependency selection. Canonical keys keep reordered inputs idempotent.
-    const inputs = {
-      dependencies: pkg.dependencies,
-      devDependencies: pkg.devDependencies,
-      optionalDependencies: pkg.optionalDependencies,
-      peerDependencies: pkg.peerDependencies,
-      catalog: workspace.catalog,
-      catalogs: workspace.catalogs,
-      overrides: workspace.overrides,
+    // Consumer-visible inputs only (no devDependencies), canonically keyed: an adoption that moved
+    // only development pins or the lockfile changes no published manifest and needs no note.
+    const selectionAt = (read) => {
+      const pkg = JSON.parse(read('package.json'))
+      const workspace = parse(read('pnpm-workspace.yaml'))
+      const inputs = { dependencies: pkg.dependencies, optionalDependencies: pkg.optionalDependencies, peerDependencies: pkg.peerDependencies, catalog: workspace.catalog, catalogs: workspace.catalogs, overrides: workspace.overrides }
+      return createHash('sha256').update(JSON.stringify(inputs, (_key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+          : value
+      )).digest('hex').slice(0, 16)
     }
-    const selection = createHash('sha256').update(JSON.stringify(inputs, (_key, value) =>
-      value && typeof value === 'object' && !Array.isArray(value)
-        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
-        : value
-    )).digest('hex').slice(0, 16)
+    const selection = selectionAt((file) => readFileSync(resolve(root, file), 'utf8'))
+    if (selection === selectionAt((file) => git(['show', `HEAD:${file}`]))) {
+      process.stdout.write('release notes: adoption changed no consumer-visible dependency; no note\n')
+      process.exit(0)
+    }
     const file = resolve(notesDir, `adopt-stack-${selection}.md`)
     mkdirSync(notesDir, { recursive: true })
     writeFileSync(file, 'type: patch\n---\nAdopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.\n')

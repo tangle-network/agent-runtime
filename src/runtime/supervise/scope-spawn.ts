@@ -123,7 +123,8 @@ class ScopeSpawner<Out> {
     recovery?: RetainedChildRecovery,
   ): SpawnResult<C> => {
     const { args } = this.deps
-    if (args.signal.aborted) return { ok: false, reason: 'scope-aborted' }
+    // Original recovery is bookkeeping: its child inherits this abort, so runChild invokes no work.
+    if (args.signal.aborted && recovery === undefined) return { ok: false, reason: 'scope-aborted' }
     // The run reached its join barrier: no later child can be joined, released, or selected over.
     // Distinct from an abort — nothing cancelled this run (see `closeScopeAdmission`).
     if (this.deps.isAdmissionClosed()) return { ok: false, reason: 'scope-settled' }
@@ -432,7 +433,13 @@ class ScopeSpawner<Out> {
       retention.closeRetainedWrites,
       budgetGranted,
       permit.ready,
-      recovery?.continuation?.priorSpent,
+      args.signal.aborted && recovery !== undefined
+        ? (args.resumeFrom?.events
+            ?.flatMap((event) =>
+              event.id === id && event.kind === 'reconciled' ? [event.spent] : [],
+            )
+            .at(-1) ?? recovery.continuation?.priorSpent)
+        : recovery?.continuation?.priorSpent,
       child.startedAt,
     )
     // `runChild` owns the ticket from here: a leak at the join barrier is a child that never settled.

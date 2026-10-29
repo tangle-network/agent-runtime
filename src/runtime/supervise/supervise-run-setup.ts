@@ -104,9 +104,6 @@ export function prepareSuperviseRun(
       : withRootSegment(registeredProfile, options.segment)
   if (!testBrain || !isRuntimeFlowBrain(testBrain))
     assertExecutableAgentProfile(canonicalProfile, 'supervise root')
-  if (authoredSeatStages(canonicalProfile) !== undefined && options.selectSeat === undefined) {
-    throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
-  }
   const canonicalTask = freezeDetached(task)
   assertWorkerSeams(options)
   const authorizeDownFor = downMessageAuthorizer(options)
@@ -473,6 +470,9 @@ function managerDriverPlan(
     throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
   }
   const hasCustomDriveHarness = Boolean(options.driveHarness || options.resolveDriveHarness)
+  if (authoredSeatStages(canonicalProfile) && !hasCustomDriveHarness && !options.selectSeat) {
+    throw new ValidationError('supervise: AgentProfile.seats requires selectSeat before execution')
+  }
   const automaticDriver =
     managerBackend !== undefined &&
     automaticDriverBackendSupported(managerBackend, options.coordination)

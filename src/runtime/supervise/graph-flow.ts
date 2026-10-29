@@ -9,6 +9,7 @@
  * into the run's result. `runGraph` stays the one team executor; `supervise()` stays its substrate.
  */
 
+import { isRecord } from '@tangle-network/agent-core'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
@@ -739,13 +740,6 @@ export function journaledGateDecider(
   }
 }
 
-/** The entry task a maps item's flow graph replaces with the item value. */
-const isItemPlaceholder = (task: unknown): boolean =>
-  typeof task === 'object' &&
-  task !== null &&
-  Object.keys(task).length === 1 &&
-  (task as { item?: unknown }).item === true
-
 /** A subtask's flow: inside a maps item, every `{ item: true }` entry task becomes the item. */
 export function flowOfSubtask(
   flow: RouteFlow,
@@ -755,7 +749,9 @@ export function flowOfSubtask(
   return {
     ...flow,
     entries: flow.entries.map((entry) =>
-      isItemPlaceholder(entry.task) ? { ...entry, task: mapItem.item } : entry,
+      isRecord(entry.task) && Object.keys(entry.task).length === 1 && entry.task.item === true
+        ? { ...entry, task: mapItem.item }
+        : entry,
     ),
   }
 }
@@ -782,8 +778,9 @@ type FlowConclusion =
  * between a winner and `no-result-selected`. `conclude` names a stopped flow on its result;
  * `failure` says why a flow run as a subtask ended without one.
  */
-export function createFlowRun() {
+export function createFlowRun(nodeOfWorker: (workerId: string) => NodeId | undefined) {
   const outputs = new Map<NodeId, unknown>()
+  let settled: Readonly<Record<string, unknown>> = {}
   let stopped: NonNullable<GraphResult['stopped']> | undefined
   let unrouted: Extract<FlowConclusion, { kind: 'unrouted' }>['unrouted'] | undefined
   const observe = (event: CoordinationEvent): void => {
@@ -791,35 +788,47 @@ export function createFlowRun() {
     const step = event.route
     if (step.kind === 'output') outputs.set(step.node, step.result)
     else if (step.kind === 'stopped') {
-      stopped ??= {
-        ...(step.edge === undefined ? {} : { edge: step.edge }),
-        at: step.at,
-        workerId: step.workerId,
-        reason: step.reason,
-      }
+      const { kind: _kind, ...detail } = step
+      stopped ??= detail
     } else if (step.kind === 'unrouted') unrouted ??= step
   }
-  const finalizer: SupervisorFinalizer = () =>
-    stopped !== undefined || unrouted !== undefined || outputs.size === 0
+  const finalizer: SupervisorFinalizer = ({ delivered }) => {
+    settled = Object.fromEntries(
+      delivered.flatMap((worker) => {
+        // The overlay's ledger names every worker's node: routes, delegates, map items and joins.
+        const node = nodeOfWorker(worker.id)
+        return node === undefined || !('out' in worker) ? [] : [[node, worker.out]]
+      }),
+    )
+    return stopped !== undefined || unrouted !== undefined || outputs.size === 0
       ? undefined
       : Object.fromEntries(outputs)
+  }
   const conclude = (result: SupervisedResult<unknown>): FlowConclusion => {
     if (unrouted !== undefined) return { kind: 'unrouted', unrouted }
     if (stopped === undefined) return { kind: 'result', result }
     // A stop edge names its own reason; a down settle is `all-children-down`. A caller's abort, an
     // exhausted pool, a deadline or a cancellation stays the reason it already is.
-    const replaceable =
-      result.kind === 'no-winner' &&
-      (result.reason === 'no-result-selected' ||
-        result.reason === 'all-children-down' ||
-        result.reason === 'no-children-spawned')
-    if (!replaceable) return { kind: 'result', result, stopped }
+    if (
+      result.kind !== 'no-winner' ||
+      (result.reason !== 'no-result-selected' &&
+        result.reason !== 'all-children-down' &&
+        result.reason !== 'no-children-spawned')
+    )
+      return { kind: 'result', result, stopped }
     return {
       kind: 'result',
       result: {
         ...result,
-        reason: stopped.edge === undefined ? 'all-children-down' : 'stopped',
-      } as SupervisedResult<unknown>,
+        reason:
+          stopped.code === 'budget-exhausted'
+            ? 'budget-exhausted'
+            : result.reason === 'no-children-spawned'
+              ? result.reason
+              : stopped.edge === undefined
+                ? 'all-children-down'
+                : 'stopped',
+      },
       stopped,
     }
   }
@@ -829,5 +838,18 @@ export function createFlowRun() {
       : stopped !== undefined
         ? `stopped at '${stopped.at}': ${stopped.reason}`
         : undefined
-  return { observe, finalizer, conclude, failure }
+  /**
+   * A stored route check may name any flow node: its conditions read each delivered node's latest
+   * usable output under the terminal outputs, while the run's deliverable stays terminal-only.
+   * Run 6f167e9e checked fetch-pr's merge_sha, false while only terminal outputs were in view.
+   */
+  const routeCheck = (d: AgentGraph['deliverable']): AgentGraph['deliverable'] =>
+    d.checkRef !== 'route'
+      ? d
+      : {
+          ...d,
+          check: (out, context) =>
+            d.check(context === undefined && isRecord(out) ? { ...settled, ...out } : out, context),
+        }
+  return { observe, finalizer, conclude, failure, routeCheck }
 }

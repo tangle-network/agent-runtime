@@ -165,7 +165,23 @@ describe('consumer-visible change requires a version bump', () => {
     })
   })
 
-  it('accepts the same move once the version pays for it', async () => {
+  it('accepts the same move once a patch pays for it', async () => {
+    const root = await createRepo()
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeManifests(root, {
+      version: '1.0.1',
+      evalPeer: '>=0.141.0 <0.142.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'move the peer range and bump')
+
+    await expect(check(root, base)).resolves.toMatchObject({
+      stdout: expect.stringContaining('paid for by 1.0.0 -> 1.0.1'),
+    })
+  })
+
+  it('refuses a minor where a patch pays for the change', async () => {
     const root = await createRepo()
     const base = (await git(root, 'rev-parse', 'HEAD')).trim()
     await writeManifests(root, {
@@ -174,10 +190,12 @@ describe('consumer-visible change requires a version bump', () => {
       knowledgeCatalog: '7.0.4',
       benchVersion: '0.4.9',
     })
-    await commit(root, 'move the peer range and bump')
+    await commit(root, 'move the peer range and bump a minor')
 
-    await expect(check(root, base)).resolves.toMatchObject({
-      stdout: expect.stringContaining('paid for by 1.0.0 -> 1.1.0'),
+    await expect(check(root, base)).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        'a minor bump, but its change needs only a patch: publish 1.0.1',
+      ),
     })
   })
 
@@ -498,29 +516,10 @@ describe('a change to the exported symbols requires a version bump', () => {
     expect((await git(root, 'diff', base, 'HEAD', '--', 'package.json')).trim()).toBe('')
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('export added: . PursuitProjection')
-    expect(failure.stderr).toContain('additive change needing a minor bump')
+    expect(failure.stderr).toContain('additive change needing a patch bump')
   })
 
-  it('accepts the added export once a minor pays for it', async () => {
-    const root = await createRepo()
-    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
-    await writeManifests(root, {
-      version: '1.1.0',
-      evalPeer: '>=0.140.1 <0.141.0',
-      knowledgeCatalog: '7.0.4',
-      benchVersion: '0.4.9',
-    })
-    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
-      '.': { runAgent: 'value', AgentSpec: 'type', PursuitProjection: 'type' },
-    })
-    await commit(root, 'add an export and bump the minor')
-
-    await expect(check(root, base)).resolves.toMatchObject({
-      stdout: expect.stringContaining('1.0.0 -> 1.1.0 (minor)'),
-    })
-  })
-
-  it('rejects a patch for an added export on a 1.x package', async () => {
+  it('accepts the added export once a patch pays for it', async () => {
     const root = await createRepo()
     const base = (await git(root, 'rev-parse', 'HEAD')).trim()
     await writeManifests(root, {
@@ -532,10 +531,10 @@ describe('a change to the exported symbols requires a version bump', () => {
     await writeSurface(root, '.', '@tangle-network/agent-runtime', {
       '.': { runAgent: 'value', AgentSpec: 'type', PursuitProjection: 'type' },
     })
-    await commit(root, 'add an export and bump only the patch')
+    await commit(root, 'add an export and bump the minor')
 
-    await expect(check(root, base)).rejects.toMatchObject({
-      stderr: expect.stringContaining('moves 1.0.0 -> 1.0.1, only a patch bump'),
+    await expect(check(root, base)).resolves.toMatchObject({
+      stdout: expect.stringContaining('1.0.0 -> 1.0.1 (patch)'),
     })
   })
 
@@ -688,17 +687,17 @@ describe('a change to the exported symbols requires a version bump', () => {
  * change until it ships; a published version still buys nothing.
  */
 describe('the baseline is the last published version, not the base branch', () => {
-  /** Release `v1.0.0`, then put an unshipped `1.1.0` on the base. */
+  /** Release `v1.0.0`, then put an unshipped `1.0.1` on the base. */
   async function repoWithUnpublishedBump(): Promise<{ root: string; base: string }> {
     const root = await createRepo()
     await tag(root, 'v1.0.0')
     await writeManifests(root, {
-      version: '1.1.0',
+      version: '1.0.1',
       evalPeer: '>=0.140.1 <0.141.0',
       knowledgeCatalog: '7.0.4',
       benchVersion: '0.4.9',
     })
-    await commit(root, 'prepare 1.1.0')
+    await commit(root, 'prepare 1.0.1')
     return { root, base: (await git(root, 'rev-parse', 'HEAD')).trim() }
   }
 
@@ -707,11 +706,11 @@ describe('the baseline is the last published version, not the base branch', () =
     await writeSurface(root, '.', '@tangle-network/agent-runtime', {
       '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
     })
-    await commit(root, 'add an export under the unshipped 1.1.0')
+    await commit(root, 'add an export under the unshipped 1.0.1')
 
-    // 1.1.0 is not on the registry, so it is still paying for its own contents.
+    // 1.0.1 is not on the registry, so it is still paying for its own contents.
     const result = await check(root, base)
-    expect(result.stdout).toContain('paid for by 1.0.0 -> 1.1.0 (minor)')
+    expect(result.stdout).toContain('paid for by 1.0.0 -> 1.0.1 (patch)')
     expect(result.stdout).toContain('1.0.0 is the last published version (v1.0.0)')
   })
 
@@ -730,7 +729,7 @@ describe('the baseline is the last published version, not the base branch', () =
     await commit(root, 'second export-adding change')
 
     await expect(check(root, secondBase)).resolves.toMatchObject({
-      stdout: expect.stringContaining('paid for by 1.0.0 -> 1.1.0 (minor)'),
+      stdout: expect.stringContaining('paid for by 1.0.0 -> 1.0.1 (patch)'),
     })
   })
 
@@ -761,12 +760,10 @@ describe('the baseline is the last published version, not the base branch', () =
     })
     await commit(root, 'prepare 1.0.1')
     const base = (await git(root, 'rev-parse', 'HEAD')).trim()
-    // A 1.x package needs a MINOR for an addition, and the unshipped bump is only
-    // a patch, so the absorbing case applies and still falls short.
-    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
-      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
-    })
-    await commit(root, 'add an export under the unshipped 1.0.1')
+    // A removed export needs a MAJOR, and the unshipped bump is only a patch, so
+    // the absorbing case applies and still falls short.
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', { '.': { runAgent: 'value' } })
+    await commit(root, 'remove an export under the unshipped 1.0.1')
 
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('moves 1.0.0 -> 1.0.1, only a patch bump')
@@ -782,7 +779,7 @@ describe('the baseline is the last published version, not the base branch', () =
     await commit(root, 'change only source')
 
     await expect(check(root, base)).resolves.toMatchObject({
-      stdout: expect.stringContaining('consumer surface unchanged at 1.1.0'),
+      stdout: expect.stringContaining('consumer surface unchanged at 1.0.1'),
     })
   })
 
@@ -846,5 +843,42 @@ describe('the baseline is the last published version, not the base branch', () =
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('bench/package.json (@tangle-network/agent-bench)')
     expect(failure.stderr).toContain('still declares 0.4.9')
+  })
+})
+
+describe('a shape change is classified from the declarations it was built from', () => {
+  /** Record built declarations with the real generator and commit them as `version`. */
+  async function build(root: string, version: string, declarations: string): Promise<string> {
+    await mkdir(join(root, 'dist'), { recursive: true })
+    await writeFile(
+      join(root, 'package.json'),
+      `${JSON.stringify({ name: '@tangle-network/fixture', version, exports: { '.': { types: './dist/index.d.ts' } } })}\n`,
+    )
+    await writeFile(join(root, 'dist', 'index.d.ts'), declarations)
+    await execFileAsync(process.execPath, ['scripts/check-api-surface.mjs', '--write'], {
+      cwd: process.cwd(),
+      env: { ...process.env, API_SURFACE_ROOT: root },
+    })
+    return commit(root, version)
+  }
+  const options = (member: string) =>
+    `export interface StartOptions {\n  readonly cwd: string;\n${member}}\nexport declare function start(options: StartOptions): void;\n`
+
+  it('asks a patch for an added optional member and a major for an added required one', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', options(''))
+    await tag(root, 'v1.0.0')
+
+    await build(root, '1.0.1', options('  readonly journalRoot?: string;\n'))
+    await expect(check(root, released)).resolves.toMatchObject({
+      stdout: expect.stringContaining('needing a patch bump, paid for by 1.0.0 -> 1.0.1 (patch)'),
+    })
+
+    await build(root, '1.0.1', options('  readonly journalRoot: string;\n'))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('(added readonly journalRoot)')
+    expect(failure.stderr).toContain('breaking change needing a major bump')
   })
 })

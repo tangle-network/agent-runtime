@@ -324,3 +324,41 @@ it('passes the effective cwd and exact cancellation signal through an owned HTTP
     await host.close()
   }
 }, 30000)
+
+it('resolves a repeated need once and collapses only exact duplicate connection references', async () => {
+  // Graph lane g5 on Runtime 2.3.1: needs [github, github], or a need equal to an authored
+  // connection, compiled duplicate references that the shared Hub MCP resolver then refused.
+  const host = await bindingHost()
+  const file = join(host.directory, 'definitions', 'graph.json')
+  const asked: string[] = []
+  const resolveNeed: ResolveNeed = async (provider, context) => {
+    asked.push(`${context.node}:${provider}`)
+    const response = await host.read(provider, context.signal)
+    return response.ok ? ((await response.json()) as Connection) : undefined
+  }
+  try {
+    const loaded = await loadGraphFile(file, {
+      source: source([['${params.provider}', '${params.provider}', 'slow'], ['fast']]),
+      params: { provider: 'fast' },
+      resolveNeed,
+    })
+    expect(asked.filter((entry) => entry === 'one:fast')).toHaveLength(1)
+    expect(loaded.graph.nodes[0]!.profile.connections).toEqual([
+      authored,
+      bindings.fast,
+      bindings.slow,
+    ])
+
+    // A need that resolves to exactly the authored reference adds nothing; the same connection
+    // under a distinct alias is a different reference and stays.
+    const aliased: Connection = { ...authored, alias: 'second' }
+    const merged = await loadGraphFile(file, {
+      source: source([['fast'], ['slow']]),
+      needs: { fast: authored, slow: aliased },
+    })
+    expect(merged.graph.nodes[0]!.profile.connections).toEqual([authored])
+    expect(merged.graph.nodes[1]!.profile.connections).toEqual([authored, aliased])
+  } finally {
+    await host.close()
+  }
+})

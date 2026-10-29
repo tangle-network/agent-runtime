@@ -880,7 +880,7 @@ How many times a process resumed this attempt after a predecessor died mid-run.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Runtime-classified root failure; absent in legacy observer history.
 
@@ -1111,7 +1111,7 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ##### segments?
 
@@ -2078,10 +2078,8 @@ Intelligence joins those isolated projections without a shared write head.
 
 > `readonly` `optional` **retainedAtSettlement?**: `"release"`
 
-Always `'release'`. A settle record is written once per segment and refuses re-entry, so no
-later call resumes a settled pursuit unless an explicit `reopen` archives it; nothing else
-would release the provider environments its retained children hold. `'keep'` is refused
-rather than ignored.
+Always `'release'`: settlement seals the segment, so retained environments are released.
+`'keep'` is refused. A reopen replays the journal rather than retaining environments.
 
 ###### Overrides
 
@@ -3064,7 +3062,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-8)
 
 ##### parking?
 
@@ -5865,6 +5863,30 @@ guard and refuses atomically.
 
 ***
 
+### durableRunToolSpans()
+
+> **durableRunToolSpans**(`runDir`): `Promise`\<readonly `ToolSpan`[]\>
+
+Every tool span a finished `supervise({ runDir })` run recorded, read from its directory alone:
+the root's `root-stream.jsonl` as one trace named by the root node id, and each settled node's
+persisted trace (the observer projection's `trace`) from `<runDir>/blobs`, re-keyed to the node
+id. The same builder feeds the continuation panel's trace store.
+
+A node whose trace blob is missing throws `ValidationError`; a node with no captured trace adds
+nothing.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<readonly `ToolSpan`[]\>
+
+***
+
 ### readSettleRecord()
 
 > **readSettleRecord**(`runDir`): `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\> \| `undefined`\>
@@ -5906,24 +5928,14 @@ Read the most recent failure record, or `undefined` when the directory holds non
 
 > **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](runtime.md#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `error`: [`NoWinnerError`](runtime.md#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend-1); `rootStream?`: [`RootStreamReceipt`](runtime.md#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](runtime.md#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](runtime.md#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](runtime.md#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `fleetYield`: [`FleetYield`](runtime.md#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend-1); `childWork`: [`Spend`](runtime.md#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); \}\>\>
 
-One-call durable pursuit execution over the canonical `supervise()` kernel.
+Execute `supervise()` with a durable observer and return its verified pursuit projection.
+Each `runDir` owns its lock and journals; Intelligence joins directories by `pursuitId`.
+Agents never receive the observer path or projection.
 
-This is an adapter, not a second executor: it composes a durable third-person
-observer into Runtime's existing recursive hook stream and then rebuilds the
-operator projection after the same `supervise()` call settles. Agents never
-receive the observer path or projection and their behavior does not depend on it.
-
-Every concrete execution writes only inside its own `runDir`. Cross-run pursuit
-aggregation is therefore lock-free at the observer layer: reuse `pursuitId` across
-run directories and let Intelligence join the independently verified projections.
-
-The directory's terminal state is recorded beside `observer.jsonl`: `result.json` holds the
-returned result once the run settles and `failure.json` the most recent throw. A directory
-whose `result.json` exists refuses re-entry before any compute; a failure record alone does
-not, because a caller can correct its input and drive the same run again. For the life of the
-call the directory is held by `supervise.lock`, so a second process on the same directory
-refuses and names the holder instead of sharing one journal.
-An abandoned `supervise.lock.guard` requires removal after confirming no lock mutation is active.
+`result.json` seals a segment and refuses re-entry before compute; `failure.json` records
+the latest throw and permits a corrected retry. Both pursuit entrypoints use the same
+directory lifecycle below. A competing process is refused with the lock holder's identity;
+an abandoned `supervise.lock.guard` requires confirmation of inactivity before removal.
 
 #### Parameters
 
@@ -5949,17 +5961,10 @@ An abandoned `supervise.lock.guard` requires removal after confirming no lock mu
 
 > **superviseGraphPursuit**(`graph`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<[`GraphResult`](runtime.md#graphresult)\<`unknown`\>\>\>
 
-One-call durable execution of an `AgentGraph`: the graph twin of [supervisePursuit](#supervisepursuit).
-
-It owns the run directory exactly as `supervisePursuit` does — `supervise.lock` for the life of
-the call, `observer.jsonl`, `result.json` once the graph settles, `failure.json` for the most
-recent throw, and refusal of a settled directory before any compute — and runs the graph through
-`runGraph`'s own path, so the root node is a `supervise()` root and a restarted process resumes
-the graph from its spawn journal. `result.json` holds the graph's supervised result, the same
-record every supervised run leaves; the edge ledger is the journal's `edge` events and the
-returned `result.ledger`. Version chains and forks are `supervisePursuit` features and are not
-offered here. An explicit `reopen` uses the same archived-settle and resume contract as
-`supervisePursuit`; ordinary re-entry of a settled graph stays refused.
+Graph twin of `supervisePursuit`, using its directory lifecycle and `runGraph` execution.
+The directory run id binds the supervised root; spawn-journal edge events own the ledger.
+Explicit `reopen` archives the result and resumes this id; ordinary settled re-entry refuses.
+Forks and version chains are offered by `supervisePursuit` only.
 
 #### Parameters
 
@@ -6004,7 +6009,7 @@ append is ignored because it was never acknowledged as committed.
 
 ### readRootStreamReceipt()
 
-> **readRootStreamReceipt**(`runDir`): `Promise`\<[`RootStreamReceipt`](runtime.md#rootstreamreceipt) \| `undefined`\>
+> **readRootStreamReceipt**(`runDir`, `file?`): `Promise`\<[`RootStreamReceipt`](runtime.md#rootstreamreceipt) \| `undefined`\>
 
 The receipt for the root stream a run directory holds, recomputed from the file's bytes, or
 `undefined` when the directory holds none. This is what a run that never settled — a root that
@@ -6016,6 +6021,10 @@ that did.
 ##### runDir
 
 `string`
+
+##### file?
+
+`string` = `ROOT_STREAM_FILE`
 
 #### Returns
 

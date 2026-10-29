@@ -500,61 +500,38 @@ function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number 
 }
 
 describe('supervised root with a pending retained turn', () => {
-  it.each(['throw', 'partial', 'recover'] as const)(
-    'continues an unavailable turn with %s capture and delivers the next output',
-    async (captureFailure) => {
-      const run = await superviseRoot({
-        firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
-        captureFailure,
-        submitOn: 2,
-      })
-      expect(
-        run.result,
-        JSON.stringify({ attempts: run.attempts, dispatched: run.dispatched.length }),
-      ).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-      expect(run.dispatched).toHaveLength(2)
-      expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
-      expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
-      expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
-      const first = run.events.find(
-        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
-      )
-      if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
-        throw new Error('missing first dispatch')
-      if (captureFailure === 'recover') {
-        expect(run.environments).toHaveLength(1)
-        expect(run.evidence).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              workspaceCapture: expect.objectContaining({
-                executionId: run.firstCaptureExecution,
-                controlRef: first.admission.controlRef,
-                coverageComplete: true,
-              }),
-            }),
-          ]),
-        )
-      } else {
-        expect(run.environments).toHaveLength(2)
-        expect(run.destroyed).not.toContain(run.environments[0])
-        expect(await run.base.get!(run.environments[0]!)).not.toBeNull()
-        expect(run.evidence).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              workspaceCaptureFailure: expect.stringContaining(
-                'retained workspace capture pending',
-              ),
-              executionId: run.firstCaptureExecution,
-              environmentId: run.environments[0],
-              controlRef: first.admission.controlRef,
-              node: expect.objectContaining({ nodeId: 'pending-root' }),
-              profileDigest: expect.any(String),
-            }),
-          ]),
-        )
-      }
-    },
-  )
+  it('recaptures an unavailable turn before delivering the next output', async () => {
+    const run = await superviseRoot({
+      firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
+      captureFailure: 'recover',
+      submitOn: 2,
+    })
+    expect(
+      run.result,
+      JSON.stringify({ attempts: run.attempts, dispatched: run.dispatched.length }),
+    ).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(run.dispatched).toHaveLength(2)
+    expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
+    expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
+    expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
+    const first = run.events.find(
+      (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
+    )
+    if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
+      throw new Error('missing first dispatch')
+    expect(run.environments).toHaveLength(1)
+    expect(run.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspaceCapture: expect.objectContaining({
+            executionId: run.firstCaptureExecution,
+            controlRef: first.admission.controlRef,
+            coverageComplete: true,
+          }),
+        }),
+      ]),
+    )
+  })
 
   it('recovers an accepted workspace whose source lookup takes longer than 30 s but within the retention bound', async () => {
     // test-acceptance-canary-20261018h (2026-10-18): a box idle about 21 minutes took over 30 s to

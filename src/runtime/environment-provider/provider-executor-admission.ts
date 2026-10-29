@@ -71,7 +71,7 @@ export function placedProviderExecutor(
 }
 
 /**
- * What one provider-executed turn settles on: the visible answer plus the event archive the
+ * Provider execution evidence and default turn output: the visible answer plus the event archive the
  * environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
  *
  * The archive is the streamed sequence, in order, without superseded part updates. A harness
@@ -129,6 +129,8 @@ export interface ProviderExecutorOptions {
   runtime?: Runtime
   destroyOnSettle?: boolean
   requireTerminalEvent?: boolean
+  /** Exact final-message JSON for graph output; requires Runtime-owned durable evidence. */
+  outputFormat?: 'json'
   /**
    * Per-run prompt options merged UNDER every streamed turn: a mapped turn's own field wins, and
    * the runtime's abort signal is applied last. `providerOptions` merges one level, so a

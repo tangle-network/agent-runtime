@@ -4663,6 +4663,26 @@ Verify durable regular-file workspace evidence without retaining archive or file
 
 ***
 
+### readAgentCandidateWorkspaceArtifactFiles()
+
+> **readAgentCandidateWorkspaceArtifactFiles**(`input`): `Promise`\<`ReadonlyMap`\<`string`, `Uint8Array`\<`ArrayBufferLike`\>\>\>
+
+**`Experimental`**
+
+Read selected files only after the existing verifier has accepted the entire archive.
+
+#### Parameters
+
+##### input
+
+[`AgentCandidateWorkspaceArtifactsOptions`](#agentcandidateworkspaceartifactsoptions) & `object`
+
+#### Returns
+
+`Promise`\<`ReadonlyMap`\<`string`, `Uint8Array`\<`ArrayBufferLike`\>\>\>
+
+***
+
 ### materializeAgentCandidateWorkspaceFromArtifacts()
 
 > **materializeAgentCandidateWorkspaceFromArtifacts**(`input`): `Promise`\<`void`\>

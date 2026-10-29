@@ -15,12 +15,14 @@ import type {
   AgentSession,
   AgentSessionRef,
 } from '@tangle-network/agent-interface/environment-provider'
+import { withJsonlFileLock } from '../durable/jsonl-file'
 import { FileObserverJournal } from '../durable/observer-journal'
 import {
   RetainedInteractiveAdmissionError,
   RetainedRunAdmissionError,
   RetainedRunDispatchBindingError,
 } from '../errors'
+import type { RuntimeHookPhase, RuntimeHookTarget } from '../runtime-hooks'
 import { assertRequestedInteractionCapabilities } from './interaction-capabilities'
 import {
   assertRetainedContextTransferCapability,
@@ -28,6 +30,13 @@ import {
   assertRetainedContextTransferIdentity,
   retainedContextTransferReceipt,
 } from './retained-context-transfer'
+import {
+  bindInteractiveDelegation,
+  delegatedTerminal,
+  refreshInteractiveDelegation,
+  revokeInteractiveControl,
+} from './retained-interactive-delegation'
+import type { RetainedInteractiveRunHandle } from './retained-interactive-types'
 import {
   assertStableText,
   exactControlRef,
@@ -338,42 +347,29 @@ export async function startRetainedRunInEnvironment(
 }
 
 /**
- * Bind an existing environment to the retained key it was created under.
+ * Bind an existing environment to the retained key it was created under, from the metadata the
+ * provider's own `get` or `create` record carries. One read, no listing.
  *
- * The record `provider.get` just returned carries that environment's metadata, and it is the
- * same record a metadata-filtered `list` would match. Reading it costs one request. Listing
- * costs a walk of the caller's whole inventory, and on Tangle Sandbox that walk cannot finish
- * past 2,000 sandboxes: the list route caps `offset` at 1,000 and answers 400. Measured
- * 2026-10-04: 17 of 20 archived Discovery runs hit that 400 (46 times), each on a later turn in
- * an environment that had already done work, and each attempt ended terminally. The listing remains for a provider whose
- * `get` returns no metadata.
+ * A metadata-filtered `list` used to stand in when that record had none. The only provider with
+ * detached session control and a `list` (Tangle Sandbox) filters client-side, so the fallback
+ * walked the caller's whole inventory: on Braid's ~68.5k-sandbox account, ~55 pages at ~1.4 s
+ * each before admission (2026-10-28), and past 2,000 sandboxes the route answered 400
+ * (2026-10-04). A record without metadata cannot prove ownership, so it is refused at once.
  */
 async function assertRetainedEnvironmentOwnership(
   provider: AgentEnvironmentProvider,
   environment: AgentEnvironment,
   idempotencyKey: string,
 ): Promise<void> {
-  const unbound = () =>
-    new Error(
+  if (environment.metadata === undefined) {
+    throw new Error(
+      `provider "${provider.name}" returned environment "${environment.id}" without metadata, so it cannot prove retained environment ownership`,
+    )
+  }
+  if (environment.metadata.retainedIdempotencyKey !== idempotencyKey) {
+    throw new Error(
       `provider "${provider.name}" could not bind environment "${environment.id}" to its retained idempotency key`,
     )
-  if (environment.metadata !== undefined) {
-    if (environment.metadata.retainedIdempotencyKey !== idempotencyKey) throw unbound()
-    return
-  }
-  if (!provider.list) {
-    throw new Error(
-      `provider "${provider.name}" cannot prove retained environment ownership by metadata`,
-    )
-  }
-  const summaries = await provider.list({
-    metadata: { retainedIdempotencyKey: idempotencyKey },
-  })
-  const matches = summaries.filter(
-    (summary) => summary.id === environment.id && summary.provider === provider.name,
-  )
-  if (matches.length !== 1 || matches[0]?.metadata?.retainedIdempotencyKey !== idempotencyKey) {
-    throw unbound()
   }
 }
 
@@ -541,18 +537,107 @@ export function journaledAdmissions<
     await onAdmission(admission)
     if ('runId' in admission) runId ??= admission.runId
     if (runId === undefined) return
-    await new FileObserverJournal(join(journalRoot, runId, 'observer.jsonl'), runId)
-      .appendEvent({
-        id: `${runId}:${admission.phase}`,
-        pursuitId: runId,
-        runId,
-        target: 'agent.run',
-        phase: 'before',
-        timestamp: Date.now(),
-        payload: { status: 'running', admission: admission.phase },
-      })
-      .catch(() => undefined)
+    await appendRetainedObserverEvent(journalRoot, runId, admission.phase, 'agent.run', 'before', {
+      status: 'running',
+      admission: admission.phase,
+    })
   }
+}
+
+/**
+ * The interactive handle with its accepted turns and its end journaled beside its admissions, so a
+ * viewer sees the run take turns and settle rather than run forever. A turn records its operation id,
+ * never the prompt, so handles in different processes agree. The end is the first exited status
+ * read or accepted stop.
+ */
+export function journaledInteractiveHandle(
+  handle: RetainedInteractiveRunHandle,
+  journalRoot: string | undefined,
+  runId: string,
+): RetainedInteractiveRunHandle {
+  if (journalRoot === undefined) return handle
+  const settle = async (failed: boolean, detail: Record<string, unknown>) => {
+    await appendRetainedObserverEvent(
+      journalRoot,
+      runId,
+      'settled',
+      'agent.run',
+      failed ? 'error' : 'after',
+      { status: failed ? 'failed' : 'done', ...detail },
+    )
+  }
+  const journaled: RetainedInteractiveRunHandle = {
+    ...handle,
+    claimControl: async (request, options) => {
+      const ack = await handle.claimControl(request, options)
+      if ((ack.status === 'accepted' || ack.status === 'replayed') && ack.control)
+        await refreshInteractiveDelegation(journaled, ack.control)
+      return ack
+    },
+    attach: async (request, options) =>
+      delegatedTerminal(journaled, await handle.attach(request, options)),
+    sendPrompt: async (command, options) => {
+      const ack = await handle.sendPrompt(command, options)
+      if (ack.status === 'accepted' || ack.status === 'replayed') {
+        await appendRetainedObserverEvent(
+          journalRoot,
+          runId,
+          `turn:${command.operationId}`,
+          'agent.turn',
+          'event',
+          { operationId: command.operationId },
+        )
+      }
+      return ack
+    },
+    status: async (options) => {
+      const status = await handle.status(options)
+      if (status.state === 'exited') {
+        await revokeInteractiveControl(journaled)
+        await settle(status.reason === 'lost' || (status.exitCode ?? 0) !== 0, {
+          reason: status.reason,
+          ...(status.exitCode === undefined ? {} : { exitCode: status.exitCode }),
+        })
+      }
+      return status
+    },
+    stop: async (command, options) => {
+      const ack = await handle.stop(command, options)
+      if (ack.status === 'accepted' || ack.status === 'replayed') {
+        await revokeInteractiveControl(journaled, command.control)
+        await settle(false, { reason: 'stopped' })
+      }
+      return ack
+    },
+  }
+  bindInteractiveDelegation(journaled, journalRoot)
+  return Object.freeze(journaled)
+}
+
+/** One observer record of a retained run, at `<journalRoot>/<runId>/observer.jsonl`. A viewer's
+ *  record never fails the run it describes, so a write failure is dropped. */
+async function appendRetainedObserverEvent(
+  journalRoot: string,
+  runId: string,
+  name: string,
+  target: RuntimeHookTarget,
+  phase: RuntimeHookPhase,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await withJsonlFileLock(join(journalRoot, runId, 'observer.jsonl'), async (path) => {
+    const journal = new FileObserverJournal(path, runId)
+    const id = `${runId}:${name}`
+    if ((await journal.read()).some((record) => record.event?.id === id)) return
+    await journal.appendEvent({
+      id,
+      pursuitId: runId,
+      runId,
+      target,
+      phase,
+      timestamp: Date.now(),
+      payload,
+    })
+  }).catch(() => undefined)
 }
 
 function isInteractiveAdmission(

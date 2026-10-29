@@ -105,7 +105,7 @@ export function createChildRetention({
       await args.blobs.put(outRef, result.out)
       controller.signal.throwIfAborted()
       // As for a retained owner: an abort that arrives while the events hash still commits.
-      const traceRoot = await traceRoots.write(outRef, result.out)
+      const traceRoot = await traceRoots.write(outRef, result)
       await args.journal.appendEvent(args.root, {
         kind: 'execution-result',
         id,
@@ -114,6 +114,7 @@ export function createChildRetention({
         spent: result.spent,
         ...(result.verdict ? { verdict: result.verdict } : {}),
         ...(result.outcome ? { outcome: result.outcome } : {}),
+        ...(result.outputFormat === undefined ? {} : { outputFormat: result.outputFormat }),
         seq: ordinal,
         at: new Date(now()).toISOString(),
       })

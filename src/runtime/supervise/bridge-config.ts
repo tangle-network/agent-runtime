@@ -3,8 +3,10 @@
 import type { HarnessType } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { CodexRolloutStoreRef } from '../codex-rollout-store'
+import type { HarnessTranscriptCapture } from '../harness-transcript'
 import type { KeyProvider } from '../key-provider'
 import { assertExactConfigKeys } from './executor-seams'
+import type { ExecutorNodeContext } from './types'
 
 /**
  * cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
@@ -82,6 +84,16 @@ export interface BridgeSeam {
    * another run's files, and `workspaceRoot` is the structural guard against it.
    */
   harnessStore?: BridgeHarnessStore
+  /** Local native capture, after the admitted jobs are proven terminal. Retained live, never serialized. */
+  harnessTranscript?: (request: {
+    readonly sessionId: string
+    readonly harness: HarnessType
+    readonly profileDigest: `sha256:${string}`
+    readonly cwd?: string
+    readonly node?: ExecutorNodeContext
+    readonly runs: readonly { readonly runId: string; readonly requestDigest: string }[]
+    readonly signal: AbortSignal
+  }) => Promise<HarnessTranscriptCapture>
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
    *  same value in `execution.timeoutMs` so the bridge-owned process follows the same policy. */
   timeoutMs?: number

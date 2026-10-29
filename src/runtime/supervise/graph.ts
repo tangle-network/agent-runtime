@@ -281,7 +281,9 @@ export interface AgentGraph {
   /** Setting it makes this a FLOW graph: Runtime spawns every entry at once, each with its task,
    *  and traverses `routes` edges itself. No node is a root and no caller brain runs; the run's
    *  output is `{ [node]: latest usable result }` over its terminal nodes and `finish` sources,
-   *  judged by `deliverable`. */
+   *  judged by `deliverable`. A stored route check (`checkRef: 'route'`) may also name a
+   *  non-terminal node: its condition reads that node's latest delivered output, while the output
+   *  stays terminal-only. */
   readonly entry?: ReadonlyArray<{ readonly node: NodeId; readonly task: unknown }>
   /** Flow-graph vertices that are not agents: a routes edge into one awaits
    *  `RunGraphOptions.decideGate`, and one edge per choice leaves it, matching
@@ -660,6 +662,7 @@ export interface GraphResult<Out = unknown> {
    *  down (no `edge`; `reason` is `down: <worker reason>`) or, where a route was needed, without a
    *  usable result (no `edge`; `reason` is `unusable: <why>`). Live flow workers are aborted. */
   readonly stopped?: {
+    readonly code?: string
     readonly edge?: string
     readonly at: NodeId
     readonly workerId: string
@@ -816,8 +819,6 @@ export function superviseAgentGraph(
     )
   }
   const validated = assertRunGraphAuthoring(graph, opts, brain)
-  // A flow graph: Runtime schedules its nodes, and its root manager is Runtime's own.
-  const flow = validated.flow === undefined ? undefined : createFlowRun()
   const context =
     opts.runContext ??
     (opts.runDir === undefined
@@ -845,6 +846,8 @@ export function superviseAgentGraph(
     ...(guidance ? { guidance } : {}),
     ...(opts.authorizeSpawn ? { authorizeSpawn: opts.authorizeSpawn } : {}),
   })
+  // A flow graph: Runtime schedules its nodes, and its root manager is Runtime's own.
+  const flow = validated.flow === undefined ? undefined : createFlowRun(overlay.nodeOfWorker)
   // Always present: the kernel refuses steer/answer whenever spawn authorization is on (the
   // graph's pinning IS spawn authorization), so a graph with no caller filter passes instructions
   // through unchanged rather than losing its steer channel. Only a caller filter can strip.
@@ -872,7 +875,8 @@ export function superviseAgentGraph(
   const rootBrain = flow === undefined ? brain : runtimeFlowBrain()
   const task =
     flow === undefined
-      ? graphTask(graph, (validated as RootValidatedGraph).root)
+      ? (graph.deliverable.describe ??
+        `Deliver the graph's deliverable by driving your worker nodes (root: '${(validated as RootValidatedGraph).root.id}').`)
       : (graph.deliverable.describe ?? 'Runtime runs this flow graph from its entries.')
 
   // Every configuration fault above throws SYNCHRONOUSLY (matching `supervise()`'s own
@@ -886,7 +890,7 @@ export function superviseAgentGraph(
       rootDriverFromBackend: flow !== undefined,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
-      deliverable: graph.deliverable,
+      deliverable: flow?.routeCheck(graph.deliverable) ?? graph.deliverable,
       authorizeSpawn: overlay.authorizeSpawn,
       resolveSpawnProfile: overlay.resolveSpawnProfile,
       inheritSpawnRights: false,
@@ -963,13 +967,4 @@ export function superviseAgentGraph(
   }
 
   return start()
-}
-
-/** The root task: the graph's own framing. The deliverable (mandatory) is the termination; the
- *  task names what the topology exists to produce. */
-function graphTask(graph: AgentGraph, root: GraphNode): string {
-  const describe = graph.deliverable.describe
-  return (
-    describe ?? `Deliver the graph's deliverable by driving your worker nodes (root: '${root.id}').`
-  )
 }

@@ -5,23 +5,38 @@
  * fallback below. Neither path embeds transcript content in settlement events.
  * Readers request metadata without archive I/O, or explicitly resolve bounded text content.
  */
+import { deepFreezeCandidate } from '../candidate-execution/digest'
 import { contentAddress } from '../durable/content-address'
 import { ValidationError } from '../errors'
 import {
+  type BoundHarnessSession,
+  HARNESS_TRANSCRIPT_DENY as DENY,
+  HARNESS_TRANSCRIPT_READ_LIMITS,
   type HarnessTranscriptMetadata,
   type HarnessTranscriptReadOptions,
   parseRetainedHarnessTranscript,
   type RetainedHarnessTranscriptCapture,
+  readBoundHarnessSessions,
   resolveHarnessTranscriptCapture,
 } from './retained-harness-transcript'
-import type { ResultBlobStore } from './supervise/types'
+import type { ExecutorNodeContext, ResultBlobStore } from './supervise/types'
+
+const {
+  maxFileBytes: MAX_FILE_BYTES,
+  maxTotalBytes: MAX_TOTAL_BYTES,
+  maxFiles: MAX_FILES,
+} = HARNESS_TRANSCRIPT_READ_LIMITS
 
 export {
+  type BoundHarnessSession,
+  HARNESS_TRANSCRIPT_READ_LIMITS,
+  type HarnessFileBinding,
   type HarnessTranscriptMetadata,
   type HarnessTranscriptReadLimits,
   type HarnessTranscriptReadOptions,
   type RetainedHarnessTranscriptCapture,
   type RetainedHarnessTranscriptDescriptor,
+  readBoundHarnessSessions,
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
 } from './retained-harness-transcript'
@@ -47,30 +62,6 @@ const HARNESS_ROOTS: Readonly<Record<string, readonly string[]>> = Object.freeze
   pi: Object.freeze(['.pi/agent/sessions']),
 })
 
-/**
- * Never read, whatever a producer put inside a session tree.
- *
- * Case-insensitive and broader than the obvious names: `.netrc`, `*.key`, `*.p12`/`*.pfx`
- * and an uppercase `ID_RSA` all slipped an earlier lowercase-only pattern.
- */
-const DENY =
-  /(^|\/)(auth\.json|\.credentials\.json|credentials|\.netrc|\.env(\..*)?|secrets?(\.|$)|.*\.(pem|key|p12|pfx)|id_[a-z0-9_]+)$/iu
-
-/**
- * Bounds per file and in total, PER CHILD. They multiply by fleet width, and the next person
- * sizing a fleet must find that here: a 132-child pursuit (mech-interp-foundations-astra-20260911f,
- * the widest retained on one operator host) at the ceiling is 132 x 16 MiB = 2.1 GiB of transcript
- * for one run (#1248).
- *
- * That figure is a DISK number, not a replay number. The artifact is persisted under its own
- * content ref in the `ResultBlobStore` and the settlement carries only the receipt, so replay and
- * resume rehydrate a ref, never the files; nothing pays for a transcript until someone opens it.
- * The bound is enforced exactly, after each read, so a child settles at or under MAX_TOTAL_BYTES.
- */
-const MAX_FILE_BYTES = 2 * 1024 * 1024
-const MAX_TOTAL_BYTES = 16 * 1024 * 1024
-const MAX_FILES = 1_000
-
 export const HARNESS_TRANSCRIPT_SCHEMA_VERSION = 1 as const
 
 export interface HarnessTranscriptFile {
@@ -79,9 +70,20 @@ export interface HarnessTranscriptFile {
   readonly content: string
 }
 
+export interface HarnessTranscriptBinding {
+  readonly kind: 'bridge'
+  readonly node?: ExecutorNodeContext
+  readonly sessionId: string
+  readonly nativeSessionId: string
+  readonly profileDigest: string
+  readonly runs: readonly { readonly runId: string; readonly requestDigest: string }[]
+}
+
 export interface HarnessTranscriptArtifact {
   readonly schemaVersion: typeof HARNESS_TRANSCRIPT_SCHEMA_VERSION
   readonly harness: string
+  readonly binding?: HarnessTranscriptBinding
+  readonly source?: HarnessTranscriptMetadata['source']
   readonly files: readonly HarnessTranscriptFile[]
   /** Paths found but not read, with why — a gap named is a gap an operator can act on. */
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
@@ -104,6 +106,8 @@ export type HarnessTranscriptUnavailableReason =
    *  transcript and nobody read it. Never collapse it into `execution-never-started`; that
    *  would report a child that reasoned for twenty seconds as one that never ran. */
   | 'capture-did-not-run'
+  /** Opted-in capture failed; the task result is retained independently. */
+  | 'capture-failed'
   /** This executor implements no transcript port at all: a CLI, in-process, bridge, or
    *  sandbox-session executor that has no capture yet. An absence by construction, never a
    *  failure — and never a claim that the harness wrote nothing. */
@@ -141,6 +145,8 @@ export type HarnessTranscriptCapture =
       readonly totalBytes: number
       /** Non-zero when some transcript was found but deliberately not carried. */
       readonly skippedCount: number
+      readonly coverageComplete?: boolean
+      readonly missing?: readonly string[]
     }
   | HarnessTranscriptUnavailable
 
@@ -478,28 +484,11 @@ export async function captureHarnessTranscript(
       skipped.push({ path, reason: 'read-failed' })
     }
   }
-  // Nothing read is two different facts: no session files at all (reported above), or files that
-  // every rule declined — including an abort that skipped them all. The second must name them.
-  if (files.length === 0) {
-    return Object.freeze({
-      status: 'unavailable',
-      reason: 'nothing-carried',
-      skipped: Object.freeze(skipped),
-    })
-  }
-
-  const artifact: HarnessTranscriptArtifact = Object.freeze({
+  return capturedTranscript({
     schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
     harness,
-    files: Object.freeze(files),
-    skipped: Object.freeze(skipped),
-  })
-  return Object.freeze({
-    status: 'captured',
-    artifact,
-    fileCount: files.length,
-    totalBytes: total,
-    skippedCount: skipped.length,
+    files,
+    skipped,
   })
 }
 
@@ -551,25 +540,11 @@ export function harnessTranscriptFromLines(
     total += bytes
   })
   flush()
-  if (files.length === 0) {
-    return Object.freeze({
-      status: 'unavailable',
-      reason: 'nothing-carried',
-      skipped: Object.freeze(skipped),
-    })
-  }
-  const artifact: HarnessTranscriptArtifact = Object.freeze({
+  return capturedTranscript({
     schemaVersion: HARNESS_TRANSCRIPT_SCHEMA_VERSION,
     harness,
-    files: Object.freeze(files),
-    skipped: Object.freeze(skipped),
-  })
-  return Object.freeze({
-    status: 'captured',
-    artifact,
-    fileCount: files.length,
-    totalBytes: total,
-    skippedCount: skipped.length,
+    files,
+    skipped,
   })
 }
 
@@ -608,7 +583,7 @@ export async function persistHarnessTranscript(
             capture.descriptor.source.coverageComplete && capture.descriptor.missing.length === 0,
           missing: capture.descriptor.missing,
         }
-      : {}),
+      : { coverageComplete: capture.coverageComplete, missing: capture.missing }),
   })
 }
 
@@ -695,5 +670,61 @@ function isHarnessTranscriptArtifact(value: unknown): value is HarnessTranscript
         typeof entry.path === 'string' &&
         typeof entry.reason === 'string',
     )
+  )
+}
+
+/** All transcript producers share artifact accounting and the empty/partial distinction. */
+function capturedTranscript(
+  artifact: HarnessTranscriptArtifact,
+  coverageComplete?: boolean,
+): HarnessTranscriptCapture {
+  const { files, skipped } = artifact
+  if (!files.length)
+    return deepFreezeCandidate({
+      status: 'unavailable' as const,
+      reason: 'nothing-carried' as const,
+      skipped,
+    })
+  return deepFreezeCandidate({
+    status: 'captured' as const,
+    artifact,
+    fileCount: files.length,
+    totalBytes: files.reduce((sum, file) => sum + file.bytes, 0),
+    skippedCount: skipped.length,
+    ...(coverageComplete === undefined ? {} : { coverageComplete, missing: [] }),
+  })
+}
+
+/** Local native bytes enter the same artifact/settlement path as every other transcript. */
+export async function captureBoundHarnessTranscript<S extends BoundHarnessSession>(
+  input: Parameters<typeof readBoundHarnessSessions<S>>[0] & {
+    readonly harness: string
+    readonly binding: HarnessTranscriptBinding
+  },
+): Promise<HarnessTranscriptCapture> {
+  if (
+    input.binding.nativeSessionId !== input.nativeSessionId ||
+    !input.binding.sessionId ||
+    !/^sha256:[a-f0-9]{64}$/.test(input.binding.profileDigest) ||
+    !input.binding.runs.length ||
+    input.binding.runs.some((run) => !run.runId || !/^sha256:[a-f0-9]{64}$/.test(run.requestDigest))
+  )
+    throw new ValidationError('Native capture binding is incomplete')
+  const files: HarnessTranscriptFile[] = []
+  await readBoundHarnessSessions({
+    ...input,
+    read: async (file, signal) => {
+      const bytes = await input.read(file, signal)
+      files.push({
+        path: file.path,
+        bytes: bytes.byteLength,
+        content: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
+      })
+      return bytes
+    },
+  })
+  return capturedTranscript(
+    { schemaVersion: 1, harness: input.harness, binding: input.binding, files, skipped: [] },
+    true,
   )
 }

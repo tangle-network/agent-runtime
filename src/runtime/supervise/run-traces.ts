@@ -139,26 +139,38 @@ async function workerSpans(
   }))
 }
 
-/**
- * The store over a manager's run: its own root stream when it has one, and every settled worker's
- * tool trace. `undefined` when the run has recorded no span yet, which is not a store a panel can
- * read: agent-eval refuses an empty trace, because it cannot tell a tool-free run from a failed
- * capture.
- */
-export async function runTraceAnalysisStore(input: {
+/** What a run's trace is read from: the director's root stream, when it has one, and its workers. */
+export interface RunTraceSources {
   readonly root?: {
     readonly id: string
     readonly read: () => Promise<ReadonlyArray<RootStreamRecord> | undefined>
   }
   readonly workers: ReadonlyArray<{ readonly id: string; readonly trace: WorkerTraceEvidence }>
   readonly blobs: Pick<ResultBlobStore, 'get'>
-}): Promise<TraceAnalysisStore | undefined> {
+}
+
+/**
+ * Every span of a manager's run: its own root stream, then each settled worker's tool trace. A
+ * worker trace the blob store lost throws, because missing evidence is not an empty trace.
+ */
+export async function runToolSpans(input: RunTraceSources): Promise<ToolSpan[]> {
   const records = input.root === undefined ? undefined : await input.root.read()
-  const spans = [
+  return [
     ...(records === undefined || input.root === undefined
       ? []
       : rootStreamToolSpans(records, input.root.id)),
     ...(await Promise.all(input.workers.map((worker) => workerSpans(worker, input.blobs)))).flat(),
   ]
+}
+
+/**
+ * The store over a manager's run. `undefined` when the run has recorded no span yet, which is not a
+ * store a panel can read: agent-eval refuses an empty trace, because it cannot tell a tool-free run
+ * from a failed capture.
+ */
+export async function runTraceAnalysisStore(
+  input: RunTraceSources,
+): Promise<TraceAnalysisStore | undefined> {
+  const spans = await runToolSpans(input)
   return spans.length === 0 ? undefined : toolSpansToTraceAnalysisStore(spans)
 }

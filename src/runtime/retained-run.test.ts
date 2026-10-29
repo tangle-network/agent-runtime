@@ -711,9 +711,9 @@ describe('retained runtime run control', () => {
     let createCalls = 0
     let destroyCalls = 0
     const getIds: string[] = []
-    const listQueries: Array<Record<string, unknown> | undefined> = []
     let dispatched: AgentTurnInput | undefined
     const provider = providerWithEnvironment({
+      metadata: { retainedIdempotencyKey: 'durable-environment-key' },
       async dispatch(input) {
         dispatched = input
         return { id: identity.sessionId, provider: 'test-provider', controlRef }
@@ -735,16 +735,6 @@ describe('retained runtime run control', () => {
       getIds.push(id)
       return get(id)
     }
-    provider.list = async (query) => {
-      listQueries.push(query?.metadata)
-      return [
-        {
-          id: 'environment-1',
-          provider: 'test-provider',
-          metadata: { retainedIdempotencyKey: 'durable-environment-key' },
-        },
-      ]
-    }
     const recorder = recordedAdmissions()
 
     const run = await startRetainedRunInEnvironment({
@@ -757,7 +747,6 @@ describe('retained runtime run control', () => {
     expect(createCalls).toBe(0)
     expect(destroyCalls).toBe(0)
     expect(getIds).toEqual(['environment-1'])
-    expect(listQueries).toEqual([{ retainedIdempotencyKey: 'durable-environment-key' }])
     expect(dispatched).toEqual({
       prompt: 'inspect the existing workspace',
       turnId: 'fresh-workspace-turn',
@@ -818,6 +807,7 @@ describe('retained runtime run control', () => {
     let destroys = 0
     let dispatched: AgentTurnInput | undefined
     const provider = providerWithEnvironment({
+      metadata: { retainedIdempotencyKey: 'shared-environment' },
       async dispatch(input) {
         dispatched = input
         return { id: identity.sessionId, provider: 'test-provider', controlRef }
@@ -831,13 +821,6 @@ describe('retained runtime run control', () => {
       creates++
       throw new Error('existing-environment start must not create')
     }
-    provider.list = async () => [
-      {
-        id: 'environment-1',
-        provider: 'test-provider',
-        metadata: { retainedIdempotencyKey: 'shared-environment' },
-      },
-    ]
     const recorder = recordedAdmissions()
     const run = await startRetainedRun({
       provider,
@@ -941,9 +924,9 @@ describe('retained runtime run control', () => {
       })
     }
 
-    // Without metadata on the read, only the listing can bind it, and the listing fails.
-    await expect(start(undefined)).rejects.toThrow('expected number to be <=1000')
-    expect(offsets).toEqual([0, 1_000, 2_000])
+    // Without metadata on the read, ownership is refused at once; the inventory is never walked.
+    await expect(start(undefined)).rejects.toThrow('without metadata')
+    expect(offsets).toEqual([])
 
     offsets.length = 0
     const run = await start({ tenant: 'acme', retainedIdempotencyKey: 'owned-key' })
@@ -986,19 +969,13 @@ describe('retained runtime run control', () => {
     }
     let dispatches = 0
     const provider = providerWithEnvironment({
+      metadata: { retainedIdempotencyKey: 'replay-environment' },
       async dispatch() {
         dispatches++
         return { id: identity.sessionId, provider: 'test-provider', controlRef }
       },
       session: () => session,
     })
-    provider.list = async () => [
-      {
-        id: 'environment-1',
-        provider: 'test-provider',
-        metadata: { retainedIdempotencyKey: 'replay-environment' },
-      },
-    ]
     const environment = { profile: { name: 'worker' }, idempotencyKey: 'replay-environment' }
     const turn = { prompt: 'replay this', turnId: 'replay-turn' }
     const firstAdmissions: RetainedRunAdmission[] = []
@@ -1055,6 +1032,7 @@ describe('retained runtime run control', () => {
     }
     const provider = providerWithEnvironment({
       creation: 'created',
+      metadata: { retainedIdempotencyKey: 'owned-environment' },
       async dispatch() {
         return { id: rogueRef.sessionId, provider: 'test-provider', controlRef: rogueRef }
       },
@@ -1062,13 +1040,6 @@ describe('retained runtime run control', () => {
         destroys++
       },
     })
-    provider.list = async () => [
-      {
-        id: 'environment-1',
-        provider: 'test-provider',
-        metadata: { retainedIdempotencyKey: 'owned-environment' },
-      },
-    ]
     const recorder = recordedAdmissions()
     await expect(
       startRetainedRun({
@@ -1142,18 +1113,12 @@ describe('retained runtime run control', () => {
   it('fails before admission when retained environment ownership is not proven', async () => {
     let dispatchCalls = 0
     const mismatched = providerWithEnvironment({
+      metadata: { retainedIdempotencyKey: 'owner-key' },
       async dispatch() {
         dispatchCalls += 1
         throw new Error('dispatch must not run for a mismatched owner')
       },
     })
-    mismatched.list = async () => [
-      {
-        id: 'environment-1',
-        provider: 'test-provider',
-        metadata: { retainedIdempotencyKey: 'owner-key' },
-      },
-    ]
     const mismatchedRecorder = recordedAdmissions()
     await expect(
       startRetainedRunInEnvironment({

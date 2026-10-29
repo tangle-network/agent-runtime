@@ -4,8 +4,14 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { dirname, extname, resolve, sep } from 'node:path'
-import { loadTopSnapshot, type TopSnapshot, type WorkerView } from './top-snapshot'
-import { transcriptHistory, type transcriptRows, transcriptTail } from './top-transcript'
+import { loadTopSnapshot, type TopSnapshot } from './top-snapshot'
+import type { TopSessionReader } from './top-transcript'
+import { serveTopAgent, type TopInspectionSource } from './top-web-agent'
+
+export type { TopInspection, TopInspectionSource } from './top-web-agent'
+
+/** Interval for reconciling missed filesystem notifications in the live viewer. */
+export const TOP_SNAPSHOT_RECONCILE_MS = 500
 
 /** A reconnect always receives current truth; deltas replace changed roots atomically. */
 export interface TopSnapshotFrame {
@@ -21,6 +27,10 @@ export interface TopWebOptions {
   readonly assets?: string
   readonly host?: string
   readonly port?: number
+  /** Product-owned verified conversation reads; no execution or credential access. */
+  readonly source?: TopInspectionSource
+  /** Canonical native decoding for ordinary Runtime transcript receipts. */
+  readonly readSessions?: TopSessionReader
 }
 
 /** Read-only web transport over the same snapshots as the terminal. No execution or writes. */
@@ -49,8 +59,8 @@ export async function serveTopWeb(options: TopWebOptions) {
     if (client.writableLength > 1024 * 1024) return client.destroy()
     client.write(`id: ${frame.sequence}\nevent: snapshot\ndata: ${JSON.stringify(frame)}\n\n`)
   }
-  const refresh = async () => {
-    if (reading || closed) return
+  let inFlight: Promise<void> = Promise.resolve()
+  const read = async () => {
     reading = true
     dirty = false
     try {
@@ -91,6 +101,11 @@ export async function serveTopWeb(options: TopWebOptions) {
       if (dirty && !closed) schedule()
     }
   }
+  const refresh = (): Promise<void> => {
+    if (reading || closed) return inFlight
+    inFlight = read()
+    return inFlight
+  }
   const schedule = () => {
     dirty = true
     if (!scheduled && !closed)
@@ -107,7 +122,7 @@ export async function serveTopWeb(options: TopWebOptions) {
   await refresh()
   for (const root of roots) watchers.push(watch(root, { recursive: true }, schedule))
   // Watch notifications may be coalesced or lost; the same loader reconciles them without a second model.
-  const reconcile = setInterval(schedule, 500)
+  const reconcile = setInterval(schedule, TOP_SNAPSHOT_RECONCILE_MS)
   const heartbeat = setInterval(() => {
     for (const client of clients) client.write(': alive\n\n')
   }, 15_000)
@@ -145,84 +160,18 @@ export async function serveTopWeb(options: TopWebOptions) {
           snapshots: [...snapshots.values()],
         })
         response.on('close', () => clients.delete(response))
-      } else if (/^\/api\/top\/agents\/\d+\/[^/]+\/[^/]+\/stream$/.test(path)) {
-        const [, , , , rootIndex, runId, workerId] = path.split('/').map(decodeURIComponent)
-        const root = roots[Number(rootIndex)]
-        const worker = (): WorkerView | undefined => {
-          const run = root
-            ? snapshots.get(root)?.supervisors.find((run) => run.id === runId)
-            : undefined
-          const node = run?.workers.find((node) => node.id === workerId)
-          if (node || !run || run.id !== workerId) return node
-          return {
-            id: run.id,
-            label: 'root',
-            ...(root && existsSync(resolve(root, 'root-stream.jsonl'))
-              ? { eventFile: resolve(root, 'root-stream.jsonl') }
-              : {}),
-            status:
-              run.status === 'cancelled'
-                ? 'cancelled'
-                : run.status === 'done'
-                  ? 'done'
-                  : run.status === 'down'
-                    ? 'down'
-                    : 'running',
-            startedAt: run.startedAt,
-            endedAt: run.completedAt,
-            latencyMs: run.totals.latencyMs,
-            spend: run.driverSpend,
-            metered: { iterations: 0, tokensInput: 0, tokensOutput: 0, usd: 0, ms: 0 },
-            liveTail: run.progressTail,
-          }
-        }
-        if (!worker()) {
-          response.writeHead(404).end()
-          return
-        }
-        let history: ReturnType<typeof transcriptRows> | undefined = await transcriptHistory(
-          worker()!,
-          root,
-          snapshots
-            .get(root!)
-            ?.pursuit?.nodes.find((node) => node.runId === runId && node.id === workerId),
-        )
-        response.writeHead(200, { 'Content-Type': 'text/event-stream', 'X-Accel-Buffering': 'no' })
-        response.flushHeaders()
-        if (request.method === 'HEAD') {
-          response.end()
-          return
-        }
-        const generation = Date.now()
-        response.write(`event: reset\ndata: ${JSON.stringify({ generation })}\n\n`)
-        const seen = new Set<string>()
-        let lastSeq = 0
-        const update = () => {
-          const node = worker()
-          if (!node || response.writableLength > 1024 * 1024) {
-            response.destroy()
-            return
-          }
-          const events = (history ?? transcriptTail(node)).flatMap((row) => {
-            const key = createHash('sha256').update(JSON.stringify(row)).digest('hex')
-            if (seen.has(key)) return []
-            seen.add(key)
-            if (seen.size > 2000) seen.delete(seen.values().next().value!)
-            return [{ ...row, seq: ++lastSeq }]
-          })
-          history = undefined
-          const alive = node.status === 'running'
-          response.write(
-            `event: rows\ndata: ${JSON.stringify({ generation, events, lastSeq, alive, window: 'recorded-tail' })}\n\n`,
-          )
-          if (!alive) {
-            response.write('event: end\ndata: {}\n\n')
-            response.end()
-          }
-        }
-        transcripts.add(update)
-        response.on('close', () => transcripts.delete(update))
-        update()
+      } else if (/^\/api\/top\/agents\/\d+\/[^/]+\/[^/]+(?:\/stream)?$/.test(path)) {
+        await serveTopAgent({
+          request,
+          response,
+          path,
+          base,
+          roots,
+          snapshots,
+          transcripts,
+          source: options.source,
+          readSessions: options.readSessions,
+        })
       } else if (path === '/api/top') {
         response.writeHead(200, { 'Content-Type': 'application/json' })
         response.end(
@@ -262,12 +211,17 @@ export async function serveTopWeb(options: TopWebOptions) {
   let closing: Promise<void> | undefined
   const close = () =>
     (closing ??= (async () => {
-      closed = true
-      if (scheduled) clearTimeout(scheduled)
       clearInterval(reconcile)
       clearInterval(heartbeat)
       for (const watcher of watchers) watcher.close()
-      for (const client of clients) client.end()
+      // A caller closes right after its run settles: let a read in flight finish, then read once
+      // more, so a terminal record appended just before close reaches connected clients.
+      await inFlight.catch(() => undefined)
+      await refresh().catch(() => undefined)
+      closed = true
+      if (scheduled) clearTimeout(scheduled)
+      // The run is over for this viewer: say so, so a client stops instead of reconnecting.
+      for (const client of clients) client.end('event: end\ndata: {}\n\n')
       transcripts.clear()
       server.closeAllConnections()
       await new Promise<void>((done, reject) =>
@@ -320,14 +274,24 @@ export async function runTopWeb(argv: readonly string[]) {
 /** A journal root holds one `<runId>/observer.jsonl` per retained run beside any workspace runs. */
 async function loadRunsRoot(root: string): Promise<TopSnapshot> {
   const workspace = loadTopSnapshot(root)
+  // A supervised run writes its spawn journal at begin and its observer journal after the first
+  // turn; either one makes the run a card, so it appears as soon as supervision starts.
+  const has = (runId: string, file: string) => existsSync(resolve(root, runId, file))
   const runIds = readdirSync(root, { withFileTypes: true })
     .filter(
-      (entry) => entry.isDirectory() && existsSync(resolve(root, entry.name, 'observer.jsonl')),
+      (entry) =>
+        entry.isDirectory() &&
+        (has(entry.name, 'observer.jsonl') || has(entry.name, 'spawn-journal.jsonl')),
     )
     .map((entry) => entry.name)
   if (!runIds.length) return workspace
   const runs = await Promise.all(
-    runIds.map((runId) => loadTopSnapshot(root, { runDir: resolve(root, runId) })),
+    runIds.map((runId) =>
+      loadTopSnapshot(root, {
+        runDir: resolve(root, runId),
+        ...(has(runId, 'observer.jsonl') ? {} : { format: 'journal' as const }),
+      }),
+    ),
   )
   const diagnostics = [
     ...workspace.diagnostics,

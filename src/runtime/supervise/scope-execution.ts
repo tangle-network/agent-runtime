@@ -2,7 +2,7 @@ import { ValidationError } from '../../errors'
 import { reportedFailureCause, runtimeFailureCause } from '../failure-cause'
 import { type HarnessTranscriptEvidence, settleHarnessTranscript } from '../harness-transcript'
 import { cloneTokenUsage, isAsyncIterable } from '../util'
-import { signalAbortError } from './abortable'
+import { runAbortable, signalAbortError } from './abortable'
 import type { BudgetPool, ReservationTicket } from './budget'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS } from './deadline'
 import { errMessage } from './error-message'
@@ -137,26 +137,30 @@ async function foldExecutorStream<C>(
   priorSpent: Spend | undefined,
 ): Promise<Spend> {
   live.events.start()
-  return await foldStream(
-    stream,
-    async (running, event) => {
-      live.spent = running
-      live.lastActivityAt = now()
-      await journal.appendEvent(journalRoot, {
-        kind: 'progress',
-        id: live.id,
-        spend: running,
-        ...(event.kind === 'progress' && event.progress.kind === 'awaiting-result'
-          ? { awaitingResult: { since: event.progress.since } }
-          : {}),
-        seq: nextProgressSeq(),
-        at: new Date(now()).toISOString(),
-      })
-    },
-    childAbort.signal,
-    priorSpent,
-    (event) => live.events.append(event, now()),
-  )
+  try {
+    return await foldStream(
+      stream,
+      async (running, event) => {
+        live.spent = running
+        live.lastActivityAt = now()
+        await journal.appendEvent(journalRoot, {
+          kind: 'progress',
+          id: live.id,
+          spend: running,
+          ...(event.kind === 'progress' && event.progress.kind === 'awaiting-result'
+            ? { awaitingResult: { since: event.progress.since } }
+            : {}),
+          seq: nextProgressSeq(),
+          at: new Date(now()).toISOString(),
+        })
+      },
+      childAbort.signal,
+      priorSpent,
+      (event) => live.events.append(event, now()),
+    )
+  } finally {
+    await live.events.settle()
+  }
 }
 
 /** Settle an execution that returned its terminal artifact and reconciled its reservation. */
@@ -172,6 +176,7 @@ async function settleExecuted<C>(
   // (done, aborted, crash) so the journal always matches what the pool already debited.
   const ownMetered = executor.metered?.()
   const trace = await attempt.captureTrace()
+  await settleHarnessTranscript(executor)
   const childHarnessTranscript = await attempt.persistTranscript()
 
   if (
@@ -334,6 +339,8 @@ async function settleRetainedPending<C>(
     // unobservable by definition.
     retainedPendingCause:
       err instanceof RetainedExecutionPendingError ? err.pendingCause : 'unobservable',
+    // The provider's own machine code survives the wrapper, as on the crashed path.
+    failure: runtimeFailureCause(err),
   }
 }
 
@@ -553,43 +560,12 @@ async function awaitUnlessAccepted<T>(
 }
 
 async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    // `execute()` may have returned a promise that rejects from the same abort. Observe it before
-    // returning the already-winning cancellation so a fast abort cannot become an unhandled
-    // provider rejection.
-    void work.catch(() => undefined)
-    throw signalAbortError(signal, 'execution aborted')
-  }
-  return await new Promise<T>((resolve, reject) => {
-    let settled = false
-    const onAbort = () => {
-      // A cooperative executor often resolves its terminal usage receipt from an abort listener.
-      // Give that already-triggered resolution one microtask to win; an ignoring executor still
-      // loses immediately afterward.
-      queueMicrotask(() => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(signalAbortError(signal, 'execution aborted'))
-      })
-    }
-    const cleanup = () => signal.removeEventListener('abort', onAbort)
-    signal.addEventListener('abort', onAbort, { once: true })
-    work.then(
-      (value) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve(value)
-      },
-      (error) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      },
-    )
-  })
+  // `execute()` may have returned a promise that rejects from the same abort. Observe it before
+  // the already-winning cancellation so a fast abort cannot become an unhandled provider rejection.
+  if (signal.aborted) void work.catch(() => undefined)
+  // runAbortable defers the abort one microtask: a cooperative executor often resolves its
+  // terminal usage receipt from an abort listener, and that already-triggered result still wins.
+  return await runAbortable(() => work, signal, 'execution aborted')
 }
 
 /** Observed partial counts as a lower bound on every channel: the work happened, its remainder went

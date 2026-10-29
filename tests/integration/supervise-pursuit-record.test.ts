@@ -17,6 +17,7 @@ import {
   RUN_DIRECTORY_LOCK_FILE,
   RunDirectoryLockedError,
 } from '../../src/durable/run-lock'
+import { durableRunToolSpans } from '../../src/durable/run-tool-spans'
 import {
   FAILURE_RECORD_FILE,
   readFailureRecord,
@@ -661,6 +662,13 @@ describe('supervisePursuit root stream', () => {
     // Eval's supervisor-run reader consumes the settle record with the additive key unchanged.
     const sources = await readRuntimeSupervisorRun(runDir)
     expect(sources.result).toBe(await readFile(executed.settlePath, 'utf8'))
+    // The same directory read back as tool spans: the root's text, reasoning and tool call, one trace.
+    const spans = await durableRunToolSpans(runDir)
+    expect(spans.map((span) => [span.runId, span.toolName, span.result])).toEqual([
+      ['root-stream-settle', 'assistant_reasoning', 'the root thinks'],
+      ['root-stream-settle', 'assistant_text', 'the root says'],
+      ['root-stream-settle', 'read', 'notes'],
+    ])
   })
 
   it('references the partial root stream from failure.json when the run throws after the root streamed', async () => {

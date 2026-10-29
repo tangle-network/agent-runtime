@@ -1,6 +1,5 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { build } from 'tsdown'
+import { readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   cancelRun,
@@ -12,6 +11,7 @@ import {
 import {
   type Executables,
   type ProcessFixture,
+  prepareExecutables,
   rootId,
   withFixture,
 } from './fixtures/uncertain-create-harness'
@@ -20,29 +20,7 @@ import { digest, object, readRecords, record } from './fixtures/uncertain-create
 let bundle: string
 let executables: Executables
 beforeAll(async () => {
-  bundle = await mkdtemp(join(resolve('node_modules'), '.uncertain-create-'))
-  await build({
-    config: false,
-    entry: {
-      service: resolve('tests/integration/fixtures/uncertain-create-service.ts'),
-      coordinator: resolve('tests/integration/fixtures/uncertain-create-coordinator.ts'),
-      credential: resolve('tests/integration/fixtures/uncertain-create-credential.ts'),
-    },
-    outDir: bundle,
-    format: ['esm'],
-    platform: 'node',
-    target: 'es2022',
-    fixedExtension: true,
-    dts: false,
-    sourcemap: false,
-    deps: { neverBundle: true },
-    logLevel: 'error',
-  })
-  executables = {
-    service: join(bundle, 'service.mjs'),
-    coordinator: join(bundle, 'coordinator.mjs'),
-    credential: join(bundle, 'credential.mjs'),
-  }
+  ;({ bundle, executables } = await prepareExecutables())
 })
 afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
@@ -929,7 +907,18 @@ describe('accepted native recovery and historical identities', () => {
         output: acceptedExecutions.size * 2,
         cacheBreakdownKnown: false,
       })
-      expect(pursuit.result.spentTotal.tokensKnown).toBe(true)
+      // On failure, name each node's recorded spend: CI keeps no fixture directory to inspect.
+      expect(
+        pursuit.result.spentTotal.tokensKnown,
+        JSON.stringify({
+          spentTotal: pursuit.result.spentTotal,
+          nodes: events.flatMap((event) =>
+            event.kind === 'execution-result' || event.kind === 'settled'
+              ? [{ kind: event.kind, id: event.id, spent: event.spent }]
+              : [],
+          ),
+        }),
+      ).toBe(true)
       const acceptance = finalizers.filter(
         (row) => Array.isArray(row.delivered) && row.delivered.length === 1,
       )[0]!

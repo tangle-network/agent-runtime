@@ -1,10 +1,17 @@
 import type { TokenUsage } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import {
+  collectAgentFinalMessageText,
+  collectAgentResponseText,
+  isToolBearingEvent,
+  type SandboxEvent,
+} from '@tangle-network/sandbox'
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { recordValue } from '../../record-value'
 import { isSandboxTerminalEvent, sandboxTerminalUsageField } from '../sandbox-events'
+import type { ExecutorResult } from '../supervise/types'
 import type { ProviderLeafOut } from './provider-executor-admission'
+import { ValidationError } from './provider-validation-error'
 
 export function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): SandboxEvent {
   const normalized = event.normalized
@@ -177,13 +184,12 @@ export function createProviderFailureLedger(): {
 }
 
 function failureDetail(value: Record<string, unknown> | undefined): string | undefined {
-  if (!value) return undefined
-  const error = value.error
+  const error = value?.error
   if (typeof error === 'string') return error
   const nestedError = recordValue(error)
   if (typeof nestedError?.message === 'string') return nestedError.message
-  if (typeof value.message === 'string') return value.message
-  return typeof value.detail === 'string' ? value.detail : undefined
+  if (typeof value?.message === 'string') return value.message
+  return typeof value?.detail === 'string' ? value.detail : undefined
 }
 
 /** Preserve the Sandbox outcome's numeric HTTP metadata across the provider adapter. */
@@ -198,11 +204,10 @@ export function failureStatusCode(value: unknown): number | undefined {
 }
 
 function failureCode(value: Record<string, unknown> | undefined): string | undefined {
-  if (!value) return undefined
-  const error = recordValue(value.error)
+  const error = recordValue(value?.error)
   return (
-    stringValue(value.errorCode) ??
-    stringValue(value.code) ??
+    stringValue(value?.errorCode) ??
+    stringValue(value?.code) ??
     stringValue(error?.errorCode) ??
     stringValue(error?.code)
   )
@@ -226,11 +231,7 @@ export function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | 
     data: {
       ...event.data,
       ...usage,
-      ...('usageMode' in event
-        ? { usageMode: event.usageMode }
-        : event.data.usageMode === undefined
-          ? {}
-          : { usageMode: event.data.usageMode }),
+      ...('usageMode' in event ? { usageMode: event.usageMode } : {}),
     },
     ...(event.id ? { id: event.id } : {}),
   }
@@ -325,12 +326,39 @@ export function resultFromEvents(
   return { content: fallbackText, events }
 }
 
+/** Decode only the final assistant message, keeping the unmodified stream as evidence. */
+export function jsonResultFromEvents(
+  events: AgentEnvironmentEvent[],
+): Pick<ExecutorResult<unknown>, 'out' | 'outcome'> {
+  if (events.some((event) => event.type === 'result' && event.data.eventStreamComplete === false))
+    throw new ValidationError('provider JSON output: complete native event observation is required')
+  const projected = events.map(sandboxEventFromEnvironmentEvent)
+  const text =
+    collectAgentFinalMessageText(projected) ??
+    (projected.some(isToolBearingEvent) ? undefined : collectAgentResponseText(projected))
+  try {
+    return {
+      out: JSON.parse(text ?? '', (_key, value) => {
+        if (typeof value === 'number' && !Number.isFinite(value))
+          throw new SyntaxError('JSON number is not finite')
+        return value
+      }),
+    }
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+    return {
+      out: null,
+      outcome: {
+        success: false,
+        error: `provider JSON output: ${text === undefined ? 'missing final assistant message' : 'invalid final assistant JSON'}; return only a JSON value after tool use`,
+        errorCode: 'RUNTIME_OUTPUT_FORMAT_INVALID',
+      },
+    }
+  }
+}
+
 export function textFromEnvironmentEvent(event: AgentEnvironmentEvent): string {
-  if (
-    typeof event.normalized === 'object' &&
-    event.normalized &&
-    event.normalized.type === 'message.part.updated'
-  ) {
+  if (event.normalized?.type === 'message.part.updated') {
     return typeof event.normalized.delta === 'string' ? event.normalized.delta : ''
   }
   const data = event.data

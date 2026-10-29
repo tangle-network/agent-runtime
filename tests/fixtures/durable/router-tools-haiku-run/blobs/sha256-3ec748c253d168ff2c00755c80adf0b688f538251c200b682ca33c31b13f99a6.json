@@ -1,0 +1,10 @@
+{
+  "name": "haiku-c",
+  "model": { "default": "zai/glm-5.3", "provider": "tangle-router", "metadata": { "maxTurns": 4 } },
+  "harness": "cli-base",
+  "tools": {
+    "agent_runtime_coordination_spawn_worker": true,
+    "agent_runtime_coordination_submit_result": true
+  },
+  "metadata": { "maxTurns": 4 }
+}

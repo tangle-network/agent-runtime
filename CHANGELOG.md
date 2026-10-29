@@ -1,3 +1,173 @@
+## 3.0.1
+
+Retire the mocked transcript test that treated normalized provider tool events as proof of native capture. The viewer correctly reports unavailable native evidence alongside those events; actual process, integrity and replay coverage remains unchanged.
+
+## 3.0.0
+
+Preserve node materialization across retries and project authorized later-seat receipts beside their new attempt bindings.
+
+Native inspection has two named output compatibility changes. `HarnessTranscriptUnavailableReason` now includes `capture-failed`: exhaustive reason switches and maps must handle attempted capture that failed, retaining the independent task result. `TopJournalEvent.kind` now includes `materialized`, `seat-materialized` and `execution-bound`: exhaustive event switches and maps must handle these evidence events without assuming spend or status fields. Later seat receipts update projected materialization, and execution bindings are checked against the current attempt. Existing executor implementations keep the same required result keys. SQL `readSnapshot` remains optional and callers may feature-detect it. Graph YAML, task profiles and storage formats need no migration.
+
+Provider-backed graphs decode exact final-message JSON while retaining the full provider evidence and native execution outcome.
+
+Document public inspection projections and expose their referenced types so API reference generation and consumer declarations agree.
+
+Expose the existing RunCancellationReason through the kernel entry for original retained-leaf terminal cleanup with explicit cancellation provenance.
+
+Require verified public archive bytes before reporting Runtime or Bench publication served, with read-only verification separated from npm authority.
+
+Preserve complete retained event replay when the exact result arrives before its first network frame; qualify SQL recovery with actual provider processes.
+
+Expose verified native inspection through the existing web viewer transport and reuse the canonical supervisor projection for SQL-backed run owners.
+
+Share one immutable SQL journal, blob and coordination snapshot per inspection while independent inspections refresh without acquiring ownership.
+
+Stop original retained leaf executions before capture and release when resuming an expired or already-cancelled run; preserve sources whose exact stop cannot be confirmed.
+
+## 2.3.14
+
+Run the unchanged uncertain-create recovery suite in the existing serial test project. A retained parallel run recorded 396ms from child provision admission to its successful create record, exceeding the fixture's 250ms SDK deadline; all cases, assertions, budgets and timeouts remain unchanged.
+
+## 2.3.13
+
+Format the custom subscription-driver integration proof for the repository lint gate so package qualification can complete. All execution and admission assertions remain unchanged.
+
+## 2.3.12
+
+Allow caller-owned `driveHarness` and `resolveDriveHarness` execution to retain authored subscription seats without an unused Runtime seat selector. Runtime-managed drivers still require `selectSeat` before execution.
+
+## 2.3.11
+
+Allow explicitly delegated retained interactive control within private local Runtime state without replacing an attached terminal's provider lease, and serialize retry-safe observer turns across control processes.
+
+## 2.3.10
+
+Classify packed declaration compatibility through the same emitter on both archive sides, preserving optional nested additions and equivalent private type representations while refusing incompatible patch releases.
+
+Stop graph flows when a target cannot be admitted, preserve the refusal code, and show a durable root's recorded outcome and owner-scoped terminal route. Reuse shared Codex app/plugin isolation for reproducible native execution.
+
+## 2.3.9
+
+A flow graph's stored route check may name a `maps` join or a map item node, as it already could a routes node: the check reads that node's latest delivered output. Before, the join's workers were missing from the settled outputs the check reads, so a check naming the join was always false and the run ended `no-winner` / `no-result-selected` though every node delivered. The run's output stays the terminal nodes' results.
+
+A supervised child's abortable waits (budget, slot, execution) now run through the one `runAbortable` race. Behavior is unchanged: an abort still loses to a result the executor produces in the same tick, and a pre-aborted wait still observes the pending work.
+
+## 2.3.8
+
+A flow graph's stored route check may name any node, not only a terminal one: each condition reads that node's latest delivered output. Before, the check saw only `{ [terminal node]: result }`, so a check that also named an upstream node (for example `fetch-pr /merge_sha` with `review-pr /approved`) was always false, and the run ended `no-winner` / `no-result-selected` though every node delivered. The run's output stays the terminal nodes' results, and the check stays exact.
+
+`AgentGraph.entry`'s documentation now states this contract.
+
+## 2.3.7
+
+Release qualification reads retained ownership from the integration provider's stored environment record and retires obsolete expectations requiring replacement while failed-turn evidence is still pending.
+
+## 2.3.6
+
+A retained run that reuses an environment proves ownership only from the metadata on the provider's own `get` or `create` record. It no longer falls back to a metadata-filtered `list`. With Tangle Sandbox that list filters client-side and walked the caller's whole inventory before admission: about 55 pages and 77 s on a 68.5k-sandbox account, and a 400 past 2,000 sandboxes. An environment record without metadata is now refused at once ("... without metadata, so it cannot prove retained environment ownership").
+
+## 2.3.5
+
+Keep a failed retained invocation's original admissions while its workspace evidence is unverified. Capture retries no longer allocate successor environments; successful accepted turns retain their existing evidence-debt continuation.
+
+Keep complete EOF JSON records visible in live snapshots and activity cadence, without double-counting them when a writer later appends the newline.
+
+Use worker and supervisor reason fields for exact recorded failures while preserving the existing public journal event contract.
+
+Live topology snapshots expose actual event activity time and full-stream median cadence for workers and supervisors, preserve exact recorded child failure reasons, and keep transport heartbeats out of quiet detection.
+
+## 2.3.4
+
+`loadGraphFile` resolves a repeated `needs` entry once, before any host I/O such as an OAuth grant, and collapses a resolved connection that exactly duplicates one already on the profile (authored or resolved). Distinct aliases and capabilities, and conflicting explicit aliases, are kept for the profile schema and the Hub resolver to judge. Before, `needs: [github, github]` or a need equal to an authored connection compiled duplicate references that the shared Hub MCP resolver refused.
+
+## 2.3.3
+
+Publishes the 2.3.2 changes: tag `v2.3.2` failed release qualification on an unformatted test before publication, so 2.3.2 never reached npm.
+
+## 2.3.2
+
+`reconnectRetainedInteractiveRun` and `recoverRetainedInteractiveRun` accept `journalRoot`, and an interactive run's journal is keyed by its session id, so turns sent from a reconnected handle in another process land in the same `observer.jsonl`. A turn record carries its operation id only.
+
+## 2.3.1
+
+A Router call whose completed response could not be observed is never run again, even after the request deadline and even when the caller's transport throws the `SDKError` of a different `@tangle-network/agent-core` copy. Runtime now recognizes the failure by its `context.phase: 'response_observation'`, not by `instanceof`. With discovery-lab pinned to agent-core 1.0.0 beside Runtime's `^1.0.1`, two copies were installed and a completed seat process re-ran up to `retry.maxAttempts` times, one paid model call each.
+
+`agent-runtime-top --web` shows a `router` or `router-tools` worker's conversation: assistant text, tool calls and tool results. These executors run their tool loop in process and stream no progress, so 2.3.0's node streams never covered them ("every worker" overstated it). They retain the conversation as a harness transcript at settlement, and the viewer now renders that transcript when a worker has no stream file, in place of "Native conversation was not captured". `WorkerView` (from `@tangle-network/agent-runtime/tui`) gains optional `transcript: { ref, harness }`, the settled worker's retained-conversation receipt.
+
+## 2.3.0
+
+`startRetainedInteractiveRun({ journalRoot })` now journals the run's lifecycle beside its admissions in `<journalRoot>/<runId>/observer.jsonl`. Each accepted `sendPrompt` becomes an `agent.turn` record carrying its number and operation id, never the prompt. The first `exited` status read, or an accepted `stop`, writes one terminal `agent.run` record: done for a clean exit or a stop, failed for a lost session or a nonzero exit code. `agent-runtime-top --web` then shows the run settle instead of running forever.
+
+A `supervise({ runDir })` run now keeps every worker's progress stream (text, reasoning, tool calls and results, redacted), not only the root's: `<runDir>/streams/<node>.jsonl`, in the `root-stream.jsonl` record shape. A worker that streams nothing writes no file. `agent-runtime-top --web` reads it as that agent's transcript, so a bridge or provider worker's conversation is shown in place of "Native conversation was not captured".
+
+## 2.2.1
+
+`agent-runtime-top --web`: closing the viewer now ends the snapshot stream with `event: end`, so a client can stop instead of reconnecting to a closed server. For a run under a runs root (`<root>/<runId>/observer.jsonl`), an agent's transcript now reads that run's own blobs and projection, so it shows the input the agent was given. When an agent's native conversation was not captured, the transcript also shows the result it delivered (`provenance: 'recorded-result'`).
+
+## 2.2.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+`@tangle-network/agent-runtime/durable` exports `durableRunToolSpans(runDir)`: every tool span a finished `supervise({ runDir })` run recorded, read from the directory alone. The root's `root-stream.jsonl` becomes one trace named by the root node id, and each settled node's persisted trace is read from `<runDir>/blobs` and re-keyed to its node id. A node whose trace blob is missing throws `ValidationError`. The continuation panel's trace store reads through the same builder.
+
+A retained admission error whose machine code is not a named platform refusal, and that carries no HTTP status, is no longer settled as a platform `request-rejected` refusal. 2.1.0 matched any such error (for example a dispatch that could not bind to an environment the provider lost), so the run stopped instead of starting a new environment.
+
+## 2.1.0
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+A retained child that settles pending (for example a dispatch the platform refused with HTTP 503) now keeps the provider's machine code on its settled failure and in the result tree, instead of only the synthetic transport cause.
+
+A dispatch the platform refuses before forwarding it (`HUB_CREDENTIAL_REFRESH_FAILED` at HTTP 503) now settles as `request-rejected` owned by `platform`, nothing to reconcile, instead of a lost transport. `RuntimeFailureCause` gains optional `providerStatus` and `retryAfterMs`, read from the provider's typed error beside `providerCode`. Any other 5xx stays `transport`; nothing is retried automatically.
+
+## 2.0.3
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+A wake whose debounce was capped at the deadline warning is now always the deadline wake, even when the timer fires before the wall clock reaches the warning on a loaded host, so the manager is no longer woken a second time at once for the warning.
+
+A manager's wake debounce now ends by its deadline warning, and a wake that falls due at the warning carries both its events and the deadline notice in one turn. Before, a worker that settled within the debounce of the warning pushed the manager's next turn past the deadline, so the run ended without that turn.
+
+`serveTopWeb().close()` now finishes any read in flight and reads once more before ending the event stream, so a run that settles just before the caller closes the viewer still delivers its settled snapshot.
+
+## 2.0.2
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+The `@tangle-network/agent-interface` peer floor rises to `^5.10.2`, so an install whose lock still holds an Interface release without the bounded profile admission (Zod 54404) fails instead of resolving silently.
+
+`agent-runtime-top --web` keeps a supervised run's card when its observer journal carries child turn rows, takes the root's status from its spawn-journal settlement when the observer has none, and shows a run as soon as its spawn journal begins.
+
+## 2.0.1
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.
+
+An in-place CLI harness that exits nonzero (including a signal kill on cancel) or times out now reports a failed execution, so its node settles down and a flow is never counted a winner on it.
+
 ## 2.0.0
 
 Adopt updated Tangle dependency selections and peer ranges across the Runtime and benchmark workspaces.

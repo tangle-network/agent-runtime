@@ -189,6 +189,22 @@ async function observeRouterResponse(
   }
 }
 
+/**
+ * A completed response whose observation failed: never a reason to infer again. Recognized by its
+ * `context.phase`, not `instanceof SDKError`: a caller's transport throws the SDKError of its own
+ * agent-core copy, and a second installed copy (discovery-lab pinned 1.0.0 beside Runtime's ^1.0.1)
+ * made the check false, so a completed seat process re-ran up to `maxAttempts` times.
+ */
+function isResponseObservationFailure(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const context = (error as { context?: unknown }).context
+  return (
+    typeof context === 'object' &&
+    context !== null &&
+    (context as { phase?: unknown }).phase === 'response_observation'
+  )
+}
+
 export async function retryRouterOperation<T>(
   retry: ReturnType<typeof resolveRouterRetryPolicy>,
   callerSignal: AbortSignal | undefined,
@@ -203,8 +219,7 @@ export async function retryRouterOperation<T>(
         try {
           return await operation(attemptSignal.signal)
         } catch (error) {
-          if (error instanceof SDKError && error.context?.phase === 'response_observation')
-            throw error
+          if (isResponseObservationFailure(error)) throw error
           if (callerSignal?.aborted) throw callerSignal.reason ?? error
           if (attemptSignal.signal.aborted) {
             throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {

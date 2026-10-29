@@ -13,6 +13,9 @@
  * ```
  *
  * The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--once] [--no-color]`.
+ * Its `--web --root <run-dir> --assets <renderer-dist>` mode serves the same facts over HTTP/SSE.
+ * Workers and supervisors expose optional epoch `lastActivityAt` and full-stream
+ * `medianEventGapMs` from actual recorded events. Metadata, heartbeats and file times do not count.
  *
  * @module
  * @experimental
@@ -23,9 +26,12 @@
 export { provisionSupervisor } from '../runtime/supervise/provision-supervisor'
 export {
   type BudgetStats,
+  buildSupervisorView as projectTopSupervisor,
   type Distribution,
+  isSpawnEvent as isTopJournalEvent,
   loadTopSnapshot,
   type SpendStats,
+  type SupervisorState as TopSupervisorState,
   type SupervisorTotals,
   type SupervisorView,
   type TopJournalEvent,
@@ -34,6 +40,34 @@ export {
   type TopSnapshotDiagnostic,
   type TopSnapshotDiagnosticReason,
   type TopSnapshotDiagnosticSource,
+  topSnapshot as projectTopSnapshot,
   type WorkerView,
 } from './top-snapshot'
-export { serveTopWeb, type TopSnapshotFrame, type TopWebOptions } from './top-web'
+export {
+  type BaselineAuthority,
+  createTopAgentStream,
+  type FileIdentity,
+  type HarnessRowsGap,
+  type HarnessRowsSession,
+  type HarnessSessionRow,
+  harnessSessionRows,
+  type RecordedActivity,
+  type RecordedEvents,
+  readTopAgentHistory,
+  readTopAgentInspection,
+  type TopAgentMetadata,
+  type TopAgentRowsFrame,
+  type TopAgentStreamFrame,
+  type TopSessionReader,
+  type TopTranscriptRow,
+  topAgentMetadata,
+  topAgentWorker,
+} from './top-transcript'
+export {
+  serveTopWeb,
+  TOP_SNAPSHOT_RECONCILE_MS,
+  type TopInspection,
+  type TopInspectionSource,
+  type TopSnapshotFrame,
+  type TopWebOptions,
+} from './top-web'

@@ -1,34 +1,6 @@
-/** Isolation settings asserted before a reproducible Codex run is allowed to start. */
-export interface CodexExecutionPolicy {
-  sessionPersistence: 'ephemeral'
-  userConfig: false
-  rules: false
-  projectInstructions: false
-  skillInstructions: false
-  appInstructions: false
-  toolSuggestions: false
-  multiAgentInstructions: false
-  sandbox: 'workspace-write'
-  permissionProfile: 'agent_runtime_reproducible'
-  approvalPolicy: 'never'
-  shellNetwork: false
-  webSearch: false
-  serviceTier: 'default'
-  shellEnvironment: 'core-filtered'
-  loginShell: false
-  credentialsReadable: false
-  hostHomeReadable: false
-  procEnvironment: 'private-sanitized'
-  sensitiveEnvironmentNamesVisible: false
-  parentRepoRead: false
-  gitMetadata: false
-  temporaryDirectory: 'workspace-private'
-  stagedExecutable: 'static-elf-read-only'
-  callerReadDeniedPaths: 'enforced'
-  containerSockets: false
-}
+import { CODEX_DISABLED_FEATURE_ARGS } from '@tangle-network/agent-profile-materialize'
 
-export const CODEX_EXECUTION_POLICY: CodexExecutionPolicy = {
+export const CODEX_EXECUTION_POLICY = {
   sessionPersistence: 'ephemeral',
   userConfig: false,
   rules: false,
@@ -55,9 +27,17 @@ export const CODEX_EXECUTION_POLICY: CodexExecutionPolicy = {
   stagedExecutable: 'static-elf-read-only',
   callerReadDeniedPaths: 'enforced',
   containerSockets: false,
+} as const
+
+type CodexPolicyValues = {
+  -readonly [K in keyof typeof CODEX_EXECUTION_POLICY]: (typeof CODEX_EXECUTION_POLICY)[K]
 }
 
+/** Mutable public contract derived from the single enforced policy value. */
+export interface CodexExecutionPolicy extends CodexPolicyValues {}
+
 export const CODEX_REPRODUCIBLE_ARGS = [
+  ...CODEX_DISABLED_FEATURE_ARGS,
   '--ephemeral',
   '--ignore-rules',
   '--json',

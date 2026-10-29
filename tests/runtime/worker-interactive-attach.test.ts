@@ -18,6 +18,8 @@ import {
   type AgentInteractiveSessionStart,
   type AgentInteractiveTerminalSession,
   agentInteractiveSessionControlClaimRequestDigest,
+  agentInteractiveSessionPromptRequestDigest,
+  agentInteractiveSessionStopRequestDigest,
   canonicalCandidateDigest,
   type TerminalOutputEvent,
 } from '@tangle-network/agent-interface'
@@ -31,9 +33,14 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
+import { FileObserverJournal } from '../../src/durable/observer-journal'
+import { projectPursuit } from '../../src/durable/observer-projection'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
-import { startRetainedInteractiveRun } from '../../src/runtime/retained-interactive'
+import {
+  reconnectRetainedInteractiveRun,
+  startRetainedInteractiveRun,
+} from '../../src/runtime/retained-interactive'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
@@ -52,6 +59,7 @@ import {
   workerInteractiveBindingFile,
   writeWorkerInteractiveBinding,
 } from '../../src/runtime/supervise/worker-interactive'
+import { serveTopWeb, type TopSnapshotFrame } from '../../src/tui/top-web'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 50, maxTokens: 100_000 }
@@ -873,5 +881,92 @@ describe('scope.interactive — attaching to the exact process one worker runs i
 
     execution.open()
     await scope.next()
+  })
+})
+
+describe('retained interactive runs under a journal root', () => {
+  it('journals accepted turns from the start and a reconnected handle, and settles on stop', async () => {
+    // Braid M3 (#10553): a 3-minute claude-code run journaled only its three admissions, so the
+    // canvas showed one 'root Running' node for its whole life and after it stopped.
+    const journalRoot = mkdtempSync(join(tmpdir(), 'interactive-journal-'))
+    const assets = mkdtempSync(join(tmpdir(), 'interactive-journal-assets-'))
+    writeFileSync(join(assets, 'workspace-viewer.js'), 'export {};')
+    writeFileSync(join(assets, 'styles.css'), 'body { color: black; }')
+    const provider = interactiveProvider('journaled')
+    const handle = await startRetainedInteractiveRun({
+      provider,
+      environment: {
+        profile: testAgentProfile('journaled', { harness: 'pi' }),
+        idempotencyKey: 'journaled-workspace',
+      },
+      interactiveIdempotencyKey: 'journaled-native',
+      journalRoot,
+      onAdmission: async () => {},
+    })
+    // A second process (Braid's `braid rpc` steer) rebuilds the handle from the durable ref alone.
+    const reconnected = await reconnectRetainedInteractiveRun({
+      provider,
+      ref: handle.ref,
+      journalRoot,
+    })
+    const runId = handle.ref.run.sessionId
+    const claimMaterial = {
+      operationId: 'journaled:claim',
+      ref: handle.ref,
+      holderId: 'operator',
+      expectedGeneration: 0,
+    }
+    const claimed = await handle.claimControl({
+      ...claimMaterial,
+      requestDigest: agentInteractiveSessionControlClaimRequestDigest(claimMaterial),
+    })
+    const control = claimed.control!
+    const prompts = [
+      { prompter: handle, prompt: 'first secret task' },
+      { prompter: reconnected!, prompt: 'second secret task' },
+    ]
+    for (const [index, { prompter, prompt }] of prompts.entries()) {
+      const material = {
+        operationId: `journaled:prompt:${index}`,
+        ref: handle.ref,
+        control,
+        prompt,
+      }
+      await prompter.sendPrompt({
+        ...material,
+        requestDigest: agentInteractiveSessionPromptRequestDigest(material),
+      })
+    }
+    const stopMaterial = { operationId: 'journaled:stop', ref: handle.ref, control }
+    await handle.stop({
+      ...stopMaterial,
+      requestDigest: agentInteractiveSessionStopRequestDigest(stopMaterial),
+    })
+
+    const records = await new FileObserverJournal(
+      join(journalRoot, runId, 'observer.jsonl'),
+      runId,
+    ).read()
+    const events = records.flatMap((record) => (record.event ? [record.event] : []))
+    expect(events.filter((event) => event.target === 'agent.turn')).toMatchObject([
+      { payload: { operationId: 'journaled:prompt:0' } },
+      { payload: { operationId: 'journaled:prompt:1' } },
+    ])
+    // A turn says that it happened, never what was asked.
+    expect(JSON.stringify(records)).not.toContain('secret task')
+    expect(projectPursuit(records).runs).toMatchObject([{ runId, status: 'done' }])
+
+    const web = await serveTopWeb({ roots: [journalRoot], assets })
+    try {
+      const frame = (await (await fetch(`${web.url}api/top`)).json()) as TopSnapshotFrame
+      expect(
+        frame.snapshots.flatMap((snapshot) => snapshot.supervisors).find((run) => run.id === runId)
+          ?.status,
+      ).toBe('done')
+    } finally {
+      await web.close()
+      rmSync(journalRoot, { recursive: true, force: true })
+      rmSync(assets, { recursive: true, force: true })
+    }
   })
 })

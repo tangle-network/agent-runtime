@@ -1,12 +1,12 @@
 import { ValidationError } from '../../errors'
 import type { RunGraphOptions } from './graph'
 
-/** Graph nodes share the same resumable Bridge transport as Braid. Hosts own its lifecycle. */
+/** Graph nodes expose JSON outputs through Runtime's resumable execution transports. */
 export function graphExecutionOptions(options: RunGraphOptions): RunGraphOptions {
   if (options.makeLeafAgent) return options
   const backend = options.backend
   if (backend)
-    return backend.backend === 'bridge'
+    return backend.backend === 'bridge' || backend.backend === 'provider'
       ? { ...options, backend: { ...backend, outputFormat: 'json' } }
       : options
   const bridgeUrl = process.env.CLI_BRIDGE_URL

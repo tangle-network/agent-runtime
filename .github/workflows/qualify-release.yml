@@ -109,10 +109,10 @@ jobs:
         id: cohort
         run: node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        env: { PNPM_CONFIG_STORE_DIR: "${{ runner.temp }}/pnpm-bootstrap-store" }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          cache: pnpm
           registry-url: https://registry.npmjs.org
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -121,10 +121,10 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm peers check
       - name: Lint (biome)
         run: pnpm run lint
-      - name: Test
-        run: pnpm run test
       - name: Build
         run: pnpm run build
+      - name: Test
+        run: pnpm run test
       - name: Typecheck (src + examples; examples resolve against built dist)
         run: pnpm run typecheck
       - name: Verify package source and metadata
@@ -258,10 +258,10 @@ jobs:
           ref: ${{ needs.release-source.outputs.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        env: { PNPM_CONFIG_STORE_DIR: "${{ runner.temp }}/pnpm-bootstrap-store" }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          cache: pnpm
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
@@ -282,10 +282,10 @@ jobs:
           ref: ${{ needs.release-source.outputs.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        env: { PNPM_CONFIG_STORE_DIR: "${{ runner.temp }}/pnpm-bootstrap-store" }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          cache: pnpm
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
@@ -317,11 +317,10 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        env: { PNPM_CONFIG_STORE_DIR: "${{ runner.temp }}/pnpm-bootstrap-store" }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
       - name: Wait for published agent-bench dependencies

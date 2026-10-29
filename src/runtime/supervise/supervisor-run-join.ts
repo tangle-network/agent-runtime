@@ -14,7 +14,7 @@ import {
   drainLiveChildren,
   unconfirmedRecord,
 } from './supervisor-child-join'
-import type { Scope, SupervisorOpts, UnconfirmedTeardown } from './types'
+import type { HeldEnvironment, Scope, SupervisorOpts, UnconfirmedTeardown } from './types'
 
 /** The join barrier of one run: what it reads, and the teardown evidence it leaves. */
 export interface RunJoin {
@@ -130,10 +130,7 @@ function unrecoveredRetainedChildren(
   const unrecovered: UnconfirmedTeardown[] = []
   for (const recovery of resumeFrom?.recoveries ?? []) {
     if (adopted.has(recovery.spawned.id)) continue
-    const environments = new Map<
-      string,
-      { provider: string; environmentId: string; keptFor: 'evidence' }
-    >()
+    const environments = new Map<string, HeldEnvironment>()
     for (const admission of recovery.admissions) {
       const environment =
         admission.phase === 'environment'
