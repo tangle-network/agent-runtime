@@ -86,8 +86,7 @@ if (current.agentProfileSchema.safeParse({ resources: { knowledge } }).success) 
   )
 }
 
-// Interface 5.3 admits profile proxySecrets and candidate secret-ref config values that the
-// SDK's private Interface 4 cannot carry. Runtime refuses them by name and never drops them.
+// Private profile config that Sandbox cannot carry remains an explicit refusal.
 const proxySecrets = [
   {
     hosts: ['api.example.com'],
@@ -101,13 +100,12 @@ const secretRefServer = {
   env: { SEARCH_REGION: { kind: 'secret-ref', key: 'example' } },
 }
 const uncarried = [
-  ['proxySecrets', { name: 'proxy-boundary', harness: 'codex', proxySecrets }],
   ['mcp.search.env.SEARCH_REGION (secret-ref)', { name: 'secret-ref-boundary', mcp: { search: secretRefServer } }],
 ]
 const interfaceVersion = JSON.parse(
   readFileSync(new URL('./node_modules/@tangle-network/agent-interface/package.json', import.meta.url), 'utf8'),
 ).version
-const interfaceAdmitsProxySecrets = current.agentProfileSchema.safeParse(uncarried[0][1]).success
+const interfaceAdmitsProxySecrets = current.agentProfileSchema.safeParse({ proxySecrets }).success
 let uncarriedFieldRefusals = 0
 for (const [field, profile] of uncarried) {
   if (interfaceAdmitsProxySecrets) {
@@ -130,8 +128,7 @@ for (const [field, profile] of uncarried) {
     uncarriedFieldRefusals += 1
   }
 }
-// A profile without those fields must convert to the same canonical bytes under every
-// Interface this gate installs; verify-package-exports compares the digests across apps.
+// Supported profile data keeps identical canonical bytes across admitted Interface releases.
 const canonical = (value) =>
   Array.isArray(value)
     ? `[${value.map(canonical).join(',')}]`
@@ -144,6 +141,7 @@ const canonical = (value) =>
       : JSON.stringify(value)
 const baseline = {
   name: 'conversion-baseline',
+  ...(interfaceAdmitsProxySecrets ? { proxySecrets } : {}),
   description: 'Synthetic conversion baseline',
   version: '1.0.0',
   tags: ['packed'],
