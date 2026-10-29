@@ -1,3 +1,7 @@
+## 3.0.5
+
+Deliver protected stored-secret declarations through provider adapters with complete retained custody identity, and retire qualification that required the obsolete proxy-binding refusal.
+
 ## 3.0.4
 
 Keep the benchmark workspace on Runtime's selected Sandbox SDK and check its public client types in the normal typecheck gate.
