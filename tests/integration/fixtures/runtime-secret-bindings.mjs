@@ -606,6 +606,8 @@ try {
       failureText
     try {
       for (let run = 0; run < (mode === 'namespace' ? 2 : 1); run++) {
+        mcpAccepted = false
+        mcpRefusedWrongBearer = false
         const result = await supervise(
           profile,
           'Exercise credential custody over the actual HTTP boundary.',
