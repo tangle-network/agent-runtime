@@ -147,6 +147,7 @@ const api = createServer(async (request, response) => {
           type,
           name: type,
           description: 'Actual HTTP protocol fixture; no model',
+          callerCredentialOnly: false,
           capabilities: {
             streaming: true,
             toolUse: true,
@@ -584,39 +585,58 @@ try {
     )
   } else {
     let settled = false,
-      rejected = false
+      rejected = false,
+      resultKind,
+      resultReason,
+      failureText
+    const safeFailure = (text) =>
+      String(text ?? '')
+        .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
+        .replace(/[\r\n]+/g, ' ')
+        .slice(0, 600)
     try {
-      for (let run = 0; run < (mode === 'namespace' ? 2 : 1); run++)
-        await supervise(profile, 'Exercise credential custody over the actual HTTP boundary.', {
-          runId: `runtime-secret-bindings-${mode}`,
-          backend: { backend: 'provider', provider },
-          budget: {
-            maxIterations: 4,
-            maxTokens: 1000,
-            ...(['explicit-ttl', 'unbounded', 'long-ttl'].includes(mode)
-              ? {}
-              : { deadlineMs: 10000 }),
-          },
-          perWorker: { maxIterations: 1, maxTokens: 100 },
-          driverRetry: { enabled: false },
-          coordination: {
-            authentication:
-              mode === 'long-ttl'
-                ? { ttlMs: 2 ** 33 }
-                : mode === 'explicit-ttl'
-                  ? { ttlMs: 10000 }
-                  : mode === 'renewal'
-                    ? { ttlMs: 4000 }
-                    : true,
-            publicUrl: ({ port }) => {
-              upstream = `http://127.0.0.1:${port}/coordination`
-              return mode === 'fallback' ? upstream : publicUrl
+      for (let run = 0; run < (mode === 'namespace' ? 2 : 1); run++) {
+        const result = await supervise(
+          profile,
+          'Exercise credential custody over the actual HTTP boundary.',
+          {
+            runId: `runtime-secret-bindings-${mode}`,
+            backend: { backend: 'provider', provider },
+            budget: {
+              maxIterations: 4,
+              maxTokens: 1000,
+              ...(['explicit-ttl', 'unbounded', 'long-ttl'].includes(mode)
+                ? {}
+                : { deadlineMs: 10000 }),
+            },
+            perWorker: { maxIterations: 1, maxTokens: 100 },
+            driverRetry: { enabled: false },
+            coordination: {
+              authentication:
+                mode === 'long-ttl'
+                  ? { ttlMs: 2 ** 33 }
+                  : mode === 'explicit-ttl'
+                    ? { ttlMs: 10000 }
+                    : mode === 'renewal'
+                      ? { ttlMs: 4000 }
+                      : true,
+              publicUrl: ({ port }) => {
+                upstream = `http://127.0.0.1:${port}/coordination`
+                return mode === 'fallback' ? upstream : publicUrl
+              },
             },
           },
-        })
-      settled = true
-    } catch {
+        )
+        resultKind = result.kind
+        resultReason = result.reason
+        failureText = safeFailure(result.error?.message)
+        settled = result.kind === 'winner'
+        rejected = result.kind === 'no-winner' && result.reason === 'driver-failed'
+        if (!settled) break
+      }
+    } catch (error) {
       rejected = true
+      failureText = safeFailure(error instanceof Error ? error.message : error)
     }
     const noRawCreate = creates.every((create) =>
       [...secretValues].every((value) => !JSON.stringify(create).includes(value)),
@@ -633,6 +653,9 @@ try {
         mode,
         settled,
         rejected,
+        resultKind,
+        resultReason,
+        failureText,
         mcpAccepted,
         mcpRefusedWrongBearer,
         noRawCreate,

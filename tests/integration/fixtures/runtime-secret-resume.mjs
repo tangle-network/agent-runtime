@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import {
   createTangleProvider,
   defaultTangleSandboxCapabilities,
@@ -20,7 +21,7 @@ const provider = createTangleProvider({
     directExec: false,
   }),
 })
-await supervise(
+const result = await supervise(
   {
     name: 'custody-resume',
     harness: 'opencode',
@@ -56,8 +57,11 @@ await supervise(
         },
       },
     },
-    onDriverAttempt: async () => {
-      if (phase === 'first') await fetch(`${baseUrl}/fixture/hold-after-commit`)
+    onDriverAttempt: async (record) => {
+      if (phase === 'first') {
+        assert.equal(record.error === undefined, true)
+        await fetch(`${baseUrl}/fixture/hold-after-commit`)
+      }
     },
     coordination: {
       authentication: true,
@@ -72,4 +76,10 @@ await supervise(
     },
   },
 )
-console.log(JSON.stringify({ resumed: true }))
+console.log(
+  JSON.stringify({
+    resumed: result.kind === 'winner',
+    resultKind: result.kind,
+    resultReason: result.reason,
+  }),
+)
