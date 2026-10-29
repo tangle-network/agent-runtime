@@ -4689,7 +4689,7 @@ Read selected files only after the existing verifier has accepted the entire arc
 
 **`Experimental`**
 
-Restore regular-file artifacts into an empty destination, publishing only after complete verification.
+Restore regular files into an empty destination after complete verification; paths selects a subset.
 
 #### Parameters
 
