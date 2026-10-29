@@ -514,5 +514,5 @@ Provider dollar totals preserve billed and estimated portions separately, includ
 
 These contracts do not make a coordinator immortal or a local file lock a distributed lease.
 Use durable storage, retain the exact run's dependency cohort for recovery, and provide a reachable coordination endpoint.
-Choose a credential lifetime that covers the intended manager invocation and recovery interval; Runtime does not silently renew credentials inside a retained provider environment.
+Runtime renews host-bound coordination leases through acknowledged proxy rekey; renewal does not extend upstream credential grants or revive an expired source credential.
 A simulated long-clock test proves timer behavior, not months of observed production uptime.
