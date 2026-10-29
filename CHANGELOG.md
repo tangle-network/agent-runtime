@@ -1,3 +1,25 @@
+## 3.0.0
+
+Preserve node materialization across retries and project authorized later-seat receipts beside their new attempt bindings.
+
+Native inspection has two named output compatibility changes. `HarnessTranscriptUnavailableReason` now includes `capture-failed`: exhaustive reason switches and maps must handle attempted capture that failed, retaining the independent task result. `TopJournalEvent.kind` now includes `materialized`, `seat-materialized` and `execution-bound`: exhaustive event switches and maps must handle these evidence events without assuming spend or status fields. Later seat receipts update projected materialization, and execution bindings are checked against the current attempt. Existing executor implementations keep the same required result keys. SQL `readSnapshot` remains optional and callers may feature-detect it. Graph YAML, task profiles and storage formats need no migration.
+
+Provider-backed graphs decode exact final-message JSON while retaining the full provider evidence and native execution outcome.
+
+Document public inspection projections and expose their referenced types so API reference generation and consumer declarations agree.
+
+Expose the existing RunCancellationReason through the kernel entry for original retained-leaf terminal cleanup with explicit cancellation provenance.
+
+Require verified public archive bytes before reporting Runtime or Bench publication served, with read-only verification separated from npm authority.
+
+Preserve complete retained event replay when the exact result arrives before its first network frame; qualify SQL recovery with actual provider processes.
+
+Expose verified native inspection through the existing web viewer transport and reuse the canonical supervisor projection for SQL-backed run owners.
+
+Share one immutable SQL journal, blob and coordination snapshot per inspection while independent inspections refresh without acquiring ownership.
+
+Stop original retained leaf executions before capture and release when resuming an expired or already-cancelled run; preserve sources whose exact stop cannot be confirmed.
+
 ## 2.3.14
 
 Run the unchanged uncertain-create recovery suite in the existing serial test project. A retained parallel run recorded 396ms from child provision admission to its successful create record, exceeding the fixture's 250ms SDK deadline; all cases, assertions, budgets and timeouts remain unchanged.
