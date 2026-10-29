@@ -8,7 +8,7 @@ import { promisify } from 'node:util'
 import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { Sandbox } from '@tangle-network/sandbox'
-import { expect, it } from 'vitest'
+import { expect, it, onTestFinished } from 'vitest'
 import {
   type DriveHarness,
   type ExecutorConfig,
@@ -59,9 +59,9 @@ const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex
 
 it.each(['driveHarness', 'resolveDriveHarness'] as const)(
   '%s owns subscription selection while Runtime preserves exact grants and automatic-driver refusal',
-  async (customDriver, context) => {
+  async (customDriver) => {
     const directory = await mkdtemp(join(tmpdir(), 'runtime-custom-seats-'))
-    context.onTestFinished(() => rm(directory, { recursive: true, force: true }))
+    onTestFinished(() => rm(directory, { recursive: true, force: true }))
     const requests: string[] = []
     const boundary = createServer((request, response) => {
       requests.push(`${request.method} ${request.url}`)
@@ -69,7 +69,7 @@ it.each(['driveHarness', 'resolveDriveHarness'] as const)(
       response.end(JSON.stringify({ error: 'No Sandbox execution is admitted by this proof.' }))
     })
     await new Promise<void>((resolve) => boundary.listen(0, '127.0.0.1', resolve))
-    context.onTestFinished(
+    onTestFinished(
       () => new Promise<void>((resolve) => { boundary.close(() => resolve()); boundary.closeAllConnections() }),
     )
     const address = boundary.address()
