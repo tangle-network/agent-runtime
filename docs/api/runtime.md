@@ -27812,17 +27812,6 @@ SQL contexts bind all stores and ownership to this durable run identity.
 
 `RunContext.runId`
 
-##### readSnapshot?
-
-> `readonly` `optional` **readSnapshot?**: () => `Promise`\<\{ `runId`: `string`; `namespace`: `string`; `head`: `string`; `revision`: `number`; `journal`: `Readonly`\<`Pick`\<[`RunContext`](#runcontext-1)\[`"journal"`\], `"loadTree"`\>\>; `blobs`: `Readonly`\<`Pick`\<[`RunContext`](#runcontext-1)\[`"blobs"`\], `"get"`\>\>; `coordinationLog`: `Readonly`\<`Pick`\<`NonNullable`\<[`RunContext`](#runcontext-1)\[`"coordinationLog"`\]\>, `"load"`\>\>; \}\>
-
-Capture one read-only inspection cut. Reuse it within one inspection; call again to refresh.
- The returned capabilities cannot acquire a lease, execute work, or publish records.
-
-###### Returns
-
-`Promise`\<\{ `runId`: `string`; `namespace`: `string`; `head`: `string`; `revision`: `number`; `journal`: `Readonly`\<`Pick`\<[`RunContext`](#runcontext-1)\[`"journal"`\], `"loadTree"`\>\>; `blobs`: `Readonly`\<`Pick`\<[`RunContext`](#runcontext-1)\[`"blobs"`\], `"get"`\>\>; `coordinationLog`: `Readonly`\<`Pick`\<`NonNullable`\<[`RunContext`](#runcontext-1)\[`"coordinationLog"`\]\>, `"load"`\>\>; \}\>
-
 #### Methods
 
 ##### acquire()
