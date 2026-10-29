@@ -228,7 +228,8 @@ const api = createServer(async (request, response) => {
       }
       if (
         stored.has(name) &&
-        new URL(request.url, 'http://fixture').searchParams.get('expectedUpdatedAt') !== revisions.get(name)
+        new URL(request.url, 'http://fixture').searchParams.get('expectedUpdatedAt') !==
+          revisions.get(name)
       )
         return answer(response, 409, { code: 'CONFLICT', message: 'revision changed' })
       const existed = stored.delete(name)
