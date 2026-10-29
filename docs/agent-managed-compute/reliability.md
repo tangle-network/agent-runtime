@@ -9,6 +9,7 @@ Scope restores each live child's original identity, deadline, reservation, and s
 Recovery waits for descendant admission, while managers and children can continue communicating before either finishes.
 A child that resolves before descendant admission, including at its original deadline, reports its outcome through the parent scope without aborting siblings.
 Unresolved executions remain pending; recovery does not extend their deadlines or authorize replacement work.
+For an explicit cancelled recovery, pass the existing `RunCancellationReason` from `@tangle-network/agent-runtime/kernel` as the signal reason; it preserves source, message, operation and operator provenance.
 On terminal resume, original leaf descriptors can be adopted for cleanup under the already-aborted signal; their executors never execute or recover.
 Release confirms the exact native stop before final capture or destruction. Missing dispatch proof or an unknown stop keeps the source; unbound nested owners remain unconfirmed.
 An accepted result can be reused after environment deletion.

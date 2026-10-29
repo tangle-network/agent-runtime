@@ -417,7 +417,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1026 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -736,6 +736,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
 | `InMemorySpawnJournal` | class | In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces |
 | `McpSpawnFault` | class | A missing start binary / spawn fault: a SETUP bug, never a failed candidate. |
 | `ObservationError` | class | Analysis can fail after paid work; its measured subtotal must remain recoverable. |
+| `RunCancellationReason` | class | Provenance of an explicit cancellation, preserved through every abort link. |
 | `RunParkedError` | class | A resumable wait, with no terminal result or failure. Catch it and let the coordinator exit. |
 | `SandboxInstance` | class | A sandbox instance with methods for interaction. |
 | `SandboxRunAbortError` | class | Thrown when a turn is aborted/timed-out mid-settle. Carries the events drained |
@@ -951,7 +952,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1025 exports.
 | `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
 | `ProviderCheckpointCaptureContext` | interface | What {@link ProviderWorkspaceRetentionPort.captureCheckpoint} receives. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
-| `ProviderLeafOut` | interface | What one provider-executed turn settles on: the visible answer plus the event archive the |
+| `ProviderLeafOut` | interface | Provider execution evidence and default turn output: the visible answer plus the event archive the |
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
 | `ProviderPlacement` | interface | Caller-declared execution placement. Matching never changes the authored profile. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
