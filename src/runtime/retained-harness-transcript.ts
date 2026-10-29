@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import {
   type AgentCandidateArtifactRef,
   type AgentExactRunControlRef,
@@ -8,18 +7,21 @@ import {
 } from '@tangle-network/agent-interface'
 import { z } from 'zod'
 import { verifiedArtifactChunks } from '../candidate-execution/artifact-streams'
-import { deepFreezeCandidate } from '../candidate-execution/digest'
+import { deepFreezeCandidate, sha256Bytes } from '../candidate-execution/digest'
 import type { AgentCandidateArtifactPort } from '../candidate-execution/types'
 import type { AgentCandidateWorkspaceArchiveLimits } from '../candidate-execution/workspace-archive'
+import { safeArchivePath, workspaceLimits } from '../candidate-execution/workspace-archive'
 import { readAgentCandidateWorkspaceArtifactFiles } from '../candidate-execution/workspace-streams'
 import { ValidationError } from '../errors'
 import type {
   HarnessTranscriptArtifact,
+  HarnessTranscriptBinding,
   HarnessTranscriptCapture,
   HarnessTranscriptFile,
   HarnessTranscriptUnavailable,
 } from './harness-transcript'
 import type { ProviderWorkspaceCaptureReceipt } from './provider-workspace-retention'
+import { runAbortable } from './supervise/abortable'
 import type { ExecutorNodeContext } from './supervise/types'
 
 const digest = z.custom<`sha256:${string}`>(
@@ -124,6 +126,7 @@ export interface RetainedHarnessTranscriptCapture {
 export interface HarnessTranscriptMetadata {
   readonly schemaVersion: 1
   readonly harness: string
+  readonly binding?: HarnessTranscriptBinding
   readonly files: readonly {
     readonly path: string
     readonly bytes: number
@@ -151,12 +154,13 @@ export interface HarnessTranscriptReadOptions {
   readonly workspaceLimits?: Partial<AgentCandidateWorkspaceArchiveLimits>
   readonly signal?: AbortSignal
 }
-const defaults: HarnessTranscriptReadLimits = {
+/** One native capture/read bound per child; replay resolves references rather than copying bytes. */
+export const HARNESS_TRANSCRIPT_READ_LIMITS: HarnessTranscriptReadLimits = Object.freeze({
   maxFileBytes: 2 * 1024 * 1024,
   maxTotalBytes: 16 * 1024 * 1024,
   maxFiles: 1_000,
   maxManifestBytes: 16 * 1024 * 1024,
-}
+})
 
 /** Validate persisted descriptors before trusting their identity, locators, or inventory. */
 export function parseRetainedHarnessTranscript(
@@ -304,9 +308,23 @@ export async function resolveHarnessTranscriptCapture(
 ): Promise<HarnessTranscriptArtifact | HarnessTranscriptMetadata | undefined> {
   if (capture.status === 'unavailable') return undefined
   if (capture.status === 'captured') {
+    const limits = { ...HARNESS_TRANSCRIPT_READ_LIMITS, ...options.limits }
+    if (capture.artifact.files.length > limits.maxFiles)
+      throw new ValidationError('Transcript exceeds maxFiles')
+    let total = 0
+    const paths = new Set<string>()
     for (const file of capture.artifact.files) {
-      if (Buffer.byteLength(file.content, 'utf8') !== file.bytes)
-        throw new ValidationError(`Transcript file has an invalid byte count: ${file.path}`)
+      options.signal?.throwIfAborted()
+      if (HARNESS_TRANSCRIPT_DENY.test(file.path) || paths.has(file.path))
+        throw new ValidationError('Transcript path is denied or repeated')
+      paths.add(file.path)
+      total += file.bytes
+      if (
+        Buffer.byteLength(file.content, 'utf8') !== file.bytes ||
+        file.bytes > limits.maxFileBytes ||
+        total > limits.maxTotalBytes
+      )
+        throw new ValidationError(`Transcript file violates its byte bound: ${file.path}`)
     }
     if (options.content !== false) return capture.artifact
     return {
@@ -314,7 +332,7 @@ export async function resolveHarnessTranscriptCapture(
       files: capture.artifact.files.map(({ path, bytes, content }) => ({
         path,
         bytes,
-        sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+        sha256: sha256Bytes(Buffer.from(content)),
       })),
     }
   }
@@ -325,7 +343,7 @@ export async function resolveHarnessTranscriptCapture(
   }
   if (!options.artifacts)
     throw new ValidationError('Retained transcript content requires an ArtifactPort')
-  const limits = { ...defaults, ...options.limits }
+  const limits = { ...HARNESS_TRANSCRIPT_READ_LIMITS, ...options.limits }
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value < 0)
       throw new ValidationError(`Invalid transcript read limit: ${name}`)
@@ -398,7 +416,109 @@ export async function resolveHarnessTranscriptCapture(
   return deepFreezeCandidate({
     schemaVersion: 1 as const,
     harness: descriptor.harness,
+    source: descriptor.source,
     files,
     skipped,
   })
+}
+
+/** Credential-shaped paths are refused even when a producer lists them. */
+export const HARNESS_TRANSCRIPT_DENY =
+  /(^|\/)(auth\.json|\.credentials\.json|credentials|\.netrc|\.env(\..*)?|secrets?(\.|$)|.*\.(pem|key|p12|pfx)|id_[a-z0-9_]+)$/iu
+
+export interface BoundHarnessSession {
+  readonly nativeSessionId: string
+  readonly parentNativeSessionId?: string | null
+  readonly children: readonly { readonly nativeSessionId: string }[]
+  readonly integrity: {
+    readonly truncated: boolean
+    readonly unparsedRecords: number
+    readonly gaps: readonly unknown[]
+  }
+}
+export interface HarnessFileBinding {
+  readonly path: string
+  readonly nativeSessionId: string
+  readonly sha256?: string
+  readonly byteLength?: number
+}
+
+/** Verify a bound native family without owning a store, filesystem layout or native parser. */
+export async function readBoundHarnessSessions<S extends BoundHarnessSession>(input: {
+  readonly nativeSessionId: string
+  readonly files: readonly HarnessFileBinding[]
+  readonly read: (file: HarnessFileBinding, signal?: AbortSignal) => Promise<Uint8Array>
+  readonly parse: (text: string, file: HarnessFileBinding) => S
+  readonly signal?: AbortSignal
+}) {
+  const files: { path: string; nativeSessionId: string; sha256: string; byteLength: number }[] = []
+  const sessions = new Map<string, S>()
+  const parents = new Map<string, string>()
+  const paths = new Set<string>()
+  const pathBytes = workspaceLimits(undefined).maxPathBytes
+  const pending = [input.nativeSessionId]
+  let total = 0
+  while (pending.length) {
+    const id = pending.shift()!
+    if (sessions.has(id)) continue
+    const candidates = input.files.filter((file) => file.nativeSessionId === id)
+    if (!candidates.length)
+      throw new ValidationError('The exact native session or a recorded child was not retained')
+    for (const file of candidates) {
+      input.signal?.throwIfAborted()
+      if (files.length >= HARNESS_TRANSCRIPT_READ_LIMITS.maxFiles)
+        throw new ValidationError('Native file count exceeds the capture bound')
+      safeArchivePath(file.path, pathBytes)
+      if (HARNESS_TRANSCRIPT_DENY.test(file.path) || paths.has(file.path))
+        throw new ValidationError('Native file path is denied or repeated')
+      paths.add(file.path)
+      const read = () => input.read(file, input.signal)
+      const bytes = input.signal
+        ? await runAbortable(read, input.signal, 'Native source read stopped')
+        : await read()
+      total += bytes.byteLength
+      if (
+        bytes.byteLength > HARNESS_TRANSCRIPT_READ_LIMITS.maxFileBytes ||
+        total > HARNESS_TRANSCRIPT_READ_LIMITS.maxTotalBytes
+      )
+        throw new ValidationError('Native bytes exceed the capture bound')
+      const actual = sha256Bytes(bytes)
+      if (
+        (file.sha256 && file.sha256.replace(/^sha256:/, '') !== actual.slice(7)) ||
+        (file.byteLength !== undefined && file.byteLength !== bytes.byteLength)
+      )
+        throw new ValidationError('Captured native session bytes changed')
+      const session = input.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes), file)
+      if (
+        session.nativeSessionId !== id ||
+        session.integrity.truncated ||
+        session.integrity.unparsedRecords ||
+        session.integrity.gaps.length
+      )
+        throw new ValidationError('Native session identity or integrity did not match its binding')
+      if (
+        session.parentNativeSessionId &&
+        parents.has(id) &&
+        session.parentNativeSessionId !== parents.get(id)
+      )
+        throw new ValidationError('Native child has a different recorded parent')
+      const prior = files.find((value) => value.nativeSessionId === id)
+      if (prior && prior.sha256 !== actual)
+        throw new ValidationError('Native session copies are ambiguous')
+      files.push({
+        path: file.path,
+        nativeSessionId: id,
+        sha256: actual,
+        byteLength: bytes.byteLength,
+      })
+      if (!prior) sessions.set(id, session)
+    }
+    for (const child of sessions.get(id)!.children) {
+      if (parents.has(child.nativeSessionId) && parents.get(child.nativeSessionId) !== id)
+        throw new ValidationError('Native child has ambiguous recorded parents')
+      parents.set(child.nativeSessionId, id)
+      if (!sessions.has(child.nativeSessionId)) pending.push(child.nativeSessionId)
+    }
+  }
+  return { files, sessions: [...sessions.values()] }
 }

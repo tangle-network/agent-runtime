@@ -196,8 +196,14 @@ export {
 // replay readers ship with them, because a durable journal you cannot fold back into a
 // tree is only a log.
 export {
+  type BoundHarnessSession,
+  captureBoundHarnessTranscript,
   captureHarnessTranscript,
+  HARNESS_TRANSCRIPT_READ_LIMITS,
+  HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS,
+  type HarnessFileBinding,
   type HarnessTranscriptArtifact,
+  type HarnessTranscriptBinding,
   type HarnessTranscriptCapture,
   type HarnessTranscriptEvidence,
   type HarnessTranscriptFile,
@@ -206,6 +212,7 @@ export {
   harnessTranscriptArtifact,
   persistHarnessTranscript,
   type ReadableEnvironment,
+  readBoundHarnessSessions,
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
 } from './harness-transcript'
@@ -669,6 +676,7 @@ export {
 } from './supervise/run-layout'
 export type { ParkedRun, RunParkingPolicy, RunParkingRecord } from './supervise/run-parking'
 export { RunParkedError, readRunParking } from './supervise/run-parking'
+export { type RunTraceSources, runToolSpans } from './supervise/run-traces'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
