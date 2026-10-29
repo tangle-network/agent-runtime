@@ -2,6 +2,7 @@ import { appendFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { startRetainedRun } from '../../src/runtime/retained-run-start'
 import { serveTopWeb, type TopSnapshotFrame } from '../../src/tui/top-web'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -290,10 +291,10 @@ test("a run under a runs root opens an agent's input and result when its convers
   }
 }, 15000)
 
-test('a router-tools worker shows its retained conversation, which it never streamed', async () => {
+test('Router canonical records preserve user messages and tool pairs without a native parser', async () => {
   // agent-record liverun-proof-7 on Runtime 2.3.0: three router-tools haiku workers. Their
-  // executor runs its tool loop in process and streams nothing, but retains the conversation as
-  // a harness transcript at settlement; the drawer reported it uncaptured.
+  // executor retained its conversation. Its progress tail is not a canonical native decoder;
+  // the retained ref remains available, and a missing source stays explicit.
   const recorded = join(__dirname, '..', 'fixtures', 'durable', 'router-tools-haiku-run')
   const runId = 'liverun-proof-7'
   const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-router-'))
@@ -322,12 +323,39 @@ test('a router-tools worker shows its retained conversation, which it never stre
       .map(({ event }) => event)
     expect(events.map((event) => event.provenance)).not.toContain('capture-unavailable')
     expect(events.map((event) => event.kind)).toEqual(
-      expect.arrayContaining(['text', 'tool-call', 'tool-result']),
+      expect.arrayContaining(['user', 'text', 'tool-call', 'tool-result']),
     )
     expect(events.find((event) => event.kind === 'tool-call')).toMatchObject({
       toolName: 'submit_result',
     })
     expect(String(events.find((event) => event.kind === 'text')?.text)).toContain('READY')
+    expect(
+      (await (await fetch(`${web.url}api/top/agents/0/${runId}/${worker}`)).json()).coverage.status,
+    ).toBe('partial')
+    // A later attempt must not inherit the old result, transcript or completion time.
+    const journal = new FileSpawnJournal(join(runs, runId, 'spawn-journal.jsonl'))
+    await journal.appendEvent(runId, {
+      kind: 'spawned',
+      id: `${runId}:s2`,
+      parent: runId,
+      label: 'haiku-c',
+      runtime: 'driver',
+      budget: { maxIterations: 10, maxTokens: 100000 },
+      seq: 100000,
+      at: new Date().toISOString(),
+    })
+    const selected = async () => {
+      const frame = (await (await fetch(`${web.url}api/top`)).json()) as TopSnapshotFrame
+      return frame.snapshots[0]!.supervisors[0]!.workers.find(
+        (entry) => entry.id === `${runId}:s2`,
+      )!
+    }
+    await expect.poll(async () => (await selected()).status).toBe('running')
+    for (const key of ['endedAt', 'outRef', 'harnessTranscript', 'transcript', 'materialization'])
+      expect(await selected()).not.toHaveProperty(key)
+    expect(
+      (await (await fetch(`${web.url}api/top/agents/0/${runId}/${worker}`)).json()).coverage.status,
+    ).toBe('missing')
   } finally {
     await web.close()
     await rm(root, { recursive: true, force: true })

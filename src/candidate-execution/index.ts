@@ -132,6 +132,7 @@ export {
   captureAgentCandidateWorkspaceToArtifacts,
   captureAgentCandidateWorkspaceTreeToArtifacts,
   materializeAgentCandidateWorkspaceFromArtifacts,
+  readAgentCandidateWorkspaceArtifactFiles,
   verifyAgentCandidateWorkspaceArtifacts,
   verifyAgentCandidateWorkspaceTree,
 } from './workspace-streams'

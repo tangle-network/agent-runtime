@@ -19,6 +19,7 @@ import {
   stripMaterializationObservation,
 } from './bridge-protocol'
 import { streamBridgeSession } from './bridge-session-stream'
+import { bridgeTranscript } from './bridge-transcript'
 import {
   type ActiveBridgeRun,
   BRIDGE_CANCEL_LONG_POLL_MS,
@@ -164,6 +165,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // turn. Keep the server-owned run identities until the bridge proves each job
   // terminal; closing a response body is deliberately not terminal evidence.
   const activeRuns = new Map<string, ActiveBridgeRun>()
+  const transcript = bridgeTranscript(seam, sessionId, effectiveProfile, activeRuns, ctx.node)
   // The live read-model behind `progress()`, filled as the SSE stream is consumed.
   const observation: BridgeObservation = {
     turns: 0,
@@ -216,6 +218,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   let executor!: Executor<unknown>
   executor = {
     runtime: 'cli' as Runtime,
+    ...transcript.ports,
     deliver: (m) => inbox.deliver(m),
     /**
      * The LIVE read of this worker, answered entirely from local mirrors so it is synchronous
@@ -297,7 +300,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           )
         },
       })
-      return failPendingAfter(inbox, session)
+      return transcript.settle(failPendingAfter(inbox, session))
     },
     async cancel(request): Promise<ExecutorCancellation> {
       // The bridge OWNS a cancel operation and reports terminal state, so this arm can answer with

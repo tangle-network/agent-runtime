@@ -26,9 +26,12 @@
 export { provisionSupervisor } from '../runtime/supervise/provision-supervisor'
 export {
   type BudgetStats,
+  buildSupervisorView as projectTopSupervisor,
   type Distribution,
+  isSpawnEvent as isTopJournalEvent,
   loadTopSnapshot,
   type SpendStats,
+  type SupervisorState as TopSupervisorState,
   type SupervisorTotals,
   type SupervisorView,
   type TopJournalEvent,
@@ -37,6 +40,30 @@ export {
   type TopSnapshotDiagnostic,
   type TopSnapshotDiagnosticReason,
   type TopSnapshotDiagnosticSource,
+  topSnapshot as projectTopSnapshot,
   type WorkerView,
 } from './top-snapshot'
-export { serveTopWeb, type TopSnapshotFrame, type TopWebOptions } from './top-web'
+export {
+  createTopAgentStream,
+  type HarnessRowsGap,
+  type HarnessRowsSession,
+  type HarnessSessionRow,
+  harnessSessionRows,
+  readTopAgentHistory,
+  readTopAgentInspection,
+  type TopAgentMetadata,
+  type TopAgentRowsFrame,
+  type TopAgentStreamFrame,
+  type TopSessionReader,
+  type TopTranscriptRow,
+  topAgentMetadata,
+  topAgentWorker,
+} from './top-transcript'
+export {
+  serveTopWeb,
+  TOP_SNAPSHOT_RECONCILE_MS,
+  type TopInspection,
+  type TopInspectionSource,
+  type TopSnapshotFrame,
+  type TopWebOptions,
+} from './top-web'

@@ -216,6 +216,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
           'bridgeBearer',
           'bridgeUrl',
           'cwd',
+          'harnessTranscript',
           'maxReconnects',
           'modelCredential',
           'modelSilenceMs',
@@ -225,7 +226,11 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         ]),
         'createExecutor bridge config',
       )
-      const { modelCredential, ...decisionData } = config
+      const { modelCredential, harnessTranscript, ...decisionData } = config
+      if (harnessTranscript !== undefined && typeof harnessTranscript !== 'function')
+        throw new ValidationError(
+          'createExecutor bridge: harnessTranscript must be a capture function',
+        )
       const snapshot = detachedSnapshot(decisionData, 'createExecutor bridge config')
       const capturedCredential = validateBridgeModelCredential(
         modelCredential,
@@ -235,6 +240,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       return Object.freeze({
         ...snapshot,
         ...(capturedCredential === undefined ? {} : { modelCredential: capturedCredential }),
+        ...(harnessTranscript === undefined ? {} : { harnessTranscript }),
       })
     }
     case 'cli':
