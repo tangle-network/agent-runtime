@@ -63,6 +63,45 @@ it('preserves canonical tar bytes, Unicode paths, exact modes, manifests and res
   expect(await scanMaterializedWorkspaceManifest(join(f.root, 'restored'))).toEqual(
     snapshot.material,
   )
+  const selected = join(f.root, 'selected'),
+    path = `${nested}/λ.txt`
+  await materializeAgentCandidateWorkspaceFromArtifacts({
+    role: 'candidate',
+    snapshot,
+    artifacts: streamOnly,
+    destination: selected,
+    paths: [path],
+  })
+  expect((await scanMaterializedWorkspaceManifest(selected)).files).toEqual(
+    snapshot.material.files.filter((file) => file.path === path),
+  )
+  for (const paths of [[path, path], ['../escape'], ['missing']])
+    await expect(
+      materializeAgentCandidateWorkspaceFromArtifacts({
+        role: 'candidate',
+        snapshot,
+        artifacts: streamOnly,
+        destination: join(f.root, 'refused'),
+        paths,
+      }),
+    ).rejects.toThrow('unique manifest files')
+  const ambiguous = {
+    ...snapshot,
+    material: {
+      ...snapshot.material,
+      files: snapshot.material.files.map((file) => ({ ...file, bytes: { byteLength: 0 } })),
+    },
+  }
+  await expect(
+    materializeAgentCandidateWorkspaceFromArtifacts({
+      role: 'candidate',
+      snapshot: ambiguous,
+      artifacts: streamOnly,
+      destination: join(f.root, 'ambiguous'),
+      paths: [path],
+      limits: { maxFileBytes: 1 },
+    }),
+  ).rejects.toThrow('ambiguous length')
 })
 
 it('fails before reading a source when the store cannot stream', async () => {
@@ -120,6 +159,31 @@ it.each(['truncated', 'corrupt'] as const)(
     expect((await readdir(f.root)).some((name) => name.includes('.materializing-'))).toBe(false)
   },
 )
+
+it('verifies unselected file contents before publishing a selected restore', async () => {
+  const f = await fixture()
+  await writeFile(join(f.source, 'a'), 'selected contents')
+  await writeFile(join(f.source, 'z'), 'unselected contents')
+  const { snapshot } = await captureAgentCandidateWorkspaceToArtifacts(f.source, f.options)
+  const altered = Buffer.from(await f.artifacts.read(snapshot.archive))
+  const offset = altered.indexOf(Buffer.from('unselected contents'))
+  expect(offset).toBeGreaterThan(0)
+  altered[offset] = altered[offset]! ^ 1
+  const hex = snapshot.archive.sha256.slice(7),
+    destination = join(f.root, 'selected')
+  await writeFile(join(f.root, 'cas', 'sha256', hex.slice(0, 2), hex), altered)
+  await expect(
+    materializeAgentCandidateWorkspaceFromArtifacts({
+      role: 'candidate',
+      snapshot,
+      artifacts: f.artifacts,
+      destination,
+      paths: ['a'],
+    }),
+  ).rejects.toThrow()
+  expect(await readdir(destination)).toEqual([])
+  expect((await readdir(f.root)).some((name) => name.includes('.materializing-'))).toBe(false)
+})
 
 it('rejects a correctly hashed archive with noncanonical tar headers', async () => {
   const f = await fixture()

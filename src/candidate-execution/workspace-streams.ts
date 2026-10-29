@@ -18,8 +18,7 @@ import { canonicalCandidateBytes, canonicalCandidateDigest, deepFreezeCandidate 
 import type { AgentCandidateArtifactPort } from './types'
 import {
   type AgentCandidateWorkspaceArchiveLimits,
-  assertWorkspacePathOrder,
-  safeArchivePath,
+  assertWorkspaceFilesWithinLimits,
   workspaceLimits,
   workspaceTarHeader,
 } from './workspace-archive'
@@ -267,18 +266,24 @@ export async function readAgentCandidateWorkspaceArtifactFiles(
   return new Map([...selected].map(([path, chunks]) => [path, Buffer.concat(chunks)]))
 }
 
-/** Restore regular-file artifacts into an empty destination, publishing only after complete verification. */
+/** Restore regular files into an empty destination after complete verification; paths selects a subset. */
 export async function materializeAgentCandidateWorkspaceFromArtifacts(
-  input: AgentCandidateWorkspaceArtifactsOptions & { destination: string },
+  input: AgentCandidateWorkspaceArtifactsOptions & {
+    destination: string
+    paths?: readonly string[]
+  },
 ): Promise<void> {
   input.signal?.throwIfAborted()
   if (!input.artifacts.readStream)
     throw new Error('streaming workspace artifacts require readStream')
+  const paths = input.paths === undefined ? undefined : new Set(input.paths)
+  if (paths && paths.size !== input.paths?.length)
+    throw new Error('workspace selection must name unique manifest files')
   const destination = resolve(input.destination)
   await prepareEmptyDestination(destination)
   const staging = await mkdtemp(`${destination}.materializing-`)
   try {
-    await consumeWorkspaceArtifacts(input, staging)
+    await consumeWorkspaceArtifacts(input, staging, undefined, paths)
     input.signal?.throwIfAborted()
     await rename(staging, destination)
   } catch (error) {
@@ -291,6 +296,7 @@ async function consumeWorkspaceArtifacts(
   input: AgentCandidateWorkspaceArtifactsOptions,
   destination?: string,
   selected?: Map<string, Uint8Array[]>,
+  paths?: ReadonlySet<string>,
 ): Promise<void> {
   const { artifacts, signal } = input
   const snapshot = deepFreezeCandidate(structuredClone(input.snapshot))
@@ -298,6 +304,11 @@ async function consumeWorkspaceArtifacts(
   if (!artifacts.readStream) throw new Error('streaming workspace artifacts require readStream')
   const limits = workspaceLimits(input.limits)
   validateManifest(snapshot.material, limits)
+  if (paths) {
+    const files = new Set(snapshot.material.files.map((file) => file.path))
+    if ([...paths].some((path) => !files.has(path)))
+      throw new Error('workspace selection must name unique manifest files')
+  }
   if (snapshot.archive.byteLength > limits.maxArchiveBytes)
     throw new Error('candidate workspace archive exceeds maxArchiveBytes')
   const manifest = canonicalCandidateBytes(snapshot.material)
@@ -346,7 +357,10 @@ async function consumeWorkspaceArtifacts(
       ) {
         throw new Error('candidate workspace archive does not match its snapshot manifest')
       }
-      const file = destination ? await openDestination(destination, expected.path) : undefined
+      const file =
+        destination && (!paths || paths.has(expected.path))
+          ? await openDestination(destination, expected.path)
+          : undefined
       try {
         async function* checked(): AsyncGenerator<Uint8Array> {
           const hash = createHash('sha256')
@@ -513,35 +527,9 @@ function validateManifest(
   material: AgentCandidateWorkspaceManifestMaterial,
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): void {
-  if (
-    material.kind !== 'agent-candidate-workspace-manifest' ||
-    material.files.length > limits.maxFiles
-  )
-    throw new Error('candidate workspace exceeds maxFiles')
-  let total = 0
-  let previous: string | undefined
-  const paths = new Set<string>()
-  for (const file of material.files) {
-    safeArchivePath(file.path, limits.maxPathBytes)
-    assertWorkspacePathOrder(
-      file.path,
-      previous,
-      paths,
-      'candidate workspace paths must be unique and sorted',
-    )
-    previous = file.path
-    if (!Number.isSafeInteger(file.mode) || file.mode < 0 || file.mode > 0o777)
-      throw new Error('candidate workspace file has unsupported mode')
-    if (
-      !Number.isSafeInteger(file.byteLength) ||
-      file.byteLength < 0 ||
-      file.byteLength > limits.maxFileBytes
-    )
-      throw new Error('candidate workspace file exceeds maxFileBytes')
-    total += file.byteLength
-    if (total > limits.maxTotalFileBytes)
-      throw new Error('candidate workspace exceeds maxTotalFileBytes')
-  }
+  if (material.kind !== 'agent-candidate-workspace-manifest')
+    throw new Error('candidate workspace has an invalid manifest kind')
+  assertWorkspaceFilesWithinLimits(material.files, limits)
 }
 
 async function* oneChunk(bytes: Uint8Array): AsyncGenerator<Uint8Array> {

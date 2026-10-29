@@ -7,7 +7,6 @@ import { scanMaterializedWorkspaceManifest } from '../../src/candidate-execution
 import {
   captureAgentCandidateWorkspaceToArtifacts,
   materializeAgentCandidateWorkspaceFromArtifacts,
-  verifyAgentCandidateWorkspaceArtifacts,
 } from '../../src/candidate-execution/workspace-streams'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
 import { diskS3StreamStore } from './disk-s3-stream-store'
@@ -71,7 +70,20 @@ try {
     limits,
     artifactPersistence: { executionId: 'node-1', outputArtifacts: artifacts },
   })
-  await verifyAgentCandidateWorkspaceArtifacts({ role: 'candidate', snapshot, artifacts, limits })
+  const selected = join(root, 'selected')
+  await materializeAgentCandidateWorkspaceFromArtifacts({
+    role: 'candidate',
+    snapshot,
+    artifacts,
+    limits,
+    destination: selected,
+    paths: ['large-1.bin'],
+  })
+  assert.deepEqual(
+    (await scanMaterializedWorkspaceManifest(selected)).files,
+    snapshot.material.files.filter((file) => file.path === 'large-1.bin'),
+  )
+  await rm(selected, { recursive: true })
   const destination = join(root, 'restored')
   await materializeAgentCandidateWorkspaceFromArtifacts({
     role: 'candidate',
