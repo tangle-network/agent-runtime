@@ -71,11 +71,8 @@ export function driveHarnessFromBackend(
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
       await restoreAcceptedOwnerTurn(scope)
-      // A committed turn that failed replays as that failure; its evidence is restored so the
-      // next attempt starts a new invocation in the same environment.
       const replayedFailure = harnessTurnFailure(manager.ownerRuntime, acceptedOwner)
       if (replayedFailure !== undefined) throw replayedFailure
-      // The coordination journal still goes through the normal driver finalizer.
       state.managerArtifact = acceptedOwner
       return
     }
@@ -88,6 +85,8 @@ export function driveHarnessFromBackend(
       coordinationMcpUrl: args.coordinationMcpUrl,
       coordinationMcpHeaders: args.coordinationMcpHeaders,
       coordinationCredentialExpiresAt: args.coordinationCredentialExpiresAt,
+      coordinationCredentialSigned: args.coordinationCredentialSigned,
+      coordinationBindCredential: args.coordinationBindCredential,
       peerMailUrl: args.peerMailUrl,
       stopSignal: args.stopSignal,
       coordinationTools: args.coordinationTools,
@@ -134,7 +133,6 @@ export function driveHarnessFromBackend(
   return attestRuntimeOwnedScopeOwner(drive, manager.ownerRuntime)
 }
 
-/** Bind a provider manager's retained owner to this drive, once the previous turn's capture ends. */
 async function bindDriveRetainedOwner(
   manager: ManagerDriveSession,
   { scope, profile, authoredProfile }: DriveArgs,
@@ -163,7 +161,6 @@ async function bindDriveRetainedOwner(
   return retainedOwner
 }
 
-/** The task a re-entered drive runs, composed from what the backend proves it continues. */
 async function reentryDriveTask(
   manager: ManagerDriveSession,
   { scope, session }: DriveArgs,
@@ -172,8 +169,7 @@ async function reentryDriveTask(
   priorCommittedArtifact: ExecutorResult<unknown> | undefined,
 ): Promise<unknown> {
   const { activeSeat, switchedProviderCheckpointAt } = manager
-  // The first drive after a restart proves nothing: a retained owner reconciles its own invocation
-  // on recovery, and probing here first reconnected to it twice.
+  // Recovery reconciles its own invocation before proving continuation.
   const proven: ReentryContinuity =
     reentry.reason.reason === 'run-reentered'
       ? UNPROVEN_CONTINUITY
@@ -194,8 +190,7 @@ async function reentryDriveTask(
   ) {
     throw new ValidationError('same-provider seat continuation lost its native environment')
   }
-  // A fresh re-entry keeps the proven environment under a new session id (the bridge below; a
-  // retained provider owner in its live environment, `prepareScopeRetainedOwnerTask`).
+  // Fresh re-entry keeps the proven workspace and starts a new native session.
   const continuity: ReentryContinuity =
     session === 'fresh' && proven.session === 'continued' ? { ...proven, session: 'new' } : proven
   reentry.onContinuity?.(continuity)
@@ -274,6 +269,11 @@ export interface DriverSessionState {
   driveTurns: number
   coordinationSecrets?: Map<
     string,
-    { ready: boolean; matches(value: string): boolean; release(): Promise<unknown> }
+    {
+      ready: boolean
+      binding: DriveArgs['coordinationBindCredential']
+      stop(): Promise<void>
+      release(): Promise<unknown>
+    }
   >
 }

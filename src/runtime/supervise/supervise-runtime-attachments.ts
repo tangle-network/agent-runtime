@@ -1,18 +1,16 @@
-import { isIP } from 'node:net'
 import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../../errors'
 import type { WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
-import { isLoopbackHost } from './coordination-mcp'
+import type { CoordinationMcpHandle } from './coordination-mcp'
 import { errorHttpStatus } from './error-message'
 import { bridgeRuntimeAttachmentsKey, type ExecutorConfig } from './runtime'
 import type { DriverSessionState } from './supervise-driver-session'
 
 export const peerMailMcpAlias = 'agent-runtime-peer-mail'
 
-/** Mount peer mail through runtime attachments without changing authored profile identity. */
 export function peerMailRuntimeAttachment(
   profile: AgentProfile,
   backend: ExecutorConfig,
@@ -21,18 +19,12 @@ export function peerMailRuntimeAttachment(
   const url = spawnContext?.peerMailUrl
   if (url === undefined) return undefined
   if (backend.backend === 'provider' && backend.shared)
-    throw new ValidationError(
-      'provider peer mail requires a dedicated steerable session; shared placement is not supported',
-    )
+    throw new ValidationError('provider peer mail requires a dedicated session')
   if (backend.backend === 'router' || backend.backend === 'router-tools') return undefined
   if (backend.backend !== 'provider' && backend.backend !== 'bridge')
-    throw new ValidationError(
-      'workerFromBackend: peer mail requires a provider or bridge runtime attachment',
-    )
+    throw new ValidationError('peer mail requires a provider or bridge runtime attachment')
   if (profile.mcp?.[peerMailMcpAlias] !== undefined)
-    throw new ValidationError(
-      `workerFromBackend: profile MCP alias ${JSON.stringify(peerMailMcpAlias)} is reserved`,
-    )
+    throw new ValidationError('profile MCP alias agent-runtime-peer-mail is reserved')
   return Object.freeze({
     [peerMailMcpAlias]: Object.freeze({ transport: 'http', url }) as AgentProfileMcpServer,
   })
@@ -56,44 +48,64 @@ export async function providerAcceptsCoordinationAttachments(
 
 export const CLAUDE_CODE_ONE_HOUR_CACHE = 'ENABLE_PROMPT_CACHING_1H'
 
-/** Register cleanup before creating a host-held secret; retain failed cleanup for settlement. */
 export async function storeCoordinationSecret(
   provider: AgentEnvironmentProvider,
   secrets: NonNullable<DriverSessionState['coordinationSecrets']>,
   name: string,
-  authorization: string,
+  bind: CoordinationMcpHandle['bindCredential'],
 ): Promise<void> {
   const store = provider.secrets
-  if (!store)
-    throw new ValidationError('provider coordination requires its host-held secret manager')
-  const prior = secrets.get(name)
-  if (prior) {
-    if (!prior.ready || !prior.matches(authorization))
-      throw new ValidationError('retained coordination cannot rotate before live re-key is proven')
-    return
+  if (!store?.update || !store.list || !bind)
+    throw new ValidationError('provider coordination requires acknowledged fenced secret renewal')
+  const stamp = (receipt: unknown): string => {
+    const date = (receipt as { updatedAt?: Date } | null)?.updatedAt
+    if (!(date instanceof Date) || !Number.isFinite(date.getTime()))
+      throw new ValidationError('provider secret receipt has no valid updatedAt')
+    return date.toISOString()
   }
+  let revision: string | undefined
+  const prior = secrets.get(name)
+  if (prior?.binding === bind && prior.ready) return
+  if (prior?.binding === bind) throw new ValidationError('coordination binding is not ready')
+  await prior?.stop()
   const entry = {
     ready: false,
-    matches: (value: string) => value === authorization,
+    binding: bind,
+    stop: async () => {},
     release: async () => {
+      const [stopped] = await Promise.allSettled([entry.stop()])
       try {
-        await store.delete(name)
+        if (revision) await store.delete(name, { expectedUpdatedAt: revision })
+        else if ((await store.list!()).some((secret) => secret.name === name))
+          throw new ValidationError('coordination custody has no acknowledged owned revision')
       } catch (error) {
         if (!(error instanceof Error) || errorHttpStatus(error) !== 404) throw error
       }
       secrets.delete(name)
+      if (stopped.status === 'rejected') throw stopped.reason
     },
   }
   secrets.set(name, entry)
   try {
-    await store.create(name, authorization.slice(7))
+    entry.stop = await bind(async (headers) => {
+      const value = headers.Authorization!.slice(7)
+      let expectedUpdatedAt = revision
+      if (!expectedUpdatedAt) {
+        try {
+          revision = stamp(await store.create(name, value))
+          return
+        } catch (error) {
+          if (!(error instanceof Error) || errorHttpStatus(error) !== 409) throw error
+          expectedUpdatedAt = stamp((await store.list!()).find((s) => s.name === name))
+        }
+      }
+      revision = stamp(await store.update!(name, value, { expectedUpdatedAt }))
+    })
     entry.ready = true
   } catch (cause) {
-    try {
-      await entry.release()
-    } catch (cleanup) {
-      throw new AggregateError([cause, cleanup], 'coordination secret creation and cleanup failed')
-    }
+    await entry.release().catch((cleanup) => {
+      throw new AggregateError([cause, cleanup], 'coordination binding and cleanup failed')
+    })
     throw cause
   }
 }
@@ -106,16 +118,4 @@ export function coordinationRuntimeAttachment(url: string, key: string) {
     headers: { Authorization: reference },
     metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
   }
-}
-
-export function coordinationBindingHost(address: string, harness: AgentProfile['harness']) {
-  const url = new URL(address)
-  if (isLoopbackHost(url.hostname) || isIP(url.hostname.replace(/^\[|\]$/g, ''))) {
-    if (harness !== 'opencode' && harness !== 'codex')
-      throw new ValidationError('loopback or IP coordination requires isolated opencode or codex')
-    return undefined
-  }
-  if (url.protocol !== 'https:' || url.username || url.password)
-    throw new ValidationError('host-bound coordination requires a public HTTPS FQDN')
-  return url.hostname
 }

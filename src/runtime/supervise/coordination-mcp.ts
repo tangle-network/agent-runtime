@@ -1,22 +1,7 @@
-/**
- * Serve the coordination verbs (spawn_worker / observe_agent / steer_agent / submit_result / stop)
- * as a real HTTP MCP server over a LIVE `Scope`, so a coding-harness agent (opencode via the
- * cli-bridge, claude-code, codex) can BE the supervisor: it mounts this MCP
- * (`mcp.mcpServers.coordination`) and `spawn_worker` lands on `Scope.spawn`.
- *
- * Coordination vs DELEGATION (`../../mcp/delegates.ts`): coordination SPAWNS workers in a CHOSEN
- * backend (sandbox OR cli-bridge) and live-drives them (observe / steer / resume, recursive
- * sub-drivers, one conserved budget); delegation runs a durable fire-and-poll coding job INSIDE
- * the agent's OWN sandbox.
- *
- * Transport: JSON-RPC over HTTP POST (MCP streamable-HTTP, single `application/json` response).
- * The server is created INSIDE an agent's `act(task, scope)` and torn down when the act returns.
- *
- * @experimental
- */
-
+/** Serve Runtime coordination as bounded HTTP MCP over one live scope. @experimental */
+import { isIP } from 'node:net'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { ConfigError } from '../../errors'
+import { ConfigError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
 import type {
@@ -69,7 +54,6 @@ import type { PeerMailEvent, PeerMailLimits } from './peer-mail'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
 export interface CoordinationMcpHandle {
-  /** The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`. */
   readonly url: string
   readonly port: number
   /** A separately authenticated read-only endpoint. Never persist its protected headers. */
@@ -78,35 +62,28 @@ export interface CoordinationMcpHandle {
   readonly control: CoordinationControlAccess
   /** Runtime-only credentials. Never put these headers in canonical profiles or journals. */
   readonly headers: Readonly<Record<string, string>>
-  /** Finite credential expiry from authentication.ttlMs or the run's absolute deadline. */
+  /** Finite lease expiry, capped by the root run's absolute deadline. */
   readonly credentialExpiresAt: number | undefined
-  /** Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts. */
+  readonly credentialSigned?: boolean
   rotateCredential(): void
-  /** The coordination tools' settled-worker ledger (for the driver's finalize). */
+  /** Bind a trusted holder; renewal stops and drains before its release. */
+  bindCredential?(
+    install: (headers: Readonly<Record<string, string>>) => Promise<void>,
+  ): Promise<() => Promise<void>>
   settled(): ReadonlyArray<SettledWorker>
-  /** The first driver-authored result whose injected independent check passed. */
   submittedResult: CoordinationTools['submittedResult']
-  /** Post-loop drain of already-settled, unpulled children into the ledger — call before reading
-   *  `settled()` for a finalize, so a delivered child the harness never awaited is not lost. */
   drainResolved: CoordinationTools['drainResolved']
   finishAnalysis: CoordinationTools['finishAnalysis']
   isStopped(): boolean
-  /** The full ordered bus-event log for current-process observability and audit evidence. */
   history: CoordinationTools['history']
-  /** Bus throughput counters for live dashboards. */
   stats: CoordinationTools['stats']
-  /** Raise a `finding` on the bus from an online detector watching a worker's live pipe. */
   raiseFinding: CoordinationTools['raiseFinding']
-  /** Every peer-mail attempt in order, delivered and refused alike. Empty when peer mail is off. */
   mailHistory(): ReadonlyArray<PeerMailEvent>
-  /** End one peer exchange: every further mail on the thread is refused `thread-stopped`. Returns
-   *  false when peer mail is off or the thread was already stopped. */
   stopMailThread(threadId: string): boolean
   close(): Promise<void>
 }
 
-/** Hosts that reach only this machine (incl. IPv4-mapped and bracketed IPv6 spellings). A name not
- *  recognizably loopback counts as REMOTE: whether it resolves to loopback is unknowable here. */
+/** Recognizable loopback spellings; other hostnames require authenticated remote transport. */
 export function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
   if (h === 'localhost' || h === '::1' || h === '0:0:0:0:0:0:0:1' || h === '::ffff:127.0.0.1') {
@@ -116,8 +93,7 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 export interface CoordinationAuthentication {
-  /** Explicit finite lifetime. Omission binds the credential to the live scope: it is refused once
-   *  the scope stops or the listener closes. A child's own time box does not stop its scope. */
+  /** Credential lease duration; omission uses the public Sandbox execution-lifetime owner. */
   readonly ttlMs?: number
   /** Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart. */
   readonly signingKeys?: {
@@ -152,7 +128,6 @@ export interface CoordinationTransportOptions extends CoordinationHttpOptions {
   readonly onReadReady?: (
     access: CoordinationReadAccess & { readonly runId: string; readonly actorId: string },
   ) => void | Promise<void>
-  /** Publish the separate operator capability before dispatch. */
   readonly onControlReady?: (access: CoordinationControlAccess) => void | Promise<void>
   readonly host?: string
   readonly port?: number
@@ -239,90 +214,51 @@ export async function serveCoordinationMcp(
     scope: Scope<unknown>
     blobs: ResultBlobStore
     makeWorkerAgent: MakeWorkerAgent
-    /** Serve `run_graph` — see `CoordinationToolsOptions.graphs`. */
     graphs?: GraphSubtasks
     authorizeDownMessage?: AuthorizeDownMessage
     perWorker: Budget
-    /** Independent completion check exposed as `submit_result`; served single-flight and fenced like
-     *  `nodeTools` (a check still running at the fence returns a receipt). */
+    /** Independent submit_result check; fenced and single-flight. */
     deliverable?: DeliverableSpec<unknown>
-    /** Serve `read_continuation` from the manager's continuation records. */
     readContinuation?: (continuation: number | undefined) => unknown
-    /** Called once when the external manager accepts a result or declares completion. */
     onStop?: (reason: string | undefined) => void
-    /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
     analysts?: AnalystRegistry
-    /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
     analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
-    /** Maps expanded when their source worker settles. */
     mapOnSettle?: ReadonlyArray<MapOnSettleRoute>
-    /** Trusted source refs for this manager’s existing observe_agent capability. */
     sourceEvidenceRefs?: ReadonlyArray<string>
     peerAudit?: PeerAuditAccess
-    /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
     watchWorkers?: WorkerWatchOptions
-    /** Idle time after which `observe_agent` reports a worker as stalled. */
     stallAfterMs?: number
-    /** Default continuity per worker profile name — `'resume'` re-attaches spawns of that name to
-     *  the node's latest settled worker; the tool's per-call `continuity` overrides. */
+    /** Default continuity per profile; per-call selection overrides it. */
     continuityByProfile?: Readonly<Record<string, ContinuityMode>>
-    /** Pass-through subscriber for every bus event, including pre-delivery instruction receipts and
-     * steer/answer delivery outcomes. */
+    /** Await every bus event, including delivery outcomes. */
     onEvent?: (
       event: CoordinationEvent,
       record: BusRecord<CoordinationEvent>,
     ) => void | Promise<void>
-    /** Re-publish resume-time settlements through the awaited observer before this server listens. */
     replaySettlements?: boolean
     questionPolicy?: QuestionPolicy
-    /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
     escalateQuestion?: EscalateQuestion
-    /** Receives this manager's intake for questions its child managers raise. */
     onChildQuestionInbox?: (inbox: ChildQuestionInbox) => void
-    /** Escalations replayed from a prior process — seeds what `stop` knows went unheard. */
     priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
-    /** Questions replayed from a prior process of this run — seeds the question ledger. */
     priorQuestions?: ReadonlyArray<QuestionRecord>
-    /** Every coordination record from prior processes of this run — what `read_journal` reads before
-     *  this process's own rows, so a resumed manager sees what it already did. */
+    /** Prior-process records precede this process in read_journal. */
     priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
-    /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
     priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
-    /** Product-selected tools bound to this supervisor node. They share this server with the
-     *  coordination verbs (the MCP duplicate-name guard applies before listen) and are served
-     *  single-flight and fenced (`./single-flight-tools`): an identical call joins the running one. */
+    /** Node tools share the MCP duplicate-name guard, single-flight and response fence. */
     nodeTools?: ReadonlyArray<McpToolDescriptor>
     /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
      *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
     toolNames: ReadonlyArray<string>
-    /**
-     * OPT-IN peer mail: workers message each other directly, bounded and audited
-     * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
-     * `WorkerSpawnContext.peerMailUrl`, a separate path on the listener serving only `send_mail`
-     * and `read_mail` for one worker identity; it cannot authorize a manager request. The boundary
-     * is between AGENTS, not processes: a worker that can read another's environment or memory
-     * holds its capability. Loopback plus an unguessable path is what this layer can enforce.
-     */
+    /** Peer mail grants separate per-agent send/read authority, never manager authority. */
     peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
-    /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
-     *  pre-journal point that may ask the backend a question. See
-     *  `CoordinationToolsOptions.preflightSpawn`. */
+    /** Async pre-journal gate before assignment or budget reservation. */
     preflightSpawn?: SpawnPreflight
-    /** Pre-journal profile resolution for `preflightSpawn`; see
-     *  `CoordinationToolsOptions.resolveSpawnProfile`. */
     resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
-    /** Composition of each authored child profile before identity is fixed —
-     *  `CoordinationToolsOptions.composeSpawnProfile`. */
     composeSpawnProfile?: (profile: AgentProfile) => AgentProfile
-    /** The run's validated profiles table — `CoordinationToolsOptions.profiles`. */
     profiles?: ReadonlyMap<string, SuperviseProfileEntry>
-    /** See `CoordinationToolsOptions.spawnResourceRoot`. */
     spawnResourceRoot?: string
-    /** See `CoordinationToolsOptions.spawnResourceReader`. */
     spawnResourceReader?: SpawnResourceReader
-    /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
-     *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
-     *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
+    /** Bind exact tool descriptors before the listener admits its first request. */
     onCoordinationTools?: (
       tools: ReadonlyArray<McpToolDescriptor>,
       coordination: Pick<CoordinationTools, 'awaitSettlement'>,
@@ -332,10 +268,7 @@ export async function serveCoordinationMcp(
   return (await serveCoordinationMcpForManager(opts)).handle
 }
 
-/**
- * Resolve the address the server advertises, then bind its audiences and paths and the credential
- * to it, and prove a caller-supplied public address reaches this server. Returns the advertised URL.
- */
+/** Bind the advertised address, credential audience and paths, then prove public reachability. */
 async function bindCoordinationAddress(
   ctx: CoordinationListenerContext,
   port: number,
@@ -380,9 +313,9 @@ async function bindCoordinationAddress(
   if (host === '0.0.0.0' || host === '::') state.audiences.add(`127.0.0.1:${port}`)
   state.paths.add(publicAddress.pathname)
   for (const path of state.paths) {
-    state.readPaths.add(path.replace(/\/$/, '') + '/read')
-    state.controlPaths.add(path.replace(/\/$/, '') + '/control')
-    state.mailPaths.add(path.replace(/\/$/, '') + '/mail')
+    state.readPaths.add(`${path.replace(/\/$/, '')}/read`)
+    state.controlPaths.add(`${path.replace(/\/$/, '')}/control`)
+    state.mailPaths.add(`${path.replace(/\/$/, '')}/mail`)
   }
   if (configured !== undefined) {
     await preflightPublicCoordination({
@@ -435,15 +368,11 @@ export async function serveCoordinationMcpForManager(
     credentials,
     state,
   }
-  // Same precedence as the router arm in coordination-driver: caller reader, else host directory,
-  // else the manager's own environment via its retained owner. Provider-backed roots and every
-  // nested manager come through THIS arm, so a driver-arm-only fallback would leave them refused.
   const ownerReader =
     opts.spawnResourceReader ??
     (opts.spawnResourceRoot === undefined
       ? scopeRetainedOwnerResourceReader(opts.scope)
       : undefined)
-  // Bound once the served set exists: `report_blocked` probes only what this manager was granted.
   let probeableByName: ReadonlyMap<string, McpToolDescriptor> | undefined
   const coord = createCoordinationToolsForManager(
     coordinationToolOptions(opts, ownerReader, (name) => probeableByName?.get(name)),
@@ -457,8 +386,6 @@ export async function serveCoordinationMcpForManager(
     serverVersion: '1',
     tools: servedTools,
   })
-  // Before the listener opens, so a node tool on the first request can call these verbs; read back
-  // the ordered set so every consumer records the exact MCP surface.
   opts.onCoordinationTools?.([...mcp.tools.values()], coord)
 
   const server = createCoordinationListener(ctx, { coord, mcp, servedTools, background })
@@ -496,8 +423,61 @@ export async function serveCoordinationMcpForManager(
     throw error
   }
 
+  let stopCredentialBinding: (() => Promise<void>) | undefined
+  let refreshBoundCredential: (() => void) | undefined
+  const bindCredential: NonNullable<CoordinationMcpHandle['bindCredential']> = async (install) => {
+    if (stopCredentialBinding) throw new ConfigError('coordination already has a credential holder')
+    let active = true,
+      timer: ReturnType<typeof setTimeout> | undefined
+    let pending: Promise<void> = Promise.resolve()
+    const stop = async () => {
+      active = false
+      clearTimeout(timer)
+      await pending
+    }
+    stopCredentialBinding = stop
+    const schedule = () => {
+      const expiry = credentials.expiresAt!
+      if (
+        !active ||
+        state.closed ||
+        opts.scope.signal.aborted ||
+        lifetime?.aborted ||
+        (opts.scope.rootDeadlineAtMs !== undefined && expiry >= opts.scope.rootDeadlineAtMs)
+      )
+        return
+      timer = setTimeout(renew, Math.max(1, Math.floor((expiry - Date.now()) / 2)))
+      timer.unref()
+    }
+    const renew = () => {
+      if (!active || state.closed || opts.scope.signal.aborted || lifetime?.aborted) return
+      pending = credentials.replace(install)
+      void pending.then(schedule, () => {
+        state.closed = true
+        try {
+          opts.onStop?.('coordination credential renewal failed')
+        } catch {}
+      })
+    }
+    refreshBoundCredential = () => {
+      clearTimeout(timer)
+      renew()
+    }
+    try {
+      pending = credentials.replace(install)
+      await pending
+      schedule()
+    } catch (error) {
+      active = false
+      clearTimeout(timer)
+      stopCredentialBinding = undefined
+      refreshBoundCredential = undefined
+      throw error
+    }
+    return stop
+  }
   const mailbox = coord.peerMail
-  mailbox?.setEndpoint(url.replace(/\/$/, '') + '/mail')
+  mailbox?.setEndpoint(`${url.replace(/\/$/, '')}/mail`)
 
   const handle: CoordinationMcpHandle = {
     url,
@@ -506,7 +486,7 @@ export async function serveCoordinationMcpForManager(
       if (!opts.authentication)
         throw new ConfigError('coordination read access requires authentication')
       return {
-        url: url.replace(/\/$/, '') + '/read',
+        url: `${url.replace(/\/$/, '')}/read`,
         headers: Object.freeze({ Authorization: `Bearer ${credentials.readerToken.toString()}` }),
       }
     },
@@ -518,19 +498,24 @@ export async function serveCoordinationMcpForManager(
         throw new ConfigError('coordination control access requires authentication')
       return {
         ...identity,
-        url: url.replace(/\/$/, '') + '/control',
+        url: `${url.replace(/\/$/, '')}/control`,
         headers: credentials.controllerHeaders,
       }
     },
     get credentialExpiresAt() {
       return credentials.expiresAt
     },
-    rotateCredential: credentials.rotate,
+    credentialSigned: typeof opts.authentication === 'object' && !!opts.authentication.signingKeys,
+    rotateCredential: () => {
+      credentials.rotate()
+      refreshBoundCredential?.()
+    },
+    bindCredential,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
     finishAnalysis: (input) => coord.finishAnalysis(input),
-    isStopped: () => coord.isStopped(),
+    isStopped: () => state.closed || coord.isStopped(),
     history: () => coord.history(),
     stats: () => coord.stats(),
     raiseFinding: (finding) => coord.raiseFinding(finding),
@@ -539,9 +524,12 @@ export async function serveCoordinationMcpForManager(
     close: async () => {
       releaseAddress()
       state.closed = true
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve())
-      })
+      const stopped = await Promise.allSettled([
+        stopCredentialBinding?.(),
+        new Promise<void>((resolve) => server.close(() => resolve())),
+      ])
+      const failure = stopped.find((result) => result.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
     },
   }
   try {
@@ -560,4 +548,16 @@ export async function serveCoordinationMcpForManager(
     throw error
   }
   return { handle, controls: coord }
+}
+
+export function coordinationBindingHost(address: string, harness: AgentProfile['harness']) {
+  const url = new URL(address)
+  if (isLoopbackHost(url.hostname) || isIP(url.hostname.replace(/^\[|\]$/g, ''))) {
+    if (harness !== 'opencode' && harness !== 'codex')
+      throw new ValidationError('loopback or IP coordination requires isolated opencode or codex')
+    return undefined
+  }
+  if (url.protocol !== 'https:' || url.username || url.password)
+    throw new ValidationError('host-bound coordination requires a public HTTPS FQDN')
+  return url.hostname
 }

@@ -58,7 +58,11 @@ async function run(mode: string) {
 }
 
 it('passes direct and authored host declarations through the public Sandbox adapter and Tangle provider', async () => {
-  expect(await run('selectors')).toEqual({ selectorsPreserved: true, authoredBindingLowered: true })
+  expect(await run('selectors')).toEqual({
+    selectorsPreserved: true,
+    authoredBindingLowered: true,
+    candidateRoundTripPreserved: true,
+  })
 })
 it('keeps string selector ordering stable and binds retained identity to host and header', async () => {
   expect(await run('identity')).toEqual({
@@ -82,13 +86,42 @@ it('stores coordination outside create.env, authenticates MCP over TLS, and revo
     secretPosts: 1,
   })
 })
-it('confirms absent custody after a refused store create and a real DELETE 404', async () => {
+it('confirms absent custody after a refused store create through real metadata discovery', async () => {
   expect(await run('create-refused')).toMatchObject({
     rejected: true,
     creates: 0,
     stored: 0,
-    deleteCalls: 1,
+    deleteCalls: 0,
+    metadataGets: 1,
     secretPosts: 1,
+  })
+})
+it('preserves unknown custody when persistence has no acknowledged receipt', async () => {
+  expect(await run('uncertain-create')).toMatchObject({
+    rejected: true,
+    creates: 0,
+    stored: 1,
+    deleteCalls: 0,
+    metadataGets: 1,
+  })
+})
+it('refuses stale takeover without acquiring cleanup authority over the prior revision', async () => {
+  expect(await run('rekey-conflict')).toMatchObject({
+    rejected: true,
+    creates: 0,
+    stored: 1,
+    updates: 0,
+    deleteCalls: 0,
+    metadataGets: 2,
+  })
+})
+it('preserves a newer holder when conditional cleanup detects a changed revision', async () => {
+  expect(await run('delete-conflict')).toMatchObject({
+    rejected: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    stored: 1,
+    deleteCalls: 1,
   })
 })
 it('reports failed revocation without claiming the stored value was deleted', async () => {
@@ -123,11 +156,61 @@ it('honors explicit finite authentication TTL when the root budget has no deadli
     secretPosts: 1,
   })
 })
-it('refuses unbounded provider authority before storing a credential or creating a box', async () => {
+it('automatically bounds and protects existing deadline-free provider callers', async () => {
   expect(await run('unbounded')).toMatchObject({
-    rejected: true,
-    creates: 0,
+    settled: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    creates: 1,
     stored: 0,
-    secretPosts: 0,
+    secretPosts: 1,
+  })
+})
+it('isolates sequential default caller credentials even when callers reuse a run label', async () => {
+  expect(await run('namespace')).toMatchObject({
+    settled: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    creates: 2,
+    distinctCredentialNames: 2,
+    stored: 0,
+    deleteCalls: 2,
+    secretPosts: 2,
+  })
+})
+
+it('keeps old and new authority valid until hot-rekey acknowledgement, then revokes old authority', async () => {
+  expect(await run('renewal')).toMatchObject({
+    settled: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    handoverOverlap: true,
+    oldRevokedAfterAcknowledgement: true,
+    stored: 0,
+    deleteCalls: 1,
+    updates: 1,
+  })
+})
+it('rebinds an existing quiescent host secret through acknowledged update before dispatch', async () => {
+  expect(await run('quiescent-rebind')).toMatchObject({
+    settled: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    creates: 1,
+    stored: 0,
+    deleteCalls: 1,
+    updates: 1,
+  })
+})
+it('resumes a committed retained run in a new process and rekeys before its next dispatch', async () => {
+  expect(await run('restart')).toMatchObject({
+    resumed: true,
+    priorProcessKilledAfterCommit: true,
+    rekeyBeforeResumedDispatch: true,
+    creates: 1,
+    nativeTurns: 2,
+    updates: 1,
+    stored: 0,
+    noRawCreate: true,
   })
 })

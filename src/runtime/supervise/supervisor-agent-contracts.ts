@@ -20,7 +20,7 @@ import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import type { ContinuationPolicy } from './continuation'
 import type { PriorCoordination } from './coordination-log'
-import type { CoordinationTransportOptions } from './coordination-mcp'
+import type { CoordinationMcpHandle, CoordinationTransportOptions } from './coordination-mcp'
 import type { DriverAttemptRecord, DriverContinuationRecord } from './driver-attempt-evidence'
 import type { DriverReentry, DriverRetryPolicy } from './driver-retry'
 import type { BusRecord } from './event-bus'
@@ -157,6 +157,8 @@ export interface DriveHarness {
     /** Runtime-only transport credentials; never append them to the authored profile or task. */
     readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
     readonly coordinationCredentialExpiresAt?: number
+    readonly coordinationCredentialSigned?: boolean
+    readonly coordinationBindCredential?: CoordinationMcpHandle['bindCredential']
     /** Parent-minted peer post office. Runtime attachment only, never part of the profile. */
     readonly peerMailUrl?: string
     /** Fires when the coordination server accepts a result or declares completion. */
@@ -164,10 +166,7 @@ export interface DriveHarness {
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
      *  this in their materialization evidence without persisting executable handlers. */
     readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
-    /** The manager's `continuation.session` on every drive, re-entered or not. `fresh`: each drive
-     *  that carries `reentry` starts a new harness session, keeping the environment and its files;
-     *  `compose` then always writes the full re-entry task. Absent or `native`: today's
-     *  same-session continuation where the backend proves it. */
+    /** Fresh re-entry starts another native session in the same workspace; native continues it. */
     readonly session?: 'native' | 'fresh'
     /** Present when this drive re-enters the run. `task` then carries the original objective and
      *  the coordinator's run state, which is right for any backend. A harness that can prove what

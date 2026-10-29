@@ -10,11 +10,13 @@ import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordinatio
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { isAsyncIterable, zeroSpend } from '../util'
+import { coordinationBindingHost } from './coordination-mcp'
 import { type DriverAttemptIdentity, DriverExecutionAttempt } from './driver-execution-attempt'
 import { seatProviderProfile } from './manager-drive-session'
 import { runtimeOwnedPendingExecutorMaterialization } from './materialization'
 import { assertExecutableAgentProfile } from './model-policy'
 import { retainedExecutorSeamKey } from './retained-executor'
+import { assertRetainedOwnerCoordinationRekey } from './retained-owner-environment-recovery'
 import {
   beginScopeRetainedOwnerDrive,
   type scopeRetainedOwnerContext,
@@ -39,11 +41,9 @@ import {
 } from './supervise-profile-admission'
 import {
   CLAUDE_CODE_ONE_HOUR_CACHE,
-  coordinationBindingHost,
   coordinationRuntimeAttachment,
   peerMailMcpAlias,
   peerMailRuntimeAttachment,
-  providerAcceptsCoordinationAttachments,
   storeCoordinationSecret,
 } from './supervise-runtime-attachments'
 import {
@@ -249,17 +249,12 @@ async function providerAttemptFactory(
     !Number.isSafeInteger(input.coordinationCredentialExpiresAt) ||
     input.coordinationCredentialExpiresAt! <= Date.now()
   )
-    throw new ValidationError('provider requires a finite run deadline or authentication.ttlMs')
+    throw new ValidationError('provider coordination credential has no finite future expiry')
   const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
   const host = coordinationBindingHost(coordinationMcpUrl, providerHarness)
   const credentialName =
     'AGENT_RUNTIME_COORDINATION_TOKEN_' +
-    canonicalCandidateDigest([
-      input.scope.view.root,
-      scopeOwnerExecutorNodeContext(input.scope).nodeId,
-      provider.name,
-      host ?? 'isolated',
-    ])
+    canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
       .slice(7, 31)
       .toUpperCase()
   const defaults = backend.defaults ?? {}
@@ -279,22 +274,23 @@ async function providerAttemptFactory(
     )
       throw new ValidationError('provider defaults contain a reserved runtime attachment alias')
   }
-  if (!(await providerAcceptsCoordinationAttachments(backend)))
+  if ((await provider.capabilities()).create?.runtimeAttachments?.mcp !== true)
     throw new ValidationError('provider lacks create.runtimeAttachments.mcp')
   if (defaults.secrets !== undefined && !Array.isArray(defaults.secrets))
     throw new ValidationError('provider coordination requires stored-secret selectors')
   if (host) {
     if (
       input.retainedOwner?.admissions.length &&
+      !input.coordinationCredentialSigned &&
       !input.state.coordinationSecrets?.has(credentialName)
     )
-      throw new ValidationError('retained coordination requires proven live re-key after restart')
+      await assertRetainedOwnerCoordinationRekey(input.scope)
     input.state.coordinationSecrets ??= new Map()
     await storeCoordinationSecret(
       provider,
       input.state.coordinationSecrets,
       credentialName,
-      authorization,
+      input.coordinationBindCredential,
     )
     input.scope.signal.throwIfAborted()
   }

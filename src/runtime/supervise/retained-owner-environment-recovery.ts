@@ -1,4 +1,6 @@
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import { ValidationError } from '../../errors'
+import { ENVIRONMENT_LOOKUP_TIMEOUT_MS } from '../retained-interactive-lifecycle'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { runAbortable } from './abortable'
 import type { CheckpointEvent } from './retained-owner-checkpoint-requests'
@@ -6,11 +8,6 @@ import { unusableEnvironmentIds } from './retained-owner-evidence'
 import { owners } from './retained-owner-state'
 import type { Scope, SpawnEvent } from './types'
 
-/**
- * The checkpoint a new environment of this owner starts from: the latest one journaled before
- * the invocation's input, taken from an environment the provider has since lost. Only such an
- * environment needs one; a live environment is continued, never copied.
- */
 export function restoreBefore(
   owned: readonly SpawnEvent[],
   inputIndex: number,
@@ -36,11 +33,7 @@ export async function restoreCapable(
   }
 }
 
-/**
- * What the owner's next new environment will hold of the lost one, read before the drive so the
- * re-entered director is told: the checkpoint's time, or undefined when there is nothing to
- * restore.
- */
+/** The verified checkpoint the next new environment starts from, if any. */
 export async function scopeRetainedOwnerRestorePoint(scope: Scope<unknown>): Promise<
   | {
       readonly checkpointId: string
@@ -64,10 +57,6 @@ export async function scopeRetainedOwnerRestorePoint(scope: Scope<unknown>): Pro
       }
 }
 
-/** The environment the owner's next invocation would continue in, when there is one: the latest
- *  environment admission of this owner, which is either the current invocation's own (recovered
- *  in place) or the one a deliberate later invocation reuses after an accepted result. `inFlight`
- *  says whether the latest invocation has no result yet. */
 export function continuedEnvironment(
   owned: readonly SpawnEvent[],
 ): { readonly admission: RetainedRunEnvironmentAdmission; readonly inFlight: boolean } | undefined {
@@ -87,31 +76,13 @@ export function continuedEnvironment(
 
 /** What the owner's next invocation continues, read before it starts. */
 type RetainedOwnerEnvironmentState =
-  /** No environment was admitted yet, or the owner is not a retained provider owner. */
   | { readonly state: 'none' }
-  /** The provider still holds the environment the next invocation continues in. */
   | { readonly state: 'live'; readonly environmentId: string; readonly inFlight: boolean }
-  /** The provider no longer holds it; the next invocation starts in a new environment. */
   | { readonly state: 'lost'; readonly environmentId: string }
   /** The provider could not say. Nothing is concluded and nothing is journaled. */
   | { readonly state: 'unknown'; readonly environmentId: string }
 
-/**
- * Confirm, before a new drive, that the environment the owner would continue in still exists.
- *
- * A retained invocation whose environment is gone can never be recovered: the retained path asked
- * the provider to reconnect, the provider answered `Sandbox not found`, and every later attempt
- * repeated that refusal until the barren streak ended the run. Measured on the real opencode path
- * (autopsy-a-before-20260924a, agent-runtime 5c22fbb2): the root sandbox was deleted 17 s after it
- * dispatched a child, four attempts in 64 s each refused "retained provider execution requires
- * reconciliation before replacement", and the run settled `driver-failed` while the child it had
- * commissioned settled `done` two minutes later, unread.
- *
- * The reconciliation refusal protects against paying twice for an execution that may still run.
- * An environment the provider no longer holds or reports terminal runs nothing. Runtime records
- * the provider's exact observation before the next prepare starts a new invocation. A terminal
- * record still requires cleanup at settlement; it is not a teardown receipt.
- */
+/** Observe exact environment loss before replacing its invocation; preserve uncertain work. */
 export async function reconcileScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
 ): Promise<RetainedOwnerEnvironmentState> {
@@ -131,7 +102,7 @@ export async function reconcileScopeRetainedOwnerEnvironment(
   try {
     environment = await runAbortable(
       () => provider.get!(environmentId),
-      AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)]),
+      AbortSignal.any([scope.signal, AbortSignal.timeout(ENVIRONMENT_LOOKUP_TIMEOUT_MS)]),
       'retained owner environment check timed out',
     )
     if (environment !== null) {
@@ -140,7 +111,7 @@ export async function reconcileScopeRetainedOwnerEnvironment(
         return { state: 'unknown', environmentId }
       const status = await runAbortable(
         () => found.status(),
-        AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)]),
+        AbortSignal.any([scope.signal, AbortSignal.timeout(ENVIRONMENT_LOOKUP_TIMEOUT_MS)]),
         'retained owner environment status timed out',
       )
       if (status === 'failed' || status === 'expired') terminalStatus = status
@@ -176,4 +147,33 @@ export async function reconcileScopeRetainedOwnerEnvironment(
         },
   )
   return { state: 'lost', environmentId }
+}
+
+/** A fresh unsigned listener rekeys only after exact prior execution is terminal. */
+export async function assertRetainedOwnerCoordinationRekey(scope: Scope<unknown>): Promise<void> {
+  const state = owners.get(scope)
+  const admission = state?.admissions.find((record) => record.phase === 'environment')
+  if (!state || admission?.phase !== 'environment') return
+  const { environmentId: id, sessionId, provider: name } = admission
+  const signal = AbortSignal.any([scope.signal, AbortSignal.timeout(ENVIRONMENT_LOOKUP_TIMEOUT_MS)])
+  await runAbortable(
+    async () => {
+      const environment = await state.provider?.get?.(id, { signal })
+      if (environment === null) return
+      if (!environment || environment.id !== id || environment.provider !== name)
+        throw new ValidationError('retained coordination ownership cannot be established')
+      const dispatched = state.admissions.find((record) => record.phase === 'dispatched')
+      if (dispatched?.phase !== 'dispatched')
+        throw new ValidationError('retained coordination lacks exact dispatch authority')
+      const session = environment.session?.(sessionId, {
+        signal,
+        controlRef: dispatched.controlRef,
+      })
+      const status = await session?.status({ signal })
+      if (status !== 'completed' && status !== 'failed' && status !== 'cancelled')
+        throw new ValidationError('active retained coordination needs a durable signer')
+    },
+    signal,
+    'retained coordination reconciliation timed out',
+  )
 }

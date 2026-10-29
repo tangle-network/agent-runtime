@@ -1,10 +1,8 @@
-/** Coordination bearer, independent observer/control tokens, expiry and rotation revocation. */
-
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { DEFAULT_MAX_EXECUTION_TTL_MS } from '@tangle-network/sandbox'
 import { ConfigError } from '../../errors'
 import type { CoordinationAuthentication } from './coordination-mcp'
 
-/** Exact operator authority, independent of the manager's authored tool grants. */
 export const coordinationControlToolNames = Object.freeze([
   'observe_agent',
   'read_journal',
@@ -12,29 +10,21 @@ export const coordinationControlToolNames = Object.freeze([
   'cancel_worker',
 ] as const)
 
+type Headers = Readonly<Record<string, string>>
 export interface CoordinationCredentials {
-  /** Revoke the current token and mint another. */
   rotate(): void
-  /** Bind tokens to their endpoint. */
+  /** Both bearers remain valid until the trusted holder acknowledges installation. */
+  replace(install: (headers: Headers) => Promise<void>): Promise<void>
   setAudience(audience: string): void
-  /**
-   * Why a supplied credential is refused, or undefined when valid. It lives as long as the scope
-   * it fronts: until the scope's signal aborts (cancellation, the run's deadline, a lead stopping
-   * its child), within ttlMs or the run's deadline, and until rotation revokes it. A child's time box
-   * does not abort it: the check-in (`deadline.ts` `DeadlineCheckIn`) asks it to submit through
-   * these very tools, and refusing at the time box blocked that (eu-datacenter-power-2030-
-   * 20261010b:s3, every call for its last 41 minutes).
-   */
   refused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
   readerRefused(supplied: Buffer): boolean
   controllerRefused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
-  readonly headers: Readonly<Record<string, string>>
+  readonly headers: Headers
   readonly expiresAt: number | undefined
   readonly readerToken: Buffer
-  readonly controllerHeaders: Readonly<Record<string, string>>
+  readonly controllerHeaders: Headers
 }
 
-/** The bearer token in an `Authorization` header, or an empty buffer. */
 export function bearerToken(authorization: string | undefined): Buffer {
   return typeof authorization === 'string' && authorization.startsWith('Bearer ')
     ? Buffer.from(authorization.slice(7))
@@ -50,131 +40,139 @@ export function createCoordinationCredentials(input: {
   readonly lifetimeExpiresAt?: number
   readonly isClosed: () => boolean
 }): CoordinationCredentials {
-  const { identity } = input
   const auth = typeof input.authentication === 'object' ? input.authentication : undefined
   const signingKeys = auth?.signingKeys
     ? { activeKeyId: auth.signingKeys.activeKeyId, keys: { ...auth.signingKeys.keys } }
     : undefined
-  let readerToken = Buffer.from(randomBytes(32).toString('base64url'))
-  let controllerToken = Buffer.from(randomBytes(32).toString('base64url'))
-  let token: Buffer | undefined
-  let expiresAt: number | undefined
-  let headers: Readonly<Record<string, string>> = Object.freeze({})
-  let audience = ''
+  const randomToken = () => Buffer.from(randomBytes(32).toString('base64url'))
+  let readerToken = randomToken(),
+    controllerToken = randomToken(),
+    audience = ''
+  let current: ReturnType<typeof issue> | undefined, staged: ReturnType<typeof issue> | undefined
+  let allowLegacy = true
   const revoked = new Map<string, number>()
-  const grantDigest = createHash('sha256')
+  const grants = createHash('sha256')
     .update(JSON.stringify([...input.toolNames].sort()))
     .digest('hex')
-
-  const rotate = () => {
-    if (!input.authentication)
-      throw new ConfigError('coordination authentication is not configured')
-    if (input.isClosed()) throw new ConfigError('coordination server is closed')
-    const nextExpiry =
-      auth?.ttlMs === undefined
-        ? input.lifetimeExpiresAt
-        : Math.min(Date.now() + auth.ttlMs, input.lifetimeExpiresAt ?? Number.POSITIVE_INFINITY)
-    if (nextExpiry !== undefined && !Number.isSafeInteger(nextExpiry)) {
-      throw new ConfigError('coordination credential expiry must remain a safe integer')
-    }
-    for (const [credential, expiry] of revoked) {
-      if (expiry <= Date.now()) revoked.delete(credential)
-    }
-    if (token) revoked.set(token.toString(), expiresAt ?? Number.POSITIVE_INFINITY)
-    expiresAt = nextExpiry
-    const nonce = randomBytes(32).toString('base64url')
-    let text = nonce
+  const { runId: run, actorId: actor } = input.identity
+  function issue() {
+    if (!input.authentication || input.isClosed())
+      throw new ConfigError('coordination authentication is unavailable')
+    const expiresAt = Math.min(
+      Date.now() + (auth?.ttlMs ?? DEFAULT_MAX_EXECUTION_TTL_MS),
+      input.lifetimeExpiresAt ?? Number.POSITIVE_INFINITY,
+    )
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now())
+      throw new ConfigError('coordination credential expiry is not in the future')
+    for (const [credential, expiry] of revoked) if (expiry <= Date.now()) revoked.delete(credential)
+    let text = randomBytes(32).toString('base64url')
     if (signingKeys) {
+      const key = signingKeys.activeKeyId,
+        expires = expiresAt,
+        nonce = text
       const payload = Buffer.from(
-        JSON.stringify({
-          key: signingKeys.activeKeyId,
-          run: identity.runId,
-          actor: identity.actorId,
-          audience,
-          grants: grantDigest,
-          expires: expiresAt ?? null,
-          nonce,
-        }),
+        JSON.stringify({ key, run, actor, audience, grants, expires, nonce }),
       ).toString('base64url')
-      const signature = createHmac('sha256', signingKeys.keys[signingKeys.activeKeyId]!)
+      const signature = createHmac('sha256', signingKeys.keys[key]!)
         .update(payload)
         .digest('base64url')
       text = `${payload}.${signature}`
     }
-    readerToken = Buffer.from(randomBytes(32).toString('base64url'))
-    controllerToken = Buffer.from(randomBytes(32).toString('base64url'))
-    token = Buffer.from(text)
-    headers = Object.freeze({ Authorization: `Bearer ${text}` })
+    return {
+      token: Buffer.from(text),
+      expiresAt,
+      headers: Object.freeze({ Authorization: `Bearer ${text}` }),
+    }
   }
-
+  const commit = (next: ReturnType<typeof issue>) => {
+    if (current) {
+      revoked.set(current.token.toString(), current.expiresAt)
+      allowLegacy = false
+    }
+    current = next
+    staged = undefined
+  }
+  const rotate = () => {
+    if (staged) throw new ConfigError('coordination credential replacement is pending')
+    commit(issue())
+    readerToken = randomToken()
+    controllerToken = randomToken()
+  }
+  const replace = async (install: (headers: Headers) => Promise<void>) => {
+    if (staged) throw new ConfigError('coordination credential replacement is pending')
+    const next = issue()
+    staged = next
+    try {
+      await install(next.headers)
+      commit(next)
+    } catch (error) {
+      staged = undefined
+      revoked.set(next.token.toString(), next.expiresAt)
+      throw error
+    }
+  }
+  const matches = (supplied: Buffer, expected: Buffer) =>
+    supplied.length === expected.length && timingSafeEqual(supplied, expected)
   const valid = (supplied: Buffer): boolean => {
     if (revoked.has(supplied.toString())) return false
-    if (!signingKeys)
-      return (
-        token !== undefined &&
-        (expiresAt === undefined || Date.now() < expiresAt) &&
-        supplied.length === token.length &&
-        timingSafeEqual(supplied, token)
+    if (!signingKeys || !allowLegacy)
+      return [current, staged].some(
+        (value) =>
+          value !== undefined && Date.now() < value.expiresAt && matches(supplied, value.token),
       )
     if (supplied.length > 8192) return false
     try {
       const parts = supplied.toString().split('.')
       if (parts.length !== 2) return false
-      const payload = parts[0]!
-      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+      const payload = parts[0]!,
+        claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
       if (!claims || typeof claims.key !== 'string' || !Object.hasOwn(signingKeys.keys, claims.key))
         return false
       const expected = createHmac('sha256', signingKeys.keys[claims.key]!).update(payload).digest()
       const signature = Buffer.from(parts[1]!, 'base64url')
+      const expiry =
+        claims.expires ??
+        (allowLegacy && auth?.ttlMs === undefined ? current?.expiresAt : undefined)
       return (
-        // Revocation keys use the wire token; alternate encodings must not alias it.
         signature.toString('base64url') === parts[1] &&
-        signature.length === expected.length &&
-        timingSafeEqual(signature, expected) &&
-        claims.run === identity.runId &&
-        claims.actor === identity.actorId &&
+        matches(signature, expected) &&
+        claims.run === run &&
+        claims.actor === actor &&
         claims.audience === audience &&
-        claims.grants === grantDigest &&
-        ((claims.expires === null &&
-          auth?.ttlMs === undefined &&
-          input.lifetimeExpiresAt === undefined) ||
-          (Number.isSafeInteger(claims.expires) &&
-            claims.expires > Date.now() &&
-            (input.lifetimeExpiresAt === undefined || claims.expires <= input.lifetimeExpiresAt)))
+        claims.grants === grants &&
+        Number.isSafeInteger(expiry) &&
+        expiry > Date.now() &&
+        (input.lifetimeExpiresAt === undefined || expiry <= input.lifetimeExpiresAt)
       )
     } catch {
       return false
     }
   }
-
   const capabilityRefused = (supplied: Buffer, expected: Buffer) =>
     input.isClosed() ||
-    supplied.length !== expected.length ||
-    !timingSafeEqual(supplied, expected) ||
-    (expiresAt !== undefined && expiresAt <= Date.now())
-
+    !matches(supplied, expected) ||
+    (current !== undefined && current.expiresAt <= Date.now())
+  const stopped = () => input.scopeSignal.aborted || input.lifetimeSignal?.aborted === true
   return {
     rotate,
+    replace,
     setAudience: (next) => {
       audience = next
     },
-    refused: (supplied) => {
+    refused(supplied) {
       if (input.scopeSignal.aborted) return 'scope-stopped'
       return valid(supplied) ? undefined : 'credential-refused'
     },
-    readerRefused: (supplied) =>
-      input.scopeSignal.aborted ||
-      input.lifetimeSignal?.aborted === true ||
-      capabilityRefused(supplied, readerToken),
-    controllerRefused: (supplied) => {
-      if (input.scopeSignal.aborted || input.lifetimeSignal?.aborted) return 'scope-stopped'
+    readerRefused: (supplied) => stopped() || capabilityRefused(supplied, readerToken),
+    controllerRefused(supplied) {
+      if (stopped()) return 'scope-stopped'
       return capabilityRefused(supplied, controllerToken) ? 'credential-refused' : undefined
     },
     get headers() {
-      return headers
+      return current?.headers ?? Object.freeze({})
     },
     get expiresAt() {
-      return expiresAt
+      return current?.expiresAt
     },
     get readerToken() {
       return readerToken

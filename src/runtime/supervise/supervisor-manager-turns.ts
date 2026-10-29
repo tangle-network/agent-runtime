@@ -64,14 +64,12 @@ interface ManagerTurnLoop extends ManagerTurnInputs {
   readonly records: DriverAttemptRecord[]
   candidate: unknown
   deadlineWarned: boolean
-  /** The wake a re-entered drive was given, kept so `refresh` can bring it up to date. */
   pendingWake:
     | { readonly attempt: number; readonly wake: ManagerWake; readonly at: number }
     | undefined
   environmentReplacements: number
   workspaceRestores: number
   modelEvents: number
-  /** Set once the loop's record went to `onDriverLoopSettled`. */
   reported: boolean
 }
 
@@ -552,6 +550,8 @@ async function invokeManagerHarness(
       coordinationMcpUrl: mcp.url,
       coordinationMcpHeaders: mcp.headers,
       coordinationCredentialExpiresAt: mcp.credentialExpiresAt,
+      coordinationCredentialSigned: mcp.credentialSigned,
+      coordinationBindCredential: mcp.bindCredential,
       ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
       stopSignal: state.stopController.signal,
       coordinationTools: loop.coordinationTools,
