@@ -206,22 +206,61 @@ it('retains the qualification artifact hash and strict registry integrity guards
   )
 })
 
-it('the workflow checker refuses authority on the read-only byte verifier', async () => {
+it('the workflow checker enforces effective read permissions and authority isolation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'runtime-publish-policy-'))
   try {
     const original = await readFile(resolve('.github/workflows/publish.yml'), 'utf8')
+    const originalQualification = await readFile(
+      resolve('.github/workflows/qualify-release.yml'),
+      'utf8',
+    )
     const path = join(directory, 'publish.yml')
-    for (const mutation of ['id-token', 'npm-secret', 'persist-credentials']) {
+    const qualificationPath = join(directory, 'qualify.yml')
+    for (const mutation of [
+      'id-token',
+      'npm-secret',
+      'persist-credentials',
+      'empty',
+      'null',
+      'zero-read',
+      'write',
+      'caller-implicit',
+      'inherited-write',
+      'inherited-id-token',
+      'qualifier-id-token',
+    ]) {
       const workflow = parse(original)
+      const qualification = parse(originalQualification)
       const job = workflow.jobs['verify-publication']
       if (mutation === 'id-token') job.permissions['id-token'] = 'write'
       if (mutation === 'npm-secret') job.env.NPM_TOKEN = 'forbidden-fixture-reference'
       if (mutation === 'persist-credentials') job.steps[0].with['persist-credentials'] = true
+      if (mutation === 'empty') job.permissions = {}
+      if (mutation === 'null') job.permissions = null
+      if (mutation === 'zero-read') qualification.jobs.verify.permissions = { packages: 'read' }
+      if (mutation === 'write') job.permissions = { contents: 'write' }
+      if (mutation === 'caller-implicit') delete workflow.jobs.qualify.permissions
+      if (mutation === 'inherited-write') {
+        delete job.permissions
+        workflow.permissions = { contents: 'write' }
+      }
+      if (mutation === 'inherited-id-token') {
+        delete job.permissions
+        workflow.permissions = { contents: 'read', 'id-token': 'write' }
+      }
+      if (mutation === 'qualifier-id-token')
+        qualification.permissions = { contents: 'read', 'id-token': 'write' }
       await writeFile(path, stringify(workflow))
+      await writeFile(qualificationPath, stringify(qualification))
       await expect(
-        exec(process.execPath, ['scripts/check-publish-workflow.mjs', path]),
-      ).rejects.toThrow(/package identity token|publishing credentials|checkout credentials/)
+        exec(process.execPath, ['scripts/check-publish-workflow.mjs', path, qualificationPath]),
+      ).rejects.toThrow(/permission|package identity token|publishing credentials/)
     }
+    const workflow = parse(original)
+    delete workflow.jobs['verify-publication'].permissions
+    await writeFile(path, stringify(workflow))
+    await writeFile(qualificationPath, originalQualification)
+    await exec(process.execPath, ['scripts/check-publish-workflow.mjs', path, qualificationPath])
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
