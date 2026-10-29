@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
 
 export type Scenario =
+  | 'sql-conformance'
   | 'trace-owner'
   | 'trace-owner-cancel'
   | 'trace-owner-evidence'
@@ -212,7 +213,9 @@ export function attachments(
 export function terminal(run: NativeRun, scenario: Scenario) {
   const processResult = run.processResult
   if (
-    (scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
+    (scenario.startsWith('json-') ||
+      scenario.startsWith('trace-') ||
+      scenario === 'sql-conformance') &&
     processResult !== undefined
   ) {
     const answer = {

@@ -61,8 +61,13 @@ export class ProcessFixture {
     readonly scenario: Scenario,
     readonly executables: Executables,
   ) {}
-  static async start(scenario: Scenario, executables: Executables): Promise<ProcessFixture> {
-    const directory = await mkdtemp(join(tmpdir(), 'uncertain-create-integration-'))
+  static async start(
+    scenario: Scenario,
+    executables: Executables,
+    options: { directory?: string; coordinator?: false } = {},
+  ): Promise<ProcessFixture> {
+    const directory =
+      options.directory ?? (await mkdtemp(join(tmpdir(), 'uncertain-create-integration-')))
     const fixture = new ProcessFixture(directory, scenario, executables)
     try {
       fixture.credentialMode(
@@ -76,7 +81,7 @@ export class ProcessFixture {
       fixture.url = String(
         object(JSON.parse(readFileSync(join(directory, 'service-ready.json'), 'utf8'))).url,
       )
-      await fixture.resume()
+      if (options.coordinator !== false) await fixture.resume()
       return fixture
     } catch (error) {
       const failures: unknown[] = [error]

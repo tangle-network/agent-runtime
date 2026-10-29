@@ -172,6 +172,10 @@ async function replay(
   }
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
+  // Let the independently requested exact result win before this connection's first frame.
+  // The actual closed worker already supplied the terminal data; no observation is fabricated.
+  if (scenario === 'sql-conformance' && !exactResult)
+    await new Promise<void>((resolve) => setTimeout(resolve, 40))
   run.terminalReads += 1
   sse(
     response,
@@ -257,7 +261,11 @@ async function act(run: NativeRun): Promise<void> {
   if (run.actionStarted) return
   run.actionStarted = true
   const profile = runProfile(run)
-  if (scenario.startsWith('json-') || scenario.startsWith('trace-')) {
+  if (
+    scenario.startsWith('json-') ||
+    scenario.startsWith('trace-') ||
+    scenario === 'sql-conformance'
+  ) {
     const startedAt = Date.now()
     const worker = await runSettledCommand({
       command: process.execPath,

@@ -63,6 +63,13 @@ export async function openSqlRunStore<Payload>(
 ): Promise<{
   readonly namespace: string
   read(): Promise<readonly Payload[]>
+  /** Capture one verified immutable head and its committed history without taking ownership. */
+  readonly readSnapshot?: () => Promise<{
+    readonly namespace: string
+    readonly head: string
+    readonly revision: number
+    readonly records: readonly Payload[]
+  }>
   acquire(signal?: AbortSignal): Promise<SqlRunLease<Payload>>
 }> {
   const prefix = options.tablePrefix ?? 'agent_run'
@@ -130,33 +137,14 @@ export async function openSqlRunStore<Payload>(
     return row
   }
 
-  async function load(head: Head): Promise<Payload[]> {
-    if (head.revision === 0) return []
-    // The head was committed AFTER every node it reaches. This reads a consistent immutable
-    // cut without a multi-statement read transaction, even if another process appends now.
-    const rows = await db.query<RecordRow>(
-      `SELECT id, parent, revision, payload FROM ${records} WHERE run_id = ? AND revision <= ?`,
-      [runId, head.revision],
-    )
-    const byId = new Map(rows.map((row) => [row.id, row]))
-    const history: Payload[] = []
-    let id = head.head
-    for (let revision = head.revision; revision > 0; revision -= 1) {
-      const row = byId.get(id)
-      if (
-        !row ||
-        Number(row.revision) !== revision ||
-        recordId(row.parent, revision, row.payload) !== id
-      ) {
-        throw new Error(
-          `SQL run '${runId}' has a missing or corrupt committed record at revision ${revision}`,
-        )
-      }
-      history.push(JSON.parse(row.payload) as Payload)
-      id = row.parent
-    }
-    if (id !== '') throw new Error(`SQL run '${runId}' has an invalid history origin`)
-    return history.reverse()
+  async function readSnapshot() {
+    const head = await readHead()
+    return Object.freeze({
+      namespace: head.namespace,
+      head: head.head,
+      revision: head.revision,
+      records: await load<Payload>(db, records, runId, head),
+    })
   }
 
   // Validate the shared policy at construction, before any caller can take ownership.
@@ -165,8 +153,9 @@ export async function openSqlRunStore<Payload>(
   return {
     namespace: initial.namespace,
     async read() {
-      return load(await readHead())
+      return (await readSnapshot()).records
     },
+    readSnapshot,
     async acquire(signal) {
       signal?.throwIfAborted()
       const observed = await readHead()
@@ -329,7 +318,7 @@ export async function openSqlRunStore<Payload>(
         },
       }
       try {
-        history = await load(observed)
+        history = await load<Payload>(db, records, runId, observed)
         signal?.throwIfAborted()
         controller.signal.throwIfAborted()
         return lease
@@ -339,6 +328,40 @@ export async function openSqlRunStore<Payload>(
       }
     },
   }
+}
+
+async function load<Payload>(
+  db: Pick<SqlAdapter, 'query'>,
+  records: string,
+  runId: string,
+  head: Head,
+): Promise<Payload[]> {
+  if (head.revision === 0) return []
+  // The head was committed AFTER every node it reaches. This reads a consistent immutable
+  // cut without a multi-statement read transaction, even if another process appends now.
+  const rows = await db.query<RecordRow>(
+    `SELECT id, parent, revision, payload FROM ${records} WHERE run_id = ? AND revision <= ?`,
+    [runId, head.revision],
+  )
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  const history: Payload[] = []
+  let id = head.head
+  for (let revision = head.revision; revision > 0; revision -= 1) {
+    const row = byId.get(id)
+    if (
+      !row ||
+      Number(row.revision) !== revision ||
+      recordId(row.parent, revision, row.payload) !== id
+    ) {
+      throw new Error(
+        `SQL run '${runId}' has a missing or corrupt committed record at revision ${revision}`,
+      )
+    }
+    history.push(JSON.parse(row.payload) as Payload)
+    id = row.parent
+  }
+  if (id !== '') throw new Error(`SQL run '${runId}' has an invalid history origin`)
+  return history.reverse()
 }
 
 function recordId(parent: string, revision: number, payload: string): string {

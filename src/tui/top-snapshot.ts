@@ -462,7 +462,6 @@ export function buildSupervisorView(
         'outRef',
         'harnessTranscript',
         'transcript',
-        'materialization',
         'reason',
         'infra',
         'verdict',
@@ -476,7 +475,7 @@ export function buildSupervisorView(
       if (event.at) worker.startedAt = event.at
       const budget = parseBudget(event.budget)
       if (budget) worker.budget = budget
-    } else if (event.kind === 'materialized') {
+    } else if (event.kind === 'materialized' || event.kind === 'seat-materialized') {
       worker.materialization = event.receipt
     } else if (event.kind === 'execution-bound') {
       worker.executionBindings = [...(worker.executionBindings ?? []), event.binding]
@@ -797,6 +796,7 @@ export function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
       'metered',
       'progress',
       'materialized',
+      'seat-materialized',
       'execution-bound',
     ].includes(value.kind)
   )

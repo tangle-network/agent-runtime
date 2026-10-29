@@ -318,7 +318,11 @@ function renderJournalTail(supervisor: SupervisorView, width: number, color: boo
     const at = event.at ? formatClock(event.at) : '--:--:--'
     if (event.kind === 'spawned')
       return `  ${at} ${paint('spawn', 'yellow', color)}  ${pad(event.label ?? event.id, 16)} ${event.id}`
-    if (event.kind === 'materialized' || event.kind === 'execution-bound')
+    if (
+      event.kind === 'materialized' ||
+      event.kind === 'seat-materialized' ||
+      event.kind === 'execution-bound'
+    )
       return `  ${at} ${event.kind} ${event.id}`
     if (event.kind !== 'cancelled') {
       const spend = parseSpend(event.kind === 'settled' ? event.spent : event.spend)

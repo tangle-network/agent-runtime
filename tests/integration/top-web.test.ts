@@ -1,9 +1,16 @@
 import { appendFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { expect, test } from 'vitest'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
 import { startRetainedRun } from '../../src/runtime/retained-run-start'
+import {
+  knownMaterializationReceipt,
+  unknownExecutionBindingReceipt,
+} from '../../src/runtime/supervise/materialization'
+import { appendExactMaterializationEvent } from '../../src/runtime/supervise/scope-owner-materialization'
 import { serveTopWeb, type TopSnapshotFrame } from '../../src/tui/top-web'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 
@@ -334,6 +341,16 @@ test('Router canonical records preserve user messages and tool pairs without a n
     ).toBe('partial')
     // A later attempt must not inherit the old result, transcript or completion time.
     const journal = new FileSpawnJournal(join(runs, runId, 'spawn-journal.jsonl'))
+    const prior = (await journal.loadTree(runId))!
+    const materialized = prior.find(
+      (event) => event.kind === 'materialized' && event.id === `${runId}:s2`,
+    )!
+    const bound = prior.find(
+      (event) => event.kind === 'execution-bound' && event.id === `${runId}:s2`,
+    )!
+    if (materialized.kind !== 'materialized' || bound.kind !== 'execution-bound')
+      throw new Error('Recorded worker lacks its materialization or attempt binding')
+    const attemptId = `${bound.binding.attemptId}:reopened`
     await journal.appendEvent(runId, {
       kind: 'spawned',
       id: `${runId}:s2`,
@@ -344,6 +361,12 @@ test('Router canonical records preserve user messages and tool pairs without a n
       seq: 100000,
       at: new Date().toISOString(),
     })
+    // The kernel reuses the immutable node receipt and publishes only the new binding.
+    await appendExactMaterializationEvent(journal, runId, materialized)
+    await appendExactMaterializationEvent(journal, runId, {
+      ...bound,
+      binding: { ...bound.binding, attemptId },
+    })
     const selected = async () => {
       const frame = (await (await fetch(`${web.url}api/top`)).json()) as TopSnapshotFrame
       return frame.snapshots[0]!.supervisors[0]!.workers.find(
@@ -351,11 +374,60 @@ test('Router canonical records preserve user messages and tool pairs without a n
       )!
     }
     await expect.poll(async () => (await selected()).status).toBe('running')
-    for (const key of ['endedAt', 'outRef', 'harnessTranscript', 'transcript', 'materialization'])
+    await expect
+      .poll(async () => (await selected()).executionBindings?.at(-1)?.attemptId)
+      .toBe(attemptId)
+    expect((await selected()).materialization).toEqual(materialized.receipt)
+    expect(
+      (await journal.loadTree(runId))!.filter(
+        (event) => event.kind === 'materialized' && event.id === `${runId}:s2`,
+      ),
+    ).toHaveLength(1)
+    for (const key of ['endedAt', 'outRef', 'harnessTranscript', 'transcript'])
       expect(await selected()).not.toHaveProperty(key)
     expect(
       (await (await fetch(`${web.url}api/top/agents/0/${runId}/${worker}`)).json()).coverage.status,
     ).toBe('missing')
+    // An authorized later seat publishes a new receipt on the same node, not a new node.
+    const profile = agentProfileSchema.parse(
+      await new FileResultBlobStore(join(runs, runId, 'blobs')).get(
+        materialized.receipt.authoredProfileDigest!,
+      ),
+    )
+    const receipt = knownMaterializationReceipt({
+      authoredProfileDigest: materialized.receipt.authoredProfileDigest!,
+      runtime: 'driver',
+      declaration: {
+        authoredProfile: profile,
+        effectiveProfile: { ...profile, model: { ...profile.model, default: 'later-seat' } },
+        backend: 'recorded-journal-fixture',
+        model: { status: 'known', id: 'later-seat' },
+        execution: { kind: 'session', id: 'later-seat-session' },
+        materializer: 'recorded-journal-fixture',
+        plan: { segment: 1 },
+      },
+    })
+    const binding = unknownExecutionBindingReceipt(
+      receipt,
+      `${attemptId}:seat`,
+      'executor-did-not-report',
+    )
+    await appendExactMaterializationEvent(journal, runId, {
+      kind: 'seat-materialized',
+      id: `${runId}:s2`,
+      segmentIndex: 1,
+      receipt,
+      seq: 0,
+      at: new Date().toISOString(),
+    })
+    await appendExactMaterializationEvent(journal, runId, {
+      ...bound,
+      binding,
+    })
+    await expect
+      .poll(async () => (await selected()).executionBindings?.at(-1)?.attemptId)
+      .toBe(binding.attemptId)
+    expect((await selected()).materialization).toEqual(receipt)
   } finally {
     await web.close()
     await rm(root, { recursive: true, force: true })
