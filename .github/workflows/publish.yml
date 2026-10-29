@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   qualify:
-    uses: tangle-network/agent-runtime/.github/workflows/qualify-release.yml@b0b1490a824fe415e7d4a708183b58994f403841
+    uses: tangle-network/agent-runtime/.github/workflows/qualify-release.yml@3436fae29cf7760528764da77e3e969c1d6c34ae
     permissions:
       contents: read
     with:
