@@ -44,11 +44,15 @@ export {
   type WorkerView,
 } from './top-snapshot'
 export {
+  type BaselineAuthority,
   createTopAgentStream,
+  type FileIdentity,
   type HarnessRowsGap,
   type HarnessRowsSession,
   type HarnessSessionRow,
   harnessSessionRows,
+  type RecordedActivity,
+  type RecordedEvents,
   readTopAgentHistory,
   readTopAgentInspection,
   type TopAgentMetadata,

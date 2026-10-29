@@ -1410,7 +1410,7 @@ Caller-owned mapping for optimizing several profile fields as one candidate.
 
 ##### encoding?
 
-> `optional` **encoding?**: `"components"` \| `"json"`
+> `optional` **encoding?**: `"json"` \| `"components"`
 
 Encode the map as JSON text for engines that cannot search named components. Default `'components'`.
 

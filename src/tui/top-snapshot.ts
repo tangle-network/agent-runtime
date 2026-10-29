@@ -178,6 +178,7 @@ export function loadTopSnapshot(
   return topSnapshot(root, now, supervisors, diagnostics, discovered)
 }
 
+/** Combine supervisor projections and source diagnostics into one snapshot. */
 export function topSnapshot(
   root: string,
   now: number,
@@ -420,6 +421,7 @@ function recordedReason(event?: object): string | undefined {
   return isRecord(event) && typeof event.reason === 'string' ? event.reason : undefined
 }
 
+/** Project committed lifecycle and spend evidence into one supervisor view. */
 export function buildSupervisorView(
   state: SupervisorState,
   stateDir: string,
@@ -782,6 +784,7 @@ function isSupervisorState(value: unknown): value is SupervisorState {
   )
 }
 
+/** Validate supported journal lifecycle and accounting event shapes. */
 export function isSpawnEvent<T>(value: T): value is T & TopJournalEvent {
   return (
     isRecord(value) &&

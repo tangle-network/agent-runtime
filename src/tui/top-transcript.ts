@@ -15,11 +15,11 @@ import { ROOT_STREAM_FILE } from '../runtime/supervise/root-stream'
 import type { ResultBlobStore } from '../runtime/supervise/types'
 import type { SupervisorView, TopSnapshotDiagnostic, WorkerView } from './top-snapshot'
 
-type BaselineAuthority = {
+export type BaselineAuthority = {
   readonly kind: 'retained-workspace' | 'git-object' | 'git-diff'
   readonly ref: string
 }
-type FileIdentity = { readonly sha256: string; readonly byteLength: number }
+export type FileIdentity = { readonly sha256: string; readonly byteLength: number }
 export interface TopInspection {
   readonly coverage: {
     readonly status: 'complete' | 'partial' | 'missing'
@@ -33,7 +33,7 @@ export interface TopInspection {
     readonly sessionId: string
     readonly part: number
   })[]
-  readonly context?: Readonly<ReturnType<typeof transcriptRows>>
+  readonly context?: readonly TopTranscriptRow[]
   readonly files?: {
     readonly scope: 'workspace' | 'none'
     readonly complete: boolean
@@ -53,7 +53,20 @@ export interface TopInspection {
   }
 }
 
-export type TopTranscriptRow = ReturnType<typeof transcriptRows>[number]
+export interface TopTranscriptRow {
+  at: string
+  event: {
+    kind: string
+    text?: string
+    provenance?: string
+    source?: string
+    actor?: string
+    toolCallId?: string
+    toolName?: string
+    args?: unknown
+    result?: unknown
+  }
+}
 export type TopSessionReader = (
   artifact: HarnessTranscriptArtifact,
   signal?: AbortSignal,
@@ -312,6 +325,7 @@ export type TopAgentStreamFrame =
   | { readonly event: 'reset'; readonly data: { readonly generation: number } }
   | { readonly event: 'rows'; readonly data: TopAgentRowsFrame }
 
+/** Project selected conversation rows into ordered reset and row frames. */
 export function createTopAgentStream(generation: number) {
   let representation: string | undefined
   let initiatingInput: TopTranscriptRow | undefined
@@ -463,20 +477,7 @@ export async function retainedRouterInspection(worker: WorkerView, runDir?: stri
 
 /** Present the recorded tail through sandbox-ui's existing agent-stream contract. */
 export function transcriptRows(worker: Pick<WorkerView, 'liveTail'>) {
-  const rows: {
-    at: string
-    event: {
-      kind: string
-      text?: string
-      provenance?: string
-      source?: string
-      actor?: string
-      toolCallId?: string
-      toolName?: string
-      args?: unknown
-      result?: unknown
-    }
-  }[] = []
+  const rows: TopTranscriptRow[] = []
   for (const line of worker.liveTail) {
     let value: Record<string, unknown> | undefined
     try {
@@ -752,7 +753,7 @@ export type HarnessRowsGap = {
   readonly recordId: string
   readonly reason: string
 }
-export type HarnessSessionRow = ReturnType<typeof transcriptRows>[number] & {
+export type HarnessSessionRow = TopTranscriptRow & {
   readonly id: string
   readonly sessionId: string
   readonly part: number

@@ -2770,7 +2770,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-7)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-8)
 
 ##### runDir?
 
@@ -3104,7 +3104,7 @@ Parent post office bound to this manager's worker identity.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-8)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`blobs`](runtime.md#blobs-9)
 
 ##### makeWorkerAgent
 
