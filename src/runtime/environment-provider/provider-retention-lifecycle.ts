@@ -402,8 +402,6 @@ export function createProviderNativeControl(
   const withoutRunningHarness =
     (release: (signal: AbortSignal) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>) =>
     async (signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> => {
-      const receipts = await release(signal)
-      if (receipts.every((receipt) => receipt.destroyed)) return receipts
       const stop = await awaitAbortable(stopNativeExecution(), signal).catch(
         (error: unknown): RetainedNativeStop | undefined => {
           const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
@@ -417,10 +415,22 @@ export function createProviderNativeControl(
               }
         },
       )
-      if (stop === undefined) return receipts
-      const stopped = describeRetainedNativeStops([stop])
+      const stopped = stop === undefined ? undefined : describeRetainedNativeStops([stop])
+      const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
+      if (stop !== undefined && !state.harnessStopped && controlRef !== undefined) {
+        return [
+          {
+            provider: provider.name,
+            environmentId: controlRef.environmentId,
+            destroyed: false,
+            detail: stopped,
+            permanent: true,
+          },
+        ]
+      }
+      const receipts = await release(signal)
       return receipts.map((receipt) =>
-        receipt.destroyed
+        receipt.destroyed || stopped === undefined
           ? receipt
           : { ...receipt, detail: receipt.detail ? `${receipt.detail}; ${stopped}` : stopped },
       )

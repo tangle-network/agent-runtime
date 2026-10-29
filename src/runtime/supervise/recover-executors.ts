@@ -704,8 +704,7 @@ export async function prepareScopeResume(
   signal: AbortSignal,
   now: () => number,
   parentId = opts.runId,
-  /** A run cancelled before it was re-entered settles from its journal: no slot heal, no
-   *  executor recovery, no provider call. */
+  /** A terminal entry restores cleanup descriptors, never slot heals or execution. */
   settleOnly = false,
 ): Promise<{ resumeFrom: ScopeResumeState; poolRestore: BudgetPoolRestore }> {
   // The root resume walks the whole forest once; the nested restore, whose `parentId` is the
@@ -715,9 +714,13 @@ export async function prepareScopeResume(
   if (!settleOnly && parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
     events = (await opts.journal.loadTree(opts.runId)) ?? events
   }
-  const prepared = settleOnly
-    ? { events, recoveries: [] }
-    : await prepareInterruptedExecutors(opts, events, signal, now, parentId)
+  const prepared = await prepareInterruptedExecutors(
+    opts,
+    events,
+    settleOnly ? new AbortController().signal : signal,
+    now,
+    parentId,
+  )
   const prior = prepared.events
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
   // A restored child's full reservation already covers its previous inference and its reconciled

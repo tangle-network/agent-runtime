@@ -256,7 +256,9 @@ async function recoverRetainedChildren<Out>(
   const adopted: LiveChild[] = []
   try {
     for (const recovery of args.resumeFrom!.recoveries!) {
-      args.signal.throwIfAborted()
+      // Terminal recovery adopts only original leaves for teardown. Nested owners need their
+      // original driver binding; keep those explicitly unconfirmed instead of a vacuous release.
+      if (args.signal.aborted && recovery.spawned.ownedTreeRoot !== undefined) continue
       const node = recovery.spawned
       const agent = Object.assign(
         {

@@ -704,7 +704,6 @@ describe('a deadline that ends a retained turn', () => {
   }, 30_000)
 })
 
-
 describe('terminal recovery of a previously admitted native process', () => {
   it.each(['deadline', 'cancelled'] as const)(
     'stops the original process before capture/return on %s entry without dispatching',
@@ -750,7 +749,8 @@ describe('terminal recovery of a previously admitted native process', () => {
             name: 'root',
             act: async (_task, scope) => {
               scope.spawn(worker, 'child task', {
-                key: 'work', budget: { maxIterations: 1, maxTokens: 100 },
+                key: 'work',
+                budget: { maxIterations: 1, maxTokens: 100 },
               })
               await scope.next()
               return 'unreachable'
@@ -764,7 +764,11 @@ describe('terminal recovery of a previously admitted native process', () => {
               loadTree: context.journal.loadTree.bind(context.journal),
               appendEvent: async (root, event) => {
                 await context.journal.appendEvent(root, event)
-                if (!interrupted && event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
+                if (
+                  !interrupted &&
+                  event.kind === 'execution-admitted' &&
+                  event.admission.phase === 'dispatched'
+                ) {
                   interrupted = true
                   throw new Error('lost local dispatch acknowledgement')
                 }
@@ -779,16 +783,30 @@ describe('terminal recovery of a previously admitted native process', () => {
       const before = { creates: live.creates(), dispatches: live.dispatches() }
       expect(before).toEqual({ creates: 1, dispatches: 1 })
       // An unrelated process group must never be affected by cleanup of this admission.
-      const canary = spawn('/bin/sh', ['-c', 'sleep 300 & wait'], { detached: true, stdio: 'ignore' })
+      const canary = spawn('/bin/sh', ['-c', 'sleep 300 & wait'], {
+        detached: true,
+        stdio: 'ignore',
+      })
       harnesses.push(canary)
       const cancel = new AbortController()
       if (ending === 'deadline') clock += 120_000
       else cancel.abort(new RunCancellationReason('operator', 'cancelled before resume'))
       copies.length = 0
       const result = await createSupervisor<string, string>().run(
-        { name: 'root', act: async () => { throw new Error('terminal root acted') } },
+        {
+          name: 'root',
+          act: async () => {
+            throw new Error('terminal root acted')
+          },
+        },
         'root-task',
-        { ...common, recoverExecutor: factory, retainedAtSettlement: 'release', signal: cancel.signal, teardownConfirmMs: 1_000 },
+        {
+          ...common,
+          recoverExecutor: factory,
+          retainedAtSettlement: 'release',
+          signal: cancel.signal,
+          teardownConfirmMs: 1_000,
+        },
       )
       expect(result).toMatchObject({ kind: 'no-winner', reason: ending })
       expect(running(harness!)).toBe(false)
@@ -799,10 +817,15 @@ describe('terminal recovery of a previously admitted native process', () => {
       expect(live.destroys()).toBe(0) // Incomplete evidence keeps the stopped source.
       expect(result.teardownUnconfirmed?.[0]?.kept?.[0]).toMatchObject({ keptFor: 'evidence' })
       const events = (await context.journal.loadTree('root')) ?? []
-      const admission = ofKind(events, 'execution-admitted').find((event) => event.admission.phase === 'dispatched')!
-      const original = admission.admission.phase === 'dispatched' ? admission.admission.controlRef : undefined
+      const admission = ofKind(events, 'execution-admitted').find(
+        (event) => event.admission.phase === 'dispatched',
+      )!
+      const original =
+        admission.admission.phase === 'dispatched' ? admission.admission.controlRef : undefined
       expect(ofKind(events, 'environment-teardown').at(-1)).toMatchObject({
-        id: admission.id, environmentId: original?.environmentId, destroyed: false,
+        id: admission.id,
+        environmentId: original?.environmentId,
+        destroyed: false,
       })
     },
     30_000,

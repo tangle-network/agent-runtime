@@ -81,30 +81,18 @@ async function resumeRunTree(
 ): Promise<OpenedRunTree> {
   const rootEvent = assertResumeContract(prior, opts)
   const runEpochMs = rootStartedAtMs(rootEvent)
-  const recoveryController = new AbortController()
-  const abortRecovery = () => recoveryController.abort(opts.signal?.reason)
-  if (opts.signal?.aborted) abortRecovery()
-  else opts.signal?.addEventListener('abort', abortRecovery, { once: true })
-  // The execution deadline forbids new work, not recovery of committed evidence: restore the tree
-  // first so an expired run reaches normal deadline settlement. Cancellation still interrupts.
-  let restored: Awaited<ReturnType<typeof prepareScopeResume>>
-  try {
-    // A run cancelled before this entry settles from its journal and starts nothing:
-    // queens21-h22-tree4-20261018a's resume threw on the aborted recovery, and the next re-ran its
-    // work to budget exhaustion before the cancel applied.
-    const cancelledAtEntry =
-      opts.signal?.aborted === true && opts.signal.reason instanceof RunCancellationReason
-    restored = await prepareScopeResume(
-      opts,
-      prior,
-      recoveryController.signal,
-      now,
-      opts.runId,
-      cancelledAtEntry,
-    )
-  } finally {
-    opts.signal?.removeEventListener('abort', abortRecovery)
-  }
+  // Restore committed evidence even after the execution deadline; a named terminal cancel
+  // prepares cleanup descriptors without permitting a new executor invocation.
+  const cancelledAtEntry =
+    opts.signal?.aborted === true && opts.signal.reason instanceof RunCancellationReason
+  const restored = await prepareScopeResume(
+    opts,
+    prior,
+    opts.signal ?? new AbortController().signal,
+    now,
+    opts.runId,
+    cancelledAtEntry,
+  )
   const resumeFrom = restored.resumeFrom
   const events = [...resumeFrom.events]
   const pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
