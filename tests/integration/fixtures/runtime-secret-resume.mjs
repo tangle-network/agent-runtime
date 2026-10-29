@@ -59,6 +59,12 @@ const result = await supervise(
     },
     onDriverAttempt: async (record) => {
       if (phase === 'first') {
+        if (record.error !== undefined)
+          console.error(
+            String(record.error)
+              .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
+              .slice(0, 600),
+          )
         assert.equal(record.error === undefined, true)
         await fetch(`${baseUrl}/fixture/hold-after-commit`)
       }

@@ -461,14 +461,19 @@ try {
     const helper = fileURLToPath(new URL('./runtime-secret-resume.mjs', import.meta.url))
     const args = ['--dns-result-order=ipv4first', helper, baseUrl, publicUrl, directory]
     const child = spawn(process.execPath, [...args, 'first'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    child.stderr.resume()
+    let firstDiagnostic = ''
+    child.stderr.on('data', (chunk) => {
+      firstDiagnostic += chunk.toString()
+    })
     child.stdout.resume()
     const exited = new Promise((resolve) => child.once('exit', resolve))
     try {
       await Promise.race([
         committed,
         exited.then(() => {
-          throw new Error('first coordinator exited before committing')
+          throw new Error(
+            `first coordinator exited before committing: ${safeFailure(firstDiagnostic)}`,
+          )
         }),
       ])
       assert.equal(stored.size, 1)
@@ -616,6 +621,7 @@ try {
             },
             perWorker: { maxIterations: 1, maxTokens: 100 },
             driverRetry: { enabled: false },
+            finalizer: () => (mcpAccepted ? { custody: 'complete' } : undefined),
             coordination: {
               authentication:
                 mode === 'long-ttl'
@@ -635,7 +641,7 @@ try {
         resultKind = result.kind
         resultReason = result.reason
         failureText = safeFailure(result.error?.message)
-        settled = result.kind === 'winner'
+        settled = result.kind === 'winner' && result.out?.custody === 'complete'
         rejected = result.kind === 'no-winner' && result.reason === 'driver-failed'
         if (!settled) break
       }

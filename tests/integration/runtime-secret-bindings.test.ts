@@ -87,6 +87,7 @@ it('keeps string selector ordering stable and binds retained identity to host an
 })
 it('stores coordination outside create.env, authenticates MCP over TLS, and revokes at settlement', async () => {
   expect(await run('bound')).toMatchObject({
+    resultKind: 'winner',
     settled: true,
     mcpAccepted: true,
     mcpRefusedWrongBearer: true,
@@ -100,6 +101,8 @@ it('stores coordination outside create.env, authenticates MCP over TLS, and revo
 })
 it('confirms absent custody after a refused store create through real metadata discovery', async () => {
   expect(await run('create-refused')).toMatchObject({
+    resultKind: 'no-winner',
+    resultReason: 'driver-failed',
     rejected: true,
     creates: 0,
     stored: 0,
@@ -110,25 +113,31 @@ it('confirms absent custody after a refused store create through real metadata d
 })
 it('preserves unknown custody when persistence has no acknowledged receipt', async () => {
   expect(await run('uncertain-create')).toMatchObject({
+    resultKind: 'no-winner',
+    resultReason: 'driver-failed',
     rejected: true,
     creates: 0,
     stored: 1,
     deleteCalls: 0,
-    metadataGets: 1,
+    metadataGets: 2,
   })
 })
 it('refuses stale takeover without acquiring cleanup authority over the prior revision', async () => {
   expect(await run('rekey-conflict')).toMatchObject({
+    resultKind: 'no-winner',
+    resultReason: 'driver-failed',
     rejected: true,
     creates: 0,
     stored: 1,
     updates: 0,
     deleteCalls: 0,
-    metadataGets: 2,
+    metadataGets: 3,
   })
 })
 it('preserves a newer holder when conditional cleanup detects a changed revision', async () => {
   expect(await run('delete-conflict')).toMatchObject({
+    resultKind: 'no-winner',
+    resultReason: 'driver-failed',
     rejected: true,
     mcpAccepted: true,
     noRawCreate: true,
@@ -138,6 +147,8 @@ it('preserves a newer holder when conditional cleanup detects a changed revision
 })
 it('reports failed revocation without claiming the stored value was deleted', async () => {
   expect(await run('delete-refused')).toMatchObject({
+    resultKind: 'no-winner',
+    resultReason: 'driver-failed',
     rejected: true,
     mcpAccepted: true,
     noRawCreate: true,
@@ -147,6 +158,7 @@ it('reports failed revocation without claiming the stored value was deleted', as
 })
 it('uses the SDK isolated preparation transport for loopback coordination without create-time secrets', async () => {
   expect(await run('fallback')).toMatchObject({
+    resultKind: 'winner',
     settled: true,
     mcpAccepted: true,
     mcpRefusedWrongBearer: true,

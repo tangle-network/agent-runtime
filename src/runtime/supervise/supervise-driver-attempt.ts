@@ -324,7 +324,6 @@ async function providerAttemptFactory(
       ...backend.promptOptions,
       backend: {
         ...turn,
-        metadata: { ...turn.metadata, profileSecretIsolation: true },
         runtimeSecrets: { ...turn.runtimeSecrets, [credentialName]: authorization.slice(7) },
         runtimeAttachments: {
           mcp: { ...turn.runtimeAttachments?.mcp, [coordinationMcpAlias]: attachment },
