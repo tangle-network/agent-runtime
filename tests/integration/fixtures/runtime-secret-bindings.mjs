@@ -110,7 +110,7 @@ const info = () => ({
 })
 const sessionInfo = (id) => ({
   id,
-  status: nativeRuns.get(id)?.status ?? 'idle',
+  status: nativeRuns.get(id)?.status ?? 'queued',
   ...(nativeRuns.get(id) ?? {}),
   backendType: 'opencode',
   createdAt: new Date(0).toISOString(),
@@ -295,8 +295,12 @@ const api = createServer(async (request, response) => {
       })
     }
     const selectedSession = path.match(/\/agents\/sessions\/([^/]+)$/)
-    if (selectedSession)
-      return answer(response, 200, sessionInfo(decodeURIComponent(selectedSession[1])))
+    if (selectedSession) {
+      const id = decodeURIComponent(selectedSession[1])
+      return sessions.has(id) || nativeRuns.has(id)
+        ? answer(response, 200, sessionInfo(id))
+        : answer(response, 404, { code: 'NOT_FOUND', message: 'session absent' })
+    }
     if (path.endsWith('/messages/turns')) {
       response.writeHead(204)
       response.end()
