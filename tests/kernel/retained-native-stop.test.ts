@@ -12,10 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
-import {
-  describeRetainedNativeStops,
-  stopRetainedNativeExecution,
-} from '../../src/runtime/retained-native-stop'
+import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { cancelRun } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
@@ -63,13 +60,7 @@ function running(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null
 }
 
-/**
- * A retained provider whose dispatch starts a real native process, the way the Tangle sidecar
- * starts a harness CLI. The process runs in its own process group and ignores whether anyone
- * observes it: the event stream blocks until the process exits, and closing the stream does not
- * stop it. Only the exact cancellation does, by signalling the whole group, as the sidecar's
- * `/agents/run/cancel` does.
- */
+/** A real detached process group survives observation loss; only exact provider stop ends it. */
 function liveProcessProvider(
   stateFile: string,
   options: {
@@ -77,6 +68,7 @@ function liveProcessProvider(
      *  asynchronous provider does. Its status reads `running` until the process exits, then
      *  `stopped`. */
     readonly asynchronousStopMs?: number
+    readonly stopUnavailable?: boolean
   } = {},
 ) {
   const processes = new Map<string, ChildProcess>()
@@ -85,10 +77,11 @@ function liveProcessProvider(
   const base = durableRetainedProvider(stateFile)
   let creates = 0
   let destroys = 0
-  let token = ''
+  let dispatches = 0
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     dispatch: async (turn) => {
+      dispatches += 1
       const dispatched = await environment.dispatch!(turn)
       const executionId = dispatched.controlRef!.executionId!
       if (!processes.has(executionId)) {
@@ -133,6 +126,7 @@ function liveProcessProvider(
             : 'stopped'
         },
         cancelRun: async (request, cancelOptions) => {
+          if (options.stopUnavailable) throw new Error('native stop transport unavailable')
           const child = harness()
           if (options.asynchronousStopMs !== undefined) {
             const acknowledgement = await session.cancelRun!(request, cancelOptions)
@@ -162,7 +156,6 @@ function liveProcessProvider(
     }),
     create: async (input) => {
       creates += 1
-      token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
       return wrap(await base.create(input))
     },
     get: async (id) => {
@@ -176,11 +169,11 @@ function liveProcessProvider(
     observing: () => observed.size > 0,
     creates: () => creates,
     destroys: () => destroys,
+    dispatches: () => dispatches,
   }
 }
 
-/** Capture always succeeds but never carries a verified receipt for an unsettled turn, so the
- *  source environment is kept for evidence, as it was on both Discovery runs. */
+/** Captures deterministic workspace bytes through the real artifact persistence boundary. */
 function evidenceRetention(): ProviderWorkspaceRetentionPort {
   const { outputArtifacts } = createCandidateOutputFixture()
   return {
@@ -205,7 +198,10 @@ function ofKind<K extends SpawnEvent['kind']>(
 }
 
 /** A leaf whose provider execution is retained and whose kept source is evidence. */
-function retainedLeaf(provider: AgentEnvironmentProvider): Agent<unknown, string> {
+function retainedLeaf(
+  provider: AgentEnvironmentProvider,
+  workspaceRetention = evidenceRetention(),
+): Agent<unknown, string> {
   const profile = testAgentProfile('leaf')
   return Object.assign(
     { name: 'leaf', act: async () => 'unused' },
@@ -213,10 +209,23 @@ function retainedLeaf(provider: AgentEnvironmentProvider): Agent<unknown, string
       executorSpec: {
         profile,
         harness: profile.harness,
-        executorFactory: providerAsExecutor(provider, { workspaceRetention: evidenceRetention() }),
+        executorFactory: providerAsExecutor(provider, { workspaceRetention }),
       },
     },
   )
+}
+
+function childRunContext(runDir: string) {
+  return {
+    ...createFileRunContext(runDir),
+    runId: 'root',
+    budget: { maxIterations: 10, maxTokens: 100 },
+    rootIdentity: {
+      profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+      taskDigest: canonicalCandidateDigest('root-task'),
+    },
+    retainedAtSettlement: 'release' as const,
+  }
 }
 
 /** Whether `condition` holds before `ms` elapse. */
@@ -297,56 +306,52 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     })
   })
 
-  it('stops each child harness process before it settles and records its usage as unknown', async () => {
-    const directory = await scratch('native-stop-child-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'))
-    const worker = retainedLeaf(live.provider)
-    const cancel = new AbortController()
-    const settling = createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(worker, 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100 },
-          })
-          await scope.next()
-          return 'root done'
+  it.each([undefined, 1_500])(
+    'stops each child before settlement (async stop: %s)',
+    async (asynchronousStopMs) => {
+      const directory = await scratch('native-stop-child-')
+      const runDir = join(directory, 'run')
+      const live = liveProcessProvider(join(directory, 'provider.json'), { asynchronousStopMs })
+      const worker = retainedLeaf(live.provider)
+      const cancel = new AbortController()
+      const settling = createSupervisor<string, string>().run(
+        {
+          name: 'root',
+          act: async (_task, scope) => {
+            scope.spawn(worker, 'child task', {
+              key: 'work',
+              budget: { maxIterations: 1, maxTokens: 100 },
+            })
+            await scope.next()
+            return 'root done'
+          },
         },
-      },
-      'root-task',
-      {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
+        'root-task',
+        {
+          ...childRunContext(runDir),
+          signal: cancel.signal,
         },
-        retainedAtSettlement: 'release',
-        signal: cancel.signal,
-      },
-    )
-    await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
-    const [harness] = [...live.processes.values()]
-    expect(running(harness!)).toBe(true)
+      )
+      await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
+      const [harness] = [...live.processes.values()]
+      expect(running(harness!)).toBe(true)
 
-    cancel.abort('operator cancelled the run')
-    const result = await settling
+      cancel.abort('operator cancelled the run')
+      const result = await settling
 
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
-    expect(live.destroys()).toBe(0)
-    expect(running(harness!)).toBe(false)
-    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
-    const teardown = ofKind(events, 'environment-teardown').filter(
-      (event) => event.id === 'root:s0',
-    )
-    expect(teardown.at(-1)).toMatchObject({
-      destroyed: false,
-      detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /),
-    })
-  })
+      expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
+      expect(live.destroys()).toBe(0)
+      expect(running(harness!)).toBe(false)
+      const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
+      const teardown = ofKind(events, 'environment-teardown').filter(
+        (event) => event.id === 'root:s0',
+      )
+      expect(teardown.at(-1)).toMatchObject({
+        destroyed: false,
+        detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /),
+      })
+    },
+  )
 
   it('stops a worker the root aborts while the run is still live', async () => {
     const directory = await scratch('native-stop-worker-')
@@ -375,159 +380,17 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     expect(stoppedWhileLive).toBe(true)
     expect(result.kind).toBe('winner')
     expect(live.destroys()).toBe(0)
   })
-  it('waits for a stop the provider accepts asynchronously before the run settles', async () => {
-    const directory = await scratch('native-stop-async-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'), {
-      asynchronousStopMs: 1_500,
-    })
-    const cancel = new AbortController()
-    const settling = createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(retainedLeaf(live.provider), 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100 },
-          })
-          await scope.next()
-          return 'root done'
-        },
-      },
-      'root-task',
-      {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
-        signal: cancel.signal,
-      },
-    )
-    await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
-    const [harness] = [...live.processes.values()]
-
-    cancel.abort('operator cancelled the run')
-    const result = await settling
-
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
-    expect(live.destroys()).toBe(0)
-    expect(running(harness!)).toBe(false)
-    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
-    expect(
-      ofKind(events, 'environment-teardown')
-        .filter((event) => event.id === 'root:s0')
-        .at(-1),
-    ).toMatchObject({ detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /) })
-  })
-
-  it('answers within its deadline when the provider cannot be reached to reconnect', async () => {
-    const stalled: AgentEnvironmentProvider = {
-      name: 'stalled',
-      capabilities: () => new Promise(() => {}),
-      create: () => new Promise(() => {}),
-      get: () => new Promise(() => {}),
-    }
-    const started = Date.now()
-    const stop = await stopRetainedNativeExecution({
-      provider: stalled,
-      controlRef: {
-        runId: 'run-1',
-        provider: 'stalled',
-        environmentId: 'environment-1',
-        sessionId: 'session-1',
-        executionId: 'execution-1',
-        requestDigest: canonicalCandidateDigest('request-1'),
-      },
-      signal: AbortSignal.timeout(200),
-    })
-    expect(Date.now() - started).toBeLessThan(5_000)
-    expect(stop).toMatchObject({ executionId: 'execution-1', effect: 'unknown' })
-    expect(describeRetainedNativeStops([stop])).toContain('stop unconfirmed')
-  })
 })
 
 describe('a deadline that ends a retained turn', () => {
-  // 2026-10-04 trace proof: the capture of a turn its deadline ended read a session the harness was
-  // still writing, so it was stored partial, and the harness ran on until teardown.
-  it('stops the harness before any capture of its session', async () => {
-    const directory = await scratch('native-stop-deadline-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'))
-    const retention = evidenceRetention()
-    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
-    const captures: Array<{ scope: string; harnessRunning: boolean }> = []
-    const workspaceRetention: ProviderWorkspaceRetentionPort = {
-      ...retention,
-      async capture(context) {
-        captures.push({ scope: 'workspace', harnessRunning: harnessRunning() })
-        return await retention.capture(context)
-      },
-      async captureNative(context) {
-        captures.push({ scope: `native:${context.phase}`, harnessRunning: harnessRunning() })
-        return await retention.capture(context)
-      },
-    }
-    const profile = testAgentProfile('leaf')
-    const worker: Agent<unknown, string> = Object.assign(
-      { name: 'leaf', act: async () => 'unused' },
-      {
-        executorSpec: {
-          profile,
-          harness: profile.harness,
-          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
-        },
-      },
-    )
-    let ended: unknown
-    await createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(worker, 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
-          })
-          ended = await scope.next()
-          return 'root done'
-        },
-      },
-      'root-task',
-      {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
-      },
-    )
-    expect(ended).toMatchObject({ kind: 'down', reason: 'child deadline exceeded' })
-    expect(captures.length).toBeGreaterThan(0)
-    expect(captures.filter((capture) => capture.harnessRunning)).toEqual([])
-  })
-  // 2026-10-04 trace proof, second round: the scope settled the deadline node 3 ms after its
-  // deadline with the transcript of its last running copy (`native_snapshot_live`), and the
-  // harness stopped about 0.1 s later, so the node's settled record stayed partial.
+  // The node's settlement must cite a copy taken after its harness physically stopped.
   it('settles the node only after the stopped harness session is copied', async () => {
     const directory = await scratch('native-stop-deadline-settle-')
     const runDir = join(directory, 'run')
@@ -556,17 +419,7 @@ describe('a deadline that ends a retained turn', () => {
         return snapshot
       },
     }
-    const profile = testAgentProfile('leaf')
-    const worker: Agent<unknown, string> = Object.assign(
-      { name: 'leaf', act: async () => 'unused' },
-      {
-        executorSpec: {
-          profile,
-          harness: profile.harness,
-          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
-        },
-      },
-    )
+    const worker = retainedLeaf(live.provider, workspaceRetention)
     await createSupervisor<string, string>().run(
       {
         name: 'root',
@@ -575,20 +428,16 @@ describe('a deadline that ends a retained turn', () => {
             key: 'work',
             budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
           })
-          await scope.next()
+          expect(await scope.next()).toMatchObject({
+            kind: 'down',
+            reason: 'child deadline exceeded',
+          })
           return 'root done'
         },
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     expect(copies.some((copy) => copy.harnessRunning)).toBe(true)
@@ -605,9 +454,7 @@ describe('a deadline that ends a retained turn', () => {
     }
   })
 
-  // 2026-10-04 trace re-proof: the copy 0.3 s after the stop reported the session live (attempt
-  // outcome `unknown`, `native_snapshot_live`), and a capture 1 s later was complete. The provider
-  // confirms a stop when the process is gone and records how the execution ended a moment after.
+  // Provider outcome persistence can lag the physical stop; the final copy waits for it.
   it('copies a stopped harness again until the provider records how it ended', async () => {
     const directory = await scratch('native-stop-deadline-ended-')
     const runDir = join(directory, 'run')
@@ -648,17 +495,7 @@ describe('a deadline that ends a retained turn', () => {
         }
       },
     }
-    const profile = testAgentProfile('leaf')
-    const worker: Agent<unknown, string> = Object.assign(
-      { name: 'leaf', act: async () => 'unused' },
-      {
-        executorSpec: {
-          profile,
-          harness: profile.harness,
-          executorFactory: providerAsExecutor(live.provider, { workspaceRetention }),
-        },
-      },
-    )
+    const worker = retainedLeaf(live.provider, workspaceRetention)
     await createSupervisor<string, string>().run(
       {
         name: 'root',
@@ -673,14 +510,7 @@ describe('a deadline that ends a retained turn', () => {
       },
       'root-task',
       {
-        ...createFileRunContext(runDir),
-        runId: 'root',
-        budget: { maxIterations: 10, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
-          taskDigest: canonicalCandidateDigest('root-task'),
-        },
-        retainedAtSettlement: 'release',
+        ...childRunContext(runDir),
       },
     )
     const final = copies.filter((copy) => copy.phase === 'failed')
@@ -698,4 +528,171 @@ describe('a deadline that ends a retained turn', () => {
       )
     }
   }, 30_000)
+})
+
+describe('terminal recovery of a previously admitted native process', () => {
+  it.each(['deadline', 'cancelled', 'unknown', 'undispatched'] as const)(
+    'stops the original process before capture/return on %s entry without dispatching',
+    async (ending) => {
+      const directory = await scratch('native-stop-terminal-resume-')
+      const runDir = join(directory, 'run')
+      const context = createFileRunContext(runDir)
+      const live = liveProcessProvider(join(directory, 'provider.json'), {
+        stopUnavailable: ending === 'unknown',
+      })
+      const retention = evidenceRetention()
+      const copies: Array<{
+        running: boolean
+        executionId?: string
+        environmentId: string
+        sessionId?: string
+      }> = []
+      const workspaceRetention: ProviderWorkspaceRetentionPort = {
+        ...retention,
+        async capture(context) {
+          copies.push({
+            running: [...live.processes.values()].some(running),
+            executionId: context.controlRef?.executionId,
+            environmentId: context.environment.id,
+            sessionId: context.providerSessionId ?? undefined,
+          })
+          throw new Error('terminal workspace capture refused')
+        },
+        async captureNative(context) {
+          copies.push({
+            running: [...live.processes.values()].some(running),
+            executionId: context.controlRef?.executionId,
+            environmentId: context.environment.id,
+            sessionId: context.providerSessionId ?? undefined,
+          })
+          return retention.capture(context)
+        },
+      }
+      const factory = providerAsExecutor(live.provider, { workspaceRetention })
+      const worker = retainedLeaf(live.provider, workspaceRetention)
+      let clock = Date.now()
+      const common = {
+        ...childRunContext(runDir),
+        budget: { maxIterations: 10, maxTokens: 100, deadlineMs: 60_000 },
+        now: () => clock,
+      }
+      let interrupted = false
+      await expect(
+        createSupervisor<string, string>().run(
+          {
+            name: 'root',
+            act: async (_task, scope) => {
+              scope.spawn(worker, 'child task', {
+                key: 'work',
+                budget: { maxIterations: 1, maxTokens: 100 },
+              })
+              await scope.next()
+              return 'unreachable'
+            },
+          },
+          'root-task',
+          {
+            ...common,
+            journal: {
+              beginTree: context.journal.beginTree.bind(context.journal),
+              loadTree: context.journal.loadTree.bind(context.journal),
+              appendEvent: async (root, event) => {
+                if (
+                  ending === 'undispatched' &&
+                  event.kind === 'execution-admitted' &&
+                  event.admission.phase === 'dispatched'
+                ) {
+                  interrupted = true
+                  throw new Error('lost dispatch before its journal commit')
+                }
+                await context.journal.appendEvent(root, event)
+                if (
+                  !interrupted &&
+                  event.kind === 'execution-admitted' &&
+                  event.admission.phase === 'dispatched'
+                ) {
+                  interrupted = true
+                  throw new Error('lost local dispatch acknowledgement')
+                }
+              },
+            },
+          },
+        ),
+      ).rejects.toThrow('durable state unavailable')
+      expect(interrupted).toBe(true)
+      const [harness] = [...live.processes.values()]
+      expect(running(harness!)).toBe(true)
+      const before = { creates: live.creates(), dispatches: live.dispatches() }
+      expect(before).toEqual({ creates: 1, dispatches: 1 })
+      // An unrelated process group must never be affected by cleanup of this admission.
+      const canary = spawn('/bin/sh', ['-c', 'sleep 300 & wait'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+      harnesses.push(canary)
+      const cancel = new AbortController()
+      if (ending !== 'cancelled') clock += 120_000
+      else cancel.abort(new RunCancellationReason('operator', 'cancelled before resume'))
+      copies.length = 0
+      const result = await createSupervisor<string, string>().run(
+        {
+          name: 'root',
+          act: async () => {
+            throw new Error('terminal root acted')
+          },
+        },
+        'root-task',
+        {
+          ...common,
+          recoverExecutor: factory,
+          retainedAtSettlement: 'release',
+          signal: cancel.signal,
+          teardownConfirmMs: 1_000,
+        },
+      )
+      expect(result).toMatchObject({
+        kind: 'no-winner',
+        reason: ending === 'cancelled' ? 'cancelled' : 'deadline',
+      })
+      expect(running(harness!)).toBe(ending === 'unknown' || ending === 'undispatched')
+      expect(running(canary)).toBe(true)
+      expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
+      if (ending === 'unknown' || ending === 'undispatched') expect(copies).toEqual([])
+      else {
+        expect(copies.length).toBeGreaterThan(0)
+        expect(copies.some((copy) => copy.running)).toBe(false)
+      }
+      expect(live.destroys()).toBe(0) // Incomplete evidence keeps the stopped source.
+      expect(result.teardownUnconfirmed?.[0]?.kept?.[0]).toMatchObject({ keptFor: 'evidence' })
+      const events = (await context.journal.loadTree('root')) ?? []
+      const admission = ofKind(events, 'execution-admitted').find(
+        (event) =>
+          event.admission.phase === (ending === 'undispatched' ? 'environment' : 'dispatched'),
+      )!
+      const original =
+        admission.admission.phase === 'dispatched'
+          ? admission.admission.controlRef
+          : admission.admission.phase === 'environment'
+            ? admission.admission
+            : undefined
+      for (const copy of copies)
+        expect(copy).toMatchObject({
+          environmentId: original?.environmentId,
+          executionId:
+            admission.admission.phase === 'dispatched'
+              ? admission.admission.controlRef.executionId
+              : undefined,
+          sessionId:
+            admission.admission.phase === 'dispatched'
+              ? admission.admission.controlRef.sessionId
+              : undefined,
+        })
+      expect(ofKind(events, 'environment-teardown').at(-1)).toMatchObject({
+        id: admission.id,
+        environmentId: original?.environmentId,
+        destroyed: false,
+      })
+    },
+    30_000,
+  )
 })

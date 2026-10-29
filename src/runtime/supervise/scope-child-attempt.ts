@@ -75,7 +75,7 @@ export class ChildExecutionAttempt<C> {
     const out = detachedSnapshot(result.out, 'scope child output')
     const outRef = contentAddress(out)
     await this.blobs.put(outRef, out)
-    await live.traceRoots.write(outRef, out)
+    await live.traceRoots.write(outRef, { out, outputFormat: result.outputFormat })
     this.retainedOutputRef = outRef
     if (usageError !== undefined) throw usageError
     return { ...result, out, outRef }

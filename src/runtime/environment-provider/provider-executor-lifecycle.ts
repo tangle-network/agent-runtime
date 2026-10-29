@@ -30,6 +30,7 @@ import type { ProviderExecutorOptions } from './provider-executor-admission'
 import { type ProviderExecutorScope, ProviderExecutorState } from './provider-executor-state'
 import { providerMaterialization } from './provider-materialization'
 import {
+  admittedControlRef,
   createProviderCaptureMirrors,
   createProviderNativeControl,
 } from './provider-retention-lifecycle'
@@ -48,9 +49,18 @@ export function createProviderExecutor(
       `providerAsExecutor(${provider.name})`,
     )
   }
-  const node =
-    ctx.node === undefined ? undefined : detachedSnapshot(ctx.node, 'provider executor node')
+  const node = detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
+  if (
+    options.outputFormat !== undefined &&
+    (options.outputFormat !== 'json' ||
+      retention?.onEvidence === undefined ||
+      options.requireTerminalEvent === false)
+  ) {
+    throw new ValidationError(
+      'providerAsExecutor: JSON output requires Runtime-owned durable evidence and a native terminal receipt',
+    )
+  }
   // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn. The bridge
   // executor reads this seam at its turn boundary; a retained run asks its backend to cancel the
   // turn, so the stream ends and the harness session and the turn's usage are still read. Before,
@@ -72,6 +82,9 @@ export function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
   const state = new ProviderExecutorState(ctx.signal, executionId)
+  state.pending = admittedEnvironmentId(retention) !== undefined
+  state.workspaceControlRef = admittedControlRef(retention)
+  state.providerSessionId = state.workspaceControlRef?.sessionId ?? null
   let executor!: Executor<unknown>
   const scope: ProviderExecutorScope = {
     provider,

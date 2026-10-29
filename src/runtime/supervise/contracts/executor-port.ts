@@ -147,13 +147,7 @@ export interface Executor<Out> {
    * The replay source (B1): the content-addressed `outRef` + the materialized output the
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
    */
-  resultArtifact(): {
-    outRef: string
-    out: Out
-    verdict?: DefaultVerdict
-    spent: Spend
-    teardown?: ExecutorTeardownWarning
-  }
+  resultArtifact(): ExecutorResult<Out>
   /**
    * Optional accounting split for recursive executors.
    * `reported` is the child-work spend written on this node's settlement; `reservation` is the
@@ -305,6 +299,8 @@ export interface ExecutorAccounting {
 
 /** Terminal artifact of a one-shot `Executor.execute`. */
 export interface ExecutorResult<Out> {
+  /** Host-projected application JSON; its keys are never native trace or capture authority. */
+  outputFormat?: 'json'
   /** Explicit execution outcome; application output and scoring verdicts do not determine failure.
    *  `errorCode` is the provider's machine code for a failure when it reported one. A retry policy
    *  reads the code, never the human `error` text. */

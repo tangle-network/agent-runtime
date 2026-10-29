@@ -1,7 +1,6 @@
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentCandidateArtifactRef,
-  AgentTurnResult,
   Sha256Digest,
   WorkspaceCheckpointRef,
   WorkspaceCheckpointRequest,
@@ -18,7 +17,13 @@ import type {
   ProfileMaterializationReceipt,
 } from './execution-identity'
 import type { SpawnModelSubstitution } from './executor-construction'
-import type { HeldEnvironment, HeldRelease, Runtime, WorkerTraceEvidence } from './executor-port'
+import type {
+  ExecutorResult,
+  HeldEnvironment,
+  HeldRelease,
+  Runtime,
+  WorkerTraceEvidence,
+} from './executor-port'
 import type { NodeId, NodeStatus, RetainedExecutionState, SubtreeSummary } from './node-lifecycle'
 import type { RecursiveReservationPolicy, RootSegment } from './supervisor-port'
 import type { ProviderModelExecutionEvidence } from './supervisor-result'
@@ -102,22 +107,14 @@ export type SpawnEvent =
       seq: number
       at: string
     }
-  | {
+  | ({
       /** Recoverable output committed before releasing its provider environment. */
       kind: 'execution-result'
-      outcome?: Pick<AgentTurnResult, 'success' | 'error'> & {
-        errorCode?: string
-        /** Native HTTP failure status, when reported, in the range 400–599. */
-        statusCode?: number
-      }
       id: NodeId
-      outRef: string
       traceRoot?: TraceRootReceipt
-      spent: Spend
-      verdict?: DefaultVerdict
       seq: number
       at: string
-    }
+    } & Omit<ExecutorResult<unknown>, 'out' | 'teardown'>)
   | {
       /**
        * Runtime stopped reconciling this node's unfinished retained invocation: it failed

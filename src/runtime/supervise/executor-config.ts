@@ -120,6 +120,10 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       })
     }
     case 'provider': {
+      if (config.outputFormat !== undefined && config.steering !== undefined)
+        throw new ValidationError(
+          'createExecutor(provider): JSON output is not supported with steering',
+        )
       // `validator` is an executable port like `provider`: retained live by reference, never
       // cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
       const {
