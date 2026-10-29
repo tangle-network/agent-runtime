@@ -6,11 +6,26 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { data, Evaluator, Lexer, Parser } from '@actions/expressions'
 import { expect, it } from 'vitest'
 import { parse, stringify } from 'yaml'
 
 const exec = promisify(execFile)
 const checker = resolve('scripts/check-npm-publication.mjs')
+
+function evaluateWorkflow(expression: string, context: object, cancelled = false) {
+  const functions = [
+    { name: 'always', minArgs: 0, maxArgs: 0, call: () => new data.BooleanData(true) },
+    { name: 'cancelled', minArgs: 0, maxArgs: 0, call: () => new data.BooleanData(cancelled) },
+  ]
+  const source = expression.startsWith('${{') ? expression.slice(3, -2) : expression
+  const ast = new Parser(new Lexer(source).lex().tokens, ['needs', 'github'], functions).parse()
+  const values = JSON.parse(JSON.stringify(context), data.reviver)
+  if (!(values instanceof data.Dictionary)) throw new Error('Workflow context must be a dictionary')
+  return new Evaluator(ast, values, new Map(functions.map((fn) => [fn.name, fn])))
+    .evaluate()
+    .coerceString()
+}
 
 async function checkRegistry(
   archiveStatus: number,
@@ -22,6 +37,8 @@ async function checkRegistry(
     requirePublished?: boolean
     wrongCandidate?: boolean
     workflow?: boolean
+    existing?: boolean
+    packageKind?: 'runtime' | 'bench'
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'runtime-publication-'))
@@ -31,7 +48,10 @@ async function checkRegistry(
     await mkdir(join(packageDirectory, 'package'), { recursive: true })
     await writeFile(
       join(packageDirectory, 'package/package.json'),
-      JSON.stringify({ name: '@tangle-network/agent-runtime', version: '2.3.14' }),
+      JSON.stringify({
+        name: `@tangle-network/${options.packageKind === 'bench' ? 'agent-bench' : 'agent-runtime'}`,
+        version: '2.3.14',
+      }),
     )
     await exec('tar', [
       '-czf',
@@ -91,11 +111,33 @@ async function checkRegistry(
         : createHash('sha256').update(bytes).digest('hex'),
     }
     let result: { stdout: string; stderr: string }
+    let artifact: string | undefined
     if (options.workflow) {
       const workflow = parse(await readFile(resolve('.github/workflows/publish.yml'), 'utf8'))
-      const command = workflow.jobs['verify-publication'].steps.find(
-        (step: { run?: string }) => step.run,
-      )?.run
+      const job = workflow.jobs['verify-publication']
+      const bench = options.packageKind === 'bench'
+      const context = {
+        github: { ref: bench ? 'refs/tags/agent-bench-v2.3.14' : 'refs/heads/main' },
+        needs: {
+          qualify: {
+            result: 'success',
+            outputs: {
+              'runtime-package-sha256': bench ? '' : env.EXPECTED_SHA256,
+              'bench-package-sha256': bench ? env.EXPECTED_SHA256 : '',
+              'runtime-publication-pending': 'false',
+              'bench-publication-pending': 'false',
+            },
+          },
+          'publish-npm': { result: options.existing || bench ? 'skipped' : 'success' },
+          'publish-agent-bench': { result: options.existing || !bench ? 'skipped' : 'success' },
+        },
+      }
+      if (evaluateWorkflow(job.if, context) !== 'true') {
+        return { stdout: '', stderr: '', output: '', archiveReads, artifact, skipped: true }
+      }
+      artifact = `${evaluateWorkflow(job.env.PACKAGE, context)}-package`
+      env.EXPECTED_SHA256 = evaluateWorkflow(job.env.EXPECTED_SHA256, context)
+      const command = job.steps.find((step: { run?: string }) => step.run)?.run
       if (typeof command !== 'string') throw new Error('No actual publication verifier command')
       result = await exec('bash', ['-euc', command], {
         env: { ...env, NODE_OPTIONS: `--import ${loader}` },
@@ -113,7 +155,13 @@ async function checkRegistry(
         { env },
       )
     }
-    return { ...result, output: await readFile(output, 'utf8'), archiveReads }
+    return {
+      ...result,
+      output: await readFile(output, 'utf8'),
+      archiveReads,
+      artifact,
+      skipped: false,
+    }
   } finally {
     server.closeAllConnections()
     await new Promise<void>((done) => server.close(() => done()))
@@ -184,3 +232,43 @@ it('waits for a missing advertised archive and stops after verified bytes arrive
   expect(result.output).toBe('pending=false\n')
   expect(result.archiveReads).toBeGreaterThan(1)
 }, 45_000)
+
+it.each(['runtime', 'bench'] as const)(
+  'verifies already-published %s even when both publishing jobs skip',
+  async (packageKind) => {
+    const result = await checkRegistry(200, { workflow: true, existing: true, packageKind })
+    expect(result.skipped).toBe(false)
+    expect(result.artifact).toBe(`agent-${packageKind}-package`)
+    expect(result.output).toBe('pending=false\n')
+    expect(result.archiveReads).toBeGreaterThan(0)
+  },
+)
+
+it('refuses failed or cancelled qualification and publication job contexts', async () => {
+  const workflow = parse(await readFile(resolve('.github/workflows/publish.yml'), 'utf8'))
+  const expression = workflow.jobs['verify-publication'].if
+  for (const job of ['qualify', 'publish-npm', 'publish-agent-bench']) {
+    for (const state of ['failure', 'cancelled']) {
+      const needs = {
+        qualify: { result: 'success' },
+        'publish-npm': { result: 'skipped' },
+        'publish-agent-bench': { result: 'skipped' },
+      }
+      needs[job as keyof typeof needs].result = state
+      expect(evaluateWorkflow(expression, { needs })).toBe('false')
+    }
+  }
+  expect(
+    evaluateWorkflow(
+      expression,
+      {
+        needs: {
+          qualify: { result: 'success' },
+          'publish-npm': { result: 'skipped' },
+          'publish-agent-bench': { result: 'skipped' },
+        },
+      },
+      true,
+    ),
+  ).toBe('false')
+})
