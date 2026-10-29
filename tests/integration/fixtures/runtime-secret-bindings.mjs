@@ -26,6 +26,11 @@ import {
 import { Sandbox } from '@tangle-network/sandbox'
 
 const [mode, certificate, key] = process.argv.slice(2)
+const safeFailure = (text) =>
+  String(text ?? '')
+    .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 600)
 const host = 'localhost.localdomain'
 const profile = {
   name: 'custody-http',
@@ -40,6 +45,7 @@ const stored = new Map(),
   sessions = new Map(),
   nativeRuns = new Map(),
   requests = [],
+  protocolFailures = [],
   privateTurns = []
 let baseUrl = '',
   publicUrl = '',
@@ -418,6 +424,10 @@ const api = createServer(async (request, response) => {
     }
     answer(response, 404, { code: 'NOT_FOUND', message: 'fixture route absent' })
   } catch (error) {
+    protocolFailures.push({
+      path,
+      cause: safeFailure(error instanceof Error ? error.message : error),
+    })
     answer(response, 500, {
       code: 'SERVER_ERROR',
       message:
@@ -589,11 +599,6 @@ try {
       resultKind,
       resultReason,
       failureText
-    const safeFailure = (text) =>
-      String(text ?? '')
-        .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
-        .replace(/[\r\n]+/g, ' ')
-        .slice(0, 600)
     try {
       for (let run = 0; run < (mode === 'namespace' ? 2 : 1); run++) {
         const result = await supervise(
@@ -656,6 +661,7 @@ try {
         resultKind,
         resultReason,
         failureText,
+        protocolFailures,
         mcpAccepted,
         mcpRefusedWrongBearer,
         noRawCreate,

@@ -55,7 +55,18 @@ async function run(mode: string) {
     },
   )
   expect(stderr.includes('TimeoutOverflowWarning')).toBe(false)
-  return JSON.parse(stdout.trim().split('\n').at(-1)!)
+  const result = JSON.parse(stdout.trim().split('\n').at(-1)!)
+  if (result.resultKind === 'no-winner')
+    console.error(
+      JSON.stringify({
+        mode,
+        kind: result.resultKind,
+        reason: result.resultReason,
+        failure: result.failureText,
+        protocol: result.protocolFailures,
+      }),
+    )
+  return result
 }
 
 it('passes direct and authored host declarations through the public Sandbox adapter and Tangle provider', async () => {
