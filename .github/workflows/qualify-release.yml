@@ -121,10 +121,10 @@ jobs:
         run: pnpm install --frozen-lockfile && pnpm peers check
       - name: Lint (biome)
         run: pnpm run lint
-      - name: Test
-        run: pnpm run test
       - name: Build
         run: pnpm run build
+      - name: Test
+        run: pnpm run test
       - name: Typecheck (src + examples; examples resolve against built dist)
         run: pnpm run typecheck
       - name: Verify package source and metadata
