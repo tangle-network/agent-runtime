@@ -10,6 +10,7 @@ if (mode && mode !== '--require-published') throw new Error('Unknown publication
 const packages = readdirSync(directory).filter((file) => file.endsWith('.tgz'))
 if (packages.length !== 1) throw new Error('Expected exactly one qualified npm archive')
 const archive = join(directory, packages[0])
+if (mode && createHash('sha256').update(readFileSync(archive)).digest('hex') !== process.env.EXPECTED_SHA256) throw new Error('Qualified archive digest mismatch')
 const { name, version } = JSON.parse(execFileSync('tar', ['-xOzf', archive, 'package/package.json'], { encoding: 'utf8' }))
 if (typeof name !== 'string' || typeof version !== 'string') throw new Error('Archive identity is missing')
 const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, { signal: AbortSignal.timeout(15000) })

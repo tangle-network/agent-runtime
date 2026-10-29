@@ -35,6 +35,14 @@ for (const [prefix, jobName] of [['runtime', 'verify'], ['bench', 'verify-agent-
       `\${{ jobs.${jobName}.outputs.${output} }}`, `${prefix} ${output} output forwarding`)
   }
 }
+const consumer = requireJob('verify-publication')
+assertEqual(consumer.if, "always() && needs.qualify.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-agent-bench.result == 'success')", 'publication verifier success gating')
+assertEqual(consumer.permissions?.contents, 'read', 'publication verifier permission')
+assertEqual(consumer.needs?.join(','), 'qualify,publish-npm,publish-agent-bench', 'publication verifier dependencies')
+assertEqual(consumer.env?.EXPECTED_SHA256,
+  "${{ needs.publish-agent-bench.result == 'success' && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}", 'publication verifier qualified hash')
+assertEqual(requireSteps('verify-publication', consumer).find((step) => step.run)?.run,
+  'node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published', 'actual byte verification command')
 const releaseCohort = readReleaseCohort()
 
 const publishJobs = {
@@ -87,9 +95,6 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
       if (/^actions\/checkout@|^pnpm\/action-setup@/.test(step.uses)) {
         throw new Error(`${jobName} may not check out source or install pnpm: ${step.uses}`)
       }
-      if (!/@[a-f0-9]{40}$/.test(step.uses)) {
-        throw new Error(`${jobName} action is not pinned to a commit: ${step.uses}`)
-      }
     }
 
     if (typeof step.run === 'string') {
@@ -112,7 +117,7 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
     'npm publish',
     '--ignore-scripts',
     '--provenance',
-    'is not served by the registry',
+    'registered with npm',
   ]) {
     if (!commands.includes(required)) {
       throw new Error(`${jobName} publish command is missing ${required}`)
@@ -128,13 +133,17 @@ for (const [jobName, job] of Object.entries({ ...jobs, ...qualifierJobs })) {
   if (job?.permissions?.contents === 'write') {
     throw new Error(`publish workflow must not write repository contents: ${jobName}`)
   }
+  for (const step of job.steps ?? []) {
+    if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses)) throw new Error(`${jobName} action is not pinned`)
+    if (step.uses?.startsWith('actions/checkout@'))
+      assertEqual(step.with?.['persist-credentials'], false, `${jobName} checkout credentials`)
+    if (!(jobName in publishJobs) && (job.env?.NPM_TOKEN || job.env?.NODE_AUTH_TOKEN || step.env?.NPM_TOKEN || step.env?.NODE_AUTH_TOKEN))
+      throw new Error(`${jobName} must not receive publishing credentials`)
+  }
 }
 
 for (const jobName of ['verify', 'verify-agent-bench']) {
   const job = requireJob(jobName, qualifierJobs)
-  if (job.permissions?.['id-token'] === 'write') {
-    throw new Error(`${jobName} may not mint a package identity token`)
-  }
   const steps = requireSteps(jobName, job)
   assertCount(
     steps.flatMap((step) => (typeof step.uses === 'string' ? [step.uses] : [])),
@@ -142,11 +151,6 @@ for (const jobName of ['verify', 'verify-agent-bench']) {
     1,
     `${jobName} artifact upload`,
   )
-  for (const step of steps) {
-    if (typeof step.uses === 'string' && /^actions\/checkout@/.test(step.uses)) {
-      assertEqual(step.with?.['persist-credentials'], false, `${jobName} checkout credentials`)
-    }
-  }
 }
 
 // All release checks consume the same validated commit, including manual tag retries.
@@ -224,16 +228,6 @@ assertEqual(
 assertEqual(requireJob('publish-agent-bench').if,
   "startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-publication-pending == 'true'",
   'bench publication event and missing-version selection')
-for (const name of ['release-source', ...Object.keys(releaseChecks)]) {
-  for (const step of requireSteps(name, requireJob(name, qualifierJobs))) {
-    if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses))
-      throw new Error(`${name} action is not pinned`)
-    if (step.uses?.startsWith('actions/checkout@'))
-      assertEqual(step.with?.['persist-credentials'], false, `${name} checkout credentials`)
-    if (step.env?.NPM_TOKEN || step.env?.NODE_AUTH_TOKEN)
-      throw new Error(`${name} must not receive publishing credentials`)
-  }
-}
 
 const archiveUpload = requireSteps('verify', requireJob('verify', qualifierJobs)).find((step) =>
   step.uses?.startsWith('actions/upload-artifact@'),
@@ -300,14 +294,11 @@ function requireSteps(jobName, job) {
 }
 
 function assertCount(values, pattern, expected, label) {
-  const count = values.filter((value) => pattern.test(value)).length
-  if (count !== expected) throw new Error(`${label}: expected ${expected}, received ${count}`)
+  assertEqual(values.filter((value) => pattern.test(value)).length, expected, label)
 }
 
 function assertEqual(actual, expected, label) {
   if (actual !== expected) {
-    throw new Error(
-      `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`,
-    )
+    throw new Error(`${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`)
   }
 }
