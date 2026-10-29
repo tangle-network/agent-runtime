@@ -40,7 +40,31 @@ const server = createServer(async (request, response) => {
   requests.push(`${request.method} ${path}`)
   response.setHeader('content-type', 'application/json')
   if (path === '/v1/backends')
-    return response.end(JSON.stringify({ backends: [], timestamp: new Date(0).toISOString() }))
+    return response.end(
+      JSON.stringify({
+        timestamp: new Date(0).toISOString(),
+        backends: [
+          {
+            type: 'opencode',
+            name: 'opencode',
+            description: 'Actual HTTP protocol fixture; no model',
+            capabilities: {
+              streaming: true,
+              toolUse: true,
+              reasoning: false,
+              multimodal: false,
+              imageInput: false,
+              contextWindow: 100000,
+              mcp: true,
+              runtimeAttachments: { mcp: true },
+              sessions: true,
+              configurable: true,
+              interactions: [],
+            },
+          },
+        ],
+      }),
+    )
   if (path === '/v1/sandboxes' && request.method === 'POST') {
     const chunks = []
     for await (const chunk of request) chunks.push(Buffer.from(chunk))
