@@ -714,13 +714,8 @@ export async function prepareScopeResume(
   if (!settleOnly && parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
     events = (await opts.journal.loadTree(opts.runId)) ?? events
   }
-  const prepared = await prepareInterruptedExecutors(
-    opts,
-    events,
-    settleOnly ? new AbortController().signal : signal,
-    now,
-    parentId,
-  )
+  if (settleOnly) signal = new AbortController().signal
+  const prepared = await prepareInterruptedExecutors(opts, events, signal, now, parentId)
   const prior = prepared.events
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
   // A restored child's full reservation already covers its previous inference and its reconciled

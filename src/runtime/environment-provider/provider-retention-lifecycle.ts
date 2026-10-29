@@ -31,6 +31,7 @@ import { errorText } from '../supervise/error-message'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { EnvironmentTeardownReceipt, ExecutorNodeContext } from '../supervise/types'
 import { sleep } from '../util'
+import { admittedEnvironmentId } from './provider-environment-teardown'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
 import type { StreamProviderExecutorArgs } from './provider-invocation'
 
@@ -403,15 +404,19 @@ export function createProviderNativeControl(
   const withoutRunningHarness =
     (release: (signal: AbortSignal) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>) =>
     async (signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> => {
-      const stop = await awaitAbortable(stopNativeExecution(), signal)
-      const stopped = stop === undefined ? undefined : describeRetainedNativeStops([stop])
+      const stop = await awaitAbortable(stopNativeExecution(), signal).catch(() => undefined)
+      const stopped =
+        stop === undefined
+          ? 'native stop unconfirmed: no exact dispatch or cleanup interrupted'
+          : describeRetainedNativeStops([stop])
       const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
-      if (stop !== undefined && !state.harnessStopped && controlRef !== undefined) {
+      const environmentId = controlRef?.environmentId ?? admittedEnvironmentId(retention)
+      if (environmentId !== undefined && !state.harnessStopped) {
         state.workspacePreservationRequired = true
         return [
           {
             provider: provider.name,
-            environmentId: controlRef.environmentId,
+            environmentId,
             destroyed: false,
             detail: stopped,
             permanent: true,

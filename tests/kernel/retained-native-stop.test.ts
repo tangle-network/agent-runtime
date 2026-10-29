@@ -60,13 +60,7 @@ function running(child: ChildProcess): boolean {
   return child.exitCode === null && child.signalCode === null
 }
 
-/**
- * A retained provider whose dispatch starts a real native process, the way the Tangle sidecar
- * starts a harness CLI. The process runs in its own process group and ignores whether anyone
- * observes it: the event stream blocks until the process exits, and closing the stream does not
- * stop it. Only the exact cancellation does, by signalling the whole group, as the sidecar's
- * `/agents/run/cancel` does.
- */
+/** A real detached process group survives observation loss; only exact provider stop ends it. */
 function liveProcessProvider(
   stateFile: string,
   options: {
@@ -179,8 +173,7 @@ function liveProcessProvider(
   }
 }
 
-/** Capture always succeeds but never carries a verified receipt for an unsettled turn, so the
- *  source environment is kept for evidence, as it was on both Discovery runs. */
+/** Captures deterministic workspace bytes through the real artifact persistence boundary. */
 function evidenceRetention(): ProviderWorkspaceRetentionPort {
   const { outputArtifacts } = createCandidateOutputFixture()
   return {
@@ -397,9 +390,7 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
 })
 
 describe('a deadline that ends a retained turn', () => {
-  // 2026-10-04 trace proof, second round: the scope settled the deadline node 3 ms after its
-  // deadline with the transcript of its last running copy (`native_snapshot_live`), and the
-  // harness stopped about 0.1 s later, so the node's settled record stayed partial.
+  // The node's settlement must cite a copy taken after its harness physically stopped.
   it('settles the node only after the stopped harness session is copied', async () => {
     const directory = await scratch('native-stop-deadline-settle-')
     const runDir = join(directory, 'run')
@@ -463,9 +454,7 @@ describe('a deadline that ends a retained turn', () => {
     }
   })
 
-  // 2026-10-04 trace re-proof: the copy 0.3 s after the stop reported the session live (attempt
-  // outcome `unknown`, `native_snapshot_live`), and a capture 1 s later was complete. The provider
-  // confirms a stop when the process is gone and records how the execution ended a moment after.
+  // Provider outcome persistence can lag the physical stop; the final copy waits for it.
   it('copies a stopped harness again until the provider records how it ended', async () => {
     const directory = await scratch('native-stop-deadline-ended-')
     const runDir = join(directory, 'run')
@@ -542,7 +531,7 @@ describe('a deadline that ends a retained turn', () => {
 })
 
 describe('terminal recovery of a previously admitted native process', () => {
-  it.each(['deadline', 'cancelled', 'unknown'] as const)(
+  it.each(['deadline', 'cancelled', 'unknown', 'undispatched'] as const)(
     'stops the original process before capture/return on %s entry without dispatching',
     async (ending) => {
       const directory = await scratch('native-stop-terminal-resume-')
@@ -608,6 +597,14 @@ describe('terminal recovery of a previously admitted native process', () => {
               beginTree: context.journal.beginTree.bind(context.journal),
               loadTree: context.journal.loadTree.bind(context.journal),
               appendEvent: async (root, event) => {
+                if (
+                  ending === 'undispatched' &&
+                  event.kind === 'execution-admitted' &&
+                  event.admission.phase === 'dispatched'
+                ) {
+                  interrupted = true
+                  throw new Error('lost dispatch before its journal commit')
+                }
                 await context.journal.appendEvent(root, event)
                 if (
                   !interrupted &&
@@ -657,10 +654,10 @@ describe('terminal recovery of a previously admitted native process', () => {
         kind: 'no-winner',
         reason: ending === 'cancelled' ? 'cancelled' : 'deadline',
       })
-      expect(running(harness!)).toBe(ending === 'unknown')
+      expect(running(harness!)).toBe(ending === 'unknown' || ending === 'undispatched')
       expect(running(canary)).toBe(true)
       expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
-      if (ending === 'unknown') expect(copies).toEqual([])
+      if (ending === 'unknown' || ending === 'undispatched') expect(copies).toEqual([])
       else {
         expect(copies.length).toBeGreaterThan(0)
         expect(copies.some((copy) => copy.running)).toBe(false)
@@ -669,15 +666,26 @@ describe('terminal recovery of a previously admitted native process', () => {
       expect(result.teardownUnconfirmed?.[0]?.kept?.[0]).toMatchObject({ keptFor: 'evidence' })
       const events = (await context.journal.loadTree('root')) ?? []
       const admission = ofKind(events, 'execution-admitted').find(
-        (event) => event.admission.phase === 'dispatched',
+        (event) =>
+          event.admission.phase === (ending === 'undispatched' ? 'environment' : 'dispatched'),
       )!
       const original =
-        admission.admission.phase === 'dispatched' ? admission.admission.controlRef : undefined
+        admission.admission.phase === 'dispatched'
+          ? admission.admission.controlRef
+          : admission.admission.phase === 'environment'
+            ? admission.admission
+            : undefined
       for (const copy of copies)
         expect(copy).toMatchObject({
           environmentId: original?.environmentId,
-          executionId: original?.executionId,
-          sessionId: original?.sessionId,
+          executionId:
+            admission.admission.phase === 'dispatched'
+              ? admission.admission.controlRef.executionId
+              : undefined,
+          sessionId:
+            admission.admission.phase === 'dispatched'
+              ? admission.admission.controlRef.sessionId
+              : undefined,
         })
       expect(ofKind(events, 'environment-teardown').at(-1)).toMatchObject({
         id: admission.id,

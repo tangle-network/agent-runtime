@@ -85,7 +85,7 @@ async function resumeRunTree(
   // prepares cleanup descriptors without permitting a new executor invocation.
   const cancelledAtEntry =
     opts.signal?.aborted === true && opts.signal.reason instanceof RunCancellationReason
-  const restored = await prepareScopeResume(
+  const { resumeFrom, poolRestore } = await prepareScopeResume(
     opts,
     prior,
     opts.signal ?? new AbortController().signal,
@@ -93,9 +93,8 @@ async function resumeRunTree(
     opts.runId,
     cancelledAtEntry,
   )
-  const resumeFrom = restored.resumeFrom
   const events = [...resumeFrom.events]
-  const pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
+  const pool = createBudgetPool(opts.budget, runEpochMs, poolRestore)
   await recordRootSegment(opts, events, runStartedAt, false)
   await recordRootReentered(opts, resumeFrom, runStartedAt)
   return { rootAttemptId, runStartedAt, prior: events, resumeFrom, pool, runEpochMs }
