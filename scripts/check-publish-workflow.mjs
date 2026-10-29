@@ -5,15 +5,11 @@ import { parseDocument } from 'yaml'
 import { readReleaseCohort, releaseCohortOutputKey } from './release-cohort.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const workflowPath = process.argv[2]
-  ? resolve(process.argv[2])
-  : resolve(repoRoot, '.github/workflows/publish.yml')
+const workflowPath = resolve(process.argv[2] || resolve(repoRoot, '.github/workflows/publish.yml'))
 const workflow = readWorkflow(workflowPath, 'publish')
 const jobs = workflow.jobs
 if (!jobs || typeof jobs !== 'object') throw new Error('publish workflow has no jobs')
-const qualificationPath = process.argv[3]
-  ? resolve(process.argv[3])
-  : resolve(repoRoot, '.github/workflows/qualify-release.yml')
+const qualificationPath = resolve(process.argv[3] || resolve(repoRoot, '.github/workflows/qualify-release.yml'))
 const qualification = readWorkflow(qualificationPath, 'qualification')
 const qualifierJobs = qualification.jobs
 if (!qualifierJobs || typeof qualifierJobs !== 'object') throw new Error('qualification workflow has no jobs')
@@ -21,7 +17,6 @@ const qualifier = requireJob('qualify')
 if (!/^tangle-network\/agent-runtime\/\.github\/workflows\/qualify-release\.yml@[a-f0-9]{40}$/.test(qualifier.uses)) {
   throw new Error('qualification workflow must use an immutable reviewed body')
 }
-assertEqual(qualifier.permissions?.contents, 'read', 'qualification caller permission')
 assertEqual(qualifier.with?.release_tag, '${{ inputs.release_tag }}', 'qualification release tag')
 for (const [name, job] of Object.entries(qualifierJobs)) {
   assertEqual(job['runs-on']?.group, 'public-app-production', `${name} trusted runner group`)
@@ -37,7 +32,6 @@ for (const [prefix, jobName] of [['runtime', 'verify'], ['bench', 'verify-agent-
 }
 const consumer = requireJob('verify-publication')
 assertEqual(consumer.if, "!cancelled() && needs.qualify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')", 'publication verifier success gating')
-assertEqual(consumer.permissions?.contents, 'read', 'publication verifier permission')
 assertEqual(consumer.needs?.join(','), 'qualify,publish-npm,publish-agent-bench', 'publication verifier dependencies')
 assertEqual(consumer.env?.EXPECTED_SHA256,
   "${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}", 'publication verifier qualified hash')
@@ -53,7 +47,6 @@ const publishJobs = {
 
 for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   const job = requireJob(jobName)
-  assertEqual(job.permissions?.contents, 'read', `${jobName} contents permission`)
   assertEqual(job.permissions?.['id-token'], 'write', `${jobName} id-token permission`)
   assertEqual(job.needs, 'qualify', `${jobName} qualification dependency`)
   const prefix = requiredJob === 'verify' ? 'runtime' : 'bench'
@@ -117,16 +110,20 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   }
 }
 
-for (const [jobName, job] of Object.entries({ ...jobs, ...qualifierJobs })) {
-  if (job?.permissions?.['id-token'] === 'write' && !(jobName in publishJobs))
-    throw new Error(`unexpected job can mint a package identity token: ${jobName}`)
-  if (job?.permissions?.contents === 'write') throw new Error(`publish workflow must not write repository contents: ${jobName}`)
-  for (const step of job.steps ?? []) {
-    if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses)) throw new Error(`${jobName} action is not pinned`)
-    if (step.uses?.startsWith('actions/checkout@'))
-      assertEqual(step.with?.['persist-credentials'], false, `${jobName} checkout credentials`)
-    if (!(jobName in publishJobs) && (job.env?.NPM_TOKEN || job.env?.NODE_AUTH_TOKEN || step.env?.NPM_TOKEN || step.env?.NODE_AUTH_TOKEN))
-      throw new Error(`${jobName} must not receive publishing credentials`)
+for (const [group, defaults] of [[jobs, workflow.permissions], [qualifierJobs, qualification.permissions]]) {
+  for (const [jobName, job] of Object.entries(group)) {
+    const permissions = job.permissions === undefined && job !== qualifier ? defaults : job.permissions
+    const publisher = group === jobs && jobName in publishJobs
+    assertEqual(permissions?.contents, 'read', `${jobName} contents permission`)
+    if (permissions?.['id-token'] === 'write' && !publisher)
+      throw new Error(`unexpected job can mint a package identity token: ${jobName}`)
+    for (const step of job.steps ?? []) {
+      if (step.uses && !/@[a-f0-9]{40}$/.test(step.uses)) throw new Error(`${jobName} action is not pinned`)
+      if (step.uses?.startsWith('actions/checkout@'))
+        assertEqual(step.with?.['persist-credentials'], false, `${jobName} checkout credentials`)
+      if (!publisher && (job.env?.NPM_TOKEN || job.env?.NODE_AUTH_TOKEN || step.env?.NPM_TOKEN || step.env?.NODE_AUTH_TOKEN))
+        throw new Error(`${jobName} must not receive publishing credentials`)
+    }
   }
 }
 
@@ -285,6 +282,8 @@ function assertCount(values, pattern, expected, label) {
 
 function assertEqual(actual, expected, label) {
   if (actual !== expected) {
-    throw new Error(`${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`)
+    throw new Error(
+      `${label}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`,
+    )
   }
 }
