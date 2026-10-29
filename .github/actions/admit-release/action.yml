@@ -4,6 +4,9 @@ inputs:
   tarballs:
     description: Space-separated packed .tgz files to admit as they are; set this when the job publishes an exact archive
     default: ''
+  consumer:
+    description: Named live consumer requiring a compatible release on an older stable line
+    default: ''
   directories:
     description: Space-separated package directories to pack and admit when no tarballs are given
     default: .
@@ -15,6 +18,7 @@ runs:
       env:
         TARBALLS: ${{ inputs.tarballs }}
         DIRECTORIES: ${{ inputs.directories }}
+        CONSUMER: ${{ inputs.consumer }}
         ACTION_ROOT: ${{ github.action_path }}/../../..
       run: |
         set -euo pipefail
@@ -31,4 +35,5 @@ runs:
           packer=npm; [ -f pnpm-lock.yaml ] && packer=pnpm
           for dir in $DIRECTORIES; do (cd "$dir" && "$packer" pack --pack-destination "$work/packs" >/dev/null); done
         fi
-        for tarball in "$work"/packs/*.tgz; do node "$work/scripts/check-version-bump.mjs" --archive "$tarball"; done
+        consumer_args=(); [ -z "$CONSUMER" ] || consumer_args=(--consumer "$CONSUMER")
+        for tarball in "$work"/packs/*.tgz; do node "$work/scripts/check-version-bump.mjs" --archive "$tarball" "${consumer_args[@]}"; done

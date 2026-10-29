@@ -1,3 +1,15 @@
+## 3.0.5
+
+Deliver protected stored-secret declarations through provider adapters with complete retained custody identity, and retire qualification that required the obsolete proxy-binding refusal.
+
+## 3.0.4
+
+Keep the benchmark workspace on Runtime's selected Sandbox SDK and check its public client types in the normal typecheck gate.
+
+## 3.0.3
+
+Forward stored host bindings and authored proxy declarations through provider adapters, preserve their full retained execution identity and keep unsupported raw candidate custody explicit.
+
 ## 3.0.2
 
 Allow the existing verified streaming workspace materializer to select manifest paths without buffering selected files or restoring the rest of the tree. Every archived file and the complete canonical archive still pass verification before any destination is published. Discovery Lab can replace its historical capture extractor with this owner.

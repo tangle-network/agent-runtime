@@ -40,18 +40,8 @@ describe('candidate profile knowledge admission', () => {
 describe('candidate profile fields Sandbox cannot carry', () => {
   // Interface 5.3 admits these; the pinned development types do not expose them yet.
   // The packed consumer repeats this under the Interface the registry serves.
-  const proxySecrets = [
-    {
-      hosts: ['api.example.com'],
-      envName: 'EXAMPLE_API_KEY',
-      secretRef: { kind: 'secret-ref', key: 'example' },
-      presentation: { type: 'bearer' },
-    },
-  ]
   const secretRef = { kind: 'secret-ref', key: 'example' }
   const cases = [
-    { field: 'proxySecrets', profile: { harness: 'codex', proxySecrets } },
-    { field: 'proxySecrets', profile: { harness: 'codex', proxySecrets: [] } },
     {
       field: 'mcp.search.env.SEARCH_REGION (secret-ref)',
       profile: { mcp: { search: { command: 'search-mcp', env: { SEARCH_REGION: secretRef } } } },

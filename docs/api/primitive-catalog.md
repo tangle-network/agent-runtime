@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@3.0.2` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@3.0.5` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -585,7 +585,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `profileRunsForName` | function | All records for one name, newest last. |
 | `promptHandle` | function | Parse `'<surface>/v<n>'` into a {@link PromptHandle}. The shorthand for authoring a graph edge: |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
-| `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
+| `providerAsSandboxClient` | function | Expose a neutral provider through the existing Sandbox client port. |
 | `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
 | `readBoundHarnessSessions` | function | Verify a bound native family without owning a store, filesystem layout or native parser. |
@@ -954,7 +954,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `ProgressView` | interface | The read-model a `StopRule` decides from — the run's progress, not its budget. |
 | `PromptHandle` | interface | A versioned reference into a prompt registry: `surface` names the role/edge the text serves, |
 | `PromptRegistry` | interface | Versioned prompt store. `resolve` fails loud on an unknown handle: a directive that silently |
-| `ProviderAsSandboxClientOptions` | interface | Options for exposing an `AgentEnvironmentProvider` through the legacy sandbox client port. |
+| `ProviderAsSandboxClientOptions` | interface | Legacy Sandbox client adapter options. |
 | `ProviderCheckpointCaptureContext` | interface | What {@link ProviderWorkspaceRetentionPort.captureCheckpoint} receives. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderLeafOut` | interface | Provider execution evidence and default turn output: the visible answer plus the event archive the |
