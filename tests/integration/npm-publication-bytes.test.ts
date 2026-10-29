@@ -15,6 +15,7 @@ const checker = resolve('scripts/check-npm-publication.mjs')
 async function checkRegistry(
   archiveStatus: number,
   options: {
+    delayedArchive?: boolean
     corrupt?: boolean
     metadataStatus?: number
     metadataIntegrity?: string
@@ -45,6 +46,7 @@ async function checkRegistry(
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('No fixture HTTP address')
     const base = `http://127.0.0.1:${address.port}`
+    let archiveReads = 0
     server.on('request', (req, res) => {
       if (req.url === '/metadata') {
         res.writeHead(options.metadataStatus ?? 200, { 'Content-Type': 'application/json' })
@@ -59,7 +61,8 @@ async function checkRegistry(
           }),
         )
       } else {
-        res.writeHead(archiveStatus)
+        archiveReads += 1
+        res.writeHead(options.delayedArchive && archiveReads === 1 ? 404 : archiveStatus)
         res.end(
           archiveStatus === 200
             ? options.corrupt
@@ -110,7 +113,7 @@ async function checkRegistry(
         { env },
       )
     }
-    return { ...result, output: await readFile(output, 'utf8') }
+    return { ...result, output: await readFile(output, 'utf8'), archiveReads }
   } finally {
     server.closeAllConnections()
     await new Promise<void>((done) => server.close(() => done()))
@@ -119,7 +122,10 @@ async function checkRegistry(
 }
 
 it('refuses matching metadata when its advertised archive is missing', async () => {
-  await expect(checkRegistry(404)).rejects.toThrow(/HTTP 404/)
+  await expect(checkRegistry(404)).rejects.toMatchObject({
+    code: 3,
+    stderr: expect.stringContaining('HTTP 404'),
+  })
 })
 
 it('also refuses a missing archive during ordinary qualification', async () => {
@@ -137,7 +143,10 @@ it('runs the read-only workflow command against exact public bytes', async () =>
 })
 
 it('refuses postpublication metadata 404 instead of admitting publication', async () => {
-  await expect(checkRegistry(404, { metadataStatus: 404 })).rejects.toThrow(/HTTP 404/)
+  await expect(checkRegistry(404, { metadataStatus: 404 })).rejects.toMatchObject({
+    code: 3,
+    stderr: expect.stringContaining('HTTP 404'),
+  })
 })
 
 it('retains the qualification artifact hash and strict registry integrity guards', async () => {
@@ -169,3 +178,9 @@ it('the workflow checker refuses authority on the read-only byte verifier', asyn
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+it('waits for a missing advertised archive and stops after verified bytes arrive', async () => {
+  const result = await checkRegistry(200, { workflow: true, delayedArchive: true })
+  expect(result.output).toBe('pending=false\n')
+  expect(result.archiveReads).toBeGreaterThan(1)
+}, 45_000)
