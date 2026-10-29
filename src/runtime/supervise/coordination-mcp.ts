@@ -40,6 +40,7 @@ import {
 } from './coordination-mcp-listener'
 import { bindServedTools, coordinationToolOptions } from './coordination-mcp-tools'
 import { preflightPublicCoordination } from './coordination-preflight'
+import { armDeadlineTimer } from './deadline'
 import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 
 export type {
@@ -428,11 +429,11 @@ export async function serveCoordinationMcpForManager(
   const bindCredential: NonNullable<CoordinationMcpHandle['bindCredential']> = async (install) => {
     if (stopCredentialBinding) throw new ConfigError('coordination already has a credential holder')
     let active = true,
-      timer: ReturnType<typeof setTimeout> | undefined
+      cancelTimer: (() => void) | undefined
     let pending: Promise<void> = Promise.resolve()
     const stop = async () => {
       active = false
-      clearTimeout(timer)
+      cancelTimer?.()
       await pending
     }
     stopCredentialBinding = stop
@@ -446,8 +447,7 @@ export async function serveCoordinationMcpForManager(
         (opts.scope.rootDeadlineAtMs !== undefined && expiry >= opts.scope.rootDeadlineAtMs)
       )
         return
-      timer = setTimeout(renew, Math.max(1, Math.floor((expiry - Date.now()) / 2)))
-      timer.unref()
+      cancelTimer = armDeadlineTimer(Math.max(1, Math.floor((expiry - Date.now()) / 2)), renew)
     }
     const renew = () => {
       if (!active || state.closed || opts.scope.signal.aborted || lifetime?.aborted) return
@@ -460,7 +460,7 @@ export async function serveCoordinationMcpForManager(
       })
     }
     refreshBoundCredential = () => {
-      clearTimeout(timer)
+      cancelTimer?.()
       renew()
     }
     try {
@@ -469,7 +469,7 @@ export async function serveCoordinationMcpForManager(
       schedule()
     } catch (error) {
       active = false
-      clearTimeout(timer)
+      cancelTimer?.()
       stopCredentialBinding = undefined
       refreshBoundCredential = undefined
       throw error

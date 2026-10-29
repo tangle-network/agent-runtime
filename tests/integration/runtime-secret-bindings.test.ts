@@ -35,7 +35,7 @@ afterAll(async () => {
 /** Real SDK and Runtime exports in a fresh process trust only this fixture's local TLS certificate. */
 async function run(mode: string) {
   const certificate = join(directory, 'cert.pem')
-  const { stdout } = await execute(
+  const { stdout, stderr } = await execute(
     process.execPath,
     [
       '--dns-result-order=ipv4first',
@@ -54,6 +54,7 @@ async function run(mode: string) {
       },
     },
   )
+  expect(stderr.includes('TimeoutOverflowWarning')).toBe(false)
   return JSON.parse(stdout.trim().split('\n').at(-1)!)
 }
 
@@ -162,6 +163,16 @@ it('automatically bounds and protects existing deadline-free provider callers', 
     mcpAccepted: true,
     noRawCreate: true,
     creates: 1,
+    stored: 0,
+    secretPosts: 1,
+  })
+})
+it('protects a long finite lease without clamped timers or spurious hot rekey', async () => {
+  expect(await run('long-ttl')).toMatchObject({
+    settled: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    updates: 0,
     stored: 0,
     secretPosts: 1,
   })

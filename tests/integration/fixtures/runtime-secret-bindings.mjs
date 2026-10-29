@@ -589,17 +589,21 @@ try {
           budget: {
             maxIterations: 4,
             maxTokens: 1000,
-            ...(['explicit-ttl', 'unbounded'].includes(mode) ? {} : { deadlineMs: 10000 }),
+            ...(['explicit-ttl', 'unbounded', 'long-ttl'].includes(mode)
+              ? {}
+              : { deadlineMs: 10000 }),
           },
           perWorker: { maxIterations: 1, maxTokens: 100 },
           driverRetry: { enabled: false },
           coordination: {
             authentication:
-              mode === 'explicit-ttl'
-                ? { ttlMs: 10000 }
-                : mode === 'renewal'
-                  ? { ttlMs: 4000 }
-                  : true,
+              mode === 'long-ttl'
+                ? { ttlMs: 2 ** 33 }
+                : mode === 'explicit-ttl'
+                  ? { ttlMs: 10000 }
+                  : mode === 'renewal'
+                    ? { ttlMs: 4000 }
+                    : true,
             publicUrl: ({ port }) => {
               upstream = `http://127.0.0.1:${port}/coordination`
               return mode === 'fallback' ? upstream : publicUrl
