@@ -272,7 +272,7 @@ const api = createServer(async (request, response) => {
           idempotent: mode === 'restart',
         },
         runs: { executionScopedStatus: mode === 'restart', eventReplay: mode === 'restart' },
-        interactions: {},
+        interactions: { responseDedupe: false },
       })
     if (path.endsWith('/backend')) return answer(response, 200, { type: 'opencode' })
     if (path.endsWith('/agents/sessions') && request.method === 'POST') {
