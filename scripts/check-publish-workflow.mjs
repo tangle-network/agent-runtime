@@ -36,11 +36,11 @@ for (const [prefix, jobName] of [['runtime', 'verify'], ['bench', 'verify-agent-
   }
 }
 const consumer = requireJob('verify-publication')
-assertEqual(consumer.if, "always() && needs.qualify.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-agent-bench.result == 'success')", 'publication verifier success gating')
+assertEqual(consumer.if, "!cancelled() && needs.qualify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')", 'publication verifier success gating')
 assertEqual(consumer.permissions?.contents, 'read', 'publication verifier permission')
 assertEqual(consumer.needs?.join(','), 'qualify,publish-npm,publish-agent-bench', 'publication verifier dependencies')
 assertEqual(consumer.env?.EXPECTED_SHA256,
-  "${{ needs.publish-agent-bench.result == 'success' && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}", 'publication verifier qualified hash')
+  "${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}", 'publication verifier qualified hash')
 const consumerCommand = requireSteps('verify-publication', consumer).find((step) => step.run)?.run ?? ''
 if (!consumerCommand.includes('node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published') || !consumerCommand.includes('[ "$status" -eq 3 ] || exit "$status"'))
   throw new Error('publication verifier must require actual bytes and fail closed on mismatches')

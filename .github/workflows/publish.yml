@@ -135,15 +135,15 @@ jobs:
         env:
           PACKAGE_DIRECTORY: ${{ runner.temp }}/agent-bench-package
         run: *publish-exact
-
+  # A frozen tag can skip publishing from metadata alone; qualified bytes still need verification.
   verify-publication:
     needs: [qualify, publish-npm, publish-agent-bench]
-    if: always() && needs.qualify.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-agent-bench.result == 'success')
+    if: "!cancelled() && needs.qualify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')"
     runs-on: ubuntu-latest
     permissions: { contents: read }
     env:
-      PACKAGE: ${{ needs.publish-agent-bench.result == 'success' && 'agent-bench' || 'agent-runtime' }}
-      EXPECTED_SHA256: ${{ needs.publish-agent-bench.result == 'success' && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}
+      PACKAGE: ${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && 'agent-bench' || 'agent-runtime' }}
+      EXPECTED_SHA256: ${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: '${{ github.workflow_sha }}', sparse-checkout: scripts, persist-credentials: false }
