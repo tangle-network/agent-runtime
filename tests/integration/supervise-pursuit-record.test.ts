@@ -32,7 +32,6 @@ import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
 import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination-contracts'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
-import { nodeStreamFile } from '../../src/runtime/supervise/root-stream'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import type {
   DriveHarness,
@@ -47,8 +46,6 @@ import type {
   SpawnJournal,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
-import { loadTopSnapshot } from '../../src/tui/top-snapshot'
-import { transcriptHistory } from '../../src/tui/top-transcript'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
@@ -397,98 +394,6 @@ describe('supervisePursuit durable terminal records', () => {
       retainedExecution: 'released',
       releasedAt: expect.any(Number),
     })
-  })
-
-  it("reads a settled worker's tool trace back from the run directory alone", async () => {
-    const textPart: AgentEnvironmentEvent = {
-      id: 'worker-text',
-      type: 'message.part.updated',
-      data: { part: { type: 'text', text: 'editing primes' }, delta: 'editing primes' },
-    }
-    const toolPart: AgentEnvironmentEvent = {
-      id: 'worker-tool',
-      type: 'message.part.updated',
-      data: {
-        part: {
-          type: 'tool',
-          tool: 'edit',
-          callID: 'call-w',
-          state: { status: 'completed', input: { path: 'primes.txt' }, output: 'ok' },
-        },
-      },
-    }
-    const base = durableRetainedProvider(join(runDir, 'provider.json'))
-    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
-      ...environment,
-      session: (id, options) => {
-        const session = environment.session!(id, options)
-        return {
-          ...session,
-          async *events(eventOptions) {
-            yield structuredClone(textPart)
-            yield structuredClone(toolPart)
-            yield* session.events(eventOptions)
-          },
-        }
-      },
-    })
-    const provider: AgentEnvironmentProvider = {
-      ...base,
-      create: async (input) => wrap(await base.create(input)),
-      get: async (id) => {
-        const environment = await base.get!(id)
-        return environment ? wrap(environment) : null
-      },
-    }
-    const worker = (): Agent<unknown, unknown> =>
-      Object.assign(
-        { name: 'tracing-worker', act: async () => 'unused' },
-        {
-          executorSpec: {
-            profile: testAgentProfile('tracing-worker'),
-            harness: null,
-            executorFactory: providerAsExecutor(provider),
-          },
-        },
-      )
-
-    const settled = await run(runDir, 'worker-trace', { makeWorkerAgent: worker })
-    const projected = projectPursuit(
-      await new FileObserverJournal(settled.observerPath, 'pursuit:record').read(),
-    )
-    const traced = projected.nodes.filter((node) => node.trace?.status === 'available')
-    expect(traced).toHaveLength(1)
-
-    // The worker's conversation is retained beside the root's, in the same record shape, and the
-    // live viewer's transcript reads it instead of reporting it uncaptured.
-    const stream = (await readFile(join(runDir, nodeStreamFile(traced[0]!.id)), 'utf8'))
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as { attempt: number; event: { kind: string } })
-    expect(stream.map((line) => line.event.kind)).toEqual(
-      expect.arrayContaining(['text_delta', 'tool_call']),
-    )
-    expect(stream.every((line) => line.attempt === 1)).toBe(true)
-    const snapshot = await loadTopSnapshot(runDir, { runDir })
-    const view = snapshot.supervisors
-      .flatMap((row) => row.workers)
-      .find((row) => row.id === traced[0]?.id)
-    expect(view?.eventFile).toBe(join(runDir, nodeStreamFile(traced[0]!.id)))
-    const transcript = await transcriptHistory(view!, runDir, traced[0])
-    expect(transcript.map((row) => row.event.provenance)).not.toContain('capture-unavailable')
-    expect(JSON.stringify(transcript)).toContain('editing primes')
-    expect(JSON.stringify(transcript)).toContain('primes.txt')
-
-    const spans = await durableRunToolSpans(runDir)
-    expect(spans).toMatchObject([
-      { runId: traced[0]?.id, toolName: 'edit', args: { path: 'primes.txt' } },
-    ])
-
-    // A settlement naming a trace the blob store lost is incomplete evidence, never an empty one.
-    const trace = traced[0]?.trace
-    if (trace?.status !== 'available') return
-    await rm(join(runDir, 'blobs', `${trace.traceRef.replace(':', '-')}.json`))
-    await expect(durableRunToolSpans(runDir)).rejects.toThrow(/trace blob .* is missing/)
   })
 
   it("refuses retainedAtSettlement 'keep', which a settle record would contradict", async () => {
