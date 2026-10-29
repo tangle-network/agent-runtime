@@ -1,3 +1,7 @@
+## 2.3.14
+
+Run the unchanged uncertain-create recovery suite in the existing serial test project. A retained parallel run recorded 396ms from child provision admission to its successful create record, exceeding the fixture's 250ms SDK deadline; all cases, assertions, budgets and timeouts remain unchanged.
+
 ## 2.3.13
 
 Format the custom subscription-driver integration proof for the repository lint gate so package qualification can complete. All execution and admission assertions remain unchanged.
