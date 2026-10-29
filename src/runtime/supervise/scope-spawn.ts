@@ -434,9 +434,11 @@ class ScopeSpawner<Out> {
       budgetGranted,
       permit.ready,
       args.signal.aborted && recovery !== undefined
-        ? (args.resumeFrom?.events.findLast(
-            (event) => event.id === id && event.kind === 'reconciled',
-          )?.spent ?? recovery.continuation?.priorSpent)
+        ? (args.resumeFrom?.events
+            ?.flatMap((event) =>
+              event.id === id && event.kind === 'reconciled' ? [event.spent] : [],
+            )
+            .at(-1) ?? recovery.continuation?.priorSpent)
         : recovery?.continuation?.priorSpent,
       child.startedAt,
     )

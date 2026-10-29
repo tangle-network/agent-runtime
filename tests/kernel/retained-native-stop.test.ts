@@ -78,6 +78,7 @@ function liveProcessProvider(
      *  asynchronous provider does. Its status reads `running` until the process exits, then
      *  `stopped`. */
     readonly asynchronousStopMs?: number
+    readonly stopUnavailable?: boolean
   } = {},
 ) {
   const processes = new Map<string, ChildProcess>()
@@ -136,6 +137,7 @@ function liveProcessProvider(
             : 'stopped'
         },
         cancelRun: async (request, cancelOptions) => {
+          if (options.stopUnavailable) throw new Error('native stop transport unavailable')
           const child = harness()
           if (options.asynchronousStopMs !== undefined) {
             const acknowledgement = await session.cancelRun!(request, cancelOptions)
@@ -705,23 +707,40 @@ describe('a deadline that ends a retained turn', () => {
 })
 
 describe('terminal recovery of a previously admitted native process', () => {
-  it.each(['deadline', 'cancelled'] as const)(
+  it.each(['deadline', 'cancelled', 'unknown'] as const)(
     'stops the original process before capture/return on %s entry without dispatching',
     async (ending) => {
       const directory = await scratch('native-stop-terminal-resume-')
       const runDir = join(directory, 'run')
       const context = createFileRunContext(runDir)
-      const live = liveProcessProvider(join(directory, 'provider.json'))
+      const live = liveProcessProvider(join(directory, 'provider.json'), {
+        stopUnavailable: ending === 'unknown',
+      })
       const retention = evidenceRetention()
-      const copies: boolean[] = []
+      const copies: Array<{
+        running: boolean
+        executionId?: string
+        environmentId: string
+        sessionId?: string
+      }> = []
       const workspaceRetention: ProviderWorkspaceRetentionPort = {
         ...retention,
         async capture(context) {
-          copies.push([...live.processes.values()].some(running))
+          copies.push({
+            running: [...live.processes.values()].some(running),
+            executionId: context.controlRef?.executionId,
+            environmentId: context.environment.id,
+            sessionId: context.providerSessionId ?? undefined,
+          })
           return retention.capture(context)
         },
         async captureNative(context) {
-          copies.push([...live.processes.values()].some(running))
+          copies.push({
+            running: [...live.processes.values()].some(running),
+            executionId: context.controlRef?.executionId,
+            environmentId: context.environment.id,
+            sessionId: context.providerSessionId ?? undefined,
+          })
           return retention.capture(context)
         },
       }
@@ -789,7 +808,7 @@ describe('terminal recovery of a previously admitted native process', () => {
       })
       harnesses.push(canary)
       const cancel = new AbortController()
-      if (ending === 'deadline') clock += 120_000
+      if (ending !== 'cancelled') clock += 120_000
       else cancel.abort(new RunCancellationReason('operator', 'cancelled before resume'))
       copies.length = 0
       const result = await createSupervisor<string, string>().run(
@@ -808,12 +827,18 @@ describe('terminal recovery of a previously admitted native process', () => {
           teardownConfirmMs: 1_000,
         },
       )
-      expect(result).toMatchObject({ kind: 'no-winner', reason: ending })
-      expect(running(harness!)).toBe(false)
+      expect(result).toMatchObject({
+        kind: 'no-winner',
+        reason: ending === 'cancelled' ? 'cancelled' : 'deadline',
+      })
+      expect(running(harness!)).toBe(ending === 'unknown')
       expect(running(canary)).toBe(true)
       expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
-      expect(copies.length).toBeGreaterThan(0)
-      expect(copies).not.toContain(true)
+      if (ending === 'unknown') expect(copies).toEqual([])
+      else {
+        expect(copies.length).toBeGreaterThan(0)
+        expect(copies.some((copy) => copy.running)).toBe(false)
+      }
       expect(live.destroys()).toBe(0) // Incomplete evidence keeps the stopped source.
       expect(result.teardownUnconfirmed?.[0]?.kept?.[0]).toMatchObject({ keptFor: 'evidence' })
       const events = (await context.journal.loadTree('root')) ?? []
@@ -822,6 +847,12 @@ describe('terminal recovery of a previously admitted native process', () => {
       )!
       const original =
         admission.admission.phase === 'dispatched' ? admission.admission.controlRef : undefined
+      for (const copy of copies)
+        expect(copy).toMatchObject({
+          environmentId: original?.environmentId,
+          executionId: original?.executionId,
+          sessionId: original?.sessionId,
+        })
       expect(ofKind(events, 'environment-teardown').at(-1)).toMatchObject({
         id: admission.id,
         environmentId: original?.environmentId,

@@ -402,19 +402,7 @@ export function createProviderNativeControl(
   const withoutRunningHarness =
     (release: (signal: AbortSignal) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>) =>
     async (signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> => {
-      const stop = await awaitAbortable(stopNativeExecution(), signal).catch(
-        (error: unknown): RetainedNativeStop | undefined => {
-          const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
-          return controlRef === undefined
-            ? undefined
-            : {
-                executionId: controlRef.executionId,
-                effect: 'unknown',
-                at: new Date().toISOString(),
-                error: errorText(error instanceof Error ? error.message : error),
-              }
-        },
-      )
+      const stop = await awaitAbortable(stopNativeExecution(), signal)
       const stopped = stop === undefined ? undefined : describeRetainedNativeStops([stop])
       const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
       if (stop !== undefined && !state.harnessStopped && controlRef !== undefined) {
