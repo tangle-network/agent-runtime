@@ -35,10 +35,7 @@ export async function openRunTree(opts: SupervisorOpts, now: () => number): Prom
   const runStartedAtMs = now()
   const runStartedAt = new Date(runStartedAtMs).toISOString()
 
-  // RESUME-FIRST (opt-in via `opts.resume`): read any prior journal tree for this runId BEFORE
-  // beginning a fresh one. A non-empty tree means a prior run committed work, so rehydrate it
-  // (`replaySpawnTree`/`materializeTreeView`) instead of starting over; an empty tree, and every
-  // run that did NOT opt in, takes the fresh path unchanged.
+  // Resume the original durable tree before considering a fresh run.
   const existing = await opts.journal.loadTree(opts.runId)
   if (opts.resume !== true && existing !== undefined) {
     throw new RuntimeRunStateError(

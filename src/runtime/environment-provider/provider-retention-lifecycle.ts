@@ -425,7 +425,7 @@ export function createProviderNativeControl(
       }
       const receipts = await release(signal)
       return receipts.map((receipt) =>
-        receipt.destroyed || stopped === undefined
+        receipt.destroyed
           ? receipt
           : { ...receipt, detail: receipt.detail ? `${receipt.detail}; ${stopped}` : stopped },
       )
