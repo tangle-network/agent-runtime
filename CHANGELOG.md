@@ -1,3 +1,7 @@
+## 2.3.13
+
+Format the custom subscription-driver integration proof for the repository lint gate so package qualification can complete. All execution and admission assertions remain unchanged.
+
 ## 2.3.12
 
 Allow caller-owned `driveHarness` and `resolveDriveHarness` execution to retain authored subscription seats without an unused Runtime seat selector. Runtime-managed drivers still require `selectSeat` before execution.
