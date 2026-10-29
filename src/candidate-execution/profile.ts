@@ -218,6 +218,7 @@ const CANDIDATE_PROFILE_DIRECT_FIELDS = [
   'permissions',
   'tools',
   'confidential',
+  'proxySecrets',
 ] as const
 
 /** Convert only behavior-preserving generic profile fields into the closed candidate contract. */
@@ -335,7 +336,7 @@ export function parseExactCandidateProfile(input: unknown): AgentCandidateProfil
 export function assertCandidateProfileExecutionSupport(profile: AgentCandidateProfile): void {
   assertResolvedKnowledgeResources(profile.resources)
   assertSandboxProfileCompatibility(profile)
-  const fields = ['tools', 'permissions', 'modes', 'confidential'] as const
+  const fields = ['tools', 'permissions', 'modes', 'confidential', 'proxySecrets'] as const
   const unsupported = fields.filter((field) => hasEntries(profile[field]))
   if (unsupported.length > 0) {
     throw new Error(
@@ -359,10 +360,7 @@ export function agentCandidateProfileAsAgentProfile(
         name,
         {
           ...server,
-          // Candidate config values ({kind:'public', value}) are already valid
-          // AgentProfileConfigValue entries under interface >=0.40 — clone them
-          // rather than unwrapping to plain strings, which the 0.40 profile
-          // schema rejects.
+          // Retain typed config values rather than unwrapping them to plain strings.
           ...(server.args ? { args: server.args.map((value) => ({ ...value })) } : {}),
           ...(server.env ? { env: cloneRecord(server.env) } : {}),
         },
