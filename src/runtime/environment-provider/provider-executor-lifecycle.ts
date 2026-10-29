@@ -30,6 +30,7 @@ import type { ProviderExecutorOptions } from './provider-executor-admission'
 import { type ProviderExecutorScope, ProviderExecutorState } from './provider-executor-state'
 import { providerMaterialization } from './provider-materialization'
 import {
+  admittedControlRef,
   createProviderCaptureMirrors,
   createProviderNativeControl,
 } from './provider-retention-lifecycle'
@@ -72,6 +73,9 @@ export function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
   const state = new ProviderExecutorState(ctx.signal, executionId)
+  state.pending = admittedEnvironmentId(retention) !== undefined
+  state.workspaceControlRef = admittedControlRef(retention)
+  state.providerSessionId = state.workspaceControlRef?.sessionId ?? null
   let executor!: Executor<unknown>
   const scope: ProviderExecutorScope = {
     provider,
