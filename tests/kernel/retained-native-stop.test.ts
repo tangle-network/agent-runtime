@@ -16,6 +16,7 @@ import {
   describeRetainedNativeStops,
   stopRetainedNativeExecution,
 } from '../../src/runtime/retained-native-stop'
+import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { cancelRun } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
@@ -85,10 +86,12 @@ function liveProcessProvider(
   const base = durableRetainedProvider(stateFile)
   let creates = 0
   let destroys = 0
+  let dispatches = 0
   let token = ''
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     dispatch: async (turn) => {
+      dispatches += 1
       const dispatched = await environment.dispatch!(turn)
       const executionId = dispatched.controlRef!.executionId!
       if (!processes.has(executionId)) {
@@ -176,6 +179,7 @@ function liveProcessProvider(
     observing: () => observed.size > 0,
     creates: () => creates,
     destroys: () => destroys,
+    dispatches: () => dispatches,
   }
 }
 
@@ -698,4 +702,109 @@ describe('a deadline that ends a retained turn', () => {
       )
     }
   }, 30_000)
+})
+
+
+describe('terminal recovery of a previously admitted native process', () => {
+  it.each(['deadline', 'cancelled'] as const)(
+    'stops the original process before capture/return on %s entry without dispatching',
+    async (ending) => {
+      const directory = await scratch('native-stop-terminal-resume-')
+      const runDir = join(directory, 'run')
+      const context = createFileRunContext(runDir)
+      const live = liveProcessProvider(join(directory, 'provider.json'))
+      const retention = evidenceRetention()
+      const copies: boolean[] = []
+      const workspaceRetention: ProviderWorkspaceRetentionPort = {
+        ...retention,
+        async capture(context) {
+          copies.push([...live.processes.values()].some(running))
+          return retention.capture(context)
+        },
+        async captureNative(context) {
+          copies.push([...live.processes.values()].some(running))
+          return retention.capture(context)
+        },
+      }
+      const factory = providerAsExecutor(live.provider, { workspaceRetention })
+      const profile = testAgentProfile('leaf')
+      const worker = Object.assign(
+        { name: 'leaf', act: async () => 'unused' },
+        { executorSpec: { profile, harness: profile.harness, executorFactory: factory } },
+      )
+      let clock = Date.now()
+      const common = {
+        ...context,
+        runId: 'root',
+        budget: { maxIterations: 10, maxTokens: 100, deadlineMs: 60_000 },
+        now: () => clock,
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+          taskDigest: canonicalCandidateDigest('root-task'),
+        },
+      }
+      let interrupted = false
+      await expect(
+        createSupervisor<string, string>().run(
+          {
+            name: 'root',
+            act: async (_task, scope) => {
+              scope.spawn(worker, 'child task', {
+                key: 'work', budget: { maxIterations: 1, maxTokens: 100 },
+              })
+              await scope.next()
+              return 'unreachable'
+            },
+          },
+          'root-task',
+          {
+            ...common,
+            journal: {
+              beginTree: context.journal.beginTree.bind(context.journal),
+              loadTree: context.journal.loadTree.bind(context.journal),
+              appendEvent: async (root, event) => {
+                await context.journal.appendEvent(root, event)
+                if (!interrupted && event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
+                  interrupted = true
+                  throw new Error('lost local dispatch acknowledgement')
+                }
+              },
+            },
+          },
+        ),
+      ).rejects.toThrow('durable state unavailable')
+      expect(interrupted).toBe(true)
+      const [harness] = [...live.processes.values()]
+      expect(running(harness!)).toBe(true)
+      const before = { creates: live.creates(), dispatches: live.dispatches() }
+      expect(before).toEqual({ creates: 1, dispatches: 1 })
+      // An unrelated process group must never be affected by cleanup of this admission.
+      const canary = spawn('/bin/sh', ['-c', 'sleep 300 & wait'], { detached: true, stdio: 'ignore' })
+      harnesses.push(canary)
+      const cancel = new AbortController()
+      if (ending === 'deadline') clock += 120_000
+      else cancel.abort(new RunCancellationReason('operator', 'cancelled before resume'))
+      copies.length = 0
+      const result = await createSupervisor<string, string>().run(
+        { name: 'root', act: async () => { throw new Error('terminal root acted') } },
+        'root-task',
+        { ...common, recoverExecutor: factory, retainedAtSettlement: 'release', signal: cancel.signal, teardownConfirmMs: 1_000 },
+      )
+      expect(result).toMatchObject({ kind: 'no-winner', reason: ending })
+      expect(running(harness!)).toBe(false)
+      expect(running(canary)).toBe(true)
+      expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
+      expect(copies.length).toBeGreaterThan(0)
+      expect(copies).not.toContain(true)
+      expect(live.destroys()).toBe(0) // Incomplete evidence keeps the stopped source.
+      expect(result.teardownUnconfirmed?.[0]?.kept?.[0]).toMatchObject({ keptFor: 'evidence' })
+      const events = (await context.journal.loadTree('root')) ?? []
+      const admission = ofKind(events, 'execution-admitted').find((event) => event.admission.phase === 'dispatched')!
+      const original = admission.admission.phase === 'dispatched' ? admission.admission.controlRef : undefined
+      expect(ofKind(events, 'environment-teardown').at(-1)).toMatchObject({
+        id: admission.id, environmentId: original?.environmentId, destroyed: false,
+      })
+    },
+    30_000,
+  )
 })
