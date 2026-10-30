@@ -7,7 +7,6 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const sourceDir = path.join(benchDir, 'src')
 
 export function packageNodeTestArgs(files, env = process.env) {
   const raw = env.AGENT_BENCH_PACKAGE_TEST_CONCURRENCY
@@ -59,9 +58,8 @@ export async function run(command, args, env = process.env) {
   } catch (error) {
     if (error?.stdout) process.stdout.write(error.stdout)
     if (error?.stderr) process.stderr.write(error.stderr)
-    const invocation = [command, ...args].join(' ')
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`${invocation} failed: ${message}`, { cause: error })
+    throw new Error(`${[command, ...args].join(' ')} failed: ${message}`, { cause: error })
   }
 }
 
@@ -75,7 +73,9 @@ export async function runPythonTests(python, env = process.env) {
 }
 
 async function main() {
-  const tests = await collectTests(sourceDir)
+  const python = (await execFileAsync('python3', ['-c', 'import sys; print(sys.executable)'])).stdout.trim()
+  const testEnv = { ...process.env, AGENT_BENCH_PYTHON: process.env.AGENT_BENCH_PYTHON ?? python }
+  const tests = await collectTests(path.join(benchDir, 'src'))
   if (tests.length === 0) throw new Error('no package tests found under src/')
 
   // Two test runtimes coexist under src/: node:test files run under `node --test`;
@@ -94,17 +94,17 @@ async function main() {
       process.execPath,
       packageNodeTestArgs(nodeTests.map((file) => path.relative(benchDir, file))),
       {
-        ...process.env,
+        ...testEnv,
         TSX_TSCONFIG_PATH: 'tsconfig.public.json',
       },
     )
   }
 
   if (vitestTests.length > 0) {
-    await run('npx', ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))])
+    await run('npx', ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))], testEnv)
   }
 
-  await runPythonTests('python3')
+  await runPythonTests(python, testEnv)
 
   console.log(
     `package tests passed: ${tests.length}/${tests.length} TypeScript files (${nodeTests.length} node:test + ${vitestTests.length} vitest) + Pier bridge`,
