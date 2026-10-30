@@ -514,5 +514,5 @@ Provider dollar totals preserve billed and estimated portions separately, includ
 
 These contracts do not make a coordinator immortal or a local file lock a distributed lease.
 Use durable storage, retain the exact run's dependency cohort for recovery, and provide a reachable coordination endpoint.
-Runtime renews host-bound coordination leases through acknowledged proxy rekey without extending issuer grants or reviving expired sources. The initial root-remaining binding TTL is preserved across renewal and recovery; an omitted root deadline uses the execution owner's maximum. Relative TTL includes issuance delay and second rounding; the absolute root bearer expiry and scope cancellation still stop authority.
+Runtime renews host-bound coordination leases through acknowledged proxy rekey without extending issuer grants or reviving expired sources. The initial root-remaining issuer TTL is preserved across renewal and recovery; environment requests inherit it from stored policy; an omitted root deadline uses the execution owner's maximum. Relative TTL includes issuance delay and second rounding; the absolute root bearer expiry and scope cancellation still stop authority.
 A simulated long-clock test proves timer behavior, not months of observed production uptime.
