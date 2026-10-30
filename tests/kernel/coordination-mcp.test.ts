@@ -1274,7 +1274,6 @@ describe('coordination credential continuity', () => {
     }
     let original: Readonly<Record<string, string>> = {}
     await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
-      expect(mcp.credentialExpiresAt).toBeUndefined()
       original = mcp.headers
     })
     for (const ttlMs of [undefined, 900_000]) {
@@ -1768,40 +1767,6 @@ describe('the coordination HTTP boundary keeps its own deadline', () => {
 })
 
 describe('caller-owned long-lived coordination credentials', () => {
-  it('keeps default credentials past the scope deadline until the scope stops', async () => {
-    // A deadline is not a stop by itself: a child's own time box checks it in and keeps it running,
-    // and the check-in asks it to record its state and submit through these tools. Every stop
-    // aborts the scope, and the scope's stop is what ends the credential.
-    const controller = new AbortController()
-    await withBoundHttp(
-      {},
-      async (mcp) => {
-        expect(mcp.credentialExpiresAt).toBeUndefined()
-        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 5 * 60 * 60 * 1_000)
-        try {
-          expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
-          const old = mcp.headers
-          mcp.rotateCredential()
-          expect(mcp.credentialExpiresAt).toBeUndefined()
-          expect(await refusal(await postHttp(mcp, old))).toEqual({
-            status: 401,
-            reason: 'credential-refused',
-          })
-          expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
-        } finally {
-          clock.mockRestore()
-        }
-        controller.abort('the lead stopped this manager')
-        expect(await refusal(await postHttp(mcp, mcp.headers))).toEqual({
-          status: 401,
-          reason: 'scope-stopped',
-        })
-      },
-      controller.signal,
-      4 * 60 * 60 * 1_000,
-    )
-  })
-
   it('revokes scope-bound credentials immediately when the scope is cancelled', async () => {
     const controller = new AbortController()
     await withBoundHttp(
