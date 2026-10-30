@@ -157,6 +157,7 @@ export const registry = {
     type,
     name: 'local service process',
     description: 'No model is invoked',
+    callerCredentialOnly: false,
     capabilities: {
       streaming: true,
       toolUse: true,
@@ -329,7 +330,6 @@ export function terminal(run: NativeRun, scenario: Scenario) {
         success: true,
         status: 'success',
         response: '{"answer":"delivered"}',
-        text: '{"answer":"delivered"}',
         usage: { inputTokens: 3, outputTokens: 2 },
       },
     },
