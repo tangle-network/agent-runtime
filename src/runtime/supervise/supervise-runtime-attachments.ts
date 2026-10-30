@@ -111,11 +111,10 @@ export async function storeCoordinationSecret(
 }
 
 export function coordinationRuntimeAttachment(url: string, key: string) {
-  const reference = { kind: 'secret-ref' as const, key, format: 'bearer' as const }
   return {
     transport: 'http' as const,
     url,
-    headers: { Authorization: reference },
+    headers: { Authorization: { kind: 'secret-ref' as const, key, format: 'bearer' as const } },
     metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
   }
 }

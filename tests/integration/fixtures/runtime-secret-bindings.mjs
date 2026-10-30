@@ -29,6 +29,14 @@ const profile = {
   model: { provider: 'openai', default: 'fixture-model' },
   tools: { agent_runtime_coordination_stop: true },
 }
+const callerBinding = {
+  envName: 'CALLER_ALIAS',
+  secretRef: { kind: 'secret-ref', key: 'CALLER_SECRET' },
+  hosts: ['caller.example.com'],
+  methods: ['POST'],
+  paths: ['/v1/events'],
+  presentation: { type: 'header', name: 'X-Api-Key' },
+}
 const stored = new Map(),
   revisions = new Map(),
   policies = new Map(),
@@ -82,7 +90,10 @@ const assertPolicyIdentity = () => {
     for (const create of creates.filter((create) =>
       create.proxySecrets?.some((binding) => binding.envName === request[0].envName),
     ))
-      assert.deepEqual(request, create.proxySecrets)
+      assert.deepEqual(
+        request,
+        create.proxySecrets.filter((binding) => binding.secretRef.key === request[0].secretRef.key),
+      )
   }
   return true
 }
@@ -537,7 +548,11 @@ try {
           'Exercise credential custody over the actual HTTP boundary.',
           {
             runId: `runtime-secret-bindings-${mode}`,
-            backend: { backend: 'provider', provider },
+            backend: {
+              backend: 'provider',
+              provider,
+              ...(mode === 'bound' ? { defaults: { proxySecrets: [callerBinding] } } : {}),
+            },
             budget: {
               maxIterations: 4,
               maxTokens: 1000,
@@ -578,23 +593,34 @@ try {
     const noRawCreate = creates.every((create) =>
       [...secretValues].every((value) => !JSON.stringify(create).includes(value)),
     )
-    const namesValid = creates.every(
-      (create) =>
-        (mode === 'fallback' ||
-          (create.proxySecrets?.length === 1 && create.secrets?.length === 0)) &&
-        (create.proxySecrets ?? []).every(
+    const namesValid = creates.every((create) => {
+      const bindings = (create.proxySecrets ?? []).filter((binding) =>
+        binding.envName.startsWith('AGENT_RUNTIME_COORDINATION_TOKEN_'),
+      )
+      return (
+        (mode === 'fallback' || (bindings.length === 1 && create.secrets?.length === 0)) &&
+        bindings.every(
           (binding) =>
             /^AGENT_RUNTIME_COORDINATION_TOKEN_[A-F0-9]{24}$/.test(binding.envName) &&
             binding.secretRef.key === binding.envName &&
             binding.hosts.length === 1 &&
             binding.hosts[0] === host &&
             binding.presentation.type === 'bearer',
-        ),
-    )
+        )
+      )
+    })
+    if (mode === 'bound') {
+      assert.equal(creates.length, 1)
+      assert.deepEqual(
+        creates[0].proxySecrets.find((binding) => binding.envName === callerBinding.envName),
+        callerBinding,
+      )
+    }
     console.log(
       JSON.stringify({
         mode,
         issuerPolicyPreserved: assertPolicyIdentity(),
+        unrelatedDeclarationPreserved: mode === 'bound',
         settled,
         rejected,
         resultKind,

@@ -256,16 +256,6 @@ async function providerAttemptFactory(
       .slice(7, 31)
       .toUpperCase()
   const defaults = backend.defaults ?? {}
-  const proxySecrets = host
-    ? mergeProxySecretBindings(defaults.proxySecrets, [
-        {
-          envName: credentialName,
-          secretRef: { kind: 'secret-ref', key: credentialName },
-          hosts: [host],
-          presentation: { type: 'bearer' },
-        },
-      ])
-    : defaults.proxySecrets
   if (
     Object.keys(defaults.env ?? {}).some((name) =>
       name.startsWith('AGENT_RUNTIME_COORDINATION_TOKEN'),
@@ -284,29 +274,11 @@ async function providerAttemptFactory(
   }
   if ((await provider.capabilities()).create?.runtimeAttachments?.mcp !== true)
     throw new ValidationError('provider lacks create.runtimeAttachments.mcp')
-  if (host) {
-    if (
-      input.retainedOwner?.admissions.length &&
-      !input.coordinationCredentialSigned &&
-      !input.state.coordinationSecrets?.has(credentialName)
-    )
-      await assertRetainedOwnerCoordinationRekey(input.scope)
-    input.state.coordinationSecrets ??= new Map()
-    await storeCoordinationSecret(
-      provider,
-      input.state.coordinationSecrets,
-      credentialName,
-      input.coordinationBindCredential,
-      { proxySecrets },
-    )
-    input.scope.signal.throwIfAborted()
-  }
   const attachment = coordinationRuntimeAttachment(coordinationMcpUrl, credentialName)
   const coordinated: Extract<typeof backend, { backend: 'provider' }> = {
     ...backend,
     defaults: {
       ...defaults,
-      proxySecrets,
       runtimeAttachments: {
         mcp: {
           ...defaults.runtimeAttachments?.mcp,
@@ -315,6 +287,35 @@ async function providerAttemptFactory(
         },
       },
     },
+  }
+  if (host) {
+    if (
+      input.retainedOwner?.admissions.length &&
+      !input.coordinationCredentialSigned &&
+      !input.state.coordinationSecrets?.has(credentialName)
+    )
+      await assertRetainedOwnerCoordinationRekey(input.scope)
+    input.state.coordinationSecrets ??= new Map()
+    const proxySecrets: AgentProfile['proxySecrets'] = [
+      {
+        envName: credentialName,
+        secretRef: { kind: 'secret-ref', key: credentialName },
+        hosts: [host],
+        presentation: { type: 'bearer' },
+      },
+    ]
+    await storeCoordinationSecret(
+      provider,
+      input.state.coordinationSecrets,
+      credentialName,
+      input.coordinationBindCredential,
+      { proxySecrets },
+    )
+    coordinated.defaults!.proxySecrets = mergeProxySecretBindings(
+      defaults.proxySecrets,
+      proxySecrets,
+    )
+    input.scope.signal.throwIfAborted()
   }
   if (providerHarness === 'claude-code')
     coordinated.defaults!.env = {

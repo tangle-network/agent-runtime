@@ -101,6 +101,7 @@ it('stores coordination outside create.env, authenticates MCP over TLS, and revo
     noRawCreate: true,
     namesValid: true,
     issuerPolicyPreserved: true,
+    unrelatedDeclarationPreserved: true,
     creates: 1,
     stored: 0,
     deleteCalls: 1,
