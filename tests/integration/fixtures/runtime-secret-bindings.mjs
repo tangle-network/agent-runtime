@@ -17,6 +17,7 @@ import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 
 const [mode, certificate, key] = process.argv.slice(2)
+const priorDelivery = ['legacy-store', 'local-claude', 'local-pi'].includes(mode)
 const safeFailure = (text) =>
   String(text ?? '')
     .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
@@ -29,6 +30,8 @@ const profile = {
   model: { provider: 'openai', default: 'fixture-model' },
   tools: { agent_runtime_coordination_stop: true },
 }
+if (mode === 'local-claude') profile.harness = 'claude-code'
+if (mode === 'local-pi') profile.harness = 'pi'
 const callerBinding = {
   envName: 'CALLER_ALIAS',
   secretRef: { kind: 'secret-ref', key: 'CALLER_SECRET' },
@@ -145,7 +148,7 @@ const sessionInfo = (id) => ({
   id,
   status: nativeRuns.get(id)?.status ?? 'queued',
   ...(nativeRuns.get(id) ?? {}),
-  backendType: 'opencode',
+  backendType: profile.harness,
   createdAt: new Date(0).toISOString(),
 })
 const tls = createTlsServer(
@@ -182,7 +185,7 @@ const api = createServer(async (request, response) => {
     if (path === '/v1/backends')
       return answer(response, 200, {
         timestamp: new Date(0).toISOString(),
-        backends: ['opencode', 'codex'].map((type) => ({
+        backends: [...new Set(['opencode', 'codex', profile.harness])].map((type) => ({
           type,
           name: type,
           description: 'Actual HTTP protocol fixture; no model',
@@ -325,7 +328,7 @@ const api = createServer(async (request, response) => {
         runs: { executionScopedStatus: mode === 'restart', eventReplay: mode === 'restart' },
         interactions: { responseDedupe: false },
       })
-    if (path.endsWith('/backend')) return answer(response, 200, { type: 'opencode' })
+    if (path.endsWith('/backend')) return answer(response, 200, { type: profile.harness })
     if (path.endsWith('/agents/sessions') && request.method === 'POST') {
       if (mode === 'fallback')
         publicSessionSafe &&=
@@ -378,9 +381,9 @@ const api = createServer(async (request, response) => {
       const value =
         stored.get(reference.key) ??
         backend.runtimeSecrets?.[reference.key] ??
-        (mode === 'legacy-store' ? creates.at(-1).env?.[reference.key] : undefined)
+        (priorDelivery ? creates.at(-1).env?.[reference.key] : undefined)
       assert.equal(typeof value, 'string')
-      if (mode === 'legacy-store') secretValues.add(value)
+      if (priorDelivery) secretValues.add(value)
       if (mode === 'fallback') {
         issued = value
         secretValues.add(value)
@@ -500,7 +503,7 @@ try {
   const tlsPort = await listen(tls)
   baseUrl = `http://127.0.0.1:${await listen(api)}`
   publicUrl = `https://${host}:${tlsPort}/coordination`
-  const capabilities = defaultTangleSandboxCapabilities('opencode')
+  const capabilities = defaultTangleSandboxCapabilities(profile.harness)
   delete capabilities.retainedControl
   delete capabilities.nativeContinuation
   capabilities.streaming = { live: true, replay: false, detach: false, turnIdempotency: false }
@@ -611,7 +614,9 @@ try {
                       : true,
               publicUrl: ({ port }) => {
                 upstream = `http://127.0.0.1:${port}/coordination`
-                return mode === 'fallback' ? upstream : publicUrl
+                return mode === 'http-remote'
+                  ? publicUrl.replace('https:', 'http:')
+                  : ['fallback', 'local-claude', 'local-pi'].includes(mode) ? upstream : publicUrl
               },
             },
           },
@@ -711,11 +716,11 @@ try {
         unownedCleanupDebtReported:
           Boolean(collisionSnapshot) && rejected && failureText?.includes('cleanup'),
         legacyOwnedReferencePreserved:
-          mode === 'legacy-store' &&
+          priorDelivery &&
           creates[0]?.backend.runtimeAttachments.mcp['agent-runtime-coordination'].headers
             .Authorization.key === 'AGENT_RUNTIME_COORDINATION_TOKEN',
         legacyDeliveryPreserved:
-          mode === 'legacy-store' &&
+          priorDelivery &&
           mcpAccepted &&
           secretValues.size === 1 &&
           creates.length === 1 &&

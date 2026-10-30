@@ -1,7 +1,7 @@
 /** Serve Runtime coordination as bounded HTTP MCP over one live scope. @experimental */
 import { isIP } from 'node:net'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { ConfigError, ValidationError } from '../../errors'
+import { ConfigError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
 import type {
@@ -550,14 +550,9 @@ export async function serveCoordinationMcpForManager(
   return { handle, controls: coord }
 }
 
-export function coordinationBindingHost(address: string, harness: AgentProfile['harness']) {
-  const url = new URL(address)
-  if (isLoopbackHost(url.hostname) || isIP(url.hostname.replace(/^\[|\]$/g, ''))) {
-    if (harness !== 'opencode' && harness !== 'codex')
-      throw new ValidationError('loopback or IP coordination requires isolated opencode or codex')
-    return undefined
-  }
-  if (url.protocol !== 'https:' || url.username || url.password)
-    throw new ValidationError('host-bound coordination requires a public HTTPS FQDN')
-  return url.hostname
+export function coordinationBindingHost(address: string) {
+  const { hostname } = new URL(address)
+  return isLoopbackHost(hostname) || isIP(hostname.replace(/^\[|\]$/g, ''))
+    ? undefined
+    : hostname
 }

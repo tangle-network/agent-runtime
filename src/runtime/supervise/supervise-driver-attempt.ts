@@ -247,16 +247,17 @@ async function providerAttemptFactory(
   )
     throw new ValidationError('provider coordination credential has no finite future expiry')
   const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
-  const fenced = Boolean(provider.secrets?.update && provider.secrets.list)
-  const host = fenced
-    ? coordinationBindingHost(coordinationMcpUrl, providerHarness)
-    : new URL(coordinationMcpUrl).hostname
+  const host = coordinationBindingHost(coordinationMcpUrl)
+  const protectedPath = Boolean(
+    (host || providerHarness === 'opencode' || providerHarness === 'codex') &&
+      provider.secrets?.update && provider.secrets.list,
+  )
   const suffix = canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
     .slice(7, 31)
     .toUpperCase()
-  const credentialName = `AGENT_RUNTIME_COORDINATION_TOKEN${fenced ? `_${suffix}` : ''}`
+  const credentialName = `AGENT_RUNTIME_COORDINATION_TOKEN${protectedPath ? `_${suffix}` : ''}`
   const defaults = backend.defaults ?? {}
-  const env = {
+  const env: Record<string, string> = {
     ...(providerHarness === 'claude-code' ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' } : {}),
     ...defaults.env,
   }
@@ -284,12 +285,12 @@ async function providerAttemptFactory(
         mcp: {
           ...defaults.runtimeAttachments?.mcp,
           ...(peerMailUrl ? { [peerMailMcpAlias]: { transport: 'http', url: peerMailUrl } } : {}),
-          ...(host ? { [coordinationMcpAlias]: attachment } : {}),
+          ...(host || !protectedPath ? { [coordinationMcpAlias]: attachment } : {}),
         },
       },
     },
   }
-  if (host && fenced) {
+  if (host && protectedPath) {
     if (
       input.retainedOwner?.admissions.length &&
       !input.coordinationCredentialSigned &&
@@ -320,8 +321,8 @@ async function providerAttemptFactory(
       policy.proxySecrets?.map(({ ttlSeconds: _, ...binding }) => binding),
     )
     input.scope.signal.throwIfAborted()
-  } else if (host) env[credentialName] = authorization.slice(7)
-  if (!host) {
+  } else if (!protectedPath) env[credentialName] = authorization.slice(7)
+  if (!host && protectedPath) {
     const turn = backend.promptOptions?.backend ?? {}
     coordinated.promptOptions = {
       ...backend.promptOptions,

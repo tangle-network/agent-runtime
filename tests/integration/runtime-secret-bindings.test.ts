@@ -205,6 +205,29 @@ it('uses the SDK isolated preparation transport for loopback coordination withou
     privateTurns: 1,
   })
 })
+it('preserves prior local Claude and Pi delivery where private turn isolation is unavailable', async () => {
+  for (const mode of ['local-claude', 'local-pi'])
+    expect(await run(mode)).toMatchObject({
+      resultKind: 'winner',
+      settled: true,
+      mcpAccepted: true,
+      mcpRefusedWrongBearer: true,
+      legacyOwnedReferencePreserved: true,
+      legacyDeliveryPreserved: true,
+      creates: 1,
+      secretPosts: 0,
+      privateTurns: 0,
+      noRawCreate: false,
+    })
+})
+it('keeps the existing remote HTTP coordinator refusal before allocation', async () => {
+  expect(await run('http-remote')).toMatchObject({
+    rejected: true,
+    failureText: 'remote coordination publicUrl must use HTTPS',
+    creates: 0,
+    secretPosts: 0,
+  })
+})
 
 it('honors explicit finite authentication TTL when the root budget has no deadline', async () => {
   expect(await run('explicit-ttl')).toMatchObject({
