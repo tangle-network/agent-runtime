@@ -6,7 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { expect, test } from 'vitest'
 import { serveTopWeb } from '../../src/tui/top-web'
 
-test('the default web viewer serves the complete owner-built asset closure from Runtime', async () => {
+test('the default viewer serves the complete owner-built asset closure from Runtime', async () => {
   const root = await mkdtemp(join(tmpdir(), 'runtime-packaged-viewer-'))
   const installed = createRequire(import.meta.url)
   const ui = dirname(installed.resolve('@tangle-network/sandbox-ui/workspace-viewer.js'))
