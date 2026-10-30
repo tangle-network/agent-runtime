@@ -87,11 +87,11 @@ export async function storeCoordinationSecret(
           if (!(error instanceof Error) || errorHttpStatus(error) !== 409) throw error
           const stored = (await store.list!()).find((s) => s.name === name)
           expectedUpdatedAt = stamp(stored)
-          if (stored?.proxySecrets !== undefined) {
+          if (stored?.proxySecrets !== undefined || stored?.exposeInBox) {
             const recovered = ProxySecretsSchema.parse(stored.proxySecrets)
             const authority = (bindings: AgentProfile['proxySecrets']) =>
               canonicalCandidateDigest(bindings?.map(({ ttlSeconds: _, ...binding }) => binding))
-            if (authority(recovered) !== authority(policy.proxySecrets))
+            if (stored.exposeInBox || authority(recovered) !== authority(policy.proxySecrets))
               throw new ValidationError('stored coordination policy has different authority')
             entry.policy = { proxySecrets: recovered }
           }

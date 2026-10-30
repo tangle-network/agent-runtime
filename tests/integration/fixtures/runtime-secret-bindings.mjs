@@ -55,6 +55,8 @@ const stored = new Map(),
   privateTurns = []
 const policyRequests = []
 const policyAttempts = []
+const rawConsent = new Set()
+let collisionSnapshot
 let baseUrl = '',
   publicUrl = '',
   upstream = '',
@@ -82,6 +84,7 @@ const secretMetadata = (name) => ({
   createdAt: new Date(0).toISOString(),
   updatedAt: revisions.get(name),
   proxySecrets: policies.get(name),
+  ...(rawConsent.has(name) ? { exposeInBox: true } : {}),
 })
 const capturePolicy = (body, name) => {
   assert.equal(body.proxySecrets?.length, 1)
@@ -211,6 +214,18 @@ const api = createServer(async (request, response) => {
       if (['quiescent-rebind', 'rekey-conflict'].includes(mode) && !stored.has(body.name)) {
         stored.set(body.name, 'fixture-prior-quiescent-value')
         revisions.set(body.name, nextRevision())
+      }
+      if (['raw-policy-conflict', 'raw-policy-absent'].includes(mode) && !stored.has(body.name)) {
+        stored.set(body.name, 'fixture-prior-raw-owner-value')
+        revisions.set(body.name, nextRevision())
+        if (mode === 'raw-policy-conflict') policies.set(body.name, policy)
+        rawConsent.add(body.name)
+        collisionSnapshot = {
+          name: body.name,
+          value: stored.get(body.name),
+          policy: structuredClone(policies.get(body.name)),
+          revision: revisions.get(body.name),
+        }
       }
       if (stored.has(body.name))
         return answer(response, 409, { code: 'CONFLICT', message: 'secret exists' })
@@ -687,6 +702,14 @@ try {
         oldRevokedAfterAcknowledgement,
         secretPosts: requests.filter((request) => request === 'POST /v1/secrets').length,
         legacyStorePortAbsent: provider.secrets === undefined,
+        foreignRawRowPreserved:
+          Boolean(collisionSnapshot) &&
+          stored.get(collisionSnapshot.name) === collisionSnapshot.value &&
+          JSON.stringify(policies.get(collisionSnapshot.name)) === JSON.stringify(collisionSnapshot.policy) &&
+          revisions.get(collisionSnapshot.name) === collisionSnapshot.revision &&
+          rawConsent.has(collisionSnapshot.name),
+        unownedCleanupDebtReported:
+          Boolean(collisionSnapshot) && rejected && failureText?.includes('cleanup'),
         legacyOwnedReferencePreserved:
           mode === 'legacy-store' &&
           creates[0]?.backend.runtimeAttachments.mcp['agent-runtime-coordination'].headers

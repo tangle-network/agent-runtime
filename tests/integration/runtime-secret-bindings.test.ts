@@ -165,6 +165,22 @@ it('preserves a newer holder when conditional cleanup detects a changed revision
     deleteCalls: 1,
   })
 })
+it('leaves conflicting raw-consent issuer rows untouched without claiming cleanup ownership', async () => {
+  for (const mode of ['raw-policy-conflict', 'raw-policy-absent'])
+    expect(await run(mode)).toMatchObject({
+      resultKind: 'no-winner',
+      resultReason: 'driver-failed',
+      rejected: true,
+      foreignRawRowPreserved: true,
+      unownedCleanupDebtReported: true,
+      creates: 0,
+      updates: 0,
+      stored: 1,
+      deleteCalls: 0,
+      secretPosts: 1,
+      protocolFailures: [],
+    })
+})
 it('reports failed revocation without claiming the stored value was deleted', async () => {
   expect(await run('delete-refused')).toMatchObject({
     resultKind: 'no-winner',
