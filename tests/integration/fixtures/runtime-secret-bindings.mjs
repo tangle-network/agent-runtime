@@ -534,6 +534,13 @@ try {
     progress('restart-first-started')
     child.stderr.on('data', (chunk) => {
       firstDiagnostic += chunk.toString()
+      for (const line of chunk.toString().split('\n')) {
+        try {
+          const event = JSON.parse(line)
+          if (['restart-helper-ready', 'restart-helper-attempt'].includes(event.phase))
+            progress(event.phase)
+        } catch {}
+      }
     })
     child.stdout.resume()
     const diagnosticTimer = setInterval(() => progress('restart-progress'), 5000)
