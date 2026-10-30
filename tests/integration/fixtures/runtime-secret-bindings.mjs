@@ -31,6 +31,7 @@ const profile = {
 }
 const stored = new Map(),
   revisions = new Map(),
+  policies = new Map(),
   secretValues = new Set(),
   creates = [],
   sessions = new Map(),
@@ -38,6 +39,7 @@ const stored = new Map(),
   requests = [],
   protocolFailures = [],
   privateTurns = []
+const policyRequests = []
 let baseUrl = '',
   publicUrl = '',
   upstream = '',
@@ -64,7 +66,25 @@ const secretMetadata = (name) => ({
   name,
   createdAt: new Date(0).toISOString(),
   updatedAt: revisions.get(name),
+  proxySecrets: policies.get(name),
 })
+const capturePolicy = (body, name) => {
+  assert.equal(body.proxySecrets?.length, 1)
+  assert.equal(body.proxySecrets[0].envName, name)
+  assert.equal(body.proxySecrets[0].secretRef.key, name)
+  policyRequests.push(body.proxySecrets)
+  return body.proxySecrets
+}
+const assertPolicyIdentity = () => {
+  if (mode === 'fallback') assert.equal(policyRequests.length, 0)
+  else assert.ok(policyRequests.length > 0)
+  for (const request of policyRequests) {
+    for (const create of creates.filter((create) =>
+      create.proxySecrets?.some((binding) => binding.envName === request[0].envName),
+    )) assert.deepEqual(request, create.proxySecrets)
+  }
+  return true
+}
 const answer = (response, status, body) => {
   response.writeHead(status, { 'content-type': 'application/json' })
   response.end(JSON.stringify(body))
@@ -166,6 +186,7 @@ const api = createServer(async (request, response) => {
     }
     if (path === '/v1/secrets' && request.method === 'POST') {
       assert.match(body.name, /^AGENT_RUNTIME_COORDINATION_TOKEN_[A-F0-9]{24}$/)
+      const policy = capturePolicy(body, body.name)
       secretValues.add(body.value)
       if (!issued) issued = body.value
       if (['quiescent-rebind', 'rekey-conflict'].includes(mode) && !stored.has(body.name)) {
@@ -180,6 +201,7 @@ const api = createServer(async (request, response) => {
           message: 'fixture refused before persistence',
         })
       stored.set(body.name, body.value)
+      policies.set(body.name, policy)
       revisions.set(body.name, nextRevision())
       if (mode === 'uncertain-create')
         return answer(response, 400, {
@@ -192,6 +214,7 @@ const api = createServer(async (request, response) => {
     }
     if (path.startsWith('/v1/secrets/') && request.method === 'PUT') {
       const name = decodeURIComponent(path.slice('/v1/secrets/'.length))
+      const policy = capturePolicy(body, name)
       assert.equal(stored.has(name), true)
       if (mode === 'rekey-conflict' || body.expectedUpdatedAt !== revisions.get(name))
         return answer(response, 409, { code: 'CONFLICT', message: 'revision changed' })
@@ -209,6 +232,7 @@ const api = createServer(async (request, response) => {
         handoverOverlap = (await accepted(prior)) && (await accepted(body.value))
       }
       stored.set(name, body.value)
+      policies.set(name, policy)
       revisions.set(name, nextRevision())
       updates++
       return answer(response, 200, {
@@ -483,6 +507,7 @@ try {
           resumed: true,
           priorProcessKilledAfterCommit: true,
           rekeyBeforeResumedDispatch,
+          issuerPolicyPreserved: assertPolicyIdentity(),
           creates: creates.length,
           nativeTurns,
           updates,
@@ -568,6 +593,7 @@ try {
     console.log(
       JSON.stringify({
         mode,
+        issuerPolicyPreserved: assertPolicyIdentity(),
         settled,
         rejected,
         resultKind,

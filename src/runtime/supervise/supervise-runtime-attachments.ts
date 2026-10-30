@@ -17,10 +17,9 @@ export function peerMailRuntimeAttachment(
   spawnContext: Pick<WorkerSpawnContext, 'peerMailUrl'> | undefined,
 ): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
   const url = spawnContext?.peerMailUrl
-  if (url === undefined) return undefined
+  if (url === undefined || ['router', 'router-tools'].includes(backend.backend)) return undefined
   if (backend.backend === 'provider' && backend.shared)
     throw new ValidationError('provider peer mail requires a dedicated session')
-  if (backend.backend === 'router' || backend.backend === 'router-tools') return undefined
   if (backend.backend !== 'provider' && backend.backend !== 'bridge')
     throw new ValidationError('peer mail requires a provider or bridge runtime attachment')
   if (profile.mcp?.[peerMailMcpAlias] !== undefined)
@@ -53,6 +52,7 @@ export async function storeCoordinationSecret(
   secrets: NonNullable<DriverSessionState['coordinationSecrets']>,
   name: string,
   bind: CoordinationMcpHandle['bindCredential'],
+  policy: Pick<AgentProfile, 'proxySecrets'>,
 ): Promise<void> {
   const store = provider.secrets
   if (!store?.update || !store.list || !bind)
@@ -92,14 +92,14 @@ export async function storeCoordinationSecret(
       let expectedUpdatedAt = revision
       if (!expectedUpdatedAt) {
         try {
-          revision = stamp(await store.create(name, value))
+          revision = stamp(await store.create(name, value, policy))
           return
         } catch (error) {
           if (!(error instanceof Error) || errorHttpStatus(error) !== 409) throw error
           expectedUpdatedAt = stamp((await store.list!()).find((s) => s.name === name))
         }
       }
-      revision = stamp(await store.update!(name, value, { expectedUpdatedAt }))
+      revision = stamp(await store.update!(name, value, { ...policy, expectedUpdatedAt }))
     })
     entry.ready = true
   } catch (cause) {

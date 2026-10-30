@@ -90,8 +90,7 @@ export function providerAsSandboxClient(
         sandboxInput.proxySecrets,
         typeof authored === 'object' ? authored.proxySecrets : undefined,
       ]
-        .filter((value) => value !== undefined)
-        .map((value) => mergeProxySecretBindings(value))
+        .flatMap((value) => (value === undefined ? [] : [mergeProxySecretBindings(value)]))
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
         ...defaults,

@@ -159,11 +159,8 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     const run = retainedOwner?.admissions.length
       ? executor.recover!(input.originalTask, scope.signal)
       : executor.execute(input.originalTask, scope.signal)
-    if (isAsyncIterable<UsageEvent>(run)) {
-      await attempt.drainStream(run, input)
-    } else {
-      await attempt.settleReturned(await run)
-    }
+    if (isAsyncIterable<UsageEvent>(run)) await attempt.drainStream(run, input)
+    else await attempt.settleReturned(await run)
     await attempt.publishAcknowledgement(pending)
     attempt.completed = true
   } catch (error) {
@@ -259,6 +256,16 @@ async function providerAttemptFactory(
       .slice(7, 31)
       .toUpperCase()
   const defaults = backend.defaults ?? {}
+  const proxySecrets = host
+    ? mergeProxySecretBindings(defaults.proxySecrets, [
+      {
+        envName: credentialName,
+        secretRef: { kind: 'secret-ref', key: credentialName },
+        hosts: [host],
+        presentation: { type: 'bearer' },
+      },
+    ])
+    : defaults.proxySecrets
   if (
     Object.keys(defaults.env ?? {}).some((name) =>
       name.startsWith('AGENT_RUNTIME_COORDINATION_TOKEN'),
@@ -290,6 +297,7 @@ async function providerAttemptFactory(
       input.state.coordinationSecrets,
       credentialName,
       input.coordinationBindCredential,
+      { proxySecrets },
     )
     input.scope.signal.throwIfAborted()
   }
@@ -298,6 +306,7 @@ async function providerAttemptFactory(
     ...backend,
     defaults: {
       ...defaults,
+      proxySecrets,
       runtimeAttachments: {
         mcp: {
           ...defaults.runtimeAttachments?.mcp,
@@ -312,16 +321,7 @@ async function providerAttemptFactory(
       [CLAUDE_CODE_ONE_HOUR_CACHE]: '1',
       ...defaults.env,
     }
-  if (host)
-    coordinated.defaults!.proxySecrets = mergeProxySecretBindings(defaults.proxySecrets, [
-      {
-        envName: credentialName,
-        secretRef: { kind: 'secret-ref', key: credentialName },
-        hosts: [host],
-        presentation: { type: 'bearer' },
-      },
-    ])
-  else {
+  if (!host) {
     const turn = backend.promptOptions?.backend ?? {}
     coordinated.promptOptions = {
       ...backend.promptOptions,
