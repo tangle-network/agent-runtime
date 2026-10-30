@@ -59,7 +59,9 @@ const result = await supervise(
       },
     },
     onDriverAttempt: async (record) => {
-      console.error(JSON.stringify({ phase: 'restart-helper-attempt', failed: record.error !== undefined }))
+      console.error(
+        JSON.stringify({ phase: 'restart-helper-attempt', failed: record.error !== undefined }),
+      )
       if (phase === 'first') {
         if (record.error !== undefined)
           console.error(

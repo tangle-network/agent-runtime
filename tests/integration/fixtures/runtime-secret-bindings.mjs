@@ -524,9 +524,18 @@ try {
   })
   if (mode === 'restart') {
     let firstDiagnostic = ''
-    const progress = (phase) => console.error(JSON.stringify({
-      phase, nativeTurns, updates, requests: requests.slice(-8), childDiagnostic: Boolean(firstDiagnostic),
-    }))
+    const restartBegan = performance.now()
+    const progress = (phase) =>
+      console.error(
+        JSON.stringify({
+          phase,
+          elapsedMs: Math.round(performance.now() - restartBegan),
+          nativeTurns,
+          updates,
+          requests: requests.slice(-8),
+          childDiagnostic: Boolean(firstDiagnostic),
+        }),
+      )
     const directory = await mkdtemp(join(tmpdir(), 'runtime-custody-resume-'))
     const helper = fileURLToPath(new URL('./runtime-secret-resume.mjs', import.meta.url))
     const args = ['--dns-result-order=ipv4first', helper, baseUrl, publicUrl, directory]
