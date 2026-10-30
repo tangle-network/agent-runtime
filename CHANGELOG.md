@@ -1,3 +1,9 @@
+## 3.0.8
+
+Use the published Sandbox UI3 viewer assets with shared clock/status owners and explicit UTC message timestamps in the default web CLI.
+
+Recognize a later version floor on an existing optional peer as a breaking release, preserving optional feature dependencies.
+
 ## 3.0.7
 
 Batch trusted candidate directory checks without changing signed deadlines, path validation, or cleanup; release the maintained Sandbox default viewer assets.
