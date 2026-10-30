@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -10,7 +10,7 @@ test('the default web viewer serves the complete owner-built asset closure from 
   const root = await mkdtemp(join(tmpdir(), 'runtime-packaged-viewer-'))
   const installed = createRequire(import.meta.url)
   const source = dirname(installed.resolve('@tangle-network/sandbox-ui/workspace-viewer.js'))
-  const packaged = resolve(dirname(installed.resolve('@tangle-network/agent-runtime/tui')), '../viewer')
+  const packaged = resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
   const files = [
     'workspace-viewer.js',
     'styles.css',
