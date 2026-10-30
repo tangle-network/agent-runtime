@@ -360,8 +360,12 @@ const api = createServer(async (request, response) => {
       const reference = attachment.headers.Authorization
       assert.equal(reference.kind, 'secret-ref')
       assert.equal(reference.format, 'bearer')
-      const value = stored.get(reference.key) ?? backend.runtimeSecrets?.[reference.key]
+      const value =
+        stored.get(reference.key) ??
+        backend.runtimeSecrets?.[reference.key] ??
+        (mode === 'legacy-store' ? creates.at(-1).env?.[reference.key] : undefined)
       assert.equal(typeof value, 'string')
+      if (mode === 'legacy-store') secretValues.add(value)
       if (mode === 'fallback') {
         issued = value
         secretValues.add(value)
@@ -486,8 +490,9 @@ try {
   delete capabilities.nativeContinuation
   capabilities.streaming = { live: true, replay: false, detach: false, turnIdempotency: false }
   capabilities.sessions = { continue: false, list: false, messages: false }
+  const Client = mode === 'legacy-store' ? (await import('legacy-sandbox')).Sandbox : Sandbox
   const provider = createTangleProvider({
-    client: new Sandbox({
+    client: new Client({
       apiKey: 'fixture-api-key',
       baseUrl,
       platformUrl: baseUrl,
@@ -676,6 +681,13 @@ try {
         handoverOverlap,
         oldRevokedAfterAcknowledgement,
         secretPosts: requests.filter((request) => request === 'POST /v1/secrets').length,
+        legacyStorePortAbsent: provider.secrets === undefined,
+        legacyDeliveryPreserved:
+          mode === 'legacy-store' &&
+          mcpAccepted &&
+          secretValues.size === 1 &&
+          creates.length === 1 &&
+          [...secretValues].every((value) => Object.values(creates[0].env).includes(value)),
       }),
     )
   }

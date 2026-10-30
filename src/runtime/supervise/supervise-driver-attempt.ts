@@ -176,7 +176,6 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   if (attempt.turnFailure !== undefined) throw attempt.turnFailure
 }
 
-/** Validate the canonical profile and its provider projection against the mounted tools. */
 function admitDriverProfiles(input: DriverAttemptInput): DriverAttemptIdentity {
   const { activeSeat, state } = input
   const canonicalProfile = agentProfileSchema.parse(input.authoredProfile)
@@ -232,7 +231,6 @@ function reusedAttemptFactory(input: DriverAttemptInput): ExecutorFactory<unknow
   return backend.backend === 'provider' ? undefined : input.baseFactory
 }
 
-/** Bind coordination through the provider's host-held secret manager or isolated turn transport. */
 async function providerAttemptFactory(
   input: DriverAttemptInput,
   providerHarness: AgentProfile['harness'],
@@ -249,14 +247,20 @@ async function providerAttemptFactory(
   )
     throw new ValidationError('provider coordination credential has no finite future expiry')
   const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
-  const host = coordinationBindingHost(coordinationMcpUrl, providerHarness)
+  const fenced = Boolean(provider.secrets?.update && provider.secrets.list)
+  const host = fenced
+    ? coordinationBindingHost(coordinationMcpUrl, providerHarness)
+    : new URL(coordinationMcpUrl).hostname
   const credentialName =
     'AGENT_RUNTIME_COORDINATION_TOKEN_' +
     canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
       .slice(7, 31)
       .toUpperCase()
   const defaults = backend.defaults ?? {}
-  const env = { ...defaults.env }
+  const env = {
+    ...(providerHarness === 'claude-code' ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' } : {}),
+    ...defaults.env,
+  }
   delete env.AGENT_RUNTIME_COORDINATION_TOKEN
   delete env[credentialName]
   for (const mcp of [
@@ -276,7 +280,7 @@ async function providerAttemptFactory(
     ...backend,
     defaults: {
       ...defaults,
-      ...(defaults.env === undefined ? {} : { env }),
+      env,
       runtimeAttachments: {
         mcp: {
           ...defaults.runtimeAttachments?.mcp,
@@ -286,7 +290,7 @@ async function providerAttemptFactory(
       },
     },
   }
-  if (host) {
+  if (host && fenced) {
     if (
       input.retainedOwner?.admissions.length &&
       !input.coordinationCredentialSigned &&
@@ -318,11 +322,7 @@ async function providerAttemptFactory(
     )
     input.scope.signal.throwIfAborted()
   }
-  if (providerHarness === 'claude-code')
-    coordinated.defaults!.env = {
-      [CLAUDE_CODE_ONE_HOUR_CACHE]: '1',
-      ...env,
-    }
+  else if (host) env[credentialName] = authorization.slice(7)
   if (!host) {
     const turn = backend.promptOptions?.backend ?? {}
     coordinated.promptOptions = {
