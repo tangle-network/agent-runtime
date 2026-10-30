@@ -294,24 +294,26 @@ async function providerAttemptFactory(
     )
       await assertRetainedOwnerCoordinationRekey(input.scope)
     input.state.coordinationSecrets ??= new Map()
-    const proxySecrets: AgentProfile['proxySecrets'] = [
-      {
-        envName: credentialName,
-        secretRef: { kind: 'secret-ref', key: credentialName },
-        hosts: [host],
-        presentation: { type: 'bearer' },
-      },
-    ]
-    await storeCoordinationSecret(
+    const policy = await storeCoordinationSecret(
       provider,
       input.state.coordinationSecrets,
       credentialName,
       input.coordinationBindCredential,
-      { proxySecrets },
+      {
+        proxySecrets: [{
+          envName: credentialName,
+          secretRef: { kind: 'secret-ref', key: credentialName },
+          hosts: [host],
+          presentation: { type: 'bearer' },
+          ...(input.scope.rootDeadlineAtMs === undefined
+            ? {}
+            : { ttlSeconds: Math.max(1, Math.ceil((input.scope.rootDeadlineAtMs - Date.now()) / 1000)) }),
+        }],
+      },
     )
     coordinated.defaults!.proxySecrets = mergeProxySecretBindings(
       defaults.proxySecrets,
-      proxySecrets,
+      policy.proxySecrets,
     )
     input.scope.signal.throwIfAborted()
   }

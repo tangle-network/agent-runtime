@@ -1,5 +1,6 @@
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { SpawnPreflight } from '../../mcp/tools/coordination-contracts'
+import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import { profileBridgeWireModel } from './model-policy'
 import {
   type BridgeSeam,
@@ -11,7 +12,6 @@ import {
   automaticDriverBackendSupported,
   isExternalSupervisor,
 } from './supervise-profile-admission'
-import { providerAcceptsCoordinationAttachments } from './supervise-runtime-attachments'
 import {
   type CoordinationBinding,
   coordinationProfileToolPrefix,
@@ -20,9 +20,7 @@ import {
 } from './supervisor-agent'
 
 /**
- * The pre-flight `supervise` installs for a bridge backend. No new knob: the backend already says
- * where the bridge is, and these are the questions only the bridge can answer.
- *
+ * Probe the bridge's model route and profile tools before dispatch.
  * Two bridge causes, after the profile-owned tool preflight:
  *
  * - `model-route` — `GET /v1/capabilities?model=<wire id>`. The bridge answers exactly this
@@ -124,7 +122,8 @@ export function coordinationChannelSpawnPreflight(
     return async (profile) => {
       if (!isExternalSupervisor(profile) || declaredRuntimeToolNames(profile).length === 0)
         return undefined
-      return (await providerAcceptsCoordinationAttachments(managerBackend))
+      const provider = resolveAgentEnvironmentProvider(managerBackend.provider, managerBackend.registry)
+      return (await provider.capabilities()).create?.runtimeAttachments?.mcp === true
         ? undefined
         : {
             cause: 'unmountable-tool',

@@ -31,7 +31,6 @@ import type { Executor, ExecutorResult, Scope } from './types'
 
 type DriveArgs = Parameters<DriveHarness>[0]
 
-/** Drive a manager through the child executor path, with scoped coordination and turn metering. */
 export function driveHarnessFromBackend(
   backend: ExecutorConfig,
   executionId: string,
@@ -271,6 +270,7 @@ export interface DriverSessionState {
     string,
     {
       ready: boolean
+      policy: Pick<DriveArgs['profile'], 'proxySecrets'>
       binding: DriveArgs['coordinationBindCredential']
       stop(): Promise<void>
       release(): Promise<unknown>

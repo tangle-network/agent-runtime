@@ -1,12 +1,16 @@
-import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type AgentProfileMcpServer,
+  canonicalCandidateDigest,
+  ProxySecretsSchema,
+} from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../../errors'
 import type { WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
-import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import type { CoordinationMcpHandle } from './coordination-mcp'
 import { errorHttpStatus } from './error-message'
-import { bridgeRuntimeAttachmentsKey, type ExecutorConfig } from './runtime'
+import type { ExecutorConfig } from './runtime'
 import type { DriverSessionState } from './supervise-driver-session'
 
 export const peerMailMcpAlias = 'agent-runtime-peer-mail'
@@ -29,22 +33,6 @@ export function peerMailRuntimeAttachment(
   })
 }
 
-export function readCallerRuntimeAttachments(
-  seams: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  const existing = seams[bridgeRuntimeAttachmentsKey]
-  return existing !== null && typeof existing === 'object' && !Array.isArray(existing)
-    ? (existing as Readonly<Record<string, unknown>>)
-    : {}
-}
-
-export async function providerAcceptsCoordinationAttachments(
-  backend: Extract<ExecutorConfig, { backend: 'provider' }>,
-): Promise<boolean> {
-  const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
-  return (await provider.capabilities()).create?.runtimeAttachments?.mcp === true
-}
-
 export const CLAUDE_CODE_ONE_HOUR_CACHE = 'ENABLE_PROMPT_CACHING_1H'
 
 export async function storeCoordinationSecret(
@@ -53,7 +41,7 @@ export async function storeCoordinationSecret(
   name: string,
   bind: CoordinationMcpHandle['bindCredential'],
   policy: Pick<AgentProfile, 'proxySecrets'>,
-): Promise<void> {
+): Promise<Pick<AgentProfile, 'proxySecrets'>> {
   const store = provider.secrets
   if (!store?.update || !store.list || !bind)
     throw new ValidationError('provider coordination requires acknowledged fenced secret renewal')
@@ -65,10 +53,11 @@ export async function storeCoordinationSecret(
   }
   let revision: string | undefined
   const prior = secrets.get(name)
-  if (prior?.binding === bind && prior.ready) return
+  if (prior?.binding === bind && prior.ready) return prior.policy
   if (prior?.binding === bind) throw new ValidationError('coordination binding is not ready')
   await prior?.stop()
   const entry = {
+    policy,
     ready: false,
     binding: bind,
     stop: async () => {},
@@ -92,16 +81,26 @@ export async function storeCoordinationSecret(
       let expectedUpdatedAt = revision
       if (!expectedUpdatedAt) {
         try {
-          revision = stamp(await store.create(name, value, policy))
+          revision = stamp(await store.create(name, value, entry.policy))
           return
         } catch (error) {
           if (!(error instanceof Error) || errorHttpStatus(error) !== 409) throw error
-          expectedUpdatedAt = stamp((await store.list!()).find((s) => s.name === name))
+          const stored = (await store.list!()).find((s) => s.name === name)
+          expectedUpdatedAt = stamp(stored)
+          if (stored?.proxySecrets !== undefined) {
+            const recovered = ProxySecretsSchema.parse(stored.proxySecrets)
+            const authority = (bindings: AgentProfile['proxySecrets']) =>
+              canonicalCandidateDigest(bindings?.map(({ ttlSeconds: _, ...binding }) => binding))
+            if (authority(recovered) !== authority(policy.proxySecrets))
+              throw new ValidationError('stored coordination policy has different authority')
+            entry.policy = { proxySecrets: recovered }
+          }
         }
       }
-      revision = stamp(await store.update!(name, value, { ...policy, expectedUpdatedAt }))
+      revision = stamp(await store.update!(name, value, { ...entry.policy, expectedUpdatedAt }))
     })
     entry.ready = true
+    return entry.policy
   } catch (cause) {
     await entry.release().catch((cleanup) => {
       throw new AggregateError([cause, cleanup], 'coordination binding and cleanup failed')

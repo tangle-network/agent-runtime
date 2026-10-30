@@ -54,6 +54,7 @@ const stored = new Map(),
   protocolFailures = [],
   privateTurns = []
 const policyRequests = []
+const policyAttempts = []
 let baseUrl = '',
   publicUrl = '',
   upstream = '',
@@ -86,7 +87,7 @@ const capturePolicy = (body, name) => {
   assert.equal(body.proxySecrets?.length, 1)
   assert.equal(body.proxySecrets[0].envName, name)
   assert.equal(body.proxySecrets[0].secretRef.key, name)
-  policyRequests.push(body.proxySecrets)
+  policyAttempts.push(body.proxySecrets)
   return body.proxySecrets
 }
 const assertPolicyIdentity = () => {
@@ -219,6 +220,7 @@ const api = createServer(async (request, response) => {
           message: 'fixture refused before persistence',
         })
       stored.set(body.name, body.value)
+      policyRequests.push(policy)
       policies.set(body.name, policy)
       revisions.set(body.name, nextRevision())
       if (mode === 'uncertain-create')
@@ -250,6 +252,7 @@ const api = createServer(async (request, response) => {
         handoverOverlap = (await accepted(prior)) && (await accepted(body.value))
       }
       stored.set(name, body.value)
+      policyRequests.push(policy)
       policies.set(name, policy)
       revisions.set(name, nextRevision())
       updates++
@@ -514,18 +517,23 @@ try {
         }),
       ])
       assert.equal(stored.size, 1)
+      const originalPolicy = structuredClone([...policies.values()][0])
       child.kill('SIGKILL')
       await exited
+      await delay(1200)
       const { stdout } = await promisify(execFile)(process.execPath, [...args, 'resume'], {
         timeout: 12000,
       })
       assert.equal(JSON.parse(stdout.trim().split('\n').at(-1)).resumed, true)
+      assert.deepEqual(policyRequests.at(-1), originalPolicy)
+      assert.ok(policyAttempts.at(-2)[0].ttlSeconds < originalPolicy[0].ttlSeconds)
       console.log(
         JSON.stringify({
           resumed: true,
           priorProcessKilledAfterCommit: true,
           rekeyBeforeResumedDispatch,
           issuerPolicyPreserved: assertPolicyIdentity(),
+          originalRootPolicyReplayed: true,
           creates: creates.length,
           nativeTurns,
           updates,
@@ -616,6 +624,13 @@ try {
       )
     })
     let callerDefaultsPreserved = false
+    if (mode === 'renewal') {
+      assert.ok(policyRequests[0][0].ttlSeconds > 4 && policyRequests[0][0].ttlSeconds <= 10)
+      assert.ok(policyRequests.length >= 2)
+      assert.deepEqual(policyRequests.at(-1), policyRequests[0])
+    }
+    if (['explicit-ttl', 'unbounded', 'long-ttl'].includes(mode))
+      assert.equal(policyRequests[0][0].ttlSeconds, undefined)
     if (['bound', 'prefix-env'].includes(mode) && creates.length) {
       assert.equal(creates.length, 1)
       assert.equal(Object.hasOwn(creates[0].env, 'AGENT_RUNTIME_COORDINATION_TOKEN'), false)
@@ -631,6 +646,7 @@ try {
       JSON.stringify({
         mode,
         issuerPolicyPreserved: assertPolicyIdentity(),
+        rootLifetimeOutlivesLease: mode === 'renewal',
         unrelatedDeclarationPreserved: callerDefaultsPreserved,
         legacyCoordinationEnvNormalized: mode === 'bound' && callerDefaultsPreserved,
         prefixEnvPreserved: callerDefaultsPreserved,

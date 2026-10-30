@@ -3,6 +3,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination-contracts'
+import { recordValue } from '../../record-value'
 import { agentHarness } from '../harness-role'
 import { type DeliverableSpec, gateFactoryOnDeliverable } from './completion-gate'
 import { profileBridgeWireModel, profileProviderModel } from './model-policy'
@@ -21,7 +22,6 @@ import {
 import {
   peerMailMcpAlias,
   peerMailRuntimeAttachment,
-  readCallerRuntimeAttachments,
 } from './supervise-runtime-attachments'
 import type { Agent, AgentSpec, ExecutorContext, SpawnModelSubstitution } from './types'
 import { WORKER_TRACE_PROPAGATION } from './worker-trace'
@@ -151,7 +151,7 @@ export function workerFromBackend(
                 ? {}
                 : {
                     [bridgeRuntimeAttachmentsKey]: {
-                      ...readCallerRuntimeAttachments(ctx.seams),
+                      ...recordValue(ctx.seams[bridgeRuntimeAttachmentsKey]),
                       ...peerMailAttachment,
                     },
                   }),
