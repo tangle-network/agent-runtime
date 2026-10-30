@@ -250,7 +250,8 @@ async function providerAttemptFactory(
   const host = coordinationBindingHost(coordinationMcpUrl)
   const protectedPath = Boolean(
     (host || providerHarness === 'opencode' || providerHarness === 'codex') &&
-      provider.secrets?.update && provider.secrets.list,
+      provider.secrets?.update &&
+      provider.secrets.list,
   )
   const suffix = canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
     .slice(7, 31)

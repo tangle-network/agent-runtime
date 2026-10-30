@@ -616,7 +616,9 @@ try {
                 upstream = `http://127.0.0.1:${port}/coordination`
                 return mode === 'http-remote'
                   ? publicUrl.replace('https:', 'http:')
-                  : ['fallback', 'local-claude', 'local-pi'].includes(mode) ? upstream : publicUrl
+                  : ['fallback', 'local-claude', 'local-pi'].includes(mode)
+                    ? upstream
+                    : publicUrl
               },
             },
           },
