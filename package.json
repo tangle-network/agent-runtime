@@ -195,6 +195,7 @@
     "@tangle-network/agent-knowledge": "^23.0.0",
     "@tangle-network/agent-profile-materialize": "^1.1.4",
     "@tangle-network/agent-trace-contract": "catalog:",
+    "@tangle-network/sandbox-ui": "^2.0.20",
     "tar-stream": "3.2.2",
     "yaml": "2.9.1",
     "zod": "catalog:"

@@ -23,7 +23,7 @@ export interface TopSnapshotFrame {
 
 export interface TopWebOptions {
   readonly roots: readonly string[]
-  /** Defaults to the installed agent-record browser asset export. */
+  /** Defaults to the installed Sandbox UI browser asset export. */
   readonly assets?: string
   readonly host?: string
   readonly port?: number
@@ -40,7 +40,7 @@ export async function serveTopWeb(options: TopWebOptions) {
   const assets = await realpath(
     options.assets ??
       dirname(
-        createRequire(import.meta.url).resolve('@drewstone/agent-record/workspace-viewer.js'),
+        createRequire(import.meta.url).resolve('@tangle-network/sandbox-ui/workspace-viewer.js'),
       ),
   )
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
