@@ -81,7 +81,8 @@ const assertPolicyIdentity = () => {
   for (const request of policyRequests) {
     for (const create of creates.filter((create) =>
       create.proxySecrets?.some((binding) => binding.envName === request[0].envName),
-    )) assert.deepEqual(request, create.proxySecrets)
+    ))
+      assert.deepEqual(request, create.proxySecrets)
   }
   return true
 }

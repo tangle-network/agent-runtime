@@ -258,13 +258,13 @@ async function providerAttemptFactory(
   const defaults = backend.defaults ?? {}
   const proxySecrets = host
     ? mergeProxySecretBindings(defaults.proxySecrets, [
-      {
-        envName: credentialName,
-        secretRef: { kind: 'secret-ref', key: credentialName },
-        hosts: [host],
-        presentation: { type: 'bearer' },
-      },
-    ])
+        {
+          envName: credentialName,
+          secretRef: { kind: 'secret-ref', key: credentialName },
+          hosts: [host],
+          presentation: { type: 'bearer' },
+        },
+      ])
     : defaults.proxySecrets
   if (
     Object.keys(defaults.env ?? {}).some((name) =>
