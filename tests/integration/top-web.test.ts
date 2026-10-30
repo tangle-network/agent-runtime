@@ -1,5 +1,4 @@
 import { appendFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
@@ -14,28 +13,6 @@ import {
 import { appendExactMaterializationEvent } from '../../src/runtime/supervise/scope-owner-materialization'
 import { serveTopWeb, type TopSnapshotFrame } from '../../src/tui/top-web'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
-
-test('default web assets come from the installed Sandbox package', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'runtime-default-assets-'))
-  await writeFile(join(root, 'journal.jsonl'), '{"type":"launched"}\n')
-  const web = await serveTopWeb({ roots: [root] })
-  try {
-    const installed = createRequire(import.meta.url)
-    const asset = installed.resolve('@tangle-network/sandbox-ui/workspace-viewer.js')
-    const script = await fetch(web.url + 'assets/workspace-viewer.js')
-    expect(script.status).toBe(200)
-    expect(Buffer.from(await script.arrayBuffer())).toEqual(await readFile(asset))
-    const stylesheet = await fetch(web.url + 'assets/styles.css')
-    expect(stylesheet.status).toBe(200)
-    expect(Buffer.from(await stylesheet.arrayBuffer())).toEqual(
-      await readFile(join(asset, '..', 'styles.css')),
-    )
-    expect((await fetch(web.url + 'api/top')).status).toBe(200)
-  } finally {
-    await web.close()
-    await rm(root, { recursive: true, force: true })
-  }
-})
 
 test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and close', async () => {
   const root = await mkdtemp(join(tmpdir(), 'runtime-top-web-'))

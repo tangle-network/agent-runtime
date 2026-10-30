@@ -255,9 +255,6 @@ importers:
       '@tangle-network/agent-trace-contract':
         specifier: 'catalog:'
         version: 2.2.0
-      '@tangle-network/sandbox-ui':
-        specifier: ^3.0.0
-        version: 3.0.0(@shikijs/themes@4.5.0)(@tangle-network/agent-interface@5.10.9)(@tangle-network/brand@1.31.3(react@19.3.1))(@tangle-network/ui@11.51.7(@shikijs/themes@4.5.0)(@tangle-network/brand@1.31.3(react@19.3.1))(@types/react@19.3.0)(nanostores@1.5.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)(tailwindcss@4.3.3)
       tar-stream:
         specifier: 3.2.2
         version: 3.2.2
@@ -301,6 +298,9 @@ importers:
       '@tangle-network/sandbox':
         specifier: 1.0.111
         version: 1.0.111(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
+      '@tangle-network/sandbox-ui':
+        specifier: 3.0.0
+        version: 3.0.0(@shikijs/themes@4.5.0)(@tangle-network/agent-interface@5.10.9)(@tangle-network/brand@1.31.3(react@19.3.1))(@tangle-network/ui@11.51.7(@shikijs/themes@4.5.0)(@tangle-network/brand@1.31.3(react@19.3.1))(@types/react@19.3.0)(nanostores@1.5.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)(tailwindcss@4.3.3)
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.5
