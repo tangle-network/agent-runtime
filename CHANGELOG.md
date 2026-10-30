@@ -1,3 +1,9 @@
+## 3.0.9
+
+Point shared-box spend diagnostics at the maintained tangle-ops CLI.
+
+Include the safe object key in S3 private CAS refusals so failed evidence reads identify the object that needs attention.
+
 ## 3.0.8
 
 Use the published Sandbox UI3 viewer assets with shared clock/status owners and explicit UTC message timestamps in the default web CLI.
