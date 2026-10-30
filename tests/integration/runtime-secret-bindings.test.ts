@@ -50,7 +50,7 @@ async function run(mode: string) {
       join(directory, 'key.pem'),
     ],
     {
-      timeout: 20000,
+      timeout: 19000,
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,

@@ -501,7 +501,7 @@ const api = createServer(async (request, response) => {
 })
 try {
   const tlsPort = await listen(tls)
-  baseUrl = `http://127.0.0.1:${await listen(api)}`
+  baseUrl = `http://${['local-claude', 'local-pi'].includes(mode) ? host : '127.0.0.1'}:${await listen(api)}`
   publicUrl = `https://${host}:${tlsPort}/coordination`
   const capabilities = defaultTangleSandboxCapabilities(profile.harness)
   delete capabilities.retainedControl
@@ -523,10 +523,12 @@ try {
     capabilities,
   })
   if (mode === 'restart') {
+    const progress = (phase) => console.error(JSON.stringify({ phase, nativeTurns, updates }))
     const directory = await mkdtemp(join(tmpdir(), 'runtime-custody-resume-'))
     const helper = fileURLToPath(new URL('./runtime-secret-resume.mjs', import.meta.url))
     const args = ['--dns-result-order=ipv4first', helper, baseUrl, publicUrl, directory]
     const child = spawn(process.execPath, [...args, 'first'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    progress('restart-first-started')
     let firstDiagnostic = ''
     child.stderr.on('data', (chunk) => {
       firstDiagnostic += chunk.toString()
@@ -542,14 +544,19 @@ try {
           )
         }),
       ])
+      progress('restart-first-committed')
       assert.equal(stored.size, 1)
       const originalPolicy = structuredClone([...policies.values()][0])
       child.kill('SIGKILL')
       await exited
+      progress('restart-first-killed')
       await delay(1200)
       const { stdout } = await promisify(execFile)(process.execPath, [...args, 'resume'], {
         timeout: 12000,
+      }).catch((error) => {
+        throw new Error(`resumed coordinator failed: ${safeFailure(error.stderr)}`)
       })
+      progress('restart-resume-returned')
       assert.equal(JSON.parse(stdout.trim().split('\n').at(-1)).resumed, true)
       assert.deepEqual(policyRequests.at(-1), originalPolicy)
       assert.ok(policyAttempts.at(-2)[0].ttlSeconds < originalPolicy[0].ttlSeconds)
@@ -612,14 +619,18 @@ try {
                     : mode === 'renewal'
                       ? { ttlMs: 4000 }
                       : true,
-              ...(mode === 'http-local-name' ? { host } : { publicUrl: ({ port }) => {
-                upstream = `http://127.0.0.1:${port}/coordination`
-                return mode === 'http-remote'
-                  ? publicUrl.replace('https:', 'http:')
-                  : ['fallback', 'local-claude', 'local-pi'].includes(mode)
-                    ? upstream
-                    : publicUrl
-              } }),
+              ...(mode === 'http-local-name'
+                ? { host }
+                : {
+                    publicUrl: ({ port }) => {
+                      upstream = `http://127.0.0.1:${port}/coordination`
+                      return mode === 'http-remote'
+                        ? publicUrl.replace('https:', 'http:')
+                        : ['fallback', 'local-claude', 'local-pi'].includes(mode)
+                          ? upstream
+                          : publicUrl
+                    },
+                  }),
             },
           },
         )
