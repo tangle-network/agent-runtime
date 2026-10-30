@@ -705,7 +705,8 @@ try {
         foreignRawRowPreserved:
           Boolean(collisionSnapshot) &&
           stored.get(collisionSnapshot.name) === collisionSnapshot.value &&
-          JSON.stringify(policies.get(collisionSnapshot.name)) === JSON.stringify(collisionSnapshot.policy) &&
+          JSON.stringify(policies.get(collisionSnapshot.name)) ===
+            JSON.stringify(collisionSnapshot.policy) &&
           revisions.get(collisionSnapshot.name) === collisionSnapshot.revision &&
           rawConsent.has(collisionSnapshot.name),
         unownedCleanupDebtReported:
