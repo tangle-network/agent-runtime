@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module'
 import { appendFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentProfileSchema } from '@tangle-network/agent-interface'
@@ -27,9 +27,14 @@ test('default web assets come from the installed Sandbox package', async () => {
     expect(Buffer.from(await script.arrayBuffer())).toEqual(await readFile(asset))
     const stylesheet = await fetch(web.url + 'assets/styles.css')
     expect(stylesheet.status).toBe(200)
-    expect(Buffer.from(await stylesheet.arrayBuffer())).toEqual(await readFile(join(asset, '..', 'styles.css')))
+    expect(Buffer.from(await stylesheet.arrayBuffer())).toEqual(
+      await readFile(join(asset, '..', 'styles.css')),
+    )
     expect((await fetch(web.url + 'api/top')).status).toBe(200)
-  } finally { await web.close(); await rm(root, { recursive: true, force: true }) }
+  } finally {
+    await web.close()
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('web and HTTP snapshots reconcile a real workflow journal, reconnect, and close', async () => {
