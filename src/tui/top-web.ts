@@ -37,9 +37,9 @@ export interface TopWebOptions {
 export async function serveTopWeb(options: TopWebOptions) {
   if (!options.roots.length) throw new Error('At least one --root is required')
   const roots = [...new Set(await Promise.all(options.roots.map((root) => realpath(root))))]
-  const installed = createRequire(import.meta.url)
+  const require = createRequire(import.meta.url)
   const assets = await realpath(
-    options.assets ?? resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer'),
+    options.assets ?? resolve(require.resolve('@tangle-network/agent-runtime/tui'), '../../viewer'),
   )
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
   const host = options.host ?? '127.0.0.1'
