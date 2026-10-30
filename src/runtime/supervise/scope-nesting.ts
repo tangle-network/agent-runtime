@@ -20,8 +20,7 @@ export function makeNestedScopeSeam(
     signal: AbortSignal,
     restored?: Awaited<ReturnType<typeof prepareScopeResume>>,
   ): Scope<unknown> => {
-    // One clock read anchors both halves: the remaining duration is measured from the same
-    // instant the nested pool derives its absolute deadline from.
+    // One clock anchors both the remaining duration and nested absolute deadline.
     const mountedAtMs = now()
     const deadlineMs =
       childDeadlineAtMs === undefined ? undefined : Math.max(0, childDeadlineAtMs - mountedAtMs)
@@ -32,6 +31,7 @@ export function makeNestedScopeSeam(
     return createScope<unknown>({
       parentId: childNodeId,
       root: nestedRoot,
+      rootDeadlineAtMs: args.rootDeadlineAtMs,
       pool: createBudgetPool(nestedBudget, mountedAtMs, restored?.poolRestore),
       journal: args.journal,
       blobs: args.blobs,

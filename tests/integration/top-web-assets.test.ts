@@ -1,0 +1,37 @@
+import { createHash } from 'node:crypto'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { expect, test } from 'vitest'
+import { serveTopWeb } from '../../src/tui/top-web'
+
+test('the default viewer serves the complete owner-built asset closure from Runtime', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-packaged-viewer-'))
+  const installed = createRequire(import.meta.url)
+  const ui = dirname(installed.resolve('@tangle-network/sandbox-ui/workspace-viewer.js'))
+  const assets = resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
+  const files = [
+    'workspace-viewer.js',
+    'styles.css',
+    'report-viewer.js',
+    ...(await readdir(join(ui, 'runtime-viewer'))).map((file) => `runtime-viewer/${file}`),
+  ]
+  const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+  await writeFile(join(root, 'journal.jsonl'), '{"type":"launched"}\n')
+  const web = await serveTopWeb({ roots: [root] })
+  try {
+    expect(await readFile(join(assets, 'LICENSE'))).toEqual(await readFile(join(ui, '../LICENSE')))
+    for (const file of files) {
+      const expected = digest(await readFile(join(ui, file)))
+      expect(digest(await readFile(join(assets, file))), file).toBe(expected)
+      const response = await fetch(`${web.url}assets/${file}`)
+      expect(response.status, file).toBe(200)
+      expect(digest(new Uint8Array(await response.arrayBuffer())), file).toBe(expected)
+    }
+    expect((await fetch(`${web.url}api/top`)).status).toBe(200)
+  } finally {
+    await web.close()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30000)

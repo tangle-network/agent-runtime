@@ -75,8 +75,7 @@ export interface Agent<Task, Out> {
  */
 export interface Scope<Out> {
   /**
-   * Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
-   * lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
+   * Spawn a child. Worker admission precedes a lazy factory, so full allocation creates nothing.
    * Reserves `opts.budget` from the conserved pool atomically; refunds the unspent remainder on
    * settle. Returns a typed outcome — fail-closed on an exhausted pool, an exceeded depth ceiling, a
    * full worker allocation, or a still-live duplicate `key` (the caller inspects `ok` before
@@ -189,10 +188,11 @@ export interface Scope<Out> {
    * @experimental
    */
   readonly resume?: ResumedWork<Out>
-  /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
   readonly budget: import('../budget').BudgetReadout
+  /** The run's absolute deadline, inherited unchanged across child time boxes. */
+  readonly rootDeadlineAtMs?: number
   /** The worker-slot allocator as this scope sees it. Every scope of a tree, and every tree that
    *  shares the allocator, reads the same counts; the root agent itself holds no slot. `working`
    *  counts agents that hold a slot, `queued` counts admitted spawns that wait for one, and

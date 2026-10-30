@@ -115,8 +115,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsdown",
-    "dev": "tsdown --watch",
+    "build": "tsdown --on-success 'mkdir -p dist/viewer && viewer_out=\"$PWD/dist/viewer\" && cd node_modules/@tangle-network/sandbox-ui && cp -R dist/workspace-viewer.js dist/styles.css dist/runtime-viewer dist/report-viewer.js LICENSE \"$viewer_out/\"'",
+    "dev": "pnpm run build --watch",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -159,12 +159,13 @@
     "@biomejs/biome": "^2.6.3",
     "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "1.0.0",
-    "@tangle-network/agent-interface": "5.10.6",
+    "@tangle-network/agent-interface": "5.10.9",
     "@tangle-network/agent-provider-cli-bridge": "2.0.2",
     "@tangle-network/agent-provider-daytona": "0.6.1",
     "@tangle-network/agent-provider-e2b": "0.6.1",
-    "@tangle-network/agent-provider-tangle": "4.5.6",
-    "@tangle-network/sandbox": "1.0.73",
+    "@tangle-network/agent-provider-tangle": "4.5.7",
+    "@tangle-network/sandbox": "1.0.111",
+    "@tangle-network/sandbox-ui": "3.0.0",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.5",
     "miniflare": "4.20260730.0",
@@ -186,8 +187,8 @@
   "packageManager": "pnpm@12.15.0",
   "peerDependencies": {
     "@tangle-network/agent-eval": "^1.0.0",
-    "@tangle-network/agent-interface": "^5.10.5",
-    "@tangle-network/sandbox": "^1.0.1"
+    "@tangle-network/agent-interface": "^5.10.9",
+    "@tangle-network/sandbox": "^1.0.111"
   },
   "dependencies": {
     "@earendil-works/pi-codemode": "1.4.0",
@@ -195,7 +196,6 @@
     "@tangle-network/agent-knowledge": "^23.0.0",
     "@tangle-network/agent-profile-materialize": "^1.1.4",
     "@tangle-network/agent-trace-contract": "catalog:",
-    "@tangle-network/sandbox-ui": "^3.0.0",
     "tar-stream": "3.2.2",
     "yaml": "2.9.1",
     "zod": "catalog:"

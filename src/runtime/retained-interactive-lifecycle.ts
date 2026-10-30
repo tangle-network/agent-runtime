@@ -7,7 +7,7 @@ import { abortError } from './util'
 
 const INTERACTIVE_CLEANUP_TIMEOUT_MS = 30_000
 /** Bound on one lookup that asks the provider whether it still holds an environment. */
-const ENVIRONMENT_LOOKUP_TIMEOUT_MS = 30_000
+export const ENVIRONMENT_LOOKUP_TIMEOUT_MS = 30_000
 
 /**
  * Whether the provider no longer holds `environmentId`, asked after a destroy failed.

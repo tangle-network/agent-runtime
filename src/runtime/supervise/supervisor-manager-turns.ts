@@ -64,14 +64,12 @@ interface ManagerTurnLoop extends ManagerTurnInputs {
   readonly records: DriverAttemptRecord[]
   candidate: unknown
   deadlineWarned: boolean
-  /** The wake a re-entered drive was given, kept so `refresh` can bring it up to date. */
   pendingWake:
     | { readonly attempt: number; readonly wake: ManagerWake; readonly at: number }
     | undefined
   environmentReplacements: number
   workspaceRestores: number
   modelEvents: number
-  /** Set once the loop's record went to `onDriverLoopSettled`. */
   reported: boolean
 }
 
@@ -551,6 +549,9 @@ async function invokeManagerHarness(
       scope,
       coordinationMcpUrl: mcp.url,
       coordinationMcpHeaders: mcp.headers,
+      coordinationCredentialExpiresAt: mcp.credentialExpiresAt,
+      coordinationCredentialSigned: mcp.credentialSigned,
+      coordinationBindCredential: mcp.bindCredential,
       ...(deps.peerMailUrl ? { peerMailUrl: deps.peerMailUrl } : {}),
       stopSignal: state.stopController.signal,
       coordinationTools: loop.coordinationTools,
@@ -560,8 +561,7 @@ async function invokeManagerHarness(
     })
     completed = true
   } catch (error) {
-    // After an accepted result, a later backend shutdown/timeout cannot erase it and there is
-    // nothing left to retry FOR; without one the error propagates into the retry decision.
+    // Preserve an accepted result across a later backend shutdown failure.
     if (!mcp.submittedResult() && !mcp.isStopped()) throw error
     completed = true
   } finally {

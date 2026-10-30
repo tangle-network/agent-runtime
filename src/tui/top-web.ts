@@ -3,7 +3,7 @@ import { existsSync, type FSWatcher, readdirSync, watch } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
-import { dirname, extname, resolve, sep } from 'node:path'
+import { extname, resolve, sep } from 'node:path'
 import { loadTopSnapshot, type TopSnapshot } from './top-snapshot'
 import type { TopSessionReader } from './top-transcript'
 import { serveTopAgent, type TopInspectionSource } from './top-web-agent'
@@ -23,7 +23,7 @@ export interface TopSnapshotFrame {
 
 export interface TopWebOptions {
   readonly roots: readonly string[]
-  /** Defaults to the installed Sandbox UI browser asset export. */
+  /** Defaults to the packaged Sandbox UI browser assets. */
   readonly assets?: string
   readonly host?: string
   readonly port?: number
@@ -37,11 +37,9 @@ export interface TopWebOptions {
 export async function serveTopWeb(options: TopWebOptions) {
   if (!options.roots.length) throw new Error('At least one --root is required')
   const roots = [...new Set(await Promise.all(options.roots.map((root) => realpath(root))))]
+  const require = createRequire(import.meta.url)
   const assets = await realpath(
-    options.assets ??
-      dirname(
-        createRequire(import.meta.url).resolve('@tangle-network/sandbox-ui/workspace-viewer.js'),
-      ),
+    options.assets ?? resolve(require.resolve('@tangle-network/agent-runtime/tui'), '../../viewer'),
   )
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
   const host = options.host ?? '127.0.0.1'

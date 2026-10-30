@@ -4,8 +4,8 @@
     "agentInterface": {
       "name": "@tangle-network/agent-interface",
       "repository": "tangle-network/agent-sdk",
-      "version": "5.10.6",
-      "ref": "437f2544161f4a9bcbbc0d792417652ed4196936"
+      "version": "5.10.9",
+      "ref": "ea692a26c4b80d693f2289b1e46631966dfa4d51"
     },
     "agentEval": {
       "name": "@tangle-network/agent-eval",

@@ -33,7 +33,6 @@ import type {
   PromptResult,
   SandboxEvent,
   SandboxInstance,
-  SecretBinding,
 } from '@tangle-network/sandbox'
 import {
   assertProviderWorkspaceRetentionPort,
@@ -86,10 +85,11 @@ export function providerAsSandboxClient(
       )
       const selected = structuredClone(sandboxInput.secrets ?? defaults.secrets)
       const authored = sandboxInput.profile ?? defaults.profile
-      const bindings = mergeProxySecretBindings(
+      const bindings = [
         defaults.proxySecrets,
+        sandboxInput.proxySecrets,
         typeof authored === 'object' ? authored.proxySecrets : undefined,
-      )
+      ].flatMap((value) => (value === undefined ? [] : [mergeProxySecretBindings(value)]))
       const customInput = options.mapCreateOptions?.(createOptions) ?? {}
       const mapped = {
         ...defaults,
@@ -105,27 +105,25 @@ export function providerAsSandboxClient(
         },
       }
       if (mapped.secrets !== undefined) mapped.secrets = structuredClone(mapped.secrets)
-      const bindingId = (binding: SecretBinding) =>
-        canonicalCandidateDigest({
-          ...binding,
-          header: (binding.header ?? 'Authorization').toLowerCase(),
-        })
-      const entries = Array.isArray(mapped.secrets) ? mapped.secrets : []
-      for (const binding of Array.isArray(selected) ? selected : []) {
-        if (
-          typeof binding !== 'string' &&
-          !entries.some(
-            (entry) => typeof entry !== 'string' && bindingId(entry) === bindingId(binding),
-          )
+      const bindingId = (
+        binding: Extract<CreateAgentEnvironmentInput['secrets'], unknown[]>[number],
+      ) =>
+        canonicalCandidateDigest(
+          typeof binding !== 'string' && 'host' in binding
+            ? { ...binding, header: (binding.header ?? 'Authorization').toLowerCase() }
+            : binding,
         )
+      const entries = new Set((Array.isArray(mapped.secrets) ? mapped.secrets : []).map(bindingId))
+      for (const binding of Array.isArray(selected) ? selected : [])
+        if (typeof binding !== 'string' && !entries.has(bindingId(binding)))
           throw new ValidationError('mapped create changed a stored host binding')
-      }
       if (bindings.length)
         mapped.proxySecrets = mergeProxySecretBindings(
-          bindings,
+          ...bindings,
           mapped.proxySecrets,
           typeof mapped.profile === 'object' ? mapped.profile.proxySecrets : undefined,
         )
+      if (typeof mapped.profile === 'object') mapped.profile = structuredClone(mapped.profile)
       if (mapped.backend === undefined) delete mapped.backend
       if (mapped.profile === undefined)
         throw new ValidationError(
@@ -152,15 +150,9 @@ export function providerAsSandboxClient(
       return environmentAsSandboxInstance(environment, {
         ...(typeof mapped.profile === 'string' ? {} : { profile: mapped.profile }),
         requireTerminalEvent: options.requireTerminalEvent ?? true,
-        ...(options.workspaceRetention === undefined
-          ? {}
-          : { workspaceRetention: options.workspaceRetention }),
-        ...(options.retentionIdentity === undefined
-          ? {}
-          : { retentionIdentity: options.retentionIdentity }),
-        ...(options.onWorkspaceCaptured === undefined
-          ? {}
-          : { onWorkspaceCaptured: options.onWorkspaceCaptured }),
+        workspaceRetention: options.workspaceRetention,
+        retentionIdentity: options.retentionIdentity,
+        onWorkspaceCaptured: options.onWorkspaceCaptured,
       })
     },
   }
@@ -179,6 +171,7 @@ function createInputFromSandboxOptions(
       'resources',
       'env',
       'secrets',
+      'proxySecrets',
       'metadata',
       'name',
       'idempotencyKey',
@@ -210,7 +203,6 @@ function createInputFromSandboxOptions(
         unsupported.push('backend.model.model')
       }
     }
-    if (options?.secrets === 'all') unsupported.push('secrets=all')
     if (unsupported.length > 0)
       throw new ValidationError(
         `providerAsSandboxClient: Sandbox create controls require mapCreateOptions: ${unsupported.join(', ')}`,
@@ -234,7 +226,8 @@ function createInputFromSandboxOptions(
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
-    ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
+    ...(options?.secrets === undefined ? {} : { secrets: options.secrets }),
+    ...(options?.proxySecrets === undefined ? {} : { proxySecrets: options.proxySecrets }),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),

@@ -47,14 +47,13 @@ import type { WorkerEvents } from './worker-events'
 import type { SlotPermit, WorkerSlots } from './worker-slots'
 import type { WorkerTraceResolver } from './worker-trace'
 
-/** Construction args for `createScope`. The supervisor threads the shared pool, journal,
- *  blob store, and executor registry through; `depth`/`maxDepth` pair the runtime
- *  recursion ceiling with the conserved pool (R3). */
+/** Scope construction: conserved pool, journal, executors, tree identity and recursion bounds. */
 export interface ScopeArgs {
   /** This scope's owning node id — children get `${parentId}:s${seq}` ids. */
   readonly parentId: NodeId
   /** Journal/blob root key the supervisor `beginTree`'d. */
   readonly root: NodeId
+  readonly rootDeadlineAtMs?: number
   /** The reservation pool for this scope: the root total or one nested allocated partition. */
   readonly pool: BudgetPool
   /** Append-only spawn journal; this scope writes `spawned` + `settled` records. */

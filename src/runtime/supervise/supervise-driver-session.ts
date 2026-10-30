@@ -31,9 +31,6 @@ import type { Executor, ExecutorResult, Scope } from './types'
 
 type DriveArgs = Parameters<DriveHarness>[0]
 
-/** Run a harness-brained manager through the same executor factory as its children. The manager's
- * full profile is preserved, the live coordination server is added under one reserved alias, and
- * every streamed turn is charged to the manager's scope before it may continue. */
 export function driveHarnessFromBackend(
   backend: ExecutorConfig,
   executionId: string,
@@ -42,8 +39,6 @@ export function driveHarnessFromBackend(
   rootStream?: RootStreamSink,
   seatSelection?: ManagerSeatSelection,
 ): DriveHarness {
-  // Same refusal the router arm makes in `driverAgent`: a negative cap would silently run zero
-  // turns and finalize an empty no-winner.
   if (maxTurns !== undefined && maxTurns < 0) {
     throw new ValidationError(
       'driveHarnessFromBackend: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
@@ -59,8 +54,6 @@ export function driveHarnessFromBackend(
     manager.switchedProviderCheckpointAt = undefined
     await manager.selectSeat(args, seatSelection, executionId, now)
     const retainedOwner = await bindDriveRetainedOwner(manager, args)
-    // Only a proven same-session turn gets the unmet items alone; a replacement environment gets
-    // the objective and the coordinator's run state.
     const driveTask =
       args.reentry === undefined
         ? args.task
@@ -77,11 +70,8 @@ export function driveHarnessFromBackend(
     const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
     if (acceptedOwner) {
       await restoreAcceptedOwnerTurn(scope)
-      // A committed turn that failed replays as that failure; its evidence is restored so the
-      // next attempt starts a new invocation in the same environment.
       const replayedFailure = harnessTurnFailure(manager.ownerRuntime, acceptedOwner)
       if (replayedFailure !== undefined) throw replayedFailure
-      // The coordination journal still goes through the normal driver finalizer.
       state.managerArtifact = acceptedOwner
       return
     }
@@ -93,6 +83,9 @@ export function driveHarnessFromBackend(
       scope,
       coordinationMcpUrl: args.coordinationMcpUrl,
       coordinationMcpHeaders: args.coordinationMcpHeaders,
+      coordinationCredentialExpiresAt: args.coordinationCredentialExpiresAt,
+      coordinationCredentialSigned: args.coordinationCredentialSigned,
+      coordinationBindCredential: args.coordinationBindCredential,
       peerMailUrl: args.peerMailUrl,
       stopSignal: args.stopSignal,
       coordinationTools: args.coordinationTools,
@@ -121,20 +114,24 @@ export function driveHarnessFromBackend(
   drive.deliverReady = (): boolean => state.activeExecutor !== undefined
   drive.traceSource = () => state.activeExecutor?.traceSource?.()
   drive.progress = () => manager.progress()
-  // Only the provider backend has a transcript port. Any other backend leaves the method off, so
-  // its managers keep settling as `executor-exposes-no-transcript`.
   if (state.boundBackend.backend === 'provider') {
     drive.harnessTranscript = () => manager.harnessTranscript()
     drive.harnessTranscriptSettled = () =>
       state.lastExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()
   }
   drive.closeSeatSegment = async (reason) => {
-    await manager.closeSeatSegment(reason)
+    const results = await Promise.allSettled([
+      manager.closeSeatSegment(reason),
+      ...[...(state.coordinationSecrets?.values() ?? [])].map((secret) => secret.release()),
+    ])
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : [],
+    )
+    if (failures.length) throw new AggregateError(failures, 'manager settlement cleanup failed')
   }
   return attestRuntimeOwnedScopeOwner(drive, manager.ownerRuntime)
 }
 
-/** Bind a provider manager's retained owner to this drive, once the previous turn's capture ends. */
 async function bindDriveRetainedOwner(
   manager: ManagerDriveSession,
   { scope, profile, authoredProfile }: DriveArgs,
@@ -153,21 +150,16 @@ async function bindDriveRetainedOwner(
             profile: activeSeat ? seatProviderProfile(authoredProfile, activeSeat) : profile,
           },
     )
-    // Read from the active executor's receipt at spawn time: the environment does not exist yet,
-    // and a retry re-enters `drive` with a fresh executor.
     bindScopeRetainedOwnerEnvironmentId(scope, () => {
       if (state.activeExecutor === undefined) return undefined
       const execution = runtimeOwnedExecutorMaterialization(state.activeExecutor)?.execution
       return execution?.kind === 'environment' ? execution.id : undefined
     })
-    // The workspace capture the previous turn handed over reads the environment this turn
-    // would change, and its receipt belongs to that turn's invocation: it finishes first.
     await scopeRetainedOwnerTurnEnded(scope)
   }
   return retainedOwner
 }
 
-/** The task a re-entered drive runs, composed from what the backend proves it continues. */
 async function reentryDriveTask(
   manager: ManagerDriveSession,
   { scope, session }: DriveArgs,
@@ -176,8 +168,7 @@ async function reentryDriveTask(
   priorCommittedArtifact: ExecutorResult<unknown> | undefined,
 ): Promise<unknown> {
   const { activeSeat, switchedProviderCheckpointAt } = manager
-  // The first drive after a restart proves nothing: a retained owner reconciles its own invocation
-  // on recovery, and probing here first reconnected to it twice.
+  // Recovery reconciles its own invocation before proving continuation.
   const proven: ReentryContinuity =
     reentry.reason.reason === 'run-reentered'
       ? UNPROVEN_CONTINUITY
@@ -198,8 +189,7 @@ async function reentryDriveTask(
   ) {
     throw new ValidationError('same-provider seat continuation lost its native environment')
   }
-  // A fresh re-entry keeps the proven environment under a new session id (the bridge below; a
-  // retained provider owner in its live environment, `prepareScopeRetainedOwnerTask`).
+  // Fresh re-entry keeps the proven workspace and starts a new native session.
   const continuity: ReentryContinuity =
     session === 'fresh' && proven.session === 'continued' ? { ...proven, session: 'new' } : proven
   reentry.onContinuity?.(continuity)
@@ -276,4 +266,14 @@ export interface DriverSessionState {
   lastExecutor: Executor<unknown> | undefined
   managerArtifact: ExecutorResult<unknown> | undefined
   driveTurns: number
+  coordinationSecrets?: Map<
+    string,
+    {
+      ready: boolean
+      policy: Pick<DriveArgs['profile'], 'proxySecrets'>
+      binding: DriveArgs['coordinationBindCredential']
+      stop(): Promise<void>
+      release(): Promise<unknown>
+    }
+  >
 }

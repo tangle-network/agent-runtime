@@ -335,15 +335,13 @@ Remote coordination MCP requires:
 
 The default remains loopback-only.
 Set `coordination.authentication` to `true` to mint an ephemeral credential.
-By default, credentials remain valid while their scope is live.
+Credentials have finite leases from the public Sandbox execution-lifetime policy, capped by the root run deadline.
 Closing the listener or aborting the scope rejects its credentials immediately.
 Every stop aborts the scope: cancellation, the run's deadline, and a lead stopping its child.
 A child's own time box is a check-in that keeps the child running, so its credentials outlive the box until the child is stopped.
-Set `authentication.ttlMs` to require an additional finite expiry.
-Long-lived bearer credentials increase exposure; use narrow grants, protected storage, and revocable signing keys.
-Runtime does not renew credentials automatically or refresh credentials inside a retained environment.
-If specified, `ttlMs` must cover the manager invocation and expected coordinator downtime.
-Neither key rotation nor coordinator restart extends the run's deadline: a credential is accepted only by a live scope.
+Set `authentication.ttlMs` to select an explicit lease duration.
+Host-bound provider managers renew leases automatically through acknowledged in-place proxy rekey.
+Both bearers remain valid during installation; acknowledgement revokes the previous bearer.
 Set `coordination.publicUrl` to the caller-owned reachable endpoint or an actor-aware endpoint resolver.
 The resolver can return a promise and receives the bound port, run identity, actor identity, and manager signal.
 Runtime awaits resolution before admitting the manager, while the listener refuses requests.
@@ -361,10 +359,10 @@ Failure closes the listener and reports a credential-free cause before inference
 This verifies the operator's public route; it does not establish reachability from the provider's network.
 Omitting `coordination.publicUrl` preserves local-only startup without this network check.
 
-For same-host coordinator restart, configure `authentication.signingKeys` with an active key ID and a secret key map.
-Keep the public URL, run ID, actor ID, tool grants, and verification key stable until the retained credential expires.
-Stable keys support resumed coordination while the resumed scope is live and within any explicit credential expiry.
-After expiry, the retained session can reattach, but its coordination requests receive HTTP 401.
+Quiescent retained sessions rekey before new dispatch after coordinator restart.
+An uncertain active unsigned execution requires exact terminal reconciliation before rekey; unknown status fails closed.
+Configure `authentication.signingKeys` to preserve prior-process authority during active recovery.
+Keep the public URL, run ID, actor ID, tool grants and verification key stable through acknowledged handover.
 A new active key can mint credentials while previous keys verify existing credentials.
 Remove a verification key to revoke its credentials across coordinator restarts.
 Listener-local `rotateCredential()` revocation does not survive restart.
@@ -372,7 +370,9 @@ The file run lock remains the single-owner fence; these credentials do not enabl
 
 Provider managers require `capabilities.create.runtimeAttachments.mcp` and an authenticated public endpoint.
 Runtime passes the MCP server through `CreateAgentEnvironmentInput.runtimeAttachments`, preserving the canonical profile.
-Credential headers remain runtime-only and must not appear in receipts or journals.
+Public HTTPS FQDN coordination uses a unique stored secret referenced by canonical `proxySecrets` with its env name, secret reference, hosts and bearer presentation; raw bearers never enter create env or public attachments.
+The provider secret manager must support create, metadata list, acknowledged update and conditional delete by `updatedAt`; settlement drains renewal before conditional deletion.
+Loopback/IP coordination instead uses isolated opencode/codex per-turn secret preparation; no raw bearer enters public session configuration, receipts or journals.
 Retained manager recovery uses the original admitted backend input and validates its intent before reconnecting.
 Deliberate re-prompts retain the manager's environment and conversation, with a fresh execution and turn identity.
 Retrying an interrupted turn retains its original identities and does not create replacement work.
@@ -514,5 +514,5 @@ Provider dollar totals preserve billed and estimated portions separately, includ
 
 These contracts do not make a coordinator immortal or a local file lock a distributed lease.
 Use durable storage, retain the exact run's dependency cohort for recovery, and provide a reachable coordination endpoint.
-Choose a credential lifetime that covers the intended manager invocation and recovery interval; Runtime does not silently renew credentials inside a retained provider environment.
+Runtime renews host-bound coordination leases through acknowledged proxy rekey without extending issuer grants or reviving expired sources. The initial root-remaining issuer TTL is preserved across renewal and recovery; environment requests inherit it from stored policy; an omitted root deadline uses the execution owner's maximum. Relative TTL includes issuance delay and second rounding; the absolute root bearer expiry and scope cancellation still stop authority.
 A simulated long-clock test proves timer behavior, not months of observed production uptime.
