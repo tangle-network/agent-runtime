@@ -205,8 +205,8 @@ it('uses the SDK isolated preparation transport for loopback coordination withou
     privateTurns: 1,
   })
 })
-it('preserves prior local Claude and Pi delivery where private turn isolation is unavailable', async () => {
-  for (const mode of ['local-claude', 'local-pi'])
+it('preserves prior local harness and HTTP host delivery without unsupported custody claims', async () => {
+  for (const mode of ['local-claude', 'local-pi', 'http-local-name'])
     expect(await run(mode)).toMatchObject({
       resultKind: 'winner',
       settled: true,

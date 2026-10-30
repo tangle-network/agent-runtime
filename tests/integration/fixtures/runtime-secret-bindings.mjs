@@ -17,7 +17,7 @@ import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 
 const [mode, certificate, key] = process.argv.slice(2)
-const priorDelivery = ['legacy-store', 'local-claude', 'local-pi'].includes(mode)
+const priorDelivery = ['legacy-store', 'local-claude', 'local-pi', 'http-local-name'].includes(mode)
 const safeFailure = (text) =>
   String(text ?? '')
     .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
@@ -612,14 +612,14 @@ try {
                     : mode === 'renewal'
                       ? { ttlMs: 4000 }
                       : true,
-              publicUrl: ({ port }) => {
+              ...(mode === 'http-local-name' ? { host } : { publicUrl: ({ port }) => {
                 upstream = `http://127.0.0.1:${port}/coordination`
                 return mode === 'http-remote'
                   ? publicUrl.replace('https:', 'http:')
                   : ['fallback', 'local-claude', 'local-pi'].includes(mode)
                     ? upstream
                     : publicUrl
-              },
+              } }),
             },
           },
         )

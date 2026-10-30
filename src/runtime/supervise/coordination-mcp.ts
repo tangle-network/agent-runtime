@@ -550,7 +550,6 @@ export async function serveCoordinationMcpForManager(
   return { handle, controls: coord }
 }
 
-export function coordinationBindingHost(address: string) {
-  const { hostname } = new URL(address)
+export function coordinationBindingHost({ hostname }: URL) {
   return isLoopbackHost(hostname) || isIP(hostname.replace(/^\[|\]$/g, '')) ? undefined : hostname
 }

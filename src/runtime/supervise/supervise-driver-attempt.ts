@@ -241,15 +241,15 @@ async function providerAttemptFactory(
   const authorization = coordinationMcpHeaders?.Authorization
   if (!authorization?.startsWith('Bearer ') || authorization.length === 7)
     throw new ValidationError('provider coordination requires a bearer credential')
-  if (
-    !Number.isSafeInteger(input.coordinationCredentialExpiresAt) ||
-    input.coordinationCredentialExpiresAt! <= Date.now()
-  )
+  const credentialExpiry = input.coordinationCredentialExpiresAt
+  if (!Number.isSafeInteger(credentialExpiry) || credentialExpiry! <= Date.now())
     throw new ValidationError('provider coordination credential has no finite future expiry')
   const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
-  const host = coordinationBindingHost(coordinationMcpUrl)
+  const address = new URL(coordinationMcpUrl)
+  const host = coordinationBindingHost(address)
   const protectedPath = Boolean(
     (host || providerHarness === 'opencode' || providerHarness === 'codex') &&
+      (address.protocol === 'https:' || !host) &&
       provider.secrets?.update &&
       provider.secrets.list,
   )
