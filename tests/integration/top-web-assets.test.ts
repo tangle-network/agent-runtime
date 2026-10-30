@@ -10,7 +10,7 @@ test('the default web viewer serves the complete owner-built asset closure from 
   const root = await mkdtemp(join(tmpdir(), 'runtime-packaged-viewer-'))
   const installed = createRequire(import.meta.url)
   const ui = dirname(installed.resolve('@tangle-network/sandbox-ui/workspace-viewer.js'))
-  const packaged = resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
+  const assets = resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
   const files = [
     'workspace-viewer.js',
     'styles.css',
@@ -21,10 +21,10 @@ test('the default web viewer serves the complete owner-built asset closure from 
   await writeFile(join(root, 'journal.jsonl'), '{"type":"launched"}\n')
   const web = await serveTopWeb({ roots: [root] })
   try {
-    expect(await readFile(join(packaged, 'LICENSE'))).toEqual(await readFile(join(ui, '../LICENSE')))
+    expect(await readFile(join(assets, 'LICENSE'))).toEqual(await readFile(join(ui, '../LICENSE')))
     for (const file of files) {
       const expected = digest(await readFile(join(ui, file)))
-      expect(digest(await readFile(join(packaged, file))), file).toBe(expected)
+      expect(digest(await readFile(join(assets, file))), file).toBe(expected)
       const response = await fetch(`${web.url}assets/${file}`)
       expect(response.status, file).toBe(200)
       expect(digest(new Uint8Array(await response.arrayBuffer())), file).toBe(expected)
