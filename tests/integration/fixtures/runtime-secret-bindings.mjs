@@ -615,7 +615,8 @@ try {
         )
       )
     })
-    if (['bound', 'prefix-env'].includes(mode)) {
+    let callerDefaultsPreserved = false
+    if (['bound', 'prefix-env'].includes(mode) && creates.length) {
       assert.equal(creates.length, 1)
       assert.equal(Object.hasOwn(creates[0].env, 'AGENT_RUNTIME_COORDINATION_TOKEN'), false)
       assert.equal(creates[0].env.AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG, 'caller-debug-kept')
@@ -624,14 +625,15 @@ try {
         creates[0].proxySecrets.find((binding) => binding.envName === callerBinding.envName),
         callerBinding,
       )
+      callerDefaultsPreserved = true
     }
     console.log(
       JSON.stringify({
         mode,
         issuerPolicyPreserved: assertPolicyIdentity(),
-        unrelatedDeclarationPreserved: mode === 'bound',
-        legacyCoordinationEnvNormalized: mode === 'bound',
-        prefixEnvPreserved: ['bound', 'prefix-env'].includes(mode),
+        unrelatedDeclarationPreserved: callerDefaultsPreserved,
+        legacyCoordinationEnvNormalized: mode === 'bound' && callerDefaultsPreserved,
+        prefixEnvPreserved: callerDefaultsPreserved,
         settled,
         rejected,
         resultKind,
