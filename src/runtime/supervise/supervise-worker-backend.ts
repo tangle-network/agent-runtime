@@ -19,10 +19,7 @@ import {
   assertBackendProfileMaterialization,
   assertBridgeProfileMaterializes,
 } from './supervise-profile-admission'
-import {
-  peerMailMcpAlias,
-  peerMailRuntimeAttachment,
-} from './supervise-runtime-attachments'
+import { peerMailMcpAlias, peerMailRuntimeAttachment } from './supervise-runtime-attachments'
 import type { Agent, AgentSpec, ExecutorContext, SpawnModelSubstitution } from './types'
 import { WORKER_TRACE_PROPAGATION } from './worker-trace'
 

@@ -122,8 +122,9 @@ export function coordinationChannelSpawnPreflight(
     return async (profile) => {
       if (!isExternalSupervisor(profile) || declaredRuntimeToolNames(profile).length === 0)
         return undefined
-      const provider = resolveAgentEnvironmentProvider(managerBackend.provider, managerBackend.registry)
-      return (await provider.capabilities()).create?.runtimeAttachments?.mcp === true
+      const { provider, registry } = managerBackend
+      const capabilities = await resolveAgentEnvironmentProvider(provider, registry).capabilities()
+      return capabilities.create?.runtimeAttachments?.mcp === true
         ? undefined
         : {
             cause: 'unmountable-tool',
