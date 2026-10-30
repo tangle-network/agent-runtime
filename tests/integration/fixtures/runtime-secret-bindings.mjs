@@ -506,10 +506,9 @@ try {
   capabilities.streaming = { live: true, replay: false, detach: false, turnIdempotency: false }
   capabilities.sessions = { continue: false, list: false, messages: false }
   const Client = mode === 'legacy-store' ? (await import('legacy-sandbox')).Sandbox : Sandbox
-  const createProvider =
-    ['legacy-store', 'legacy-fenced'].includes(mode)
-      ? (await import('legacy-provider')).createTangleProvider
-      : createTangleProvider
+  const createProvider = ['legacy-store', 'legacy-fenced'].includes(mode)
+    ? (await import('legacy-provider')).createTangleProvider
+    : createTangleProvider
   const provider = createProvider({
     client: new Client({
       apiKey: 'fixture-api-key',
