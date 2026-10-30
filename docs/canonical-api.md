@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 3.0.5.**
+> **Version 3.0.6.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > Read `package.json` `peerDependencies` for the compatible `agent-eval`, `agent-interface`, and `sandbox` versions.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface`.

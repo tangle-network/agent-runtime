@@ -1,3 +1,7 @@
+## 3.0.6
+
+Use the maintained Sandbox UI assets for the default `agent-runtime-top --web` viewer. Explicit asset directories remain supported.
+
 ## 3.0.5
 
 Deliver protected stored-secret declarations through provider adapters with complete retained custody identity, and retire qualification that required the obsolete proxy-binding refusal.
