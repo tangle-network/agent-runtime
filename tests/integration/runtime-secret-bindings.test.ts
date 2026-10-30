@@ -121,6 +121,16 @@ it('confirms absent custody after a refused store create through real metadata d
     secretPosts: 1,
   })
 })
+it('preserves unrelated caller env names sharing the coordination prefix', async () => {
+  expect(await run('prefix-env')).toMatchObject({
+    resultKind: 'winner',
+    settled: true,
+    mcpAccepted: true,
+    noRawCreate: true,
+    prefixEnvPreserved: true,
+    stored: 0,
+  })
+})
 it('preserves unknown custody when persistence has no acknowledged receipt', async () => {
   expect(await run('uncertain-create')).toMatchObject({
     resultKind: 'no-winner',

@@ -37,6 +37,12 @@ const callerBinding = {
   paths: ['/v1/events'],
   presentation: { type: 'header', name: 'X-Api-Key' },
 }
+const callerDefaults = {
+  proxySecrets: [callerBinding],
+  env: { AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG: 'caller-debug-kept' },
+}
+if (mode === 'bound')
+  callerDefaults.env.AGENT_RUNTIME_COORDINATION_TOKEN = 'fixture-stale-private-coordination'
 const stored = new Map(),
   revisions = new Map(),
   policies = new Map(),
@@ -551,13 +557,7 @@ try {
             backend: {
               backend: 'provider',
               provider,
-              ...(mode === 'bound' ? { defaults: {
-                proxySecrets: [callerBinding],
-                env: {
-                  AGENT_RUNTIME_COORDINATION_TOKEN: 'fixture-stale-private-coordination',
-                  AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG: 'caller-debug-kept',
-                },
-              } } : {}),
+              ...(['bound', 'prefix-env'].includes(mode) ? { defaults: callerDefaults } : {}),
             },
             budget: {
               maxIterations: 4,
@@ -615,7 +615,7 @@ try {
         )
       )
     })
-    if (mode === 'bound') {
+    if (['bound', 'prefix-env'].includes(mode)) {
       assert.equal(creates.length, 1)
       assert.equal(Object.hasOwn(creates[0].env, 'AGENT_RUNTIME_COORDINATION_TOKEN'), false)
       assert.equal(creates[0].env.AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG, 'caller-debug-kept')
@@ -631,6 +631,7 @@ try {
         issuerPolicyPreserved: assertPolicyIdentity(),
         unrelatedDeclarationPreserved: mode === 'bound',
         legacyCoordinationEnvNormalized: mode === 'bound',
+        prefixEnvPreserved: ['bound', 'prefix-env'].includes(mode),
         settled,
         rejected,
         resultKind,
