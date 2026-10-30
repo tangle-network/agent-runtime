@@ -551,7 +551,13 @@ try {
             backend: {
               backend: 'provider',
               provider,
-              ...(mode === 'bound' ? { defaults: { proxySecrets: [callerBinding] } } : {}),
+              ...(mode === 'bound' ? { defaults: {
+                proxySecrets: [callerBinding],
+                env: {
+                  AGENT_RUNTIME_COORDINATION_TOKEN: 'fixture-stale-private-coordination',
+                  AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG: 'caller-debug-kept',
+                },
+              } } : {}),
             },
             budget: {
               maxIterations: 4,
@@ -611,6 +617,9 @@ try {
     })
     if (mode === 'bound') {
       assert.equal(creates.length, 1)
+      assert.equal(Object.hasOwn(creates[0].env, 'AGENT_RUNTIME_COORDINATION_TOKEN'), false)
+      assert.equal(creates[0].env.AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG, 'caller-debug-kept')
+      assert.equal(JSON.stringify(creates).includes('fixture-stale-private-coordination'), false)
       assert.deepEqual(
         creates[0].proxySecrets.find((binding) => binding.envName === callerBinding.envName),
         callerBinding,
@@ -621,6 +630,7 @@ try {
         mode,
         issuerPolicyPreserved: assertPolicyIdentity(),
         unrelatedDeclarationPreserved: mode === 'bound',
+        legacyCoordinationEnvNormalized: mode === 'bound',
         settled,
         rejected,
         resultKind,

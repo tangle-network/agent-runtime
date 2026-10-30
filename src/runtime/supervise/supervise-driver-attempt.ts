@@ -256,12 +256,9 @@ async function providerAttemptFactory(
       .slice(7, 31)
       .toUpperCase()
   const defaults = backend.defaults ?? {}
-  if (
-    Object.keys(defaults.env ?? {}).some((name) =>
-      name.startsWith('AGENT_RUNTIME_COORDINATION_TOKEN'),
-    )
-  )
-    throw new ValidationError('provider defaults contain a reserved coordination credential name')
+  const env = { ...defaults.env }
+  delete env.AGENT_RUNTIME_COORDINATION_TOKEN
+  delete env[credentialName]
   for (const mcp of [
     defaults.runtimeAttachments?.mcp,
     backend.promptOptions?.backend?.runtimeAttachments?.mcp,
@@ -279,6 +276,7 @@ async function providerAttemptFactory(
     ...backend,
     defaults: {
       ...defaults,
+      ...(defaults.env === undefined ? {} : { env }),
       runtimeAttachments: {
         mcp: {
           ...defaults.runtimeAttachments?.mcp,
@@ -320,7 +318,7 @@ async function providerAttemptFactory(
   if (providerHarness === 'claude-code')
     coordinated.defaults!.env = {
       [CLAUDE_CODE_ONE_HOUR_CACHE]: '1',
-      ...defaults.env,
+      ...env,
     }
   if (!host) {
     const turn = backend.promptOptions?.backend ?? {}
