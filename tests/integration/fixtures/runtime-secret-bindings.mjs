@@ -492,7 +492,7 @@ try {
   capabilities.sessions = { continue: false, list: false, messages: false }
   const Client = mode === 'legacy-store' ? (await import('legacy-sandbox')).Sandbox : Sandbox
   const createProvider =
-    mode === 'legacy-fenced'
+    ['legacy-store', 'legacy-fenced'].includes(mode)
       ? (await import('legacy-provider')).createTangleProvider
       : createTangleProvider
   const provider = createProvider({
