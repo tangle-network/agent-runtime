@@ -17,7 +17,7 @@ import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 
 const [mode, certificate, key] = process.argv.slice(2)
-const priorDelivery = ['legacy-store', 'local-claude', 'local-pi', 'http-local-name'].includes(mode)
+const priorDelivery = ['legacy-store', 'local-claude', 'local-pi', 'trailing-dot'].includes(mode)
 const safeFailure = (text) =>
   String(text ?? '')
     .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
@@ -523,17 +523,21 @@ try {
     capabilities,
   })
   if (mode === 'restart') {
-    const progress = (phase) => console.error(JSON.stringify({ phase, nativeTurns, updates }))
+    let firstDiagnostic = ''
+    const progress = (phase) => console.error(JSON.stringify({
+      phase, nativeTurns, updates, requests: requests.slice(-8), childDiagnostic: Boolean(firstDiagnostic),
+    }))
     const directory = await mkdtemp(join(tmpdir(), 'runtime-custody-resume-'))
     const helper = fileURLToPath(new URL('./runtime-secret-resume.mjs', import.meta.url))
     const args = ['--dns-result-order=ipv4first', helper, baseUrl, publicUrl, directory]
     const child = spawn(process.execPath, [...args, 'first'], { stdio: ['ignore', 'pipe', 'pipe'] })
     progress('restart-first-started')
-    let firstDiagnostic = ''
     child.stderr.on('data', (chunk) => {
       firstDiagnostic += chunk.toString()
     })
     child.stdout.resume()
+    const diagnosticTimer = setInterval(() => progress('restart-progress'), 5000)
+    diagnosticTimer.unref()
     const exited = new Promise((resolve) => child.once('exit', resolve))
     try {
       await Promise.race([
@@ -577,6 +581,7 @@ try {
         }),
       )
     } finally {
+      clearInterval(diagnosticTimer)
       if (child.exitCode === null) child.kill('SIGKILL')
       await rm(directory, { recursive: true, force: true })
     }
@@ -619,18 +624,16 @@ try {
                     : mode === 'renewal'
                       ? { ttlMs: 4000 }
                       : true,
-              ...(mode === 'http-local-name'
-                ? { host }
-                : {
-                    publicUrl: ({ port }) => {
-                      upstream = `http://127.0.0.1:${port}/coordination`
-                      return mode === 'http-remote'
-                        ? publicUrl.replace('https:', 'http:')
-                        : ['fallback', 'local-claude', 'local-pi'].includes(mode)
-                          ? upstream
-                          : publicUrl
-                    },
-                  }),
+              publicUrl: ({ port }) => {
+                upstream = `http://127.0.0.1:${port}/coordination`
+                return mode === 'http-remote'
+                  ? publicUrl.replace('https:', 'http:')
+                  : mode === 'trailing-dot'
+                    ? publicUrl.replace(host, `${host}.`)
+                    : ['fallback', 'local-claude', 'local-pi'].includes(mode)
+                      ? upstream
+                      : publicUrl
+              },
             },
           },
         )

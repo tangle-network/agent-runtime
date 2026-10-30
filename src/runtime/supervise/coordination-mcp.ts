@@ -1,6 +1,6 @@
 /** Serve Runtime coordination as bounded HTTP MCP over one live scope. @experimental */
 import { isIP } from 'node:net'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, ProxySecretScopeSchema } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer } from '../../mcp/tool-server'
@@ -207,7 +207,6 @@ function coordinationResponseFenceMs(requestTimeoutMs: number): number {
   return Math.max(1, Math.min(RESPONSE_FENCE_CAP_MS, Math.floor(requestTimeoutMs / 2)))
 }
 
-/** Stand up the existing coordination tools with bounded HTTP access over one live scope. */
 export async function serveCoordinationMcp(
   opts: CoordinationTransportOptions & {
     /** Trusted audit identity; defaults to the live scope node. */
@@ -551,5 +550,6 @@ export async function serveCoordinationMcpForManager(
 }
 
 export function coordinationBindingHost({ hostname }: URL) {
-  return isLoopbackHost(hostname) || isIP(hostname.replace(/^\[|\]$/g, '')) ? undefined : hostname
+  if (isLoopbackHost(hostname) || isIP(hostname.replace(/^\[|\]$/g, ''))) return undefined
+  return ProxySecretScopeSchema.safeParse({ hosts: [hostname] }).success ? hostname : null
 }

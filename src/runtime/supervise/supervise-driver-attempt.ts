@@ -248,7 +248,7 @@ async function providerAttemptFactory(
   const address = new URL(coordinationMcpUrl)
   const host = coordinationBindingHost(address)
   const protectedPath = Boolean(
-    (host || providerHarness === 'opencode' || providerHarness === 'codex') &&
+    (host || (host === undefined && ['opencode', 'codex'].includes(providerHarness ?? ''))) &&
       (address.protocol === 'https:' || !host) &&
       provider.secrets?.update &&
       provider.secrets.list,

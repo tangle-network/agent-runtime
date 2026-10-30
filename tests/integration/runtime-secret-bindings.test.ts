@@ -21,7 +21,7 @@ beforeAll(async () => {
     '-subj',
     '/CN=localhost.localdomain',
     '-addext',
-    'subjectAltName=DNS:localhost.localdomain',
+    'subjectAltName=DNS:localhost.localdomain,DNS:localhost.localdomain.',
     '-keyout',
     join(directory, 'key.pem'),
     '-out',
@@ -61,7 +61,7 @@ async function run(mode: string) {
   )
   expect(stderr.includes('TimeoutOverflowWarning')).toBe(false)
   const result = JSON.parse(stdout.trim().split('\n').at(-1)!)
-  if (result.resultKind === 'no-winner')
+  if (result.resultKind === 'no-winner' || result.rejected)
     console.error(
       JSON.stringify({
         mode,
@@ -206,7 +206,7 @@ it('uses the SDK isolated preparation transport for loopback coordination withou
   })
 })
 it('preserves prior local harness and HTTP host delivery without unsupported custody claims', async () => {
-  for (const mode of ['local-claude', 'local-pi', 'http-local-name'])
+  for (const mode of ['local-claude', 'local-pi', 'trailing-dot'])
     expect(await run(mode)).toMatchObject({
       resultKind: 'winner',
       settled: true,
