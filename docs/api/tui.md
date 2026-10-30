@@ -1432,7 +1432,7 @@ A reconnect always receives current truth; deltas replace changed roots atomical
 
 **`Experimental`**
 
-Defaults to the installed agent-record browser asset export.
+Defaults to the installed Sandbox UI browser asset export.
 
 ##### host?
 
