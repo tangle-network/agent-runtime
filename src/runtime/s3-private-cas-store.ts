@@ -118,7 +118,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
   ) => {
     const response = await request('HEAD', objectKey, signal === undefined ? {} : { signal })
     if (response.status === 404) return false
-    if (!response.ok) throw await refusal(response, 'HEAD')
+    if (!response.ok) throw await refusal(response, `HEAD ${objectKey}`)
     const length = Number(response.headers.get('content-length'))
     const recorded = response.headers.get(METADATA_DIGEST)
     if (length !== byteLength || (recorded !== null && recorded !== digest))
@@ -159,7 +159,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
           },
           ...(signal === undefined ? {} : { signal }),
         })
-        if (!response.ok) throw await refusal(response, 'PUT')
+        if (!response.ok) throw await refusal(response, `PUT ${objectKey}`)
         await response.body?.cancel().catch(() => undefined)
         if (!(await holds(objectKey, digest, byteLength, signal)))
           throw new Error(`S3 private CAS object ${objectKey} is absent after its write`)
@@ -168,16 +168,13 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
       }
     },
     async getStream({ namespace, digest, signal }) {
-      const response = await request(
-        'GET',
-        key(namespace, digest),
-        signal === undefined ? {} : { signal },
-      )
+      const objectKey = key(namespace, digest)
+      const response = await request('GET', objectKey, signal === undefined ? {} : { signal })
       if (response.status === 404) {
         await response.body?.cancel().catch(() => undefined)
         return undefined
       }
-      if (!response.ok) throw await refusal(response, 'GET')
+      if (!response.ok) throw await refusal(response, `GET ${objectKey}`)
       if (!response.body) throw new Error('S3 private CAS GET returned no body')
       return (async function* () {
         const reader = response.body!.getReader()
@@ -202,22 +199,19 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
         headers: { 'content-type': CONTENT_TYPE, [METADATA_DIGEST]: digest },
         ...(signal === undefined ? {} : { signal }),
       })
-      if (!response.ok) throw await refusal(response, 'PUT')
+      if (!response.ok) throw await refusal(response, `PUT ${objectKey}`)
       await response.body?.cancel().catch(() => undefined)
       if (!(await holds(objectKey, digest, bytes.byteLength, signal)))
         throw new Error(`S3 private CAS object ${objectKey} is absent after its write`)
     },
     async get({ namespace, digest, signal }) {
-      const response = await request(
-        'GET',
-        key(namespace, digest),
-        signal === undefined ? {} : { signal },
-      )
+      const objectKey = key(namespace, digest)
+      const response = await request('GET', objectKey, signal === undefined ? {} : { signal })
       if (response.status === 404) {
         await response.body?.cancel().catch(() => undefined)
         return undefined
       }
-      if (!response.ok) throw await refusal(response, 'GET')
+      if (!response.ok) throw await refusal(response, `GET ${objectKey}`)
       return new Uint8Array(await response.arrayBuffer())
     },
     async putPointer({ namespace, name, bytes, signal }) {
@@ -231,7 +225,7 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
         headers: { 'content-type': 'application/json', [METADATA_DIGEST]: digest },
         ...(signal === undefined ? {} : { signal }),
       })
-      if (!response.ok) throw await refusal(response, 'PUT')
+      if (!response.ok) throw await refusal(response, `PUT ${objectKey}`)
       await response.body?.cancel().catch(() => undefined)
       // A concurrent writer may already have replaced it; only an absent or unreadable pointer fails.
       const confirm = await request('HEAD', objectKey, signal === undefined ? {} : { signal })
@@ -240,16 +234,13 @@ export function createS3PrivateCasStore(options: S3PrivateCasStoreOptions): S3Pr
         throw new Error(`S3 private CAS pointer ${objectKey} is absent after its write`)
     },
     async getPointer({ namespace, name, signal }) {
-      const response = await request(
-        'GET',
-        pointerKey(namespace, name),
-        signal === undefined ? {} : { signal },
-      )
+      const objectKey = pointerKey(namespace, name)
+      const response = await request('GET', objectKey, signal === undefined ? {} : { signal })
       if (response.status === 404) {
         await response.body?.cancel().catch(() => undefined)
         return undefined
       }
-      if (!response.ok) throw await refusal(response, 'GET')
+      if (!response.ok) throw await refusal(response, `GET ${objectKey}`)
       return new Uint8Array(await response.arrayBuffer())
     },
   }
