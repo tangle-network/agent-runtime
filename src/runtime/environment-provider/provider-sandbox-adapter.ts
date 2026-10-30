@@ -114,8 +114,6 @@ export function providerAsSandboxClient(
             : binding,
         )
       const entries = new Set((Array.isArray(mapped.secrets) ? mapped.secrets : []).map(bindingId))
-      if (selected === 'all' && mapped.secrets !== 'all')
-        throw new ValidationError('mapped create changed all stored-secret selection')
       for (const binding of Array.isArray(selected) ? selected : [])
         if (typeof binding !== 'string' && !entries.has(bindingId(binding)))
           throw new ValidationError('mapped create changed a stored host binding')

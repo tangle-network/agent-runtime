@@ -211,13 +211,6 @@ try {
       defaults.create({ backend: { type: 'opencode', profile } }),
       /declarations disagree/,
     )
-    const all = providerAsSandboxClient(provider, {
-      mapCreateOptions: () => ({ secrets: [] }),
-    })
-    await assert.rejects(
-      all.create({ backend: { type: 'opencode', profile }, secrets: 'all' }),
-      /changed all stored-secret selection/,
-    )
     for (const secrets of [
       ['TOKEN'],
       [{ name: 'TOKEN', host: 'other.example.com' }],
@@ -280,9 +273,13 @@ try {
       mapCreateOptions: () => ({ secrets: ['LEGACY_TARGET'] }),
     }).create({ backend: { type: 'opencode', profile }, secrets: ['LEGACY_SOURCE'] })
     assert.deepEqual(creates.at(-1).secrets, ['LEGACY_TARGET'])
+    await providerAsSandboxClient(provider, {
+      mapCreateOptions: () => ({ secrets: ['LEGACY_ALL_TARGET'] }),
+    }).create({ backend: { type: 'opencode', profile }, secrets: 'all' })
+    assert.deepEqual(creates.at(-1).secrets, ['LEGACY_ALL_TARGET'])
     console.log(
       JSON.stringify({
-        deniedBeforeCreate: 13,
+        deniedBeforeCreate: 12,
         authoredCustodyPreserved: 2,
         legacyTranslationPreserved: true,
         canonicalDeclarationsPreserved: 2,
