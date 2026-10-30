@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, readdir, readFile, realpath } from 'node:fs/promises'
+import { readdir, readFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -75,13 +75,6 @@ export async function runPythonTests(python, env = process.env) {
 }
 
 async function main() {
-  const python = path.join(benchDir, '.venv', 'bin', 'python')
-  try {
-    await access(python)
-  } catch {
-    await run('python3', ['-m', 'venv', '.venv'])
-  }
-
   const tests = await collectTests(sourceDir)
   if (tests.length === 0) throw new Error('no package tests found under src/')
 
@@ -111,7 +104,7 @@ async function main() {
     await run('npx', ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))])
   }
 
-  await runPythonTests(python)
+  await runPythonTests('python3')
 
   console.log(
     `package tests passed: ${tests.length}/${tests.length} TypeScript files (${nodeTests.length} node:test + ${vitestTests.length} vitest) + Pier bridge`,
