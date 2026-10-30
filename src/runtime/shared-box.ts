@@ -29,7 +29,7 @@
  *
  * The workers of one box share the box's router key. Each worker names itself to the router with
  * the `x-tangle-client` header, which the router stores as `clientName` on every usage row, so a
- * keeper can price one worker from the key's per-client rows (`tangle-admin router-spend --key
+ * keeper can price one worker from the key's per-client rows (`tangle-ops router-spend --key
  * <box key>`). A request without the header stays charged to the box.
  *
  * `workersPerBox` is the one structural cap, and it protects the box. A Tangle box has a fixed
