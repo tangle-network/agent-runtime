@@ -251,11 +251,10 @@ async function providerAttemptFactory(
   const host = fenced
     ? coordinationBindingHost(coordinationMcpUrl, providerHarness)
     : new URL(coordinationMcpUrl).hostname
-  const credentialName =
-    'AGENT_RUNTIME_COORDINATION_TOKEN_' +
-    canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
-      .slice(7, 31)
-      .toUpperCase()
+  const suffix = canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
+    .slice(7, 31)
+    .toUpperCase()
+  const credentialName = `AGENT_RUNTIME_COORDINATION_TOKEN${fenced ? `_${suffix}` : ''}`
   const defaults = backend.defaults ?? {}
   const env = {
     ...(providerHarness === 'claude-code' ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' } : {}),
@@ -318,11 +317,10 @@ async function providerAttemptFactory(
     )
     coordinated.defaults!.proxySecrets = mergeProxySecretBindings(
       defaults.proxySecrets,
-      policy.proxySecrets,
+      policy.proxySecrets?.map(({ ttlSeconds: _, ...binding }) => binding),
     )
     input.scope.signal.throwIfAborted()
-  }
-  else if (host) env[credentialName] = authorization.slice(7)
+  } else if (host) env[credentialName] = authorization.slice(7)
   if (!host) {
     const turn = backend.promptOptions?.backend ?? {}
     coordinated.promptOptions = {

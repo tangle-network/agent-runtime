@@ -98,7 +98,7 @@ const assertPolicyIdentity = () => {
       create.proxySecrets?.some((binding) => binding.envName === request[0].envName),
     ))
       assert.deepEqual(
-        request,
+        request.map(({ ttlSeconds: _, ...binding }) => binding),
         create.proxySecrets.filter((binding) => binding.secretRef.key === request[0].secretRef.key),
       )
   }
@@ -491,7 +491,9 @@ try {
   capabilities.streaming = { live: true, replay: false, detach: false, turnIdempotency: false }
   capabilities.sessions = { continue: false, list: false, messages: false }
   const Client = mode === 'legacy-store' ? (await import('legacy-sandbox')).Sandbox : Sandbox
-  const provider = createTangleProvider({
+  const createProvider =
+    mode === 'legacy-fenced' ? (await import('legacy-provider')).createTangleProvider : createTangleProvider
+  const provider = createProvider({
     client: new Client({
       apiKey: 'fixture-api-key',
       baseUrl,
@@ -622,6 +624,7 @@ try {
           (binding) =>
             /^AGENT_RUNTIME_COORDINATION_TOKEN_[A-F0-9]{24}$/.test(binding.envName) &&
             binding.secretRef.key === binding.envName &&
+            binding.ttlSeconds === undefined &&
             binding.hosts.length === 1 &&
             binding.hosts[0] === host &&
             binding.presentation.type === 'bearer',
@@ -682,12 +685,24 @@ try {
         oldRevokedAfterAcknowledgement,
         secretPosts: requests.filter((request) => request === 'POST /v1/secrets').length,
         legacyStorePortAbsent: provider.secrets === undefined,
+        legacyOwnedReferencePreserved:
+          mode === 'legacy-store' &&
+          creates[0]?.backend.runtimeAttachments.mcp['agent-runtime-coordination'].headers
+            .Authorization.key === 'AGENT_RUNTIME_COORDINATION_TOKEN',
         legacyDeliveryPreserved:
           mode === 'legacy-store' &&
           mcpAccepted &&
           secretValues.size === 1 &&
           creates.length === 1 &&
           [...secretValues].every((value) => Object.values(creates[0].env).includes(value)),
+        legacyFencedDeliveryPreserved:
+          mode === 'legacy-fenced' &&
+          mcpAccepted &&
+          noRawCreate &&
+          creates[0]?.secrets?.some(
+            (binding) => binding.host === host && binding.name === policyRequests[0][0].envName,
+          ) &&
+          policyRequests[0][0].ttlSeconds > 0,
       }),
     )
   }
