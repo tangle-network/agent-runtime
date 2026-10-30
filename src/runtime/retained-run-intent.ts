@@ -113,7 +113,7 @@ function publicResourceMaterial(
 function retainedSecretNames(
   secrets: NonNullable<CreateAgentEnvironmentInput['secrets']>,
 ): NonNullable<CreateAgentEnvironmentInput['secrets']> {
-  if (!Array.isArray(secrets)) return Object.keys(secrets).sort()
+  if (!Array.isArray(secrets)) return secrets === 'all' ? secrets : Object.keys(secrets).sort()
   if (secrets.every((entry) => typeof entry === 'string')) return [...secrets].sort()
   return [...secrets].sort((a, b) =>
     canonicalCandidateDigest(a).localeCompare(canonicalCandidateDigest(b)),

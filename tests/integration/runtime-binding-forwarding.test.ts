@@ -6,7 +6,7 @@ import { expect, it } from 'vitest'
 
 const execute = promisify(execFile)
 
-/** Fresh consumer process using package exports, actual Sandbox HTTP and Tangle lowering. */
+/** Fresh consumer process using package exports, actual Sandbox HTTP and canonical declarations. */
 async function run(mode: string) {
   const { stdout } = await execute(
     process.execPath,
@@ -22,7 +22,9 @@ async function run(mode: string) {
 it('forwards stored host selectors and authored bindings through public Runtime and Tangle exports', async () => {
   expect(await run('selectors')).toEqual({
     selectorsPreserved: true,
-    authoredBindingLowered: true,
+    canonicalDeclarationPreserved: true,
+    fullSchemaPreserved: true,
+    legacyDeliveryPreserved: true,
     candidateRoundTripPreserved: true,
   })
 })
@@ -33,16 +35,16 @@ it('preserves legacy string identity while binding retained intent to secret des
     legacyWireIdentityPreserved: true,
     hostChangesIdentity: true,
     headerChangesIdentity: true,
-    portableHostChangesIdentity: true,
+    canonicalScopeChangesIdentity: true,
   })
 })
 
 it('holds custom mappers to requested custody before HTTP allocation while allowing legacy translations', async () => {
   expect(await run('mappers')).toEqual({
-    deniedBeforeCreate: 7,
+    deniedBeforeCreate: 13,
     authoredCustodyPreserved: 2,
     legacyTranslationPreserved: true,
-    equivalentHeadersPreserved: 2,
+    canonicalDeclarationsPreserved: 2,
     asyncAliasDetached: true,
   })
 })

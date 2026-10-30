@@ -370,7 +370,7 @@ The file run lock remains the single-owner fence; these credentials do not enabl
 
 Provider managers require `capabilities.create.runtimeAttachments.mcp` and an authenticated public endpoint.
 Runtime passes the MCP server through `CreateAgentEnvironmentInput.runtimeAttachments`, preserving the canonical profile.
-Public HTTPS FQDN coordination uses a unique stored secret selected by `{name, host, header}`; raw bearers never enter create env or public attachments.
+Public HTTPS FQDN coordination uses a unique stored secret referenced by canonical `proxySecrets` with its env name, secret reference, hosts and bearer presentation; raw bearers never enter create env or public attachments.
 The provider secret manager must support create, metadata list, acknowledged update and conditional delete by `updatedAt`; settlement drains renewal before conditional deletion.
 Loopback/IP coordination instead uses isolated opencode/codex per-turn secret preparation; no raw bearer enters public session configuration, receipts or journals.
 Retained manager recovery uses the original admitted backend input and validates its intent before reconnecting.

@@ -3,6 +3,7 @@ import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
+  mergeProxySecretBindings,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
@@ -276,8 +277,6 @@ async function providerAttemptFactory(
   }
   if ((await provider.capabilities()).create?.runtimeAttachments?.mcp !== true)
     throw new ValidationError('provider lacks create.runtimeAttachments.mcp')
-  if (defaults.secrets !== undefined && !Array.isArray(defaults.secrets))
-    throw new ValidationError('provider coordination requires stored-secret selectors')
   if (host) {
     if (
       input.retainedOwner?.admissions.length &&
@@ -314,10 +313,14 @@ async function providerAttemptFactory(
       ...defaults.env,
     }
   if (host)
-    coordinated.defaults!.secrets = [
-      ...(defaults.secrets ?? []),
-      { name: credentialName, host, header: 'Authorization' },
-    ]
+    coordinated.defaults!.proxySecrets = mergeProxySecretBindings(defaults.proxySecrets, [
+      {
+        envName: credentialName,
+        secretRef: { kind: 'secret-ref', key: credentialName },
+        hosts: [host],
+        presentation: { type: 'bearer' },
+      },
+    ])
   else {
     const turn = backend.promptOptions?.backend ?? {}
     coordinated.promptOptions = {

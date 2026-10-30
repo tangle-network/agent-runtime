@@ -106,12 +106,21 @@ try {
     }),
   })
   if (mode === 'selectors') {
-    const binding = { name: 'REPORTS_TOKEN', host: 'reports.example.com', header: 'Authorization' }
+    const binding = {
+      envName: 'REPORTS_ALIAS',
+      secretRef: { kind: 'secret-ref', key: 'REPORTS_TOKEN' },
+      hosts: ['reports.example.com', 'backup.example.com'],
+      methods: ['GET', 'POST'],
+      paths: ['/v1/reports/*'],
+      presentation: { type: 'query', name: 'api_key' },
+      placeholderFormat: 'jwt',
+      ttlSeconds: 60,
+    }
     const declaration = {
       envName: 'PROFILE_TOKEN',
       secretRef: { kind: 'secret-ref', key: 'PROFILE_TOKEN' },
       hosts: ['profile.example.com'],
-      presentation: { type: 'bearer' },
+      presentation: { type: 'basic', username: 'reader' },
     }
     const converted = freezeGenericAgentCandidateProfile({
       ...profile,
@@ -121,64 +130,113 @@ try {
     assert.deepEqual(agentCandidateProfileAsAgentProfile(converted).proxySecrets, [declaration])
     await providerAsSandboxClient(provider).create({
       backend: { type: 'opencode', profile: { ...profile, proxySecrets: [declaration] } },
-      secrets: [binding],
+      proxySecrets: [binding],
     })
-    assert.deepEqual(creates[0].secrets, [
-      binding,
-      { name: 'PROFILE_TOKEN', host: 'profile.example.com', header: 'Authorization' },
-    ])
+    assert.equal(creates[0].proxySecrets.length, 2)
+    for (const expected of [declaration, binding])
+      assert.deepEqual(
+        creates[0].proxySecrets.find((entry) => entry.envName === expected.envName),
+        expected,
+      )
+    assert.deepEqual(creates[0].secrets, [])
+    for (const secrets of [
+      ['BARE_NAME'],
+      [{ name: 'HOST_NAME', host: 'legacy.example.com' }],
+      [{ name: 'RAW_NAME', exposeInBox: true }],
+      'all',
+    ]) {
+      await providerAsSandboxClient(provider).create({
+        backend: { type: 'opencode', profile },
+        secrets,
+        metadata: { reason: 'fixture legacy customer consent' },
+      })
+      assert.deepEqual(creates.at(-1).secrets, secrets)
+    }
+    await providerAsSandboxClient(provider, {
+      mapCreateOptions: () => ({ proxySecrets: undefined }),
+    }).create({ backend: { type: 'opencode', profile }, proxySecrets: [] })
+    assert.deepEqual(creates.at(-1).proxySecrets, [])
     console.log(
       JSON.stringify({
         selectorsPreserved: true,
-        authoredBindingLowered: true,
+        canonicalDeclarationPreserved: true,
         candidateRoundTripPreserved: true,
+        fullSchemaPreserved: true,
+        legacyDeliveryPreserved: true,
       }),
     )
   } else if (mode === 'mappers') {
-    const binding = { name: 'TOKEN', host: 'reports.example.com', header: 'Authorization' }
-    for (const secrets of [
-      ['TOKEN'],
-      [],
-      [{ ...binding, host: 'other.example.com' }],
-      [{ ...binding, header: 'X-Api-Key' }],
-      [{ name: binding.name, exposeInBox: true }],
-    ]) {
-      const client = providerAsSandboxClient(provider, { mapCreateOptions: () => ({ secrets }) })
+    const binding = {
+      envName: 'TOKEN',
+      secretRef: { kind: 'secret-ref', key: 'TOKEN' },
+      hosts: ['reports.example.com'],
+      presentation: { type: 'bearer' },
+    }
+    const changes = [
+      { hosts: ['other.example.com'] },
+      { methods: ['POST'] },
+      { paths: ['/other'] },
+      { secretRef: { kind: 'secret-ref', key: 'OTHER' } },
+      { presentation: { type: 'header', name: 'X-Api-Key' } },
+      { placeholderFormat: 'jwt' },
+      { ttlSeconds: 2 },
+    ]
+    for (const change of changes) {
+      const client = providerAsSandboxClient(provider, {
+        mapCreateOptions: () => ({ proxySecrets: [{ ...binding, ...change }] }),
+      })
       await assert.rejects(
-        client.create({ backend: { type: 'opencode', profile }, secrets: [binding] }),
-        /stored host binding/,
+        client.create({ backend: { type: 'opencode', profile }, proxySecrets: [binding] }),
+        /declarations disagree/,
       )
     }
     const mutate = providerAsSandboxClient(provider, {
       mapCreateOptions: (options) => {
-        options.secrets[0].host = 'other.example.com'
-        return { secrets: options.secrets }
+        options.proxySecrets[0].hosts[0] = 'other.example.com'
+        return {}
       },
     })
     await assert.rejects(
-      mutate.create({ backend: { type: 'opencode', profile }, secrets: [{ ...binding }] }),
-      /stored host binding/,
+      mutate.create({
+        backend: { type: 'opencode', profile },
+        proxySecrets: [structuredClone(binding)],
+      }),
+      /declarations disagree/,
     )
     const defaults = providerAsSandboxClient(provider, {
-      defaults: { secrets: [binding] },
-      mapCreateOptions: () => ({ secrets: ['TOKEN'] }),
+      defaults: { proxySecrets: [binding] },
+      mapCreateOptions: () => ({ proxySecrets: [{ ...binding, hosts: ['other.example.com'] }] }),
     })
     await assert.rejects(
       defaults.create({ backend: { type: 'opencode', profile } }),
-      /stored host binding/,
+      /declarations disagree/,
     )
+    const all = providerAsSandboxClient(provider, {
+      mapCreateOptions: () => ({ secrets: [] }),
+    })
+    await assert.rejects(
+      all.create({ backend: { type: 'opencode', profile }, secrets: 'all' }),
+      /changed all stored-secret selection/,
+    )
+    for (const secrets of [
+      ['TOKEN'],
+      [{ name: 'TOKEN', host: 'other.example.com' }],
+      [{ name: 'TOKEN', exposeInBox: true }],
+    ]) {
+      await assert.rejects(
+        providerAsSandboxClient(provider, { mapCreateOptions: () => ({ secrets }) }).create({
+          backend: { type: 'opencode', profile },
+          secrets: [{ name: 'TOKEN', host: 'reports.example.com' }],
+        }),
+        /changed a stored host binding/,
+      )
+    }
     assert.equal(creates.length, 0)
-    for (const header of [undefined, 'authorization']) {
-      const client = providerAsSandboxClient(provider, {
-        mapCreateOptions: () => ({ secrets: [binding] }),
-      })
-      await client.create({
-        backend: { type: 'opencode', profile },
-        secrets: [
-          { name: binding.name, host: binding.host, ...(header === undefined ? {} : { header }) },
-        ],
-      })
-      assert.deepEqual(creates.at(-1).secrets, [binding])
+    for (const proxySecrets of [undefined, []]) {
+      await providerAsSandboxClient(provider, {
+        mapCreateOptions: () => ({ proxySecrets }),
+      }).create({ backend: { type: 'opencode', profile }, proxySecrets: [binding] })
+      assert.deepEqual(creates.at(-1).proxySecrets, [binding])
     }
     let queuedMutationRan = false
     const queued = providerAsSandboxClient(provider, {
@@ -187,22 +245,23 @@ try {
       },
       mapCreateOptions: (options) => {
         queueMicrotask(() => {
-          options.secrets[0].host = 'other.example.com'
+          options.proxySecrets[0].hosts[0] = 'other.example.com'
+          options.backend.profile.proxySecrets[0].hosts[0] = 'other.example.com'
           queuedMutationRan = true
         })
         return {}
       },
     })
-    await queued.create({ backend: { type: 'opencode', profile }, secrets: [{ ...binding }] })
+    await queued.create({
+      backend: {
+        type: 'opencode',
+        profile: { ...profile, proxySecrets: [structuredClone(binding)] },
+      },
+      proxySecrets: [structuredClone(binding)],
+    })
     assert.equal(queuedMutationRan, true)
-    assert.deepEqual(creates.at(-1).secrets, [binding])
+    assert.deepEqual(creates.at(-1).proxySecrets, [binding])
     for (const mutate of [false, true]) {
-      const declaration = {
-        envName: 'TOKEN',
-        secretRef: { kind: 'secret-ref', key: 'TOKEN' },
-        hosts: [binding.host],
-        presentation: { type: 'bearer' },
-      }
       const client = providerAsSandboxClient(provider, {
         mapCreateOptions: (options) => {
           if (mutate) options.backend.profile.proxySecrets.length = 0
@@ -210,21 +269,23 @@ try {
         },
       })
       await client.create({
-        backend: { type: 'opencode', profile: { ...profile, proxySecrets: [declaration] } },
+        backend: {
+          type: 'opencode',
+          profile: { ...profile, proxySecrets: [structuredClone(binding)] },
+        },
       })
-      assert.deepEqual(creates.at(-1).secrets, [binding])
+      assert.deepEqual(creates.at(-1).proxySecrets, [binding])
     }
-    const legacy = providerAsSandboxClient(provider, {
+    await providerAsSandboxClient(provider, {
       mapCreateOptions: () => ({ secrets: ['LEGACY_TARGET'] }),
-    })
-    await legacy.create({ backend: { type: 'opencode', profile }, secrets: ['LEGACY_SOURCE'] })
+    }).create({ backend: { type: 'opencode', profile }, secrets: ['LEGACY_SOURCE'] })
     assert.deepEqual(creates.at(-1).secrets, ['LEGACY_TARGET'])
     console.log(
       JSON.stringify({
-        deniedBeforeCreate: 7,
+        deniedBeforeCreate: 13,
         authoredCustodyPreserved: 2,
         legacyTranslationPreserved: true,
-        equivalentHeadersPreserved: 2,
+        canonicalDeclarationsPreserved: 2,
         asyncAliasDetached: true,
       }),
     )
@@ -266,26 +327,43 @@ try {
       turn: { prompt: 'public identity only' },
     }
     assert.equal(ordered.requestDigest, canonicalCandidateDigest(historicalWireIdentity))
-    const first = await capture([
-      { name: 'TOKEN', host: 'first.example.com', header: 'Authorization' },
-    ])
-    const hostChanged = await capture([
-      { name: 'TOKEN', host: 'next.example.com', header: 'Authorization' },
-    ])
-    const headerChanged = await capture([
-      { name: 'TOKEN', host: 'first.example.com', header: 'X-Api-Key' },
-    ])
-    assert.notEqual(first.requestDigest, hostChanged.requestDigest)
-    assert.notEqual(first.requestDigest, headerChanged.requestDigest)
+    const allSelection = await capture('all')
+    assert.equal(
+      allSelection.requestDigest,
+      canonicalCandidateDigest({
+        ...historicalWireIdentity,
+        create: { secretNames: 'all' },
+      }),
+    )
+    const legacyHost = { name: 'TOKEN', host: 'first.example.com' }
+    const legacyIntent = await capture([legacyHost])
+    for (const change of [{ host: 'other.example.com' }, { header: 'X-Api-Key' }])
+      assert.notEqual(
+        legacyIntent.requestDigest,
+        (await capture([{ ...legacyHost, ...change }])).requestDigest,
+      )
     const portable = {
       envName: 'TOKEN',
       secretRef: { kind: 'secret-ref', key: 'TOKEN' },
       hosts: ['first.example.com'],
       presentation: { type: 'bearer' },
     }
-    const before = await capture(undefined, [portable])
-    const after = await capture(undefined, [{ ...portable, hosts: ['next.example.com'] }])
-    assert.notEqual(before.requestDigest, after.requestDigest)
+    const first = await capture(undefined, [portable])
+    for (const changed of [
+      { hosts: ['next.example.com'] },
+      { methods: ['POST'] },
+      { paths: ['/other'] },
+      { presentation: { type: 'header', name: 'X-Api-Key' } },
+      { presentation: { type: 'query', name: 'api_key' } },
+      { placeholderFormat: 'jwt' },
+      { ttlSeconds: 60 },
+      { envName: 'ALIAS' },
+      { secretRef: { kind: 'secret-ref', key: 'OTHER' } },
+    ])
+      assert.notEqual(
+        first.requestDigest,
+        (await capture(undefined, [{ ...portable, ...changed }])).requestDigest,
+      )
     assert.equal(requests.length, 0)
     console.log(
       JSON.stringify({
@@ -293,7 +371,7 @@ try {
         legacyWireIdentityPreserved: true,
         hostChangesIdentity: true,
         headerChangesIdentity: true,
-        portableHostChangesIdentity: true,
+        canonicalScopeChangesIdentity: true,
       }),
     )
   } else if (mode === 'raw-candidate') {

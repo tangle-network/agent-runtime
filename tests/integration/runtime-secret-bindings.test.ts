@@ -39,7 +39,12 @@ async function run(mode: string) {
     process.execPath,
     [
       '--dns-result-order=ipv4first',
-      fileURLToPath(new URL('./fixtures/runtime-secret-bindings.mjs', import.meta.url)),
+      fileURLToPath(
+        new URL(
+          `./fixtures/${['selectors', 'identity'].includes(mode) ? 'runtime-binding-forwarding' : 'runtime-secret-bindings'}.mjs`,
+          import.meta.url,
+        ),
+      ),
       mode,
       certificate,
       join(directory, 'key.pem'),
@@ -72,7 +77,9 @@ async function run(mode: string) {
 it('passes direct and authored host declarations through the public Sandbox adapter and Tangle provider', async () => {
   expect(await run('selectors')).toEqual({
     selectorsPreserved: true,
-    authoredBindingLowered: true,
+    canonicalDeclarationPreserved: true,
+    fullSchemaPreserved: true,
+    legacyDeliveryPreserved: true,
     candidateRoundTripPreserved: true,
   })
 })
@@ -82,7 +89,7 @@ it('keeps string selector ordering stable and binds retained identity to host an
     legacyWireIdentityPreserved: true,
     hostChangesIdentity: true,
     headerChangesIdentity: true,
-    portableHostChangesIdentity: true,
+    canonicalScopeChangesIdentity: true,
   })
 })
 it('stores coordination outside create.env, authenticates MCP over TLS, and revokes at settlement', async () => {

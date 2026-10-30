@@ -9,20 +9,11 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import {
   createTangleProvider,
   defaultTangleSandboxCapabilities,
 } from '@tangle-network/agent-provider-tangle'
-import {
-  agentCandidateProfileAsAgentProfile,
-  freezeGenericAgentCandidateProfile,
-} from '@tangle-network/agent-runtime/candidate-execution'
-import {
-  providerAsSandboxClient,
-  startRetainedRun,
-  supervise,
-} from '@tangle-network/agent-runtime/kernel'
+import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 
 const [mode, certificate, key] = process.argv.slice(2)
@@ -505,103 +496,6 @@ try {
       if (child.exitCode === null) child.kill('SIGKILL')
       await rm(directory, { recursive: true, force: true })
     }
-  } else if (mode === 'selectors') {
-    const binding = { name: 'REPORTS_TOKEN', host: 'reports.example.com', header: 'Authorization' }
-    const declaration = {
-      envName: 'PROFILE_TOKEN',
-      secretRef: { kind: 'secret-ref', key: 'PROFILE_TOKEN' },
-      hosts: ['profile.example.com'],
-      presentation: { type: 'bearer' },
-    }
-    const converted = freezeGenericAgentCandidateProfile({
-      ...profile,
-      proxySecrets: [declaration],
-    })
-    assert.deepEqual(converted.proxySecrets, [declaration])
-    assert.deepEqual(agentCandidateProfileAsAgentProfile(converted).proxySecrets, [declaration])
-    await providerAsSandboxClient(provider).create({
-      backend: { type: 'opencode', profile: { ...profile, proxySecrets: [declaration] } },
-      secrets: [binding],
-    })
-    assert.deepEqual(creates[0].secrets, [
-      binding,
-      { name: 'PROFILE_TOKEN', host: 'profile.example.com', header: 'Authorization' },
-    ])
-    console.log(
-      JSON.stringify({
-        selectorsPreserved: true,
-        authoredBindingLowered: true,
-        candidateRoundTripPreserved: true,
-      }),
-    )
-  } else if (mode === 'identity') {
-    const capture = async (secrets, proxySecrets) => {
-      let intent
-      try {
-        await startRetainedRun({
-          provider,
-          environment: {
-            profile: 'custody-public-profile',
-            secrets,
-            proxySecrets,
-            idempotencyKey: 'legacy-secret-identity',
-          },
-          identity: { sessionId: 'identity-session', executionId: 'identity-execution' },
-          turn: { prompt: 'public identity only', turnId: 'identity-turn' },
-          onAdmission: async (admission) => {
-            intent = admission
-            throw new Error('durability boundary intentionally held')
-          },
-        })
-      } catch {}
-      assert.equal(intent?.phase, 'intent')
-      return intent
-    }
-    const ordered = await capture(['Z_TOKEN', 'A_TOKEN']),
-      reversed = await capture(['A_TOKEN', 'Z_TOKEN'])
-    assert.equal(ordered.requestDigest, reversed.requestDigest)
-    const historicalWireIdentity = {
-      kind: 'retained-run-intent.v1',
-      provider: provider.name,
-      idempotencyKey: 'legacy-secret-identity',
-      turnId: 'identity-turn',
-      sessionId: 'identity-session',
-      executionId: 'identity-execution',
-      requestedProfileDigest: canonicalCandidateDigest('custody-public-profile'),
-      create: { secretNames: ['A_TOKEN', 'Z_TOKEN'] },
-      turn: { prompt: 'public identity only' },
-    }
-    assert.equal(ordered.requestDigest, canonicalCandidateDigest(historicalWireIdentity))
-    const first = await capture([
-      { name: 'TOKEN', host: 'first.example.com', header: 'Authorization' },
-    ])
-    const hostChanged = await capture([
-      { name: 'TOKEN', host: 'next.example.com', header: 'Authorization' },
-    ])
-    const headerChanged = await capture([
-      { name: 'TOKEN', host: 'first.example.com', header: 'X-Api-Key' },
-    ])
-    assert.notEqual(first.requestDigest, hostChanged.requestDigest)
-    assert.notEqual(first.requestDigest, headerChanged.requestDigest)
-    const portable = {
-      envName: 'TOKEN',
-      secretRef: { kind: 'secret-ref', key: 'TOKEN' },
-      hosts: ['first.example.com'],
-      presentation: { type: 'bearer' },
-    }
-    const before = await capture(undefined, [portable])
-    const after = await capture(undefined, [{ ...portable, hosts: ['next.example.com'] }])
-    assert.notEqual(before.requestDigest, after.requestDigest)
-    assert.equal(requests.length, 0)
-    console.log(
-      JSON.stringify({
-        stringSelectionOrderStable: true,
-        legacyWireIdentityPreserved: true,
-        hostChangesIdentity: true,
-        headerChangesIdentity: true,
-        portableHostChangesIdentity: true,
-      }),
-    )
   } else {
     let settled = false,
       rejected = false,
@@ -658,12 +552,18 @@ try {
     const noRawCreate = creates.every((create) =>
       [...secretValues].every((value) => !JSON.stringify(create).includes(value)),
     )
-    const namesValid = creates.every((create) =>
-      (create.secrets ?? []).every(
-        (binding) =>
-          typeof binding === 'string' ||
-          /^AGENT_RUNTIME_COORDINATION_TOKEN_[A-F0-9]{24}$/.test(binding.name),
-      ),
+    const namesValid = creates.every(
+      (create) =>
+        (mode === 'fallback' ||
+          (create.proxySecrets?.length === 1 && create.secrets?.length === 0)) &&
+        (create.proxySecrets ?? []).every(
+          (binding) =>
+            /^AGENT_RUNTIME_COORDINATION_TOKEN_[A-F0-9]{24}$/.test(binding.envName) &&
+            binding.secretRef.key === binding.envName &&
+            binding.hosts.length === 1 &&
+            binding.hosts[0] === host &&
+            binding.presentation.type === 'bearer',
+        ),
     )
     console.log(
       JSON.stringify({
@@ -680,9 +580,7 @@ try {
         namesValid,
         distinctCredentialNames: new Set(
           creates.flatMap((create) =>
-            (create.secrets ?? []).map((binding) =>
-              typeof binding === 'string' ? binding : binding.name,
-            ),
+            (create.proxySecrets ?? []).map((binding) => binding.envName),
           ),
         ).size,
         creates: creates.length,
