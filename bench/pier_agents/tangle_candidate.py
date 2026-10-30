@@ -405,28 +405,23 @@ class TangleCandidateAgent(BaseAgent):
             environment, anchor, label="trusted directory anchor"
         )
         current = parsed_anchor
-        relative_parts = parsed.relative_to(parsed_anchor).parts
-        for part in relative_parts:
+        checks = ["set -eu"]
+        for part in parsed.relative_to(parsed_anchor).parts:
             current /= part
-            value = str(current)
-            quoted = shlex.quote(value)
-            await self._exec(
-                environment,
-                "\n".join(
-                    [
-                        "set -eu",
-                        f"if test -e {quoted} || test -L {quoted}; then",
-                        f"  test -d {quoted}",
-                        f"  test ! -L {quoted}",
-                        "else",
-                        f"  mkdir -- {quoted}",
-                        f"  chmod {mode:o} -- {quoted}",
-                        "fi",
-                        f'test "$(realpath -e -- {quoted})" = {quoted}',
-                    ]
-                ),
-                user="root",
-            )
+            quoted = shlex.quote(str(current))
+            checks.extend([
+                f"if test -e {quoted} || test -L {quoted}; then",
+                f"  test -d {quoted}",
+                f"  test ! -L {quoted}",
+                "else",
+                f"  mkdir -- {quoted}",
+                f"  chmod {mode:o} -- {quoted}",
+                "fi",
+                f'test "$(realpath -e -- {quoted})" = {quoted}',
+            ])
+        if len(checks) > 1:
+            await self._exec(environment, "\n".join(checks), user="root")
+
 
     async def _write_verified_file(
         self,
