@@ -1293,6 +1293,35 @@ describe('coordination credential continuity', () => {
     }
   })
 
+  it('resumes a signed credential whether or not the receiver sets an explicit ttl', async () => {
+    const signingKeys = { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } }
+    const proxy = await publicProxy()
+    const publicUrl = ({ port }: { port: number }) => {
+      proxy.forwardTo(port)
+      return `${proxy.url}/scope-bound`
+    }
+    let original: Readonly<Record<string, string>> = {}
+    await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
+      original = mcp.headers
+    })
+    for (const ttlMs of [undefined, 900_000]) {
+      await withBoundHttp(
+        {
+          authentication: { signingKeys, ...(ttlMs === undefined ? {} : { ttlMs }) },
+          publicUrl,
+        },
+        async (mcp) => {
+          const response = await fetch(`http://127.0.0.1:${mcp.port}/mcp`, {
+            method: 'POST',
+            headers: { ...original, 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+          })
+          expect(response.status).toBe(200)
+        },
+      )
+    }
+  })
+
   it('accepts an original credential only for its exact restarted authority and retained verification key', async () => {
     const signingKeys = { activeKeyId: 'original', keys: { original: 'a'.repeat(48) } }
     const proxy = await publicProxy()
