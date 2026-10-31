@@ -1,3 +1,9 @@
+## 3.0.11
+
+Preserve retained private-turn transport and exact historical admission identities after recovery, reject malformed or reserved private replay input before admission, and retain bounded private CAS refusal diagnostics through the canonical public kernel.
+
+Keep retained admission stable across private credential rotation while preserving exact historical replay. Complete missing private-turn profile and harness fields after admission so reconstructed SDK handles can resume without changing the original intent or caller conflict checks.
+
 ## 3.0.10
 
 Qualify canonical coordination custody against the public Sandbox SDK and Provider with one shared SDK selection for Runtime and its benchmarks.
