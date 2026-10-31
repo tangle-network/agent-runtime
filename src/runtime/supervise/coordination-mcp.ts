@@ -351,6 +351,12 @@ export async function serveCoordinationMcpForManager(
     throw new ConfigError('authenticated coordination requires a trusted run and actor identity')
   }
   const state = openCoordinationListenerState()
+  const stopUnreachable = (reason: string) => {
+    state.closed = true
+    try {
+      opts.onStop?.(reason)
+    } catch {}
+  }
   const credentials = createCoordinationCredentials({
     authentication: opts.authentication,
     identity,
@@ -359,6 +365,8 @@ export async function serveCoordinationMcpForManager(
     lifetimeSignal: lifetime,
     lifetimeExpiresAt: opts.scope.rootDeadlineAtMs,
     isClosed: () => state.closed,
+    onExpiredBearer: () =>
+      stopUnreachable('coordination credential expired in its holder: no renewal reached it'),
   })
   const ctx: CoordinationListenerContext = {
     opts,
@@ -451,12 +459,7 @@ export async function serveCoordinationMcpForManager(
     const renew = () => {
       if (!active || state.closed || opts.scope.signal.aborted || lifetime?.aborted) return
       pending = credentials.replace(install)
-      void pending.then(schedule, () => {
-        state.closed = true
-        try {
-          opts.onStop?.('coordination credential renewal failed')
-        } catch {}
-      })
+      void pending.then(schedule, () => stopUnreachable('coordination credential renewal failed'))
     }
     refreshBoundCredential = () => {
       cancelTimer?.()

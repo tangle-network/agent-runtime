@@ -342,7 +342,9 @@ Every stop aborts the scope: cancellation, the run's deadline, and a lead stoppi
 A child's own time box is a check-in that keeps the child running, so its credentials outlive the box until the child is stopped.
 Set `authentication.ttlMs` to select an explicit lease duration.
 Host-bound provider managers renew leases automatically through acknowledged in-place proxy rekey.
-Both bearers remain valid during installation; acknowledgement revokes the previous bearer.
+A renewal never shortens a lease: the replaced bearer stays valid until its own expiry, because a provider can acknowledge an installation the process presenting the bearer never uses.
+A signed bearer of the manager that arrives after its expiry stops the manager, and the run's continuation names the cause, instead of leaving it without coordination tools.
+`rotateCredential()` still revokes the previous bearer at once.
 Set `coordination.publicUrl` to the caller-owned reachable endpoint or an actor-aware endpoint resolver.
 The resolver can return a promise and receives the bound port, run identity, actor identity, and manager signal.
 Runtime awaits resolution before admitting the manager, while the listener refuses requests.

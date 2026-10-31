@@ -39,6 +39,8 @@ export function createCoordinationCredentials(input: {
   readonly lifetimeSignal?: AbortSignal
   readonly lifetimeExpiresAt?: number
   readonly isClosed: () => boolean
+  /** This actor's signed bearer arrived expired: no renewal reached its holder. */
+  readonly onExpiredBearer?: () => void
 }): CoordinationCredentials {
   const auth = typeof input.authentication === 'object' ? input.authentication : undefined
   const signingKeys = auth?.signingKeys
@@ -48,7 +50,10 @@ export function createCoordinationCredentials(input: {
   let readerToken = randomToken(),
     controllerToken = randomToken(),
     audience = ''
-  let current: ReturnType<typeof issue> | undefined, staged: ReturnType<typeof issue> | undefined
+  // A renewal never shortens a lease: an acknowledged installation can miss the bearer's holder.
+  let current: ReturnType<typeof issue> | undefined,
+    staged: ReturnType<typeof issue> | undefined,
+    prior: ReturnType<typeof issue> | undefined
   let allowLegacy = true
   const revoked = new Map<string, number>()
   const grants = createHash('sha256')
@@ -84,11 +89,13 @@ export function createCoordinationCredentials(input: {
       headers: Object.freeze({ Authorization: `Bearer ${text}` }),
     }
   }
-  const commit = (next: ReturnType<typeof issue>) => {
-    if (current) {
-      revoked.set(current.token.toString(), current.expiresAt)
+  const commit = (next: ReturnType<typeof issue>, renewal = false) => {
+    if (current && !renewal) {
+      for (const value of [current, prior])
+        if (value) revoked.set(value.token.toString(), value.expiresAt)
       allowLegacy = false
     }
+    prior = renewal ? current : undefined
     current = next
     staged = undefined
   }
@@ -104,7 +111,7 @@ export function createCoordinationCredentials(input: {
     staged = next
     try {
       await install(next.headers)
-      commit(next)
+      commit(next, true)
     } catch (error) {
       staged = undefined
       revoked.set(next.token.toString(), next.expiresAt)
@@ -115,12 +122,9 @@ export function createCoordinationCredentials(input: {
     supplied.length === expected.length && timingSafeEqual(supplied, expected)
   const valid = (supplied: Buffer): boolean => {
     if (revoked.has(supplied.toString())) return false
-    if (!signingKeys || !allowLegacy)
-      return [current, staged].some(
-        (value) =>
-          value !== undefined && Date.now() < value.expiresAt && matches(supplied, value.token),
-      )
-    if (supplied.length > 8192) return false
+    for (const value of [current, staged, prior])
+      if (value && Date.now() < value.expiresAt && matches(supplied, value.token)) return true
+    if (!signingKeys || !allowLegacy || supplied.length > 8192) return false
     try {
       const parts = supplied.toString().split('.')
       if (parts.length !== 2) return false
@@ -133,14 +137,17 @@ export function createCoordinationCredentials(input: {
       const expiry =
         claims.expires ??
         (allowLegacy && auth?.ttlMs === undefined ? current?.expiresAt : undefined)
-      return (
+      const ours =
         signature.toString('base64url') === parts[1] &&
         matches(signature, expected) &&
         claims.run === run &&
         claims.actor === actor &&
         claims.audience === audience &&
         claims.grants === grants &&
-        Number.isSafeInteger(expiry) &&
+        Number.isSafeInteger(expiry)
+      if (ours && expiry <= Date.now()) input.onExpiredBearer?.()
+      return (
+        ours &&
         expiry > Date.now() &&
         (input.lifetimeExpiresAt === undefined || expiry <= input.lifetimeExpiresAt)
       )
