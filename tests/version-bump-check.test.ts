@@ -863,8 +863,14 @@ describe('a shape change is classified from the declarations it was built from',
   }
   const options = (member: string) =>
     `export interface StartOptions {\n  readonly cwd: string;\n${member}}\nexport declare function start(options: StartOptions): void;\n`
+  // A callable interface (DriveHarness) is both called and implemented; its arguments still split.
+  const callable = (member: string) =>
+    `export interface Drive {\n  (args: {\n  readonly cwd: string;\n${member}}): void;\n}\n`
 
-  it('asks a patch for an added optional member and a major for an added required one', async () => {
+  it.each([
+    ['an options interface', options],
+    ['a callable interface argument', callable],
+  ])('asks a patch for an added optional member of %s and a major for an added required one', async (_form, options) => {
     const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
     roots.push(root)
     await git(root, 'init', '--quiet', '--initial-branch=main')

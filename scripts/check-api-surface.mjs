@@ -441,7 +441,7 @@ const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typ
  *   `|<digest>` or `|tag:...` a union variant; `&<digest>` an opaque intersection part
  *   `@0` `@1`    a signature of a function value         `<>` type parameters
  *   `~form`     completely accounted declaration kind; private heritage is flattened
- *   `~<digest>`  any other member (index, call or construct signature, accessor)
+ *   `~call` an interface's call signature; `~<digest>` any other member (index, construct, accessor)
  *
  * Unsupported, cyclic or ambiguous declarations stay opaque. Only bounded local
  * non-generic aliases, private property heritage and exact mutable const maps expand.
@@ -501,10 +501,10 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
         key = `${member.readonly ? 'readonly ' : ''}${name}${member.optional ? '?' : ''}`
       } else if (name !== undefined && member.type === 'TSMethodSignature' && member.kind === 'method') {
         key = `${name}${member.optional ? '?' : ''}()`
-      }
+      } else if (member.type === 'TSCallSignatureDeclaration') key = '~call'
       if (key === null || key in parts) {
         parts[`~${digest(member)}`] = 1
-      } else if (member.type === 'TSMethodSignature') {
+      } else if (member.type !== 'TSPropertySignature') {
         parts[key] = [digest(member), functionParts(member)]
       } else {
         const annotation = member.typeAnnotation?.typeAnnotation
