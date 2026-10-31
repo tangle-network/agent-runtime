@@ -1,3 +1,7 @@
+## 3.0.20
+
+A profile file the box refuses to replace is no longer retried as a lost transport. Sandbox's typed `PROFILE_FILE_CONFLICT` (HTTP 409), and the untyped `Refusing to replace existing profile file` refusal it sends before that type ships, now read as a provisioning refusal: the request was refused before it ran, the driver stops at that attempt, and the parent's wake names the file. On Discovery run magnetar-rust-sandbox-20261031g, managers s0 and s1 retried this refusal on every turn after their first.
+
 ## 3.0.19
 
 A model provider's content-filter refusal is retried again, because the filter does not refuse one prompt every time: on Discovery run magnetar-rust-sandbox-20261031f, agents passed after up to 6 refusals in a row, and the root passed on a later attempt. 3.0.17 made the first refusal terminal, which would have ended 4 of those 6 agents and the whole run. The 8th consecutive refusal of one agent (any other outcome resets the count) now stops it with `repeated-failure` and `refused by the model provider's content filter`, inside the transient-outage window too. A nested manager settles `down` and its parent is woken with that reason. A root with `driverRetry.pauseRootStops` pauses with the refusal on its `paused` row and re-enters. A root without it ends with the reason in its error.
