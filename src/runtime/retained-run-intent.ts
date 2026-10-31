@@ -148,5 +148,8 @@ function retainedTurnProviderOptions(options: NonNullable<AgentTurnInput['provid
   const secrets = record.runtimeSecrets
   if (!secrets || typeof secrets !== 'object' || Array.isArray(secrets)) return options
   const { runtimeSecrets: _values, ...publicBackend } = record
-  return { ...options, backend: { ...publicBackend, runtimeSecretNames: Object.keys(secrets).sort() } }
+  return {
+    ...options,
+    backend: { ...publicBackend, runtimeSecretNames: Object.keys(secrets).sort() },
+  }
 }

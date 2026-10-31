@@ -397,10 +397,7 @@ async function dispatchRetainedRun(
     executionId: identity.executionId,
   })
 
-  // Dispatch failure leaks a paid environment when THIS call provisioned it, and deletes another
-  // caller's workspace when it did not. The provider's creation receipt is what separates the two:
-  // only `created` is destroyed, and `replayed` or an absent receipt is kept, because an
-  // environment whose creation cannot be proven may be held by someone else.
+  // Destroy only a creation this call proved. Replay and an unproven receipt stay.
   const destroyIfCreated = async (cause: unknown): Promise<never> => {
     if (options.preserveEnvironment || environment.creation !== 'created') throw cause
     try {
