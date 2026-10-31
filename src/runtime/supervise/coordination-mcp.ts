@@ -197,8 +197,7 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
   coordinationHttpLimits(options)
 }
 
-/** The longest any coordination call holds its response, whatever the request timeout: under the
- *  60 s MCP tool-call timeout Claude Code and Codex apply by default. */
+/** Response hold cap, under the 60 s MCP tool-call timeout Claude Code and Codex apply. */
 const RESPONSE_FENCE_CAP_MS = 45_000
 
 /** The longest a fenced call (`submit_result`, node tools) holds its response before answering with
@@ -207,6 +206,7 @@ function coordinationResponseFenceMs(requestTimeoutMs: number): number {
   return Math.max(1, Math.min(RESPONSE_FENCE_CAP_MS, Math.floor(requestTimeoutMs / 2)))
 }
 
+/** Stand up the existing coordination tools with bounded HTTP access over one live scope. */
 export async function serveCoordinationMcp(
   opts: CoordinationTransportOptions & {
     /** Trusted audit identity; defaults to the live scope node. */
