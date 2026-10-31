@@ -7,7 +7,7 @@ import {
 } from './retained-owner-evidence'
 import { type OwnerState, owners } from './retained-owner-state'
 import { scopeRetainedOwnerTurnEnded } from './retained-owner-turn-lifecycle'
-import type { Scope } from './types'
+import type { Scope, SpawnEvent } from './types'
 
 /** A committed turn is the seat boundary. Keep its native home for a same-harness provider
  * continuation; only a provider/harness change needs a new environment. */
@@ -20,17 +20,10 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
   readonly sourceEnvironmentId: string
 }> {
   const state = owners.get(scope)
-  if (!state?.acceptedRef || !state.acceptedConsumed) {
+  if (!state?.acceptedRef || !state.acceptedConsumed)
     throw new ValidationError('seat switch requires a committed owner turn')
-  }
   const accepted = state.acceptedRef
-  await scopeRetainedOwnerTurnEnded(scope)
-  await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
-  await state.checkpointing
-  await checkpointOwnerWorkspace(scope, state)
-  const owned = ((await state.args.journal.loadTree(state.args.rootId)) ?? []).filter(
-    (event) => event.id === state.args.nodeId,
-  )
+  const owned = await checkpointOwner(scope, state)
   const acceptedIndex = owned.findIndex(
     (event) =>
       event.kind === 'execution-result' &&
@@ -47,28 +40,18 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
     source?.kind === 'execution-admitted' && source.admission.phase === 'environment'
       ? source.admission.environmentId
       : undefined
-  const checkpoint =
-    sourceEnvironmentId !== undefined
-      ? owned
-          .slice(acceptedIndex + 1)
-          .reverse()
-          .find(
-            (event) =>
-              event.kind === 'workspace-checkpoint' && event.environmentId === sourceEnvironmentId,
-          )
-      : undefined
-  if (checkpoint?.kind !== 'workspace-checkpoint') {
-    throw new ValidationError(
-      'seat switch requires a checkpoint of the committed source environment',
+  const checkpoint = owned
+    .slice(acceptedIndex + 1)
+    .reverse()
+    .find(
+      (event) =>
+        event.kind === 'workspace-checkpoint' && event.environmentId === sourceEnvironmentId,
     )
-  }
+  if (checkpoint?.kind !== 'workspace-checkpoint')
+    throw new ValidationError('seat switch requires a checkpoint of its committed source')
   if (mode === 'replace-environment') {
     // A seat may move from a verified checkpoint while the old source remains evidence.
-    // Only a complete capture permits retirement; the continuation exception above does not.
-    const incompleteRetainedSources = await ownerWorkspaceRetentionFailures(owned, state.args, true)
-    if (!incompleteRetainedSources.has(checkpoint.environmentId)) {
-      await retireSeatEnvironment(scope, state)
-    }
+    await retireCheckpointed(scope, state, owned, checkpoint, 'seat changed')
     state.forceNewSession = true
   }
   return {
@@ -78,36 +61,55 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
   }
 }
 
-/** The next seat receives fresh create-time credentials. Release the stopped source only after
- * its checkpoint exists, then commit the teardown so recovery never tries its old session. */
-async function retireSeatEnvironment(scope: Scope<unknown>, state: OwnerState): Promise<void> {
-  const { provider, args } = state
+/** An exhausted seat chain pauses its manager until `resumeAt` with no turn to run: on
+ * magnetar-rust-sandbox-20261031b (Runtime 3.0.5) a resume paused four managers until 11-04 with
+ * their 16 GiB boxes running. Retire a box its latest checkpoint holds; the next drive restores. */
+export async function releaseScopeRetainedOwnerForSeatPause(
+  scope: Scope<unknown>,
+  resumeAt: string,
+): Promise<void> {
+  const state = owners.get(scope)
+  if (state?.provider === undefined) return
+  const owned = await checkpointOwner(scope, state)
+  const at = owned.map((event) => event.kind).lastIndexOf('workspace-checkpoint')
+  const checkpoint = owned[at]
+  const later = owned.slice(at + 1).some((event) => event.kind.startsWith('execution-'))
+  if (checkpoint?.kind === 'workspace-checkpoint' && !later)
+    await retireCheckpointed(scope, state, owned, checkpoint, `seat paused until ${resumeAt}`)
+}
+
+async function checkpointOwner(scope: Scope<unknown>, state: OwnerState): Promise<SpawnEvent[]> {
+  await scopeRetainedOwnerTurnEnded(scope)
+  await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
+  await state.checkpointing
+  await checkpointOwnerWorkspace(scope, state)
+  return ((await state.args.journal.loadTree(state.args.rootId)) ?? []).filter(
+    (event) => event.id === state.args.nodeId,
+  )
+}
+
+/** Retire a checkpointed environment whose capture is complete, and commit the teardown so
+ * recovery never tries its old session; the next one receives fresh create-time credentials. */
+async function retireCheckpointed(
+  scope: Scope<unknown>,
+  { provider, args, nextSequence }: OwnerState,
+  owned: readonly SpawnEvent[],
+  { environmentId }: { readonly environmentId: string },
+  detail: string,
+): Promise<void> {
+  if ((await ownerWorkspaceRetentionFailures(owned, args, true)).has(environmentId)) return
   if (!provider?.get)
-    throw new ValidationError('seat switch requires a provider with exact environment lookup')
-  const owned = ((await args.journal.loadTree(args.rootId)) ?? []).filter(
-    (event) => event.id === args.nodeId,
-  )
-  const admitted = [...owned]
-    .reverse()
-    .find((event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment')
-  if (admitted?.kind !== 'execution-admitted' || admitted.admission.phase !== 'environment') {
-    throw new ValidationError('seat switch has no committed source environment')
-  }
-  const environmentId = admitted.admission.environmentId
-  if (
-    owned.some(
-      (event) =>
-        event.kind === 'environment-teardown' &&
-        event.destroyed &&
-        event.environmentId === environmentId,
-    )
-  )
-    return
+    throw new ValidationError('seat change requires a provider with exact environment lookup')
+  const unusable = (event: SpawnEvent) =>
+    event.kind === 'environment-teardown' &&
+    event.destroyed &&
+    event.environmentId === environmentId
+  if (owned.some(unusable)) return
   const signal = AbortSignal.any([scope.signal, AbortSignal.timeout(30_000)])
   const environment = await runAbortable(
     () => provider.get!(environmentId),
     signal,
-    'seat switch environment lookup timed out',
+    'seat change environment lookup timed out',
   )
   if (environment !== null) {
     if (
@@ -115,13 +117,9 @@ async function retireSeatEnvironment(scope: Scope<unknown>, state: OwnerState): 
       environment.provider !== provider.name ||
       !environment.destroy
     ) {
-      throw new ValidationError('seat switch cannot retire the exact source environment')
+      throw new ValidationError('seat change cannot retire the exact source environment')
     }
-    await runAbortable(
-      () => environment.destroy!(),
-      signal,
-      'seat switch environment retirement timed out',
-    )
+    await runAbortable(() => environment.destroy!(), signal, 'seat change retirement timed out')
   }
   await args.journal.appendEvent(args.rootId, {
     kind: 'environment-teardown',
@@ -129,8 +127,8 @@ async function retireSeatEnvironment(scope: Scope<unknown>, state: OwnerState): 
     provider: provider.name,
     environmentId,
     destroyed: true,
-    detail: 'seat changed after a committed turn',
-    seq: state.nextSequence(),
+    detail,
+    seq: nextSequence(),
     at: new Date(args.now()).toISOString(),
   })
 }

@@ -106,6 +106,9 @@ interface Fixture {
   readonly directory?: string
   /** The process dies when it journals the Nth `execution-input`, before the run settles. */
   readonly crashOnInput?: number
+  /** On re-entry every seat stays exhausted until the run journals a seat pause; the clock then
+   *  passes it. */
+  readonly seatPause?: boolean
 }
 
 async function superviseRoot(fixture: Fixture) {
@@ -125,6 +128,8 @@ async function superviseRoot(fixture: Fixture) {
   const stopped: string[] = []
   const destroyed: string[] = []
   const environments: string[] = []
+  const restoredCheckpointIds: string[] = []
+  let skew = 0
   let rejectMethod!: (error: Error) => void
   const methodResult = new Promise<unknown>((_resolve, reject) => {
     rejectMethod = reject
@@ -375,7 +380,7 @@ async function superviseRoot(fixture: Fixture) {
     {
       runDir,
       journal:
-        fixture.crashOnInput === undefined
+        fixture.crashOnInput === undefined && !fixture.seatPause
           ? context.journal
           : {
               beginTree: context.journal.beginTree.bind(context.journal),
@@ -383,11 +388,14 @@ async function superviseRoot(fixture: Fixture) {
               async appendEvent(root, event) {
                 if (event.kind === 'execution-input' && ++inputs === fixture.crashOnInput)
                   throw new Error('supervisor process died')
+                // The pause's two-minute recheck passes at once.
+                if (event.kind === 'seat-paused') skew += 125_000
                 await context.journal.appendEvent(root, event)
               },
             },
       blobs: context.blobs,
       runId: 'pending-root',
+      ...(fixture.seatPause ? { now: () => Date.now() + skew } : {}),
       backend: { backend: 'provider', provider },
       driverBackend: {
         backend: 'provider',
@@ -400,7 +408,8 @@ async function superviseRoot(fixture: Fixture) {
               stageIndex: number
               excludedSeatIds: readonly string[]
             }) =>
-              request.stageIndex === 0 && request.excludedSeatIds.length > 0
+              (fixture.seatPause && fixture.directory !== undefined && skew === 0) ||
+              (request.stageIndex === 0 && request.excludedSeatIds.length > 0)
                 ? { resumeAt: '2026-01-01T00:00:00.000Z' }
                 : {
                     seat: request.stageIndex === 0 ? 'claude-seat' : 'codex-seat',
@@ -415,7 +424,8 @@ async function superviseRoot(fixture: Fixture) {
       budget: {
         maxIterations: 100,
         maxTokens: 1000,
-        deadlineMs: fixture.slowSourceLookupMs === undefined ? 60_000 : 180_000,
+        deadlineMs:
+          fixture.slowSourceLookupMs === undefined && !fixture.seatPause ? 60_000 : 180_000,
       },
       // Strict: three barren failures end the run, with no outage window to shelter them.
       driverRetry: {
@@ -478,6 +488,7 @@ async function superviseRoot(fixture: Fixture) {
     steerReplayed,
     environments,
     destroyed,
+    restoredCheckpointIds,
     firstCaptureExecution,
     base,
     evidence: await Promise.all(
@@ -645,6 +656,43 @@ describe('supervised root with a pending retained turn', () => {
       ]),
     )
   })
+
+  it("retires a re-entered root's box while every seat is exhausted and restores it after", async () => {
+    // magnetar-rust-sandbox-20261031b (Runtime 3.0.5): its resume found every seat of four managers
+    // exhausted until 11-04 and paused them, and their 16 GiB boxes kept running.
+    await expect(
+      superviseRoot({ seatSwitch: true, seatPause: true, submitOn: 2, crashOnInput: 2 }),
+    ).rejects.toThrow('supervisor process died')
+    const run = await superviseRoot({
+      seatSwitch: true,
+      seatPause: true,
+      submitOn: 1,
+      directory: directories.at(-1)!,
+    })
+    const at = (predicate: (event: SpawnEvent) => boolean) => run.events.findIndex(predicate)
+    const admitted = (event: SpawnEvent) =>
+      event.kind === 'execution-admitted' && event.admission.phase === 'environment'
+        ? event.admission.environmentId
+        : undefined
+    const [source, replacement] = [...new Set(run.events.map(admitted))].filter(Boolean)
+    const paused = at((event) => event.kind === 'seat-paused')
+    const retired = at(
+      (event) =>
+        event.kind === 'environment-teardown' && event.environmentId === source && event.destroyed,
+    )
+    const resumed = run.events.findIndex(
+      (event, index) => index > paused && event.kind === 'execution-input',
+    )
+    // Retired during the pause, before the drive after it.
+    expect(paused).toBeGreaterThan(-1)
+    expect(retired).toBeGreaterThan(paused)
+    expect(retired).toBeLessThan(resumed)
+    expect(at((event) => admitted(event) === replacement)).toBeGreaterThan(retired)
+    expect(run.destroyed[0]).toBe(source)
+    expect(run.environments).toEqual([replacement])
+    expect(run.restoredCheckpointIds).toEqual([`checkpoint-${source}`])
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+  }, 150_000)
 
   it('continues a retained Codex turn when only raw process capture is partial', async () => {
     const run = await superviseRoot({ captureFailure: 'raw-partial', submitOn: 2 })

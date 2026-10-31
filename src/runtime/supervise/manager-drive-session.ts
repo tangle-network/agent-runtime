@@ -4,6 +4,7 @@ import { resolveAgentEnvironmentProvider } from '../environment-provider/provide
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { harnessTurnFailure } from './driver-execution-attempt'
 import { createActivityLog, type ExecutorProgress } from './progress'
+import { releaseScopeRetainedOwnerForSeatPause } from './retained-owner-seat-switch'
 import {
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerSeatSwitch,
@@ -203,9 +204,8 @@ export class ManagerDriveSession {
     now: () => number,
   ): Promise<void> {
     if (authoredSeatStages(authoredProfile) === undefined) return
-    if (!seatSelection) {
+    if (!seatSelection)
       throw new ValidationError('AgentProfile.seats requires SuperviseOptions.selectSeat')
-    }
     if (this.activeSeat === undefined) {
       // After a coordinator crash following a committed failed turn, restore that outcome before
       // selecting a replacement; no new seat starts while the old call is in doubt.
@@ -306,6 +306,8 @@ export class ManagerDriveSession {
           at: new Date(now()).toISOString(),
         })
         await seatSelection.onPause(scope.view.root, error.resumeAt, 'paused')
+        // A box it cannot checkpoint and retire stays, as before; the run's release still owns it.
+        await releaseScopeRetainedOwnerForSeatPause(scope, error.resumeAt).catch(() => undefined)
         const waitMs = Math.max(1_000, Date.parse(error.resumeAt) - now())
         await sleepScopeWait(scope, waitMs, scope.signal, 'seat-wait')
         afterRecheck = true

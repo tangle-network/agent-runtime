@@ -52,6 +52,8 @@ export function driveHarnessFromBackend(
     const priorCommittedArtifact = state.managerArtifact
     state.managerArtifact = undefined
     manager.switchedProviderCheckpointAt = undefined
+    // A seat pause retires the box of the backend bound before it.
+    await bindDriveRetainedOwner(manager, args)
     await manager.selectSeat(args, seatSelection, executionId, now)
     const retainedOwner = await bindDriveRetainedOwner(manager, args)
     const driveTask =
@@ -227,15 +229,13 @@ async function reentryContinuity(
   scope: Scope<unknown>,
   retainedOwner: boolean,
 ): Promise<ReentryContinuity> {
-  if (backend.backend === 'bridge') {
+  if (backend.backend === 'bridge')
     return { session: 'continued', environment: 'same', workspace: 'kept' }
-  }
   if (backend.backend !== 'provider' || !retainedOwner) return UNPROVEN_CONTINUITY
   const provider = resolveAgentEnvironmentProvider(backend.provider, backend.registry)
   const capabilities = await provider.capabilities()
-  if (capabilities.retainedControl === undefined) {
+  if (capabilities.retainedControl === undefined)
     return { session: 'new', environment: 'replaced', workspace: 'lost' }
-  }
   const environment = await reconcileScopeRetainedOwnerEnvironment(scope)
   if (environment.state === 'live') {
     return {
