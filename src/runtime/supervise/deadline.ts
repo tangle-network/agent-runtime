@@ -49,12 +49,9 @@ export function checkInIdleMs(policy: DeadlineCheckIn | undefined): number | und
   return idleMs
 }
 
-/**
- * How long an abort waits for a manager whose result was already accepted to end the turn that
- * submitted it. Acceptance asks the turn's harness to stop; what remains is the turn's final
- * session copy (a bounded native capture), metering its usage and committing its result. Its
- * workspace capture is not part of it: the manager's owner runs that after the result.
- */
+/** How long a manager whose result was accepted has to end the turn that submitted it before an
+ *  abort, or Runtime's cancel of its retained run, stops its harness: the turn's end meters its
+ *  usage and commits its result; its workspace capture runs after, in the manager's owner. */
 export const ACCEPTED_RESULT_GRACE_MS = 5 * 60_000
 
 /** Whether an abort reason is a deadline: the child's own or the root budget's. */
