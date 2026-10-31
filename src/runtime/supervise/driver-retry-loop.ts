@@ -779,6 +779,7 @@ export class DriverRetryLoop {
   private async wake(
     attempt: number,
     completed: Pick<DriverAttemptRecord, 'attempt' | 'durationMs' | 'madeProgress' | 'contract'>,
+    held?: { readonly input: string; readonly idleMs: number },
   ): Promise<boolean> {
     const { run } = this
     const wait = run.wait
@@ -791,15 +792,19 @@ export class DriverRetryLoop {
       return false
     }
     const stop = budgetStop(run.budget(), this.limits.now())
-    if (stop === 'deadline') return false
+    // A deadline ends the wait; an opted-in root pauses on a spent pool, where a steer reaches it.
+    if (stop === 'deadline' || (stop !== undefined && this.pausesStop(stop))) return false
     const woken = await wait.wake(attempt + 1)
     if (woken === undefined || run.signal.aborted) return false
+    const input = held ? `${held.input}\n\n${woken.input}` : woken.input
+    const idleMs = woken.idleMs + (held?.idleMs ?? 0)
     // A spent pool buys no turn, but a wait spends nothing: the running workers hold reservations
-    // the pool granted, so hold until a refund buys the turn or nothing is open, never abort them.
-    if (stop !== undefined) return this.wake(attempt, completed)
+    // the pool granted, so hold until a refund buys the turn, which then reads what arrived.
+    if (budgetStop(run.budget(), this.limits.now()) !== undefined)
+      return this.wake(attempt, completed, { input, idleMs })
     this.wakes += 1
-    await this.emit({ ...completed, waitedMs: woken.idleMs, retryInMs: 0 })
-    this.reentry = { reason: 'wake', input: woken.input, wake: this.wakes }
+    await this.emit({ ...completed, waitedMs: idleMs, retryInMs: 0 })
+    this.reentry = { reason: 'wake', input, wake: this.wakes }
     return true
   }
 }
