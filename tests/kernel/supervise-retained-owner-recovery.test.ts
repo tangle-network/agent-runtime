@@ -5,7 +5,8 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ACCEPTED_RESULT_GRACE_MS } from '../../src/runtime/supervise/deadline'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
@@ -188,116 +189,149 @@ describe('retained external supervisor recovery', () => {
     },
   )
 
-  it('asks the provider to cancel the retained turn as soon as the manager is accepted', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-stop-'))
-    directories.push(directory)
-    const proxy = await coordinationProxy()
-    proxies.push(proxy)
-    const context = createFileRunContext(join(directory, 'run'))
-    const cancellations: Array<{ operationId: string; reason?: string }> = []
-    let endTurn!: () => void
-    const turnRunning = new Promise<void>((resolve) => {
-      endTurn = resolve
-    })
-    // The harness keeps running until it is cancelled. The timer only keeps a missing cancellation
-    // from hanging the test.
-    const failsafe = setTimeout(endTurn, 5_000)
-    let port = 0
-    let token = ''
-    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
-      ...environment,
-      session: (id, sessionOptions) => {
-        const session = environment.session!(id, sessionOptions)
-        return {
-          ...session,
-          result: async () => {
-            await turnRunning
-            return { ...(await session.result()), usage: { inputTokens: 3, outputTokens: 2 } }
-          },
-          cancelRun: async (request, options) => {
-            cancellations.push({ operationId: request.operationId, reason: request.reason })
-            endTurn()
-            return session.cancelRun!(request, options)
-          },
+  it.each(['ends its turn', 'runs on'] as const)(
+    'an accepted manager whose harness %s gets the accepted-result grace before any cancel, so a turn that ends itself meters its usage',
+    async (harness) => {
+      // magnetar-rust-sandbox-20261031b: Runtime cancelled each accepted Codex worker's turn a second
+      // after `submit_result`, and Codex reports a turn's usage only when the turn ends itself, so
+      // every accepted worker metered `tokensKnown: false` after hours of work.
+      const directory = await mkdtemp(join(tmpdir(), 'retained-owner-stop-'))
+      directories.push(directory)
+      const proxy = await coordinationProxy()
+      proxies.push(proxy)
+      const context = createFileRunContext(join(directory, 'run'))
+      const cancellations: Array<{ operationId: string; reason?: string }> = []
+      let endedBy: 'harness' | 'cancel' | undefined
+      let endTurn!: (by: 'harness' | 'cancel') => void
+      const turnRunning = new Promise<void>((resolve) => {
+        endTurn = (by) => {
+          endedBy ??= by
+          resolve()
         }
-      },
-      dispatch: async (turn) => {
-        const dispatched = await environment.dispatch(turn)
-        const response = await fetch(`http://127.0.0.1:${port}/manager`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 'submit',
-            method: 'tools/call',
-            params: { name: 'submit_result', arguments: { result: { answer: 'accepted' } } },
-          }),
+      })
+      // Real time, armed before the clock is faked: a missing end only fails the test, never hangs it.
+      const failsafe = setTimeout(() => endTurn('cancel'), 20_000)
+      if (harness === 'runs on') {
+        vi.useFakeTimers({
+          toFake: ['Date', 'setTimeout', 'clearTimeout'],
+          shouldAdvanceTime: true,
         })
-        if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
-        return dispatched
-      },
-    })
-    const base = durableRetainedProvider(join(directory, 'provider.json'))
-    const provider: AgentEnvironmentProvider = {
-      ...base,
-      capabilities: async () => ({
-        ...(await base.capabilities()),
-        create: { runtimeAttachments: { mcp: true } },
-      }),
-      create: async (input) => {
-        token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
-        return wrap(await base.create(input))
-      },
-      get: async (id) => {
-        const environment = await base.get!(id)
-        return environment ? wrap(environment) : null
-      },
-    }
-
-    try {
-      const result = await supervise(
-        testAgentProfile('root', {
-          harness: 'opencode',
-          tools: runtimeToolDeclarations('submit_result'),
-        }),
-        'Produce the answer.',
-        {
-          runDir: join(directory, 'run'),
-          journal: context.journal,
-          blobs: context.blobs,
-          runId: 'stop-cancels-retained-turn',
-          backend: { backend: 'provider', provider },
-          driverBackend: { backend: 'provider', provider },
-          budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
-          driverRetry: { enabled: false },
-          retainedAtSettlement: 'release',
-          deliverable: {
-            describe: 'the accepted answer',
-            check: (value) => (value as { answer?: unknown }).answer === 'accepted',
-          },
-          continuation: testContinuation(),
-          coordination: {
-            authentication: {
-              signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+      }
+      let port = 0
+      let token = ''
+      const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+        ...environment,
+        session: (id, sessionOptions) => {
+          const session = environment.session!(id, sessionOptions)
+          return {
+            ...session,
+            result: async () => {
+              await turnRunning
+              const result = await session.result()
+              // Like Codex, the harness reports the turn's usage only when it ends the turn itself.
+              return endedBy === 'harness'
+                ? { ...result, usage: { inputTokens: 3, outputTokens: 2 } }
+                : result
             },
-            publicUrl: (address) => {
-              port = address.port
-              proxy.forwardTo(port)
-              return `${proxy.url}/manager`
+            cancelRun: async (request, options) => {
+              cancellations.push({ operationId: request.operationId, reason: request.reason })
+              endTurn('cancel')
+              return session.cancelRun!(request, options)
             },
-          },
+          }
         },
-      )
-      expect(result).toMatchObject({ kind: 'winner', out: { answer: 'accepted' } })
-      // The acceptance ended the turn: one cancellation, asked for by the manager's stop, and the
-      // run's own signal was never the thing that ended it.
-      expect(cancellations).toHaveLength(1)
-      expect(cancellations[0]?.operationId).toMatch(/^manager-stop:/u)
-    } finally {
-      clearTimeout(failsafe)
-      endTurn()
-    }
-  })
+        dispatch: async (turn) => {
+          const dispatched = await environment.dispatch(turn)
+          const response = await fetch(`http://127.0.0.1:${port}/manager`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 'submit',
+              method: 'tools/call',
+              params: { name: 'submit_result', arguments: { result: { answer: 'accepted' } } },
+            }),
+          })
+          if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
+          // Told `stop: true`, the harness closes its turn a moment later, or keeps working.
+          if (harness === 'ends its turn') setTimeout(() => endTurn('harness'), 200)
+          else setTimeout(() => vi.advanceTimersByTime(ACCEPTED_RESULT_GRACE_MS), 200)
+          return dispatched
+        },
+      })
+      const base = durableRetainedProvider(join(directory, 'provider.json'))
+      const provider: AgentEnvironmentProvider = {
+        ...base,
+        capabilities: async () => ({
+          ...(await base.capabilities()),
+          create: { runtimeAttachments: { mcp: true } },
+        }),
+        create: async (input) => {
+          token ||= input.env?.AGENT_RUNTIME_COORDINATION_TOKEN ?? ''
+          return wrap(await base.create(input))
+        },
+        get: async (id) => {
+          const environment = await base.get!(id)
+          return environment ? wrap(environment) : null
+        },
+      }
+
+      try {
+        const result = await supervise(
+          testAgentProfile('root', {
+            harness: 'codex',
+            tools: runtimeToolDeclarations('submit_result'),
+          }),
+          'Produce the answer.',
+          {
+            runDir: join(directory, 'run'),
+            journal: context.journal,
+            blobs: context.blobs,
+            runId: 'stop-cancels-retained-turn',
+            backend: { backend: 'provider', provider },
+            driverBackend: { backend: 'provider', provider },
+            budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 3_600_000 },
+            driverRetry: { enabled: false },
+            retainedAtSettlement: 'release',
+            deliverable: {
+              describe: 'the accepted answer',
+              check: (value) => (value as { answer?: unknown }).answer === 'accepted',
+            },
+            continuation: testContinuation(),
+            coordination: {
+              authentication: {
+                signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+              },
+              publicUrl: (address) => {
+                port = address.port
+                proxy.forwardTo(port)
+                return `${proxy.url}/manager`
+              },
+            },
+          },
+        )
+        expect(result).toMatchObject({ kind: 'winner', out: { answer: 'accepted' } })
+        const metered = ((await context.journal.loadTree('stop-cancels-retained-turn')) ?? [])
+          .flatMap((event) => (event.kind === 'metered' ? [event.spend] : []))
+          .filter((spend) => spend.tokens.input > 0 || spend.tokensKnown === false)
+        if (harness === 'ends its turn') {
+          // No cancellation raced the turn's own end, and its usage reached the meter.
+          expect(cancellations).toEqual([])
+          expect(metered).toMatchObject([{ tokens: { input: 3, output: 2 } }])
+          expect(metered[0]?.tokensKnown).not.toBe(false)
+        } else {
+          // One cancellation, asked for by the manager's stop once the grace ran out.
+          expect(cancellations).toHaveLength(1)
+          expect(cancellations[0]?.operationId).toMatch(/^manager-stop:/u)
+          expect(endedBy).toBe('cancel')
+        }
+      } finally {
+        vi.useRealTimers()
+        clearTimeout(failsafe)
+        endTurn('cancel')
+      }
+    },
+  )
 
   it('keeps historical unclassified root usage incomplete when replay supplies a cache split', async () => {
     const fixture = await setup('metered', false, false, true)

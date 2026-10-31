@@ -26,7 +26,11 @@ import {
 } from '../retained-native-stop'
 import { awaitAbortable } from '../retained-run-binding'
 import type { RetainedRunHandle } from '../retained-run-types'
-import { isDeadlineAbortReason } from '../supervise/deadline'
+import {
+  ACCEPTED_RESULT_GRACE_MS,
+  armDeadlineTimer,
+  isDeadlineAbortReason,
+} from '../supervise/deadline'
 import { errorText } from '../supervise/error-message'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { EnvironmentTeardownReceipt, ExecutorNodeContext } from '../supervise/types'
@@ -340,6 +344,7 @@ interface ProviderNativeControlState {
   readonly retained: RetainedRunHandle | undefined
   harnessStopped: boolean
   workspacePreservationRequired: boolean
+  workspaceRunActive: boolean
   cancelledExplicitly(): boolean
 }
 
@@ -353,6 +358,7 @@ export function createProviderNativeControl(
   const cancelRetainedOnManagerStop = (handle: RetainedRunHandle): void => {
     if (managerStop === undefined) return
     const cancel = (): void => {
+      if (state.retained !== handle || !state.workspaceRunActive) return
       void handle
         .cancel({
           operationId: `manager-stop:${randomUUID()}`,
@@ -360,14 +366,16 @@ export function createProviderNativeControl(
         })
         .catch(() => undefined)
     }
-    if (managerStop.aborted) cancel()
-    else managerStop.addEventListener('abort', cancel, { once: true })
+    // Codex meters a turn only as it ends (accepted magnetar-rust-sandbox-20261031b workers: none).
+    const stop = (): void =>
+      managerStop.reason === 'result-accepted'
+        ? void armDeadlineTimer(ACCEPTED_RESULT_GRACE_MS, cancel)
+        : cancel()
+    if (managerStop.aborted) stop()
+    else managerStop.addEventListener('abort', stop, { once: true })
   }
-  /**
-   * Stop the native harness of this executor's retained execution. Local observation ending does
-   * not stop a retained execution, so an environment kept after it keeps its harness spending
-   * unless the provider is asked to stop it. Undefined when nothing was dispatched.
-   */
+  /** Stop the native harness of this executor's retained execution, which local observation ending
+   *  never stops. Undefined when nothing was dispatched. */
   const stopNativeExecution = (): Promise<RetainedNativeStop | undefined> => {
     if (nativeStop !== undefined) return nativeStop
     const controlRef = state.retained?.controlRef ?? admittedControlRef(retention)
@@ -385,13 +393,8 @@ export function createProviderNativeControl(
     nativeStop = stopping
     return stopping
   }
-  /**
-   * A turn that its deadline or an explicit cancellation ended stops its harness, and waits within
-   * the stop's bound for the provider to report it stopped, before the turn's final native copy.
-   * Nothing else stops a retained execution before teardown, so that copy read a session the
-   * harness was still writing and was stored partial (2026-10-04 trace proof:
-   * `native_snapshot_live`, `events_not_settled`), and the harness spent past its deadline.
-   */
+  /** A turn its deadline or an explicit cancellation ended stops its harness, within the stop's
+   *  bound, before the turn's final native copy, which otherwise reads a session still written. */
   const stopEndedHarness = async (signal: AbortSignal): Promise<void> => {
     if (!isDeadlineAbortReason(signal.reason) && !state.cancelledExplicitly()) return
     await stopNativeExecution()
