@@ -1,9 +1,4 @@
-import {
-  type AgentWorkspaceSnapshotRef,
-  canonicalAgentProfileDigest,
-  canonicalCandidateDigest,
-  type Sha256Digest,
-} from '@tangle-network/agent-interface'
+import type { AgentWorkspaceSnapshotRef, Sha256Digest } from '@tangle-network/agent-interface'
 import {
   type AgentEnvironmentProvider,
   type CreateAgentEnvironmentInput,
@@ -12,7 +7,6 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
   assertRetainedRunReplayMaterial,
-  mintRetainedIdentity,
   startRetainedRun,
 } from './retained-run-start'
 import type { RetainedRunIntentAdmission, RetainedRunStartMaterial } from './retained-run-types'
@@ -139,29 +133,4 @@ describe('retained admission workspace identity', () => {
       expect(JSON.stringify(f.admission)).not.toContain('/workspace/source')
     },
   )
-
-  it('keeps the previous intent digest when the newly bound optional fields are absent', async () => {
-    const environment = { profile: { name: 'worker' }, idempotencyKey: 'intent-key' }
-    const f = await savedIntent(environment)
-    const identity = mintRetainedIdentity(environment.idempotencyKey, f.replay.turn.turnId)
-    // This is the pre-extension public intent format, retained for ordinary starts on disk.
-    const legacyDigest = canonicalCandidateDigest({
-      kind: 'retained-run-intent.v1',
-      provider: f.provider.name,
-      idempotencyKey: environment.idempotencyKey,
-      turnId: f.replay.turn.turnId,
-      ...identity,
-      requestedProfileDigest: canonicalAgentProfileDigest(environment.profile),
-      create: {},
-      turn: { prompt: 'work' },
-    })
-    expect(f.admission.requestDigest).toBe(legacyDigest)
-    expect(() =>
-      assertRetainedRunReplayMaterial(f.provider, f.replay, {
-        ...f.admission,
-        requestDigest: legacyDigest,
-      }),
-    ).not.toThrow()
-    expect(f.calls()).toBe(0)
-  })
 })

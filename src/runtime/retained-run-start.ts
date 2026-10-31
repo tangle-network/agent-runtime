@@ -14,6 +14,7 @@ import type {
   AgentEnvironmentProvider,
   AgentSession,
   AgentSessionRef,
+  AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { withJsonlFileLock } from '../durable/jsonl-file'
 import { FileObserverJournal } from '../durable/observer-journal'
@@ -144,7 +145,11 @@ export async function startRetainedRun(
   if (options.intent === undefined) {
     await admitDurably(onAdmission, intent)
   } else {
-    assertExactRetainedRunIntent(options.intent, intent)
+    assertExactRetainedRunIntent(options.intent, intent, () =>
+      retainedRunIntent(options, identity, contextTransfer, {
+        providerOptions: options.turn.providerOptions,
+      }),
+    )
   }
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (transferReceipt !== undefined) assertRetainedContextTransferCapability(providerCapabilities)
@@ -762,13 +767,15 @@ export function assertRetainedRunReplayMaterial(
   const identity = replay.identity ?? admission
   assertStableText(identity.sessionId, 'retained session id')
   assertStableText(identity.executionId, 'retained execution id')
+  const options = { ...replay, provider }
+  const contextTransfer = retainedContextTransfer(replay.turn.contextTransfer)
   assertExactRetainedRunIntent(
     admission,
-    retainedRunIntent(
-      { ...replay, provider },
-      identity,
-      retainedContextTransfer(replay.turn.contextTransfer),
-    ),
+    retainedRunIntent(options, identity, contextTransfer),
+    () =>
+      retainedRunIntent(options, identity, contextTransfer, {
+        providerOptions: replay.turn.providerOptions,
+      }),
   )
 }
 
@@ -776,6 +783,7 @@ function retainedRunIntent(
   options: RetainedRunStartMaterial & { readonly provider: AgentEnvironmentProvider },
   identity: { readonly sessionId: string; readonly executionId: string },
   contextTransfer: ContextTransferRequest | undefined,
+  turnFields?: Pick<AgentTurnInput, 'providerOptions'>,
 ): RetainedRunIntentAdmission {
   const receipt = retainedContextTransferReceipt(options, options.provider.name, contextTransfer)
   assertRetainedContextTransferIdentity(receipt, identity)
@@ -786,17 +794,20 @@ function retainedRunIntent(
     typeof profile === 'string'
       ? canonicalCandidateDigest(profile)
       : canonicalAgentProfileDigest(profile)
-  const requestDigest = canonicalCandidateDigest({
-    kind: 'retained-run-intent.v1',
+  const material = {
     provider: options.provider.name,
     idempotencyKey: options.environment.idempotencyKey,
-    ...(options.existingEnvironmentId === undefined
-      ? {}
-      : { existingEnvironmentId: options.existingEnvironmentId }),
     turnId: options.turn.turnId,
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     requestedProfileDigest,
+  }
+  const requestDigest = canonicalCandidateDigest({
+    kind: turnFields === undefined ? 'retained-run-intent.v2' : 'retained-run-intent.v1',
+    ...material,
+    ...(options.existingEnvironmentId === undefined
+      ? {}
+      : { existingEnvironmentId: options.existingEnvironmentId }),
     ...(receipt === undefined
       ? {}
       : {
@@ -806,17 +817,12 @@ function retainedRunIntent(
           }),
         }),
     create: retainedCreateMaterial(options.environment),
-    turn: retainedTurnMaterial(options.turn, contextTransfer),
+    turn: retainedTurnMaterial(options.turn, contextTransfer, turnFields),
   })
   return {
     phase: 'intent',
-    provider: options.provider.name,
-    idempotencyKey: options.environment.idempotencyKey,
-    turnId: options.turn.turnId,
-    sessionId: identity.sessionId,
-    executionId: identity.executionId,
+    ...material,
     runId: `retained-intent-run:${requestDigest.slice('sha256:'.length)}`,
-    requestedProfileDigest,
     requestDigest,
   }
 }
@@ -838,39 +844,31 @@ function retainedContextTransfer(
 function assertExactRetainedRunIntent(
   received: RetainedRunIntentAdmission,
   expected: RetainedRunIntentAdmission,
+  legacyExpected?: () => RetainedRunIntentAdmission,
 ): void {
-  const stableReceived = parseRetainedRunIntent(received)
-  if (canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(expected)) {
-    throw new Error('retained run intent conflicts with replay material')
-  }
+  const receivedDigest = canonicalCandidateDigest(parseRetainedRunIntent(received, expected))
+  if (receivedDigest === canonicalCandidateDigest(expected)) return
+  if (legacyExpected && receivedDigest === canonicalCandidateDigest(legacyExpected())) return
+  throw new Error('retained run intent conflicts with replay material')
 }
 
-function parseRetainedRunIntent(value: unknown): RetainedRunIntentAdmission {
+function parseRetainedRunIntent(
+  value: unknown,
+  expected: RetainedRunIntentAdmission,
+): RetainedRunIntentAdmission {
   const stable = detachedSnapshot(value, 'retained run intent')
   if (stable === null || typeof stable !== 'object' || Array.isArray(stable)) {
     throw new Error('retained run intent is malformed')
   }
   const record = stable as Record<string, unknown>
-  const allowed = new Set([
-    'phase',
-    'provider',
-    'idempotencyKey',
-    'turnId',
-    'sessionId',
-    'executionId',
-    'runId',
-    'requestedProfileDigest',
-    'requestDigest',
-  ])
-  if (Object.keys(record).some((key) => !allowed.has(key))) {
+  if (Object.keys(record).some((key) => !Object.hasOwn(expected, key))) {
     throw new Error('retained run intent contains unsupported material')
   }
   if (record.phase !== 'intent') {
     throw new Error('retained run intent has an invalid phase')
   }
   for (const [key, value] of Object.entries(record)) {
-    if (key === 'phase') continue
-    if (typeof value !== 'string' || value.length === 0) {
+    if (key !== 'phase' && (typeof value !== 'string' || value.length === 0)) {
       throw new Error(`retained run intent field "${key}" is invalid`)
     }
   }

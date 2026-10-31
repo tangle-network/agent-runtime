@@ -1265,7 +1265,7 @@ describe('coordination credential continuity', () => {
     )
   })
 
-  it('resumes scope-bound signed credentials only when the receiver permits that lifetime', async () => {
+  it('resumes signed credentials only within the receiving root lifetime', async () => {
     const signingKeys = { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } }
     const proxy = await publicProxy()
     const publicUrl = ({ port }: { port: number }) => {
@@ -1276,20 +1276,19 @@ describe('coordination credential continuity', () => {
     await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
       original = mcp.headers
     })
-    for (const ttlMs of [undefined, 900_000]) {
+    for (const deadlineMs of [undefined, 900_000]) {
       await withBoundHttp(
-        {
-          authentication: { signingKeys, ...(ttlMs === undefined ? {} : { ttlMs }) },
-          publicUrl,
-        },
+        { authentication: { signingKeys }, publicUrl },
         async (mcp) => {
           const response = await fetch(`http://127.0.0.1:${mcp.port}/mcp`, {
             method: 'POST',
             headers: { ...original, 'content-type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
           })
-          expect(response.status).toBe(ttlMs === undefined ? 200 : 401)
+          expect(response.status).toBe(deadlineMs === undefined ? 200 : 401)
         },
+        undefined,
+        deadlineMs,
       )
     }
   })
