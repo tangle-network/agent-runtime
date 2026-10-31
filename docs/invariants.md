@@ -20,6 +20,10 @@
   `down` with that failure and closes its slot: no recovery can change that result. A dispatched
   turn with no result, an accepted result, or an unfinished child keeps it `nested-recovery`
   pending.
+- A nested manager that never got past its intent settles `down` with the cause when the cause is a
+  schema or bound refusal (the Sandbox SDK's `INVALID_CAPABILITY_DOCUMENT` included), at the first
+  attempt, or when the same transient failure without progress repeats 10 times over 5 minutes,
+  inside the transient-outage window too. The root keeps waiting an outage out.
 
 Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts`,
 `tests/kernel/nested-retained-owner-journal.test.ts` and

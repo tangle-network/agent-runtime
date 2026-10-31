@@ -66,10 +66,10 @@
  * A TRANSIENT failure that spent nothing, settled nothing and made no progress is an infrastructure
  * outage until its streak has lasted `transientOutageMs`: within that window it consumes neither
  * `maxAttempts` nor the barren streak, like a pause. After it the failure bounds apply, so a
- * dead-on-arrival driver still stops in minutes rather than hours. The exception is a box that was
- * created and then failed its setup (Sandbox's `PartialFailureError`): it meets the same failure on
- * every re-entry, so a second identical attempt with no progress stops with `repeated-failure`
- * (`SAME_PARTIAL_FAILURE_LIMIT`). A failure that spent tokens without delivering keeps the bounds.
+ * dead-on-arrival driver still stops in minutes rather than hours. The exceptions meet the same
+ * failure on every re-entry and stop with `repeated-failure`: a box created and then failed its
+ * setup (`PartialFailureError`) at a second identical attempt with no progress, and a `nested`
+ * manager at the repeated-failure count and window. A failure that spent tokens keeps the bounds.
  * A Platform restart answered
  * `HTTP 502 ... Platform key verification unavailable` from 03:04:34 to 03:09:41Z, and the
  * coordinator's twelve attempts ran out at 03:07:12Z with no token spent.
@@ -269,6 +269,8 @@ export interface DriverRetryRun {
   readonly stopSignal?: AbortSignal
   /** Present for an opted-in root: the stops named in the header pause instead of ending the loop. */
   readonly stopPause?: DriverStopPause
+  /** A nested manager: a same-failure streak ends it inside the outage window too. */
+  readonly nested?: boolean
   readonly policy?: DriverRetryPolicy
   /** How a COMPLETED drive with its check unmet is re-entered. Omit = never, which is correct
    *  only for a manager with no check. */

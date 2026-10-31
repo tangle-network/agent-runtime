@@ -1,3 +1,4 @@
+import { recordValue } from '../record-value'
 import { type RuntimeFailureCause, runtimeFailureCauseSchema } from '../runtime/failure-cause'
 import type { SeatSegment } from '../runtime/supervise/seat-chain'
 import type {
@@ -401,7 +402,7 @@ function projectSeat(
 ): void {
   const event = record.event
   if (event?.target !== 'agent.seat') return
-  const payload = objectRecord(event.payload)
+  const payload = recordValue(event.payload)
   const phase = stringField(payload, 'phase')
   const node = nodes.get(nodeKey(event.runId, stringField(payload, 'nodeId') ?? ''))
   const owner = node ?? run
@@ -414,7 +415,7 @@ function projectSeat(
     delete owner.resumeAt
     return
   }
-  const raw = objectRecord(payload?.segment)
+  const raw = recordValue(payload?.segment)
   const seat = stringField(raw, 'seat')
   const harness = stringField(raw, 'harness')
   const provider = stringField(raw, 'provider')
@@ -485,7 +486,7 @@ function currentAttempt(
 function projectRunActivity(run: MutableRun, record: ObserverRecord): void {
   const event = record.event
   if (event?.target !== 'agent.run') return
-  const payload = objectRecord(event.payload)
+  const payload = recordValue(event.payload)
   const status = stringField(payload, 'status')
   const done = event.phase === 'after' || status === 'done'
   if (!done && event.phase !== 'error' && status !== 'failed') return
@@ -510,7 +511,7 @@ function projectSpawnNode(
 ): void {
   const event = record.event
   if (event?.target !== 'agent.spawn') return
-  const payload = objectRecord(event.payload)
+  const payload = recordValue(event.payload)
   const childId = stringField(payload, 'childId')
   if (!childId) return
   const key = nodeKey(event.runId, childId)
@@ -559,7 +560,7 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   const event = record.event
   if (event === undefined) return
   if (event.target === 'agent.spawn') return
-  const payload = objectRecord(event.payload)
+  const payload = recordValue(event.payload)
   const nodeId =
     stringField(payload, 'childId') ??
     stringField(payload, 'nodeId') ??
@@ -636,7 +637,7 @@ function attachSettlementEvidence(
     node.executionBindings = bindings as ReadonlyArray<ExecutionBindingReceipt>
     const known = bindings.find(
       (binding): binding is Extract<ExecutionBindingReceipt, { status: 'known' }> =>
-        objectRecord(binding)?.status === 'known',
+        recordValue(binding)?.status === 'known',
     )
     if (known) {
       node.placement = known.descriptor
@@ -665,7 +666,7 @@ function projectTurn(
 ): void {
   const event = record.event
   if (event?.target !== 'agent.turn') return
-  const payload = objectRecord(event.payload)
+  const payload = recordValue(event.payload)
   const spend = spendField(payload, 'spend')
   const subject = event.parentId
   if (subject === undefined) return
@@ -904,18 +905,12 @@ function increment(
   target[key] = (target[key] ?? 0) + 1
 }
 
-function objectRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
 /** Read a journaled `Spend` without trusting the wire: a record missing the conserved channels is
  *  not a zero-cost turn, it is an unparseable one, and it must not enter a total. */
 function spendField(value: Record<string, unknown> | undefined, key: string): Spend | undefined {
-  const field = objectRecord(value?.[key])
+  const field = recordValue(value?.[key])
   if (!field) return undefined
-  const tokens = objectRecord(field.tokens)
+  const tokens = recordValue(field.tokens)
   if (typeof field.usd !== 'number' || !Number.isFinite(field.usd)) return undefined
   if (!tokens || typeof tokens.input !== 'number' || typeof tokens.output !== 'number') {
     return undefined
@@ -928,11 +923,11 @@ function spendField(value: Record<string, unknown> | undefined, key: string): Sp
 function budgetViolationField(
   value: Record<string, unknown> | undefined,
 ): BudgetViolation | undefined {
-  const overspent = objectRecord(value?.budgetViolation)?.overspent
+  const overspent = recordValue(value?.budgetViolation)?.overspent
   if (!Array.isArray(overspent) || overspent.length === 0) return undefined
   const entries: BudgetOverspend[] = []
   for (const raw of overspent) {
-    const entry = objectRecord(raw)
+    const entry = recordValue(raw)
     const channel = stringField(entry, 'channel')
     const reserved = numberField(entry, 'reserved')
     const spent = numberField(entry, 'spent')

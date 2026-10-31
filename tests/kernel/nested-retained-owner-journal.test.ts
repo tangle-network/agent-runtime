@@ -5,7 +5,8 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { afterEach, describe, expect, it } from 'vitest'
+import { ServerError } from '@tangle-network/sandbox'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { coordinationProxy } from '../helpers/coordination-proxy'
@@ -15,9 +16,17 @@ import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const MALFORMED = 'Agent terminal outcome is malformed'
+// What the manager's down settlement names, by the institutional-compiler-20261031c failure it
+// replays: s9's failed turn, s14's refused capability document, and a 502 that never changes.
+const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
+  failed: [MALFORMED],
+  'capability-refused': ['stopped by terminal-error', 'Capability discovery returned'],
+  'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
+}
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(proxies.splice(0).map((proxy) => proxy.close()))
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -33,6 +42,8 @@ describe('nested retained owner journal isolation', () => {
     'parent-meter-loss',
     'parent-terminal-loss',
     'failed',
+    'capability-refused',
+    'same-failure',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     const parentInterruption = mode.startsWith('parent-')
@@ -43,6 +54,10 @@ describe('nested retained owner journal isolation', () => {
       const base = durableRetainedProvider(join(directory, 'provider.json'))
       let creates = 0
       let injected = false
+      // The clock alone is faked: each refused create takes 40 s of it.
+      let skew = 0
+      const realNow = Date.now
+      vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew)
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         session: (id, options) => {
@@ -66,6 +81,18 @@ describe('nested retained owner journal isolation', () => {
         }),
         create: async (input) => {
           creates++
+          if (mode === 'capability-refused') {
+            throw new ServerError(
+              "Capability discovery returned a malformed 'nativeSessionCaptureHarnesses' group",
+              502,
+              { origin: 'runtime', endpoint: '/capabilities' },
+              'INVALID_CAPABILITY_DOCUMENT',
+            )
+          }
+          if (mode === 'same-failure') {
+            skew += 40_000
+            throw new ServerError('Bad Gateway', 502)
+          }
           return wrap(await base.create(input))
         },
         get: async (id) => {
@@ -139,9 +166,11 @@ describe('nested retained owner journal isolation', () => {
         budget: { maxIterations: 8, maxTokens: 100 },
         perWorker: { maxIterations: 3, maxTokens: 20 },
         driverRetry: {
-          maxAttempts: mode === 'pending' || mode === 'failed' ? 1 : 2,
+          maxAttempts: mode === 'pending' || mode in DOWN_REASONS ? 1 : 2,
           initialBackoffMs: 0,
           maxBackoffMs: 0,
+          // Discovery's window: an idle transient streak is never charged against maxAttempts.
+          transientOutageMs: Number.MAX_SAFE_INTEGER,
         },
         coordination,
         finalizer,
@@ -172,20 +201,22 @@ describe('nested retained owner journal isolation', () => {
       expect(nested[0]).toEqual(expectedOwner)
       expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        retry ? 0 : 1,
+        retry || (mode in DOWN_REASONS && mode !== 'failed') ? 0 : 1,
       )
-      if (mode === 'failed') {
-        // Its only turn ended with a recorded failed result: nothing is in doubt, so the manager
-        // settles down with that reason instead of holding its slot open for a recovery.
+      const downReasons = DOWN_REASONS[mode]
+      if (downReasons !== undefined) {
+        // Nothing is in doubt: the turn committed a failed result, or no create ever answered, so
+        // the manager settles down with that reason instead of holding its slot open.
         expect(parent.some((event) => event.kind === 'reconciled' && event.id === spawn.id)).toBe(
           false,
         )
         const down = parent.find((event) => event.kind === 'settled' && event.id === spawn.id)
-        expect(down, JSON.stringify(parent)).toMatchObject({
-          status: 'down',
-          reason: expect.stringContaining(MALFORMED),
-        })
+        expect(down, JSON.stringify(parent)).toMatchObject({ status: 'down' })
+        for (const reason of downReasons)
+          expect(down?.kind === 'settled' ? down.reason : '').toContain(reason)
         expect(down).not.toHaveProperty('retainedExecution')
+        // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
+        expect(creates).toBe(mode === 'same-failure' ? 10 : 1)
         return
       }
       if (retry || parentInterruption) {

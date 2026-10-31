@@ -543,8 +543,11 @@ export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
-/** Positive pre-dispatch refusal evidence; a missing dispatch record proves nothing by itself. */
+/** Positive pre-dispatch refusal evidence, or a same-failure streak that ended the retry loop; a
+ *  missing dispatch record proves nothing by itself. */
 function isTerminalAdmissionRefusal(error: unknown): boolean {
+  if (error instanceof DriverAttemptsExhaustedError && error.stop === 'repeated-failure')
+    return true
   // The manager retry owner wraps its final failure once; no other wrapper establishes admission.
   const failure =
     error instanceof DriverAttemptsExhaustedError && error.stop === 'terminal-error'
