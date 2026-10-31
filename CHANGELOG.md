@@ -1,3 +1,11 @@
+## 3.0.11
+
+A manager that ends its turn with workers still running now holds for them even when its own pool can buy no further turn. Before, the spent pool refused the wait and the driver completed, aborting every running worker as `driver completed` with its work unretained (six of fifteen agents in Discovery run magnetar-rust-sandbox-20261031b, at iteration 0, after their leads metered 2.9M and 6.8M tokens of one Codex turn against 250k pools). The hold spends nothing: the workers keep the reservations the pool already granted, a settlement's refund may still buy the next turn, and otherwise the manager completes with their results once nothing is open. A passed deadline still ends the wait.
+
+Keep retained admission stable across private credential rotation while preserving exact historical replay. Complete missing private-turn profile and harness fields after admission so reconstructed SDK handles can resume without changing the original intent or caller conflict checks.
+
+Declare the Sandbox SDK dependency as a caret floor (`^1.0.128`) in the workspace catalog, as every other first-party dependency is. The exact pin reached the packed `@tangle-network/agent-bench` manifest and release admission refused it (`publishes exact first-party version pins`), which failed the 3.0.9 and 3.0.10 publications before npm.
+
 ## 3.0.10
 
 Qualify canonical coordination custody against the public Sandbox SDK and Provider with one shared SDK selection for Runtime and its benchmarks.
