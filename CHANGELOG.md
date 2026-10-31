@@ -1,3 +1,7 @@
+## 3.0.16
+
+A nested manager no longer retries a deterministic refusal without bound. The Sandbox SDK's `INVALID_CAPABILITY_DOCUMENT` refusal (sent as HTTP 502) is a schema rejection: before dispatch it is a refused request and ends the manager at its first attempt, after admission a provider contract violation. A nested manager whose same transient failure repeats without progress stops with `repeated-failure` at the repeated-failure count and window (10 attempts over 5 minutes), inside the transient-outage window too, and settles `down` with that failure when it never got past its intent. The root still waits an outage out. On Discovery run institutional-compiler-20261031c, managers s14 and s15 retried a refused capability document 44 and 40 times.
+
 ## 3.0.15
 
 A nested manager whose last own turn committed a failed result now settles `down` with that failure instead of holding its slot open as `nested-recovery` pending until a resume, so its parent and the run page see a failed agent rather than one still running.
