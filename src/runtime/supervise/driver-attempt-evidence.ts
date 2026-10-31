@@ -97,28 +97,15 @@ export type DriverRepromptRefusal =
   | 'closed'
   | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
 
-/** Longest cause chain read for a `PartialFailureError`; the failing box's error sits one or two wrappers down. */
-const PARTIAL_FAILURE_CAUSE_DEPTH = 6
-
 /**
  * True when `error` or one of its causes is Sandbox's `PartialFailureError`. Read by name: the
  * class lives in `@tangle-network/sandbox`, which Runtime does not import, and a failure crosses
  * packages that may each hold their own copy of it, so `instanceof` would miss it.
  */
 export function causedByPartialFailure(error: unknown): boolean {
-  const seen = new Set<unknown>()
-  let current: unknown = error
-  for (let depth = 0; depth <= PARTIAL_FAILURE_CAUSE_DEPTH; depth += 1) {
-    if (!(current instanceof Error) || seen.has(current)) return false
-    seen.add(current)
-    try {
-      if (errorProperty(current, 'name') === 'PartialFailureError') return true
-      current = current.cause
-    } catch {
-      return false
-    }
-  }
-  return false
+  return causeChain(error).some(
+    (cause) => cause instanceof Error && errorProperty(cause, 'name') === 'PartialFailureError',
+  )
 }
 
 /**
@@ -152,13 +139,12 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
- * A model provider's content filter refuses the same prompt every time, so the turn is terminal
- * and the agent settles failed with this reason, for its parent to reword or re-scope the task.
- * Codex names it only in text, under the generic `AGENT_EXECUTION_FAILED`: on Discovery run
- * magnetar-rust-sandbox-20261031f two workers resent one refused prompt 6 and 5 times.
+ * A model provider's content-filter refusal, which Codex names only in text under the generic
+ * `AGENT_EXECUTION_FAILED`. It stays transient; the retry loop bounds a streak of them and stops
+ * with this reason, for the parent to reword or re-scope the task.
  */
 const CONTENT_FILTER_REASON = "refused by the model provider's content filter"
-const isContentFilterRefusal = (error: unknown): boolean =>
+export const isContentFilterRefusal = (error: unknown): boolean =>
   causeChain(error).some(
     (cause) =>
       cause instanceof Error &&
@@ -333,10 +319,8 @@ export function classifyDriverFailure(
   }
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (isCredentialRefusal(error)) return 'terminal'
-  // A profile the box cannot be provisioned for, or a prompt the content filter refuses, fails the
-  // same way on every attempt and every box.
-  if (causeChain(error).some(isProvisioningRefusal) || isContentFilterRefusal(error))
-    return 'terminal'
+  // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
+  if (causeChain(error).some(isProvisioningRefusal)) return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
@@ -473,7 +457,9 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
     const pausedMs = pauses.reduce((sum, attempt) => sum + (attempt.retryInMs ?? 0), 0)
     super(
       `supervisor driver failed after ${attempts.length} attempt(s) — stopped by ${stop}` +
-        (isContentFilterRefusal(cause) ? `: ${CONTENT_FILTER_REASON}; ` : '; ') +
+        (stop === 'repeated-failure' && isContentFilterRefusal(cause)
+          ? `: ${CONTENT_FILTER_REASON}; `
+          : '; ') +
         (pauses.length === 0
           ? ''
           : `${pauses.length} attempt(s) met an unavailable upstream and paused ` +

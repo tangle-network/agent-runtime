@@ -9,6 +9,7 @@ import {
   type DriverAttemptStop,
   DriverAttemptsExhaustedError,
   type DriverRepromptRefusal,
+  isContentFilterRefusal,
   undispatchedCredentialExit,
   upstreamUnavailableSignal,
 } from './driver-attempt-evidence'
@@ -70,6 +71,13 @@ function barrenPauseMs(streak: number, maxBarren: number): number {
 const INSTANT_FAILURE_MS = 30_000
 const REPEATED_FAILURE_LIMIT = 10
 const REPEATED_FAILURE_WINDOW_MS = 5 * 60_000
+/**
+ * Content-filter refusals in a row (any other outcome resets) that stop an agent with
+ * `repeated-failure`; an opted-in root pauses and re-enters. One prompt is not refused every time:
+ * on Discovery run magnetar-rust-sandbox-20261031f agents passed after up to 6 in a row (`:s0:s1`
+ * on its 7th identical send), and the loops that never passed ran 9 and 10.
+ */
+const CONTENT_FILTER_REFUSAL_LIMIT = 8
 /** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
 const SAME_PENDING_LIMIT = 2
 
@@ -206,6 +214,7 @@ export class DriverRetryLoop {
   // identical transient attempts that gained nothing.
   private sameFailure: Streak | undefined
   private sameIdle: Streak | undefined
+  private refusals = 0 // CONTENT_FILTER_REFUSAL_LIMIT
   private abandonments = 0
   // Stop-pauses in a row since the last attempt that made progress, for the stop-pause ladder.
   private stopPauses = 0
@@ -355,6 +364,7 @@ export class DriverRetryLoop {
     this.consecutiveBarren = 0
     this.sameFailure = undefined
     this.sameIdle = undefined
+    this.refusals = 0
     this.samePending = undefined
     this.abandonments = 0
     this.outageSince = undefined
@@ -401,6 +411,7 @@ export class DriverRetryLoop {
   ): Promise<void> {
     const durationMs = this.limits.now() - startedAt
     const classification = classifyDriverFailure(error, this.run.signal, this.run.stopSignal)
+    this.refusals = isContentFilterRefusal(error) ? this.refusals + 1 : 0
     const after = this.run.progress()
     const progressed = madeProgress(before, after)
     if (progressed) {
@@ -572,6 +583,7 @@ export class DriverRetryLoop {
     if (!limits.retryEnabled) return 'retry-disabled'
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
+    if (this.refusals >= CONTENT_FILTER_REFUSAL_LIMIT) return 'repeated-failure'
     // The same failed box twice with nothing gained: the outage window below would retry it
     // for fifteen minutes, because the attempt spent nothing. A nested manager meets its one
     // retained execution's failure on every re-entry too, so the repeated-failure bound ends it
@@ -718,6 +730,7 @@ export class DriverRetryLoop {
     this.samePending = undefined
     this.sameFailure = undefined
     this.sameIdle = undefined
+    this.refusals = 0
     this.abandonments = 0
     const durationMs = this.limits.now() - startedAt
     const after = run.progress()

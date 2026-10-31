@@ -24,12 +24,13 @@
   schema or bound refusal (the Sandbox SDK's `INVALID_CAPABILITY_DOCUMENT` included), at the first
   attempt, or when the same transient failure without progress repeats 10 times over 5 minutes,
   inside the transient-outage window too. The root keeps waiting an outage out.
-- A model provider's content-filter refusal ends its driver at the first attempt: the same prompt is
-  never resent. A nested manager settles `down` with `refused by the model provider's content
-  filter`, and its parent's next wake carries that reason.
+- A model provider's content-filter refusal is retried; the 8th in a row (any other outcome resets
+  the count) stops the agent with `repeated-failure` and `refused by the model provider's content
+  filter`. A nested manager settles `down` and its parent's next wake carries that reason; an
+  opted-in root pauses with the refusal on its `paused` row instead of ending.
 
 Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts`,
-`tests/kernel/nested-retained-owner-journal.test.ts` and
+`tests/kernel/nested-retained-owner-journal.test.ts`, `tests/kernel/root-stop-pause.test.ts` and
 `tests/runtime/retained-capture-resume.test.ts`.
 
 # Coordination credential lease
