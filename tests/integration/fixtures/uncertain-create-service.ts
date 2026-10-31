@@ -675,6 +675,16 @@ async function runtime(
     await replay(run, response, exactResult)
     return
   }
+  if (request.method === 'POST' && path === '/agents/sessions') {
+    const input = await body(request)
+    const sessionId =
+      typeof input.sessionId === 'string' && input.sessionId.length > 0
+        ? input.sessionId
+        : `session-${state.runs.length + 1}`
+    note('session-create', { environmentId, sessionId })
+    json(response, 200, { id: sessionId, status: 'running' })
+    return
+  }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
 }
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
