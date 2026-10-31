@@ -685,6 +685,32 @@ async function runtime(
     json(response, 200, { id: sessionId, status: 'running' })
     return
   }
+  const profilePrepare = path.match(
+    /^\/agents\/sessions\/([^/]+)\/public-profile-revisions\/prepare$/,
+  )
+  if (request.method === 'POST' && profilePrepare) {
+    const input = await body(request)
+    const sessionId = decodeURIComponent(profilePrepare[1]!)
+    const workspacePlanDigest = `sha256:${'a'.repeat(64)}`
+    note('profile-prepare', { environmentId, sessionId, secret: input.secret === true })
+    // Sandbox 1.0.128 accepts an empty conflict list. A secret turn needs the
+    // executor receipt; a public turn needs the two remaining digests.
+    if (input.secret === true) {
+      json(response, 200, {
+        workspacePlanDigest,
+        executorReceipt: `hmac-sha256:${'b'.repeat(64)}`,
+        conflicts: [],
+      })
+      return
+    }
+    json(response, 200, {
+      workspacePlanDigest,
+      materializedDigest: `sha256:${'c'.repeat(64)}`,
+      launchDigest: 'd'.repeat(64),
+      conflicts: [],
+    })
+    return
+  }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
 }
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
