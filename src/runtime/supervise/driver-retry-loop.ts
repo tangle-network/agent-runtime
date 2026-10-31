@@ -96,18 +96,14 @@ function abortStop(signal: AbortSignal): 'deadline' | 'aborted' {
 /** The budget's own verdict on whether another attempt may run at all. */
 function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptStop | undefined {
   if (budget.deadlineMs > 0 && atMs >= budget.deadlineMs) return 'deadline'
-  if (budget.tokensLeft <= 0 || budget.iterationsLeft <= 0) return 'budget-exhausted'
-  if (budget.usdCapped && budget.usdLeft <= 0) return 'budget-exhausted'
   // A dollar-capped pool that has seen an unknown-cost turn closes admission permanently: a retry
   // could only reproduce the same refusal.
-  if (budget.usdCapped && budget.usdKnown === false) return 'budget-exhausted'
-  if (
-    Object.values(budget.resources ?? {}).some(
-      (resource) => !resource.known || resource.remaining <= 0,
-    )
-  )
-    return 'budget-exhausted'
-  return undefined
+  const exhausted =
+    budget.tokensLeft <= 0 ||
+    budget.iterationsLeft <= 0 ||
+    (budget.usdCapped && (budget.usdLeft <= 0 || budget.usdKnown === false)) ||
+    Object.values(budget.resources ?? {}).some((r) => !r.known || r.remaining <= 0)
+  return exhausted ? 'budget-exhausted' : undefined
 }
 
 /** The cause an admission or continuation refusal carries: it has no failure of its own. */
@@ -790,13 +786,17 @@ export class DriverRetryLoop {
       wait === undefined ||
       (run.continuation?.closed() ?? false) ||
       run.signal.aborted ||
-      budgetStop(run.budget(), this.limits.now()) !== undefined ||
       !wait.open()
     ) {
       return false
     }
+    const stop = budgetStop(run.budget(), this.limits.now())
+    if (stop === 'deadline') return false
     const woken = await wait.wake(attempt + 1)
     if (woken === undefined || run.signal.aborted) return false
+    // A spent pool buys no turn, but a wait spends nothing: the running workers hold reservations
+    // the pool granted, so hold until a refund buys the turn or nothing is open, never abort them.
+    if (stop !== undefined) return this.wake(attempt, completed)
     this.wakes += 1
     await this.emit({ ...completed, waitedMs: woken.idleMs, retryInMs: 0 })
     this.reentry = { reason: 'wake', input: woken.input, wake: this.wakes }

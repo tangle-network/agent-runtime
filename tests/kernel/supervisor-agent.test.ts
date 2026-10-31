@@ -201,6 +201,75 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     expect(attempts[0]?.waitedMs).toBeGreaterThanOrEqual(250)
   })
 
+  it('SANDBOX arm: a drive that spends the pool while its worker runs holds for the worker instead of aborting it', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let firstDriveReturned!: () => void
+    const driveReturned = new Promise<void>((resolve) => {
+      firstDriveReturned = resolve
+    })
+    const tasks: string[] = []
+    const attempts: DriverAttemptRecord[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, scope, task }) => {
+      tasks.push(String(task))
+      if (tasks.length > 1) {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+        return
+      }
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: testAgentProfile('worker'), task: 'go' },
+      })
+      // The harness reports its own inference as a real adapter does. This turn overspent the pool
+      // past anything the worker's refund can return, so no further turn can be bought: the lead of
+      // magnetar-rust-sandbox-20261031b metered 2.9M tokens of one turn against a 250k pool.
+      await scope.meter({
+        iterations: 1,
+        tokens: { input: scope.budget.tokensLeft + 10 * perWorker.maxTokens, output: 0 },
+        usd: 0,
+        ms: 0,
+      })
+      firstDriveReturned()
+    }
+    const root = supervisorAgentForTest(
+      testAgentProfile('sup', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => gatedLeaf('w', { answer: 7 }, held),
+        perWorker,
+        driveHarness,
+        onDriverAttempt: (record) => void attempts.push(record),
+      },
+    )
+    const running = runSupervisor(root, blobs, journal)
+    try {
+      // The pool is spent and the worker holds: the manager neither re-enters nor ends.
+      await driveReturned
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(tasks).toHaveLength(1)
+      expect(attempts).toHaveLength(0)
+    } finally {
+      release()
+    }
+    const result = await running
+
+    // No drive was bought; the worker finished its own work and the settlement carries it.
+    expect(tasks).toHaveLength(1)
+    const events = (await journal.loadTree('sup')) as SpawnEvent[]
+    const worker = events.find((event) => event.kind === 'settled' && event.id !== 'sup')
+    expect(worker).toMatchObject({ kind: 'settled', status: 'done' })
+    expect(attempts).toMatchObject([{ attempt: 1, stop: 'completed' }])
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 7 })
+  })
+
   it('SANDBOX arm retains a checked direct result even when the backend exits with an error afterward', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
