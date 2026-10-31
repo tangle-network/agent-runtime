@@ -1,3 +1,16 @@
+## 3.0.12
+
+Release admission compares an interface's call signature part by part, so an optional argument member added to a callable type such as `DriveHarness` asks for a patch, not a major.
+
+Provider-backed workers (`createExecutor({ backend: 'provider' })`, Tangle Sandbox) now record the platform's `effectiveBackend` model as the turn's provider evidence, so a metered turn journals `providerModel.status: "known"` with the served model id instead of `provider-model-missing`; a served model other than the declared one journals `provider-model-conflict`.
+
+Lifecycle fixes from Discovery run magnetar-rust-sandbox-20261031b (Runtime 3.0.5).
+
+- `spawn_worker` is fenced like `submit_result`: a spawn still reading by-path resources out of the manager's sandbox when the fence elapses answers with a receipt instead of a transport 504, a retried identical spawn joins it, and the worker reaches the manager in its next wake. Five spawns on that run answered 504 while their workers started.
+- A completed manager releases the retained executions of the workers its completion aborted together with its own environment, so their harnesses stop and their sandboxes are destroyed, or receipted as kept, when the manager finishes rather than at the run's settlement. Six aborted workers on that run kept their running sandboxes for the hours the run went on and the cell ran out of host capacity.
+
+A root that opts into stop pauses pauses again when a turn ends with its pool spent and workers still running, as it did before 3.0.11's hold: its pause answers a steer and re-asks admission. Other managers keep holding for their running workers, and the events that arrive during that hold now reach the turn a refund buys instead of being dropped, and that turn starts on the wake that brought the refund rather than the next one.
+
 ## 3.0.11
 
 A manager that ends its turn with workers still running now holds for them even when its own pool can buy no further turn. Before, the spent pool refused the wait and the driver completed, aborting every running worker as `driver completed` with its work unretained (six of fifteen agents in Discovery run magnetar-rust-sandbox-20261031b, at iteration 0, after their leads metered 2.9M and 6.8M tokens of one Codex turn against 250k pools). The hold spends nothing: the workers keep the reservations the pool already granted, a settlement's refund may still buy the next turn, and otherwise the manager completes with their results once nothing is open. A passed deadline still ends the wait.
