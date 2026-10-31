@@ -12,6 +12,7 @@ import {
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
 import type { AwaitWakeInput } from '../../src/mcp/tools/coordination-events'
+import { environmentReader } from '../../src/mcp/tools/spawn-resource-paths'
 import type { CheckVerdict } from '../../src/runtime/supervise/completion-gate'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
@@ -210,6 +211,76 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     )
     // Waiting is not a tool: the manager ends its turn, and the grant is only what was named.
     expect(names).toEqual(['spawn_worker'])
+  })
+
+  it('answers a spawn whose workspace reads outlast the fence with a receipt, then wakes the manager with its worker', async () => {
+    // magnetar-rust-sandbox-20261031b: each spawn read its profile's files out of the manager's
+    // sandbox before admitting the worker; five outlasted the 90 s transport deadline (one by
+    // 3 min 44 s), so the managers read 504s while the spawns went on and their workers started.
+    const blobs = new InMemoryResultBlobStore()
+    const brief = deferred<string>()
+    let reads = 0
+    const wakes: unknown[] = []
+    const root: Agent<unknown, unknown> = {
+      name: 'slow-spawner',
+      async act(_task, scope) {
+        const { handle: mcp, controls } = await serveCoordinationMcpForManager({
+          scope,
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
+          perWorker: { maxIterations: 4, maxTokens: 1000 },
+          toolNames: ['spawn_worker'],
+          // 400 ms request timeout ⇒ a 200 ms fence.
+          requestTimeoutMs: 400,
+          spawnResourceReader: environmentReader({
+            id: 'sandbox-manager',
+            read: () => {
+              reads++
+              return brief.promise
+            },
+          }),
+        })
+        const resource = { kind: 'inline', name: 'brief', path: 'brief.md' }
+        const profile = { resources: { files: [{ path: 'brief.md', resource }] } }
+        const spawn = (args: unknown) =>
+          jsonRpc(mcp.url, 'tools/call', { name: 'spawn_worker', arguments: args })
+        try {
+          const first = receiptOf(await spawn({ profile, task: 'go' }))
+          // The manager's retry, its keys in another order, joins the spawn still reading.
+          expect(receiptOf(await spawn({ task: 'go', profile })).receipt).toBe(first.receipt)
+          brief.resolve('# brief\n')
+          while (!JSON.stringify(wakes).includes('"status":"done"')) {
+            wakes.push(...((await controls.awaitWake(wakeInput()))?.events ?? []))
+          }
+          expect(wakes).toContainEqual(
+            expect.objectContaining({
+              type: 'tool-outcome',
+              receipt: first.receipt,
+              tool: 'spawn_worker',
+              ok: true,
+              value: expect.objectContaining({ workerId: 'slow-spawn:s0' }),
+            }),
+          )
+          return 'spawned once'
+        } finally {
+          await mcp.close()
+        }
+      },
+    }
+    const result = await createSupervisor<unknown, unknown>().run(
+      root,
+      'spawn from a slow workspace',
+      {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'slow-spawn',
+        journal: new InMemorySpawnJournal(),
+        blobs,
+        executors: createExecutorRegistry(),
+      },
+    )
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(reads).toBe(1)
+    expect(wakes.filter((event) => JSON.stringify(event).includes('slow-spawn:s1'))).toEqual([])
   })
 
   it('observe_agent over the wire names a finished-but-undrained worker instead of calling it running', async () => {

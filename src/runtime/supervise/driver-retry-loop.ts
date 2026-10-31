@@ -791,11 +791,11 @@ export class DriverRetryLoop {
       return false
     }
     const stop = budgetStop(run.budget(), this.limits.now())
-    if (stop === 'deadline') return false
+    if (stop === 'deadline' || (stop && run.continuation && this.pausesStop(stop))) return false
     const woken = await wait.wake(attempt + 1)
     if (woken === undefined || run.signal.aborted) return false
     // A spent pool buys no turn, but a wait spends nothing: the running workers hold reservations
-    // the pool granted, so hold until a refund buys the turn or nothing is open, never abort them.
+    // the pool granted, so hold until a refund or nothing is open (an opted-in root pauses instead).
     if (stop !== undefined) return this.wake(attempt, completed)
     this.wakes += 1
     await this.emit({ ...completed, waitedMs: woken.idleMs, retryInMs: 0 })
