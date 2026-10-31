@@ -87,17 +87,7 @@ export function mintRetainedIdentity(
   }
 }
 
-/**
- * Dispatch one detached, replayable run and return only after exact durable
- * coordinates are confirmed by the provider and persisted by the caller.
- *
- * The required `onAdmission` hook first records a digest-only intent before
- * creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
- * reference. The returned promise resolves only after the dispatched admission
- * is durable, so a crash cannot lose a successful start's exact reference.
- *
- * @stable
- */
+/** Record the intent before dispatch and resolve only after that admission is durable. @stable */
 export async function startRetainedRun(
   options: StartRetainedRunOptions,
 ): Promise<RetainedRunHandle> {
@@ -119,7 +109,6 @@ export async function startRetainedRun(
   )
   const { sessionId, executionId } =
     options.identity ??
-    // Admission coordinates remain authoritative across generator changes.
     options.intent ??
     (transferReceipt === undefined
       ? undefined
@@ -408,10 +397,7 @@ async function dispatchRetainedRun(
     executionId: identity.executionId,
   })
 
-  // Dispatch failure leaks a paid environment when THIS call provisioned it, and deletes another
-  // caller's workspace when it did not. The provider's creation receipt is what separates the two:
-  // only `created` is destroyed, and `replayed` or an absent receipt is kept, because an
-  // environment whose creation cannot be proven may be held by someone else.
+  // Destroy only a creation this call proved. Replay and an unproven receipt stay.
   const destroyIfCreated = async (cause: unknown): Promise<never> => {
     if (options.preserveEnvironment || environment.creation !== 'created') throw cause
     try {
@@ -779,8 +765,6 @@ function retainedRunIntent(
 ): RetainedRunIntentAdmission {
   const receipt = retainedContextTransferReceipt(options, options.provider.name, contextTransfer)
   assertRetainedContextTransferIdentity(receipt, identity)
-  // A named profile is only its name until the provider resolves it; an inline
-  // profile has the one AgentProfile identity every other Runtime record uses.
   const { profile } = options.environment
   const requestedProfileDigest =
     typeof profile === 'string'
