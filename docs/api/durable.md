@@ -4885,8 +4885,7 @@ Why a `rejected` request was refused.
 
 > `readonly` `optional` **ttlMs?**: `number`
 
-Explicit finite lifetime. Omission binds the credential to the live scope: it is refused once
- the scope stops or the listener closes. A child's own time box does not stop its scope.
+Credential lease duration; omission uses the public Sandbox execution-lifetime owner.
 
 ##### signingKeys?
 
@@ -5041,8 +5040,6 @@ Publish the read capability before dispatch, so a remote client can observe the 
 ##### onControlReady?
 
 > `readonly` `optional` **onControlReady?**: (`access`) => `void` \| `Promise`\<`void`\>
-
-Publish the separate operator capability before dispatch.
 
 ###### Parameters
 

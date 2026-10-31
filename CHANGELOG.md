@@ -1,3 +1,15 @@
+## 3.0.10
+
+Qualify canonical coordination custody against the public Sandbox SDK and Provider with one shared SDK selection for Runtime and its benchmarks.
+
+Pass canonical proxy-secret declarations unchanged through provider adapters and retained identity. Providers with fenced secret stores protect per-run coordination outside create env through finite issuer policy, renewable host-held leases, acknowledged proxy rekey and owned cleanup; loopback uses isolated per-turn delivery. Providers without that store retain their previous env/reference delivery, and older Tangle forwarders inherit TTL from the stored issuer policy.
+
+Require Sandbox SDK ^1.0.111 for its public finite-lifetime owner and canonical HTTP carrier, and Agent Interface ^5.10.9 for the maintained canonical policy contract. Older root SDKs such as 1.0.73 lack the required lifetime export; compatible older provider/client-port instances retain prior delivery inside the updated root dependency cohort.
+
+Ship the existing Sandbox UI viewer assets inside Runtime so the default web viewer works without installing the unrelated component dependency graph.
+
+Keep a resumed turn's retained intent identical to its first dispatch by binding runtime secret names instead of bearer values, and carry the harness and profile on the isolated backend so profile-digest checks pass after recovery.
+
 ## 3.0.9
 
 Point shared-box spend diagnostics at the maintained tangle-ops CLI.
