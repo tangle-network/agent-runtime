@@ -17,6 +17,7 @@ import {
   runtimeCapabilities,
   type Scenario,
   type ServiceState,
+  secretProfileReceipt,
   terminal,
 } from './uncertain-create-protocol'
 
@@ -48,6 +49,10 @@ const captureProof = {
 let origin = ''
 const holds = new Set<ServerResponse>()
 const nativeActions = new Map<string, Promise<void>>()
+const sessions = new Map<
+  string,
+  { backend: Record<string, unknown>; receipt?: string; publicDigest?: unknown }
+>()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
 // A real provider streams a turn's frames before its result is readable. The fixture serves the
 // exact-result read this long after the observation stream's terminal frames, so Runtime's quiet
@@ -57,13 +62,12 @@ const exactSubscribers = new WeakSet<ServerResponse>()
 const streamFlushedAt = new Map<string, number>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
-  const action = act(run).catch((error) => {
+  const action = act(run)
+  nativeActions.set(run.executionId, action)
+  void action.catch((error) => {
     state.failures.push(String(error))
     note('fixture-failure', { error: String(error) })
-    throw error
   })
-  nativeActions.set(run.executionId, action)
-  void action.catch(() => undefined)
 }
 function note(kind: string, data: Record<string, unknown> = {}): void {
   const row = { kind, at: new Date().toISOString(), ...data }
@@ -73,6 +77,9 @@ function note(kind: string, data: Record<string, unknown> = {}): void {
 function json(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' })
   response.end(JSON.stringify(body))
+}
+function jsonError(response: ServerResponse, status: number, error: object): void {
+  json(response, status, { error })
 }
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
   let text = ''
@@ -167,11 +174,9 @@ async function replay(
   if (run.status === 'running' && nativeActions.has(run.executionId))
     await nativeActions.get(run.executionId)
   if (run.status === 'running') {
-    json(response, 408, {
-      error: {
-        code: 'FIXTURE_OBSERVATION_UNKNOWN',
-        message: 'exact execution remains unresolved',
-      },
+    jsonError(response, 408, {
+      code: 'FIXTURE_OBSERVATION_UNKNOWN',
+      message: 'exact execution remains unresolved',
     })
     return
   }
@@ -204,8 +209,7 @@ async function proxy(request: IncomingMessage, response: ServerResponse, url: UR
   const key = url.pathname.split('/')[2]!
   const target = state.routes[key]
   if (!target) {
-    json(response, 503, { error: 'coordinator not registered' })
-    return
+    return json(response, 503, { error: 'coordinator not registered' })
   }
   const destination = localUrl(target)
   destination.pathname = url.pathname
@@ -381,10 +385,9 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
     const resources = object(input.resources)
     if (resources.cpuCores !== 16) throw new Error('ceiling case must request CPU16')
     note('create', { key, profile: profile.name, resources, status: 400 })
-    json(response, 400, {
+    return json(response, 400, {
       error: { code: 'VALIDATION_ERROR', message: 'requested CPU 16 exceeds tenant ceiling 8' },
     })
-    return
   }
   const prior = state.boxes.find((box) => box.key === key)
   const mustFail =
@@ -402,10 +405,9 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
       expectedDigest: provision.publicDigest,
       actualDigest: publicDigest,
     })
-    json(response, 409, {
+    return json(response, 409, {
       error: { code: 'IDEMPOTENCY_CONFLICT', message: 'same create key changed public input' },
     })
-    return
   }
   if (!provision) {
     provision = { id: `box-${state.provisions.length + 1}`, key, publicDigest }
@@ -424,12 +426,10 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
     metadata: input.metadata,
   })
   if (mustFail && !state.finish) {
-    json(response, state.createStatus, {
-      error: {
-        code: 'FIXTURE_AMBIGUOUS_CREATE',
-        message: 'The service accepted an unresolved create; retry its identity',
-        timeoutMs: 250,
-      },
+    jsonError(response, state.createStatus, {
+      code: 'FIXTURE_AMBIGUOUS_CREATE',
+      message: 'The service accepted an unresolved create; retry its identity',
+      timeoutMs: 250,
     })
     return
   }
@@ -450,79 +450,113 @@ async function runtime(
   environmentId: string,
   path: string,
 ): Promise<void> {
-  if (path === '/backend' && scenario.startsWith('dispatch-')) {
-    const selected = scenario === 'dispatch-refused' && state.runs.length > 0
-    note('backend-status', { environmentId, status: selected ? 200 : 404 })
-    json(
+  const input = request.method === 'POST' ? await body(request) : {}
+  if (path === '/backend') {
+    const selected =
+      !scenario.startsWith('dispatch-') ||
+      (scenario === 'dispatch-refused' && state.runs.length > 0)
+    if (scenario.startsWith('dispatch-'))
+      note('backend-status', { environmentId, status: selected ? 200 : 404 })
+    return json(
       response,
       selected ? 200 : 404,
-      selected ? { type: 'opencode' } : { code: 'NOT_FOUND', message: 'No selected backend' },
+      selected
+        ? { type: state.boxes.find((box) => box.id === environmentId)?.backend.type ?? 'opencode' }
+        : { code: 'NOT_FOUND', message: 'No selected backend' },
     )
-    return
-  }
-  if (path === '/backend') {
-    json(response, 200, {
-      type: state.boxes.find((box) => box.id === environmentId)?.backend.type ?? 'opencode',
-    })
-    return
   }
   if (path === '/health/detailed') {
-    json(response, 503, { error: { message: 'fixture does not measure compute resources' } })
-    return
+    return json(response, 503, { error: { message: 'fixture does not measure compute resources' } })
   }
   if (path === '/capabilities') {
     if (scenario.startsWith('dispatch-')) note('required-capture-capabilities', { environmentId })
-    json(response, 200, {
+    return json(response, 200, {
       ...runtimeCapabilities,
       ...(scenario.startsWith('dispatch-')
         ? { nativeSessionCaptureVersion: 2, nativeSessionCaptureHarnesses: ['opencode'] }
         : {}),
     })
-    return
   }
   if (path === '/messages/turns') {
     response.writeHead(204)
     response.end()
     return
   }
-  if (path === '/files/write' && request.method === 'POST') {
-    const input = await body(request)
-    if (input.path !== '.agent-runtime-checkpoint')
+  const inventory = path === '/snapshots' && request.method === 'GET'
+  if (
+    inventory ||
+    (request.method === 'POST' && ['/files/write', '/process/spawn'].includes(path))
+  ) {
+    const checkpoint = path !== '/process/spawn'
+    if (!inventory && checkpoint && input.path !== '.agent-runtime-checkpoint')
       throw new Error('unexpected non-checkpoint SDK file write')
-    note('optional-checkpoint-unavailable', {
+    // This transport peer exposes neither checkpoint storage nor container shell execution.
+    note(checkpoint ? 'optional-checkpoint-unavailable' : 'optional-transcript-unavailable', {
       environmentId,
-      operation: 'marker-write',
+      ...(checkpoint ? { operation: inventory ? 'inventory' : 'marker-write' } : {}),
       status: 501,
-      input,
+      ...(inventory ? {} : { input }),
     })
-    json(response, 501, {
-      error: {
-        code: 'CAPABILITY_UNSUPPORTED',
-        message: 'fixture exposes no checkpoint filesystem',
-        capability: 'files.write',
-      },
+    return jsonError(response, 501, {
+      code: 'CAPABILITY_UNSUPPORTED',
+      message: inventory
+        ? 'fixture exposes no checkpoint inventory'
+        : checkpoint
+          ? 'fixture exposes no checkpoint filesystem'
+          : 'fixture does not expose transcript process execution',
+      capability: inventory ? 'snapshots' : checkpoint ? 'files.write' : 'process.spawn',
     })
-    return
   }
-  if (path === '/process/spawn' && request.method === 'POST') {
-    const input = await body(request)
-    // Native transcript capture is optional here. Never execute container shell commands
-    // against the host; let the actual SDK expose its typed capability refusal.
-    note('optional-transcript-unavailable', { environmentId, status: 501, input })
-    json(response, 501, {
-      error: {
-        code: 'CAPABILITY_UNSUPPORTED',
-        message: 'fixture does not expose transcript process execution',
-        capability: 'process.spawn',
-      },
-    })
+  const prepare = path.match(/^\/agents\/sessions\/([^/]+)\/public-profile-revisions\/prepare$/)
+  if ((path === '/agents/sessions' || prepare) && request.method === 'POST') {
+    const id = prepare ? decodeURIComponent(prepare[1]!) : String(input.sessionId)
+    const key = `${environmentId}:${id}`
+    const backend = object(input.backend)
+    const prior = sessions.get(key)
+    if (!prepare) {
+      if (
+        backend.runtimeSecrets !== undefined ||
+        (prior && digest(prior.backend) !== digest(backend))
+      )
+        throw new Error('session create changed persisted backend or exposed turn-only secrets')
+      sessions.set(key, prior ?? { backend })
+      note('session-created', { environmentId, sessionId: id })
+      json(response, 200, { id, status: 'running' })
+    } else {
+      if (
+        !prior ||
+        input.secret !== true ||
+        object(backend.metadata).profileSecretIsolation !== true ||
+        typeof input.expectedPublicProfileRequestDigest !== 'string'
+      )
+        throw new Error('private preparation changed session or public request identity')
+      prior.receipt = secretProfileReceipt(backend)
+      prior.publicDigest = input.expectedPublicProfileRequestDigest
+      note('private-profile-prepared', { environmentId, sessionId: id, transportOnly: true })
+      json(response, 200, {
+        workspacePlanDigest: digest(publicCreateMaterial(backend)),
+        executorReceipt: prior.receipt,
+        conflicts: [],
+      })
+    }
     return
   }
   if (path === '/agents/run/stream') {
-    const input = await body(request)
     const executionId = request.headers['x-execution-id']
     note('stream-http-request', { environmentId, executionId, input, bodyDigest: digest(input) })
     const existing = state.runs.find((candidate) => candidate.executionId === executionId)
+    const prepared = sessions.get(`${environmentId}:${input.sessionId}`)
+    const isolated =
+      object(object(input.backend ?? {}).metadata ?? {}).profileSecretIsolation === true
+    if (
+      !existing &&
+      isolated &&
+      (!prepared?.receipt ||
+        input.expectedSecretProfileReceipt !== prepared.receipt ||
+        prepared.receipt !== secretProfileReceipt(input.backend) ||
+        input.expectedPublicProfileRequestDigest !== prepared.publicDigest)
+    )
+      throw new Error('dispatch did not match its private profile preparation')
     const ref =
       input.runControlRef === undefined && existing
         ? existing.runControlRef
@@ -536,12 +570,11 @@ async function runtime(
     if (scenario === 'dispatch-refused' && !state.finish) {
       if (existing) throw new Error('predispatch refusal cannot hide an admitted execution')
       note('dispatch-refused', { environmentId, executionId, input, status: 503 })
-      json(response, 503, {
+      return json(response, 503, {
         status: 'error',
         code: 'HUB_CREDENTIAL_REFRESH_FAILED',
         message: 'Sandbox Hub credential is temporarily unavailable.',
       })
-      return
     }
     if (existing) {
       if (
@@ -593,12 +626,11 @@ async function runtime(
     })
     if (scenario === 'dispatch-lost-reply') {
       note('dispatch-reply-lost', { environmentId, executionId: run.executionId })
-      json(response, 503, {
+      return json(response, 503, {
         status: 'error',
         code: 'SERVER_ERROR',
         message: 'Admission reply lost',
       })
-      return
     }
     sse(response, terminal(run, scenario).slice(0, 1))
     if (scenario.startsWith('dispatch-')) {
@@ -618,7 +650,6 @@ async function runtime(
     return
   }
   if (path === '/agents/run/cancel') {
-    const input = await body(request)
     const run = object(input.run)
     const effect = state.cancelEffect
     note('cancel', {
@@ -630,102 +661,56 @@ async function runtime(
     })
     const current = state.runs.find((candidate) => candidate.executionId === run.executionId)
     if (current && (effect === 'cancelled' || effect === 'not_live')) current.status = 'cancelled'
-    json(response, 200, {
+    return json(response, 200, {
       operationId: input.operationId,
       requestDigest: input.requestDigest,
       run,
       status: effect === 'unknown' ? 'unknown' : 'accepted',
       effect,
     })
-    return
   }
   const sessionMatch = path.match(/^\/agents\/sessions\/([^/]+)$/)
-  if (sessionMatch) {
-    const run = state.runs
-      .filter((candidate) => candidate.sessionId === decodeURIComponent(sessionMatch[1]!))
-      .at(-1)
-    note('session-status', { environmentId, executionId: run?.executionId, status: run?.status })
-    if (!run) {
-      json(response, 404, { error: { message: 'no session' } })
-      return
-    }
-    json(response, 200, {
-      id: run.sessionId,
-      status: run.status,
-      activeExecutionId: run.executionId,
-      latestExecutionId: run.executionId,
-      runControlRef: run.runControlRef,
-    })
-    return
-  }
   const eventMatch = path.match(/^\/agents\/run\/([^/]+)\/events$/)
-  if (eventMatch || path === '/agents/events') {
-    const executionId = eventMatch
-      ? decodeURIComponent(eventMatch[1]!)
-      : url.searchParams.get('executionId')
-    const run = state.runs.find((candidate) => candidate.executionId === executionId)
-    // The SDK's result reader binds the session in its query; its native stream binds only the run.
+  if (sessionMatch || eventMatch || path === '/agents/events') {
+    const match = sessionMatch ?? eventMatch
+    const id = match ? decodeURIComponent(match[1]!) : url.searchParams.get('executionId')
+    const key = sessionMatch ? 'sessionId' : 'executionId'
+    const run = state.runs.filter((candidate) => candidate[key] === id).at(-1)
+    // Only the independently requested exact result binds a session query.
     const exactResult = url.searchParams.has('sessionId')
-    note('events', { environmentId, executionId, status: run?.status, exactResult })
-    if (!run) {
-      json(response, 404, { error: { message: 'no execution' } })
-      return
+    note(sessionMatch ? 'session-status' : 'events', {
+      environmentId,
+      executionId: sessionMatch ? run?.executionId : id,
+      status: run?.status,
+      ...(sessionMatch ? {} : { exactResult }),
+    })
+    if (!run)
+      return jsonError(response, 404, { message: sessionMatch ? 'no session' : 'no execution' })
+    if (sessionMatch) {
+      return json(response, 200, {
+        id: run.sessionId,
+        status: run.status,
+        activeExecutionId: run.executionId,
+        latestExecutionId: run.executionId,
+        runControlRef: run.runControlRef,
+      })
     }
     if (run.environmentId !== environmentId) throw new Error('SDK event target mismatch')
-    await replay(run, response, exactResult)
-    return
-  }
-  if (request.method === 'POST' && path === '/agents/sessions') {
-    const input = await body(request)
-    const sessionId =
-      typeof input.sessionId === 'string' && input.sessionId.length > 0
-        ? input.sessionId
-        : `session-${state.runs.length + 1}`
-    note('session-create', { environmentId, sessionId })
-    json(response, 200, { id: sessionId, status: 'running' })
-    return
-  }
-  const profilePrepare = path.match(
-    /^\/agents\/sessions\/([^/]+)\/public-profile-revisions\/prepare$/,
-  )
-  if (request.method === 'POST' && profilePrepare) {
-    const input = await body(request)
-    const sessionId = decodeURIComponent(profilePrepare[1]!)
-    const workspacePlanDigest = `sha256:${'a'.repeat(64)}`
-    note('profile-prepare', { environmentId, sessionId, secret: input.secret === true })
-    // Sandbox 1.0.128 accepts an empty conflict list. A secret turn needs the
-    // executor receipt; a public turn needs the two remaining digests.
-    if (input.secret === true) {
-      json(response, 200, {
-        workspacePlanDigest,
-        executorReceipt: `hmac-sha256:${'b'.repeat(64)}`,
-        conflicts: [],
-      })
-      return
-    }
-    json(response, 200, {
-      workspacePlanDigest,
-      materializedDigest: `sha256:${'c'.repeat(64)}`,
-      launchDigest: 'd'.repeat(64),
-      conflicts: [],
-    })
-    return
+    return replay(run, response, exactResult)
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
 }
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url!, origin)
   if (url.pathname.startsWith('/coordination/')) {
-    await proxy(request, response, url)
-    return
+    return proxy(request, response, url)
   }
   if (url.pathname === '/fixture/hold-success') {
     if (
       (scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') &&
       state.finish
     ) {
-      json(response, 200, { ok: true })
-      return
+      return json(response, 200, { ok: true })
     }
     note('successful-attempt-observer-barrier', {
       phase: url.searchParams.get('phase') ?? 'native-result-committed',
@@ -735,8 +720,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     return
   }
   if (url.pathname === '/fixture/state') {
-    json(response, 200, state)
-    return
+    return json(response, 200, state)
   }
   if (url.pathname === '/fixture/control') {
     const control = await body(request)
@@ -802,28 +786,22 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       }
     }
     note('control', control)
-    json(response, 200, { ok: true })
-    return
+    return json(response, 200, { ok: true })
   }
   if (url.pathname === '/usage' || url.pathname === '/subscription') {
-    json(response, 503, { error: { message: 'fixture account usage is unmeasured' } })
-    return
+    return json(response, 503, { error: { message: 'fixture account usage is unmeasured' } })
   }
   if (url.pathname === '/v1/capabilities') {
-    json(response, 200, {})
-    return
+    return json(response, 200, {})
   }
   if (url.pathname === '/v1/backends') {
-    json(response, 200, registry)
-    return
+    return json(response, 200, registry)
   }
   if (url.pathname === '/v1/sandboxes' && request.method === 'POST') {
-    await create(request, response)
-    return
+    return create(request, response)
   }
   if (url.pathname === '/v1/sandboxes') {
-    json(response, 200, { sandboxes: state.boxes.map((box) => boxInfo(box.id)) })
-    return
+    return json(response, 200, { sandboxes: state.boxes.map((box) => boxInfo(box.id)) })
   }
   const credentialGrant = url.pathname.match(/^\/v1\/sandboxes\/([^/]+)\/native-credentials$/)
   if (credentialGrant && request.method === 'POST') {
@@ -833,31 +811,16 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       harness: grant.harness,
       reference: grant.cliAuth,
     })
-    json(response, 200, { installed: true, harness: grant.harness, cliAuth: grant.cliAuth })
-    return
+    return json(response, 200, { installed: true, harness: grant.harness, cliAuth: grant.cliAuth })
   }
   const snapshots = url.pathname.match(/^\/v1\/sandboxes\/([^/]+)\/snapshots$/)
-  if (snapshots && request.method === 'GET') {
-    note('optional-checkpoint-unavailable', {
-      environmentId: snapshots[1],
-      operation: 'inventory',
-      status: 501,
-    })
-    json(response, 501, {
-      error: {
-        code: 'CAPABILITY_UNSUPPORTED',
-        message: 'fixture exposes no checkpoint inventory',
-        capability: 'snapshots',
-      },
-    })
-    return
-  }
+  if (snapshots && request.method === 'GET')
+    return runtime(request, response, url, snapshots[1]!, '/snapshots')
   const match = url.pathname.match(/^\/v1\/sandboxes\/([^/]+)(?:\/runtime(.*))?$/)
   if (match) {
     const id = decodeURIComponent(match[1]!)
     if (match[2] !== undefined) {
-      await runtime(request, response, url, id, match[2])
-      return
+      return runtime(request, response, url, id, match[2])
     }
     if (request.method === 'DELETE') {
       if (scenario.startsWith('json-') && !state.finish) {
@@ -868,16 +831,14 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       }
       note('delete', { environmentId: id })
       state.lost.push(id)
-      json(response, 200, { id, outcome: 'destroyed', removal: 'complete' })
-      return
+      return json(response, 200, { id, outcome: 'destroyed', removal: 'complete' })
     }
     note('get', { environmentId: id, absent: state.lost.includes(id) })
-    json(
+    return json(
       response,
       state.lost.includes(id) ? 404 : 200,
       state.lost.includes(id) ? { error: { message: 'authoritatively absent' } } : boxInfo(id),
     )
-    return
   }
   throw new Error(`unexpected SDK route ${request.method} ${url.pathname}`)
 }
@@ -901,7 +862,5 @@ server.listen(0, '127.0.0.1', () => {
 })
 process.on('SIGTERM', () => {
   server.closeAllConnections()
-  server.close(() => {
-    process.exitCode = 0
-  })
+  server.close()
 })

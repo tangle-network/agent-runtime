@@ -329,10 +329,6 @@ async function providerAttemptFactory(
       ...backend.promptOptions,
       backend: {
         ...turn,
-        ...(turn.type === undefined && providerHarness !== undefined && providerHarness !== 'gemini'
-          ? { type: providerHarness }
-          : {}),
-        ...(turn.profile === undefined ? { profile: input.profile } : {}),
         runtimeSecrets: { ...turn.runtimeSecrets, [credentialName]: authorization.slice(7) },
         runtimeAttachments: {
           mcp: { ...turn.runtimeAttachments?.mcp, [coordinationMcpAlias]: attachment },

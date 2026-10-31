@@ -1265,7 +1265,7 @@ describe('coordination credential continuity', () => {
     )
   })
 
-  it('resumes a signed credential whether or not the receiver sets an explicit ttl', async () => {
+  it('resumes signed credentials with either receiver ttl only within the root lifetime', async () => {
     const signingKeys = { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } }
     const proxy = await publicProxy()
     const publicUrl = ({ port }: { port: number }) => {
@@ -1276,20 +1276,18 @@ describe('coordination credential continuity', () => {
     await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
       original = mcp.headers
     })
-    for (const ttlMs of [undefined, 900_000]) {
+    for (const { ttlMs, deadlineMs, status } of [
+      { ttlMs: undefined, deadlineMs: undefined, status: 200 },
+      { ttlMs: 900_000, deadlineMs: undefined, status: 200 },
+      { ttlMs: undefined, deadlineMs: 900_000, status: 401 },
+    ]) {
       await withBoundHttp(
-        {
-          authentication: { signingKeys, ...(ttlMs === undefined ? {} : { ttlMs }) },
-          publicUrl,
-        },
+        { authentication: { signingKeys, ttlMs }, publicUrl },
         async (mcp) => {
-          const response = await fetch(`http://127.0.0.1:${mcp.port}/mcp`, {
-            method: 'POST',
-            headers: { ...original, 'content-type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-          })
-          expect(response.status).toBe(200)
+          expect((await postHttp(mcp, original)).status).toBe(status)
         },
+        undefined,
+        deadlineMs,
       )
     }
   })

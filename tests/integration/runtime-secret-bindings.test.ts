@@ -41,7 +41,7 @@ async function run(mode: string) {
       '--dns-result-order=ipv4first',
       fileURLToPath(
         new URL(
-          `./fixtures/${['selectors', 'identity'].includes(mode) ? 'runtime-binding-forwarding' : 'runtime-secret-bindings'}.mjs`,
+          `./fixtures/${mode === 'selectors' ? 'runtime-binding-forwarding' : 'runtime-secret-bindings'}.mjs`,
           import.meta.url,
         ),
       ),
@@ -81,15 +81,6 @@ it('passes direct and authored host declarations through the public Sandbox adap
     fullSchemaPreserved: true,
     legacyDeliveryPreserved: true,
     candidateRoundTripPreserved: true,
-  })
-})
-it('keeps string selector ordering stable and binds retained identity to host and header', async () => {
-  expect(await run('identity')).toEqual({
-    stringSelectionOrderStable: true,
-    legacyWireIdentityPreserved: true,
-    hostChangesIdentity: true,
-    headerChangesIdentity: true,
-    canonicalScopeChangesIdentity: true,
   })
 })
 it('stores coordination outside create.env, authenticates MCP over TLS, and revokes at settlement', async () => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { json } from 'node:stream/consumers'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import {
   agentCandidateProfileAsAgentProfile,
@@ -12,6 +12,7 @@ import { providerAsSandboxClient, startRetainedRun } from '@tangle-network/agent
 import { Sandbox } from '@tangle-network/sandbox'
 
 const mode = process.argv[2]
+const exact = mode === 'identity'
 const profile = {
   name: 'binding-http',
   harness: 'opencode',
@@ -67,9 +68,7 @@ const server = createServer(async (request, response) => {
       }),
     )
   if (path === '/v1/sandboxes' && request.method === 'POST') {
-    const chunks = []
-    for await (const chunk of request) chunks.push(Buffer.from(chunk))
-    const body = JSON.parse(Buffer.concat(chunks).toString())
+    const body = await json(request)
     creates.push(body)
     metadata = body.metadata
     return response.end(JSON.stringify(info()))
@@ -82,9 +81,9 @@ const server = createServer(async (request, response) => {
         agentInterface: '0.49.0',
         sidecarVersion: '1.0.0-test',
         image: 'fixture',
-        dispatch: { runControlRef: false, executionIdOnAdmission: false },
-        cancel: { canonicalRunCancellation: false, digestBound: false, idempotent: false },
-        runs: { executionScopedStatus: false, eventReplay: false },
+        dispatch: { runControlRef: exact, executionIdOnAdmission: exact },
+        cancel: { canonicalRunCancellation: exact, digestBound: exact, idempotent: exact },
+        runs: { executionScopedStatus: exact, eventReplay: exact },
         interactions: { responseDedupe: false },
       }),
     )
@@ -287,58 +286,49 @@ try {
       }),
     )
   } else if (mode === 'identity') {
-    const capture = async (secrets, proxySecrets) => {
+    const boundary = new Error('fixture durability boundary')
+    const start = (secrets, proxySecrets, intent, onAdmission) =>
+      startRetainedRun({
+        provider,
+        environment: {
+          profile,
+          ...(secrets === undefined ? {} : { secrets }),
+          ...(proxySecrets === undefined ? {} : { proxySecrets }),
+          idempotencyKey: 'legacy-secret-identity',
+        },
+        identity: { sessionId: 'identity-session', executionId: 'identity-execution' },
+        turn: { prompt: 'public identity only', turnId: 'identity-turn' },
+        intent,
+        onAdmission,
+      })
+    const capture = async (secrets, proxySecrets, prior) => {
       let intent
-      try {
-        await startRetainedRun({
-          provider,
-          environment: {
-            profile: 'custody-public-profile',
-            secrets,
-            proxySecrets,
-            idempotencyKey: 'legacy-secret-identity',
-          },
-          identity: { sessionId: 'identity-session', executionId: 'identity-execution' },
-          turn: { prompt: 'public identity only', turnId: 'identity-turn' },
-          onAdmission: async (admission) => {
-            intent = admission
-            throw new Error('durability boundary intentionally held')
-          },
-        })
-      } catch {}
-      assert.equal(intent?.phase, 'intent')
+      await assert.rejects(
+        start(secrets, proxySecrets, prior, async (admission) => {
+          intent = admission
+          throw boundary
+        }),
+        (error) => error.cause === boundary,
+      )
+      assert.equal(intent.phase, prior ? 'environment' : 'intent')
       return intent
     }
+    const refuses = (secrets, proxySecrets, intent) =>
+      assert.rejects(
+        start(secrets, proxySecrets, intent, async () => assert.fail('unexpected admission')),
+        /retained run intent conflicts with replay material/,
+      )
     const ordered = await capture(['Z_TOKEN', 'A_TOKEN']),
       reversed = await capture(['A_TOKEN', 'Z_TOKEN'])
     assert.equal(ordered.requestDigest, reversed.requestDigest)
-    const historicalWireIdentity = {
-      kind: 'retained-run-intent.v1',
-      provider: provider.name,
-      idempotencyKey: 'legacy-secret-identity',
-      turnId: 'identity-turn',
-      sessionId: 'identity-session',
-      executionId: 'identity-execution',
-      requestedProfileDigest: canonicalCandidateDigest('custody-public-profile'),
-      create: { secretNames: ['A_TOKEN', 'Z_TOKEN'] },
-      turn: { prompt: 'public identity only' },
-    }
-    assert.equal(ordered.requestDigest, canonicalCandidateDigest(historicalWireIdentity))
-    const allSelection = await capture('all')
-    assert.equal(
-      allSelection.requestDigest,
-      canonicalCandidateDigest({
-        ...historicalWireIdentity,
-        create: { secretNames: 'all' },
-      }),
-    )
+    await refuses(['A_TOKEN', 'Z_TOKEN'], undefined, {
+      ...ordered,
+      runId: `retained-intent-run:${'0'.repeat(64)}`,
+    })
     const legacyHost = { name: 'TOKEN', host: 'first.example.com' }
     const legacyIntent = await capture([legacyHost])
     for (const change of [{ host: 'other.example.com' }, { header: 'X-Api-Key' }])
-      assert.notEqual(
-        legacyIntent.requestDigest,
-        (await capture([{ ...legacyHost, ...change }])).requestDigest,
-      )
+      await refuses([{ ...legacyHost, ...change }], undefined, legacyIntent)
     const portable = {
       envName: 'TOKEN',
       secretRef: { kind: 'secret-ref', key: 'TOKEN' },
@@ -357,18 +347,18 @@ try {
       { envName: 'ALIAS' },
       { secretRef: { kind: 'secret-ref', key: 'OTHER' } },
     ])
-      assert.notEqual(
-        first.requestDigest,
-        (await capture(undefined, [{ ...portable, ...changed }])).requestDigest,
-      )
+      await refuses(undefined, [{ ...portable, ...changed }], first)
     assert.equal(requests.length, 0)
+    const admitted = await capture(['A_TOKEN', 'Z_TOKEN'], undefined, reversed)
+    assert.equal(admitted.environmentId, 'sandbox-bindings')
+    assert.equal(creates.length, 1)
+    assert.deepEqual(creates[0].secrets, ['A_TOKEN', 'Z_TOKEN'])
+    assert.equal(metadata.retainedIdempotencyKey, reversed.idempotencyKey)
+    await (await provider.get(admitted.environmentId)).destroy()
+    assert.equal(requests.at(-1), 'DELETE /v1/sandboxes/sandbox-bindings')
     console.log(
       JSON.stringify({
-        stringSelectionOrderStable: true,
-        legacyWireIdentityPreserved: true,
-        hostChangesIdentity: true,
-        headerChangesIdentity: true,
-        canonicalScopeChangesIdentity: true,
+        admissionReplayedThroughHttp: true,
       }),
     )
   } else if (mode === 'raw-candidate') {

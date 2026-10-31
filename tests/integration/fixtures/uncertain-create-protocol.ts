@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
-import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs'
+import { createHash, createHmac } from 'node:crypto'
+import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 
 export type Scenario =
   | 'sql-conformance'
@@ -75,22 +75,19 @@ export interface ServiceState {
   failures: string[]
 }
 export function record(path: string, value: object): void {
-  const descriptor = openSync(path, 'a', 0o600)
-  try {
-    writeSync(descriptor, `${JSON.stringify(value)}\n`)
-    fsyncSync(descriptor)
-  } finally {
-    closeSync(descriptor)
-  }
+  durableBytes(path, `${JSON.stringify(value)}\n`, 'a')
 }
-export function durableBytes(path: string, bytes: string | Buffer): void {
-  const descriptor = openSync(path, 'w', 0o600)
+export function durableBytes(path: string, bytes: string | Buffer, mode: 'w' | 'a' = 'w'): void {
+  const descriptor = openSync(path, mode, 0o600)
   try {
     writeFileSync(descriptor, bytes)
     fsyncSync(descriptor)
   } finally {
     closeSync(descriptor)
   }
+}
+export function secretProfileReceipt(backend: unknown): string {
+  return `hmac-sha256:${createHmac('sha256', 'local-profile-receipt-fixture').update(JSON.stringify(backend)).digest('hex')}`
 }
 export function readRecords(path: string): WireRecord[] {
   try {

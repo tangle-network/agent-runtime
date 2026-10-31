@@ -14,6 +14,7 @@ import type {
   AgentEnvironmentProvider,
   AgentSession,
   AgentSessionRef,
+  AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { withJsonlFileLock } from '../durable/jsonl-file'
 import { FileObserverJournal } from '../durable/observer-journal'
@@ -47,6 +48,7 @@ import { createRetainedRunHandle } from './retained-run-handle'
 import {
   retainedCreateMaterial,
   retainedEnvironmentMetadata,
+  retainedTurnForDispatch,
   retainedTurnMaterial,
 } from './retained-run-intent'
 import type {
@@ -87,7 +89,17 @@ export function mintRetainedIdentity(
   }
 }
 
-/** Record the intent before dispatch and resolve only after that admission is durable. @stable */
+/**
+ * Dispatch one detached, replayable run and return only after exact durable
+ * coordinates are confirmed by the provider and persisted by the caller.
+ *
+ * The required `onAdmission` hook first records a digest-only intent before
+ * creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
+ * reference. The returned promise resolves only after the dispatched admission
+ * is durable, so a crash cannot lose a successful start's exact reference.
+ *
+ * @stable
+ */
 export async function startRetainedRun(
   options: StartRetainedRunOptions,
 ): Promise<RetainedRunHandle> {
@@ -109,6 +121,7 @@ export async function startRetainedRun(
   )
   const { sessionId, executionId } =
     options.identity ??
+    // Admission coordinates remain authoritative across generator changes.
     options.intent ??
     (transferReceipt === undefined
       ? undefined
@@ -133,7 +146,11 @@ export async function startRetainedRun(
   if (options.intent === undefined) {
     await admitDurably(onAdmission, intent)
   } else {
-    assertExactRetainedRunIntent(options.intent, intent)
+    assertExactRetainedRunIntent(options.intent, intent, () =>
+      retainedRunIntent(options, identity, contextTransfer, {
+        providerOptions: options.turn.providerOptions,
+      }),
+    )
   }
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (transferReceipt !== undefined) assertRetainedContextTransferCapability(providerCapabilities)
@@ -187,6 +204,8 @@ export async function startRetainedRun(
     })
   }
   let capabilities: AgentEnvironmentCapabilities
+  let teardownFailure =
+    'retained run environment published invalid capabilities and could not be destroyed'
   try {
     capabilities = retainedCapabilitiesForEnvironment(
       options.provider.name,
@@ -199,36 +218,21 @@ export async function startRetainedRun(
       options.turn.interactions,
       capabilities,
     )
+    if (!environment.dispatch || !environment.session) {
+      teardownFailure =
+        'retained run could not start and its unused environment could not be destroyed'
+      throw new Error(
+        `provider "${options.provider.name}" does not expose detached session control`,
+      )
+    }
   } catch (error) {
     if (transferReceipt !== undefined || options.existingEnvironmentId !== undefined) throw error
     try {
       await environment.destroy?.()
     } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        'retained run environment published invalid capabilities and could not be destroyed',
-      )
+      throw new AggregateError([error, cleanupError], teardownFailure)
     }
     throw error
-  }
-  if (!environment.dispatch || !environment.session) {
-    if (transferReceipt !== undefined || options.existingEnvironmentId !== undefined) {
-      throw new Error(
-        `provider "${options.provider.name}" does not expose detached session control`,
-      )
-    }
-    try {
-      await environment.destroy?.()
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [
-          new Error(`provider "${options.provider.name}" does not expose detached session control`),
-          cleanupError,
-        ],
-        'retained run could not start and its unused environment could not be destroyed',
-      )
-    }
-    throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
 
   return dispatchRetainedRun({
@@ -236,6 +240,7 @@ export async function startRetainedRun(
     environment,
     signal: attachmentSignal,
     environmentIdempotencyKey: options.environment.idempotencyKey,
+    create: options.environment,
     turn: options.turn,
     contextTransfer,
     expectedRunId: transferReceipt?.runId,
@@ -369,6 +374,7 @@ interface DispatchRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly environment: AgentEnvironment
   readonly environmentIdempotencyKey: string
+  readonly create?: RetainedRunStartMaterial['environment']
   readonly turn: StartRetainedRunOptions['turn']
   readonly contextTransfer?: ContextTransferRequest
   readonly identity: { readonly sessionId: string; readonly executionId: string }
@@ -397,7 +403,10 @@ async function dispatchRetainedRun(
     executionId: identity.executionId,
   })
 
-  // Destroy only a creation this call proved. Replay and an unproven receipt stay.
+  // Dispatch failure leaks a paid environment when THIS call provisioned it, and deletes another
+  // caller's workspace when it did not. The provider's creation receipt is what separates the two:
+  // only `created` is destroyed, and `replayed` or an absent receipt is kept, because an
+  // environment whose creation cannot be proven may be held by someone else.
   const destroyIfCreated = async (cause: unknown): Promise<never> => {
     if (options.preserveEnvironment || environment.creation !== 'created') throw cause
     try {
@@ -415,8 +424,11 @@ async function dispatchRetainedRun(
   options.turn.signal?.throwIfAborted()
   let reference: AgentSessionRef
   try {
+    const turn = options.create
+      ? retainedTurnForDispatch(options.turn, options.create)
+      : options.turn
     reference = await environment.dispatch!(
-      freshTurnInput(options.turn, {
+      freshTurnInput(turn, {
         turnId: options.turn.turnId,
         detach: true,
         ...identity,
@@ -748,13 +760,15 @@ export function assertRetainedRunReplayMaterial(
   const identity = replay.identity ?? admission
   assertStableText(identity.sessionId, 'retained session id')
   assertStableText(identity.executionId, 'retained execution id')
+  const options = { ...replay, provider }
+  const contextTransfer = retainedContextTransfer(replay.turn.contextTransfer)
   assertExactRetainedRunIntent(
     admission,
-    retainedRunIntent(
-      { ...replay, provider },
-      identity,
-      retainedContextTransfer(replay.turn.contextTransfer),
-    ),
+    retainedRunIntent(options, identity, contextTransfer),
+    () =>
+      retainedRunIntent(options, identity, contextTransfer, {
+        providerOptions: replay.turn.providerOptions,
+      }),
   )
 }
 
@@ -762,25 +776,31 @@ function retainedRunIntent(
   options: RetainedRunStartMaterial & { readonly provider: AgentEnvironmentProvider },
   identity: { readonly sessionId: string; readonly executionId: string },
   contextTransfer: ContextTransferRequest | undefined,
+  turnFields?: Pick<AgentTurnInput, 'providerOptions'>,
 ): RetainedRunIntentAdmission {
   const receipt = retainedContextTransferReceipt(options, options.provider.name, contextTransfer)
   assertRetainedContextTransferIdentity(receipt, identity)
+  // A named profile is only its name until the provider resolves it; an inline
+  // profile has the one AgentProfile identity every other Runtime record uses.
   const { profile } = options.environment
   const requestedProfileDigest =
     typeof profile === 'string'
       ? canonicalCandidateDigest(profile)
       : canonicalAgentProfileDigest(profile)
-  const requestDigest = canonicalCandidateDigest({
-    kind: 'retained-run-intent.v1',
+  const material = {
     provider: options.provider.name,
     idempotencyKey: options.environment.idempotencyKey,
-    ...(options.existingEnvironmentId === undefined
-      ? {}
-      : { existingEnvironmentId: options.existingEnvironmentId }),
     turnId: options.turn.turnId,
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     requestedProfileDigest,
+  }
+  const requestDigest = canonicalCandidateDigest({
+    kind: turnFields === undefined ? 'retained-run-intent.v2' : 'retained-run-intent.v1',
+    ...material,
+    ...(options.existingEnvironmentId === undefined
+      ? {}
+      : { existingEnvironmentId: options.existingEnvironmentId }),
     ...(receipt === undefined
       ? {}
       : {
@@ -790,17 +810,12 @@ function retainedRunIntent(
           }),
         }),
     create: retainedCreateMaterial(options.environment),
-    turn: retainedTurnMaterial(options.turn, contextTransfer),
+    turn: retainedTurnMaterial(options.turn, contextTransfer, turnFields),
   })
   return {
     phase: 'intent',
-    provider: options.provider.name,
-    idempotencyKey: options.environment.idempotencyKey,
-    turnId: options.turn.turnId,
-    sessionId: identity.sessionId,
-    executionId: identity.executionId,
+    ...material,
     runId: `retained-intent-run:${requestDigest.slice('sha256:'.length)}`,
-    requestedProfileDigest,
     requestDigest,
   }
 }
@@ -822,39 +837,31 @@ function retainedContextTransfer(
 function assertExactRetainedRunIntent(
   received: RetainedRunIntentAdmission,
   expected: RetainedRunIntentAdmission,
+  legacyExpected?: () => RetainedRunIntentAdmission,
 ): void {
-  const stableReceived = parseRetainedRunIntent(received)
-  if (canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(expected)) {
-    throw new Error('retained run intent conflicts with replay material')
-  }
+  const receivedDigest = canonicalCandidateDigest(parseRetainedRunIntent(received, expected))
+  if (receivedDigest === canonicalCandidateDigest(expected)) return
+  if (legacyExpected && receivedDigest === canonicalCandidateDigest(legacyExpected())) return
+  throw new Error('retained run intent conflicts with replay material')
 }
 
-function parseRetainedRunIntent(value: unknown): RetainedRunIntentAdmission {
+function parseRetainedRunIntent(
+  value: unknown,
+  expected: RetainedRunIntentAdmission,
+): RetainedRunIntentAdmission {
   const stable = detachedSnapshot(value, 'retained run intent')
   if (stable === null || typeof stable !== 'object' || Array.isArray(stable)) {
     throw new Error('retained run intent is malformed')
   }
   const record = stable as Record<string, unknown>
-  const allowed = new Set([
-    'phase',
-    'provider',
-    'idempotencyKey',
-    'turnId',
-    'sessionId',
-    'executionId',
-    'runId',
-    'requestedProfileDigest',
-    'requestDigest',
-  ])
-  if (Object.keys(record).some((key) => !allowed.has(key))) {
+  if (Object.keys(record).some((key) => !Object.hasOwn(expected, key))) {
     throw new Error('retained run intent contains unsupported material')
   }
   if (record.phase !== 'intent') {
     throw new Error('retained run intent has an invalid phase')
   }
   for (const [key, value] of Object.entries(record)) {
-    if (key === 'phase') continue
-    if (typeof value !== 'string' || value.length === 0) {
+    if (key !== 'phase' && (typeof value !== 'string' || value.length === 0)) {
       throw new Error(`retained run intent field "${key}" is invalid`)
     }
   }
@@ -930,16 +937,7 @@ function assertRetainedCapabilityRequirements(
   providerName: string,
   capabilities: AgentEnvironmentCapabilities,
 ): void {
-  const retained = capabilities.retainedControl
-  if (
-    retained?.exactRunIdentity !== true ||
-    retained.resultIdentity !== true ||
-    retained.eventIdentity !== true ||
-    retained.cancellationIdempotency !== true ||
-    !capabilities.streaming.detach ||
-    !capabilities.streaming.replay ||
-    !capabilities.streaming.turnIdempotency
-  ) {
+  if (capabilities.retainedControl === undefined) {
     throw new Error(`provider "${providerName}" cannot control a retry-safe retained run`)
   }
 }
