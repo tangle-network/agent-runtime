@@ -1,3 +1,7 @@
+## 3.0.19
+
+A model provider's content-filter refusal is retried again, because the filter does not refuse one prompt every time: on Discovery run magnetar-rust-sandbox-20261031f, agents passed after up to 6 refusals in a row, and the root passed on a later attempt. 3.0.17 made the first refusal terminal, which would have ended 4 of those 6 agents and the whole run. The 8th consecutive refusal of one agent (any other outcome resets the count) now stops it with `repeated-failure` and `refused by the model provider's content filter`, inside the transient-outage window too. A nested manager settles `down` and its parent is woken with that reason. A root with `driverRetry.pauseRootStops` pauses with the refusal on its `paused` row and re-enters. A root without it ends with the reason in its error.
+
 ## 3.0.18
 
 A coordination credential renewal keeps the replaced bearer valid until its own expiry instead of revoking it when the provider acknowledges the new one, so a manager whose environment never picked up the renewal keeps its coordination tools. A signed bearer that arrives expired stops the manager with `coordination credential expired in its holder: no renewal reached it` in the run's continuation, and a manager stopped by its coordination server now carries that server's reason as `continuation.stopReason`.
