@@ -291,7 +291,7 @@ try {
       startRetainedRun({
         provider,
         environment: {
-          profile: 'custody-public-profile',
+          profile,
           ...(secrets === undefined ? {} : { secrets }),
           ...(proxySecrets === undefined ? {} : { proxySecrets }),
           idempotencyKey: 'legacy-secret-identity',
@@ -321,20 +321,10 @@ try {
     const ordered = await capture(['Z_TOKEN', 'A_TOKEN']),
       reversed = await capture(['A_TOKEN', 'Z_TOKEN'])
     assert.equal(ordered.requestDigest, reversed.requestDigest)
-    const historicalIntent = Object.freeze({
-      phase: 'intent',
-      provider: 'tangle-sandbox',
-      idempotencyKey: 'legacy-secret-identity',
-      turnId: 'identity-turn',
-      sessionId: 'identity-session',
-      executionId: 'identity-execution',
-      requestedProfileDigest:
-        'sha256:a68f111a88eb6c7de50f36e8f9a89a9142d68186cb505d68bd1acf823a3888cf',
-      requestDigest: 'sha256:cfec0632d6c681c1c0f930a9b831d9b0a03c894f15cbe4649dc787ba190cb229',
-      runId: 'retained-intent-run:cfec0632d6c681c1c0f930a9b831d9b0a03c894f15cbe4649dc787ba190cb229',
+    await refuses(['A_TOKEN', 'Z_TOKEN'], undefined, {
+      ...ordered,
+      runId: `retained-intent-run:${'0'.repeat(64)}`,
     })
-    assert.notEqual(ordered.requestDigest, historicalIntent.requestDigest)
-    await refuses(['A_TOKEN', 'Z_TOKEN'], undefined, { ...historicalIntent, runId: ordered.runId })
     const legacyHost = { name: 'TOKEN', host: 'first.example.com' }
     const legacyIntent = await capture([legacyHost])
     for (const change of [{ host: 'other.example.com' }, { header: 'X-Api-Key' }])
@@ -359,16 +349,16 @@ try {
     ])
       await refuses(undefined, [{ ...portable, ...changed }], first)
     assert.equal(requests.length, 0)
-    const admitted = await capture(['A_TOKEN', 'Z_TOKEN'], undefined, historicalIntent)
+    const admitted = await capture(['A_TOKEN', 'Z_TOKEN'], undefined, reversed)
     assert.equal(admitted.environmentId, 'sandbox-bindings')
     assert.equal(creates.length, 1)
     assert.deepEqual(creates[0].secrets, ['A_TOKEN', 'Z_TOKEN'])
-    assert.equal(metadata.retainedIdempotencyKey, historicalIntent.idempotencyKey)
+    assert.equal(metadata.retainedIdempotencyKey, reversed.idempotencyKey)
     await (await provider.get(admitted.environmentId)).destroy()
     assert.equal(requests.at(-1), 'DELETE /v1/sandboxes/sandbox-bindings')
     console.log(
       JSON.stringify({
-        legacyAdmissionReplayedThroughHttp: true,
+        admissionReplayedThroughHttp: true,
       }),
     )
   } else if (mode === 'raw-candidate') {

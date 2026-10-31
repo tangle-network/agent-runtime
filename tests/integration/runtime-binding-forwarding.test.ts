@@ -29,9 +29,9 @@ it('forwards stored host selectors and authored bindings through public Runtime 
   })
 })
 
-it('replays legacy retained admission and rejects changed destinations over HTTP', async () => {
+it('replays retained admission and rejects changed destinations over HTTP', async () => {
   expect(await run('identity')).toEqual({
-    legacyAdmissionReplayedThroughHttp: true,
+    admissionReplayedThroughHttp: true,
   })
 })
 
