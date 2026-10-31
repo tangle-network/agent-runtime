@@ -106,14 +106,16 @@ export function retainedTurnMaterial(
   fields: Pick<AgentTurnInput, 'providerOptions'> = {},
 ): Record<string, unknown> {
   const backend = recordValue(input.providerOptions?.backend)
+  if (backend && Object.hasOwn(backend, 'runtimeSecretNames'))
+    throw new Error('retained backend runtimeSecretNames is runtime-owned')
   const secrets = recordValue(backend?.runtimeSecrets)
   if (
-    fields.providerOptions &&
     backend?.runtimeSecrets !== undefined &&
     (!secrets || Object.values(secrets).some((value) => typeof value !== 'string'))
   ) {
-    throw new Error('retained legacy private replay material is not string-valued')
+    throw new Error('retained private replay material is not string-valued')
   }
+  const { runtimeSecrets: _values, ...publicBackend } = backend ?? {}
   return definedMaterial({
     prompt: input.prompt,
     parts: input.parts,
@@ -127,14 +129,9 @@ export function retainedTurnMaterial(
       ? {
           ...input.providerOptions,
           backend: {
-            ...backend,
-            // Public nonstrings are wrapped so null cannot impersonate a masked string.
-            runtimeSecrets: Object.fromEntries(
-              Object.entries(secrets).map(([name, value]) => [
-                name,
-                typeof value === 'string' ? null : [value],
-              ]),
-            ),
+            ...publicBackend,
+            // Private values bind only names; every public backend field stays bound.
+            runtimeSecretNames: Object.keys(secrets).sort(),
           },
         }
       : input.providerOptions,
