@@ -188,17 +188,18 @@ async function releaseNestedManagerEnvironments(scope: Scope<unknown>): Promise<
 }
 
 /**
- * @internal Release the environment a manager kept between its turns, once its own scope has
- * finished and no turn of it will run again. The release first waits for the manager's last
- * end-of-turn capture, so it runs in the background of the manager's settlement; a later call,
- * including the run's settlement sweep, joins it. Its receipt is journaled in the manager's own
- * tree. It is the manager's own resource, not one of its descendants, so it never changes the
- * teardown answer its executor gives the parent.
+ * @internal Release a finished manager's environment and the retained executions of the children
+ * its completion aborted: no resume re-enters a settled manager, so none reconciles them (on
+ * magnetar-rust-sandbox-20261031b six kept running sandboxes for hours). It waits for the manager's
+ * last end-of-turn capture, so it runs beside the settlement; later calls join it.
  */
 export function releaseManagerEnvironment(scope: Scope<unknown>): Promise<void> {
   let release = managerEnvironmentReleases.get(scope)
   if (release === undefined) {
-    release = releaseScopeRetainedOwnerEnvironment(scope).then(() => undefined)
+    release = Promise.all([
+      retainedReleasers.get(scope)?.(),
+      releaseScopeRetainedOwnerEnvironment(scope),
+    ]).then(() => undefined)
     managerEnvironmentReleases.set(scope, release)
   }
   return release

@@ -1135,7 +1135,7 @@ describe('retained environments at root settlement', () => {
     expect(result.fleetYield).toMatchObject({ neverSettled: 0, releasedUnrecovered: 1 })
   })
 
-  it("reaches a nested manager's retained children and receipts them in the nested tree", async () => {
+  it("releases a nested manager's retained children when the manager finishes, before the run settles", async () => {
     const fleet = retainedProvider(directory)
     const context = createInMemoryRunContext({ withDriver: true })
     const manager = driverChild(
@@ -1153,6 +1153,7 @@ describe('retained environments at root settlement', () => {
       },
       context.journal,
     )
+    let releasedWhileRootLive: string[] | undefined
     const result = await createSupervisor<unknown, unknown>().run(
       {
         name: 'root',
@@ -1161,12 +1162,18 @@ describe('retained environments at root settlement', () => {
             scope.spawn(manager, 'manage', { budget: { maxIterations: 2, maxTokens: 20 } }).ok,
           ).toBe(true)
           const settled = await scope.next()
-          // A manager whose nested cleanup is unconfirmed settles `down` on its own teardown: the
-          // grandchild's environment is still alive, and the manager is named for it.
-          expect(settled?.kind).toBe('down')
-          if (settled?.kind === 'down') expect(settled.reason).toContain('root:s0:s0')
-          expect(scope.workerCapacity.unconfirmed.map((node) => node.id)).toEqual(['root:s0'])
-          expect(fleet.environments()).toHaveLength(1)
+          expect(settled?.kind === 'done' || settled?.kind === 'down').toBe(true)
+          // No turn of the finished manager runs again, so the grandchild's retained execution is
+          // released now: its environment is gone and receipted while this root is still acting,
+          // not at the run's settlement. On Discovery run magnetar-rust-sandbox-20261031b (Runtime
+          // 3.0.5) six workers aborted by `driver completed` kept their sandboxes running for the
+          // hours the run went on, and the cell ran out of host capacity.
+          await expect
+            .poll(() => fleet.environments(), { timeout: 5_000, interval: 20 })
+            .toEqual([])
+          releasedWhileRootLive = releaseReceipts(
+            (await context.journal.loadTree('root/root:s0')) ?? [],
+          ).map((event) => event.id)
           return 'finished'
         },
       },
@@ -1174,6 +1181,7 @@ describe('retained environments at root settlement', () => {
       { ...context, runId: 'root', budget: { maxIterations: 4, maxTokens: 100 } },
     )
     expect(result.kind, JSON.stringify(result)).toBe('winner')
+    expect(releasedWhileRootLive).toEqual(['root:s0:s0'])
     expect(fleet.environments()).toEqual([])
     // The manager's own teardown now answers destroyed, so the root names no leak at all.
     expect(result.teardownUnconfirmed).toBeUndefined()
@@ -1201,16 +1209,16 @@ describe('retained environments at root settlement', () => {
     const managerTerminal = terminalRecords(rootEvents, 'root:s0')
     expect(managerTerminal).toHaveLength(1)
     expect(managerTerminal[0]).not.toHaveProperty('retainedExecution')
-    // Forest scope: the manager and its grandchild both count, the grandchild as released.
-    expect(result.fleetYield).toEqual({
+    // Forest scope: the manager and its grandchild both count, the grandchild as released. The
+    // manager is `done` when the release confirmed before its teardown answered, `down` otherwise.
+    expect(result.fleetYield).toMatchObject({
       spawned: 2,
-      done: 0,
-      down: 2,
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,
       releaseUnconfirmed: 0,
     })
+    expect(result.fleetYield.done + result.fleetYield.down).toBe(2)
   })
 
   it('closes a nested manager that settled retained-pending though its teardown answered destroyed', async () => {
@@ -1310,7 +1318,11 @@ describe('retained environments at root settlement', () => {
     expect(result.kind, JSON.stringify(result)).toBe('winner')
     expect(fleet.environments()).toHaveLength(1)
     const nested = (await context.journal.loadTree('root/root:s0')) ?? []
-    expect(releaseReceipts(nested)).toMatchObject([{ id: 'root:s0:s0', destroyed: false }])
+    // Released when its manager finished and asked again when the run settled, refused both times.
+    expect(releaseReceipts(nested)).toMatchObject([
+      { id: 'root:s0:s0', destroyed: false },
+      { id: 'root:s0:s0', destroyed: false },
+    ])
     // The grandchild closes where its manager's scope journals it, never in the root tree.
     expect(terminalRecords(nested, 'root:s0:s0')).toMatchObject([
       { kind: 'settled', status: 'down', retainedExecution: 'release-unconfirmed' },
@@ -1896,10 +1908,11 @@ describe('a crash between the receipt and the released record heals on the next 
       parentId: 'root:s0',
       target: 'agent.child',
     })
+    // The grandchild was released when its manager finished, so the manager's own teardown answered.
     expect(resumed.fleetYield).toEqual({
       spawned: 2,
-      done: 0,
-      down: 2,
+      done: 1,
+      down: 1,
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,

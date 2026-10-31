@@ -13,12 +13,11 @@ import { singleFlightTools } from './single-flight-tools'
 
 type ServeOpts = Parameters<typeof serveCoordinationMcp>[0]
 
-/**
- * The coordination verb that runs an injected deliverable's check inside its request, so its work
- * can outlast one request and it is served like `nodeTools`. src/mcp/tools/coordination.ts builds it
- * exactly when a deliverable is injected.
- */
+/** `submit_result` runs an injected deliverable's check inside its request (src/mcp/tools/coordination.ts
+ *  builds it exactly then) and `spawn_worker` reads by-path resources out of the manager's workspace
+ *  first, so either can outlast one request and both are served like `nodeTools`. */
 const DELIVERABLE_VERB = 'submit_result'
+const FENCED_VERBS = new Set([DELIVERABLE_VERB, 'spawn_worker'])
 
 /** The options the coordination tools are built from; `resolveProbeTool` binds `report_blocked` to
  *  what this manager was granted. */
@@ -96,14 +95,14 @@ export function bindServedTools(
   // `submit_result` runs the completion check inside its request, which can take minutes. Unfenced,
   // the transport answered 504 while the check kept running and the manager never saw the verdict
   // (25 of 25 submits in one 2026-09-22 run); fenced, it answers with a receipt and the verdict
-  // reaches the manager in its next wake.
+  // reaches the manager in its next wake. On magnetar-rust-sandbox-20261031b five spawns answered 504
+  // while their sandbox reads ran on for up to 5 min, and each manager re-read its worker's id.
   const fencedVerbs = singleFlightTools(
-    coord.tools.filter((tool) => tool.name === DELIVERABLE_VERB),
+    coord.tools.filter((tool) => FENCED_VERBS.has(tool.name)),
     { fenceMs, receipts: coord },
   )
-  // A rename in src/mcp/tools/coordination.ts must fail here, not leave the check unfenced and bring
-  // back the 504. The test is the one that passed the deliverable to the coordination tools above.
-  if (opts.deliverable && fencedVerbs.tools.length !== 1) {
+  // A rename in src/mcp/tools/coordination.ts must fail here, not leave the check unfenced.
+  if (opts.deliverable && !fencedVerbs.tools.some((tool) => tool.name === DELIVERABLE_VERB)) {
     throw new ValidationError(
       `serveCoordinationMcp: a deliverable is injected but the coordination verbs lack ${DELIVERABLE_VERB}, so its check would run unfenced`,
     )
