@@ -292,8 +292,8 @@ try {
         provider,
         environment: {
           profile: 'custody-public-profile',
-          secrets,
-          proxySecrets,
+          ...(secrets === undefined ? {} : { secrets }),
+          ...(proxySecrets === undefined ? {} : { proxySecrets }),
           idempotencyKey: 'legacy-secret-identity',
         },
         identity: { sessionId: 'identity-session', executionId: 'identity-execution' },
