@@ -14,6 +14,7 @@ import { superviseForTest } from '../helpers/runtime-with-test-brain'
 import { scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
+const MALFORMED = 'Agent terminal outcome is malformed'
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
@@ -31,6 +32,7 @@ describe('nested retained owner journal isolation', () => {
     'parent-meter-before',
     'parent-meter-loss',
     'parent-terminal-loss',
+    'failed',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     const parentInterruption = mode.startsWith('parent-')
@@ -50,6 +52,8 @@ describe('nested retained owner journal isolation', () => {
             result: async () => ({
               ...(await session.result()),
               usage: { inputTokens: 3, outputTokens: 2 },
+              // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
+              ...(mode === 'failed' ? { success: false, error: MALFORMED } : {}),
             }),
           }
         },
@@ -135,7 +139,7 @@ describe('nested retained owner journal isolation', () => {
         budget: { maxIterations: 8, maxTokens: 100 },
         perWorker: { maxIterations: 3, maxTokens: 20 },
         driverRetry: {
-          maxAttempts: mode === 'pending' ? 1 : 2,
+          maxAttempts: mode === 'pending' || mode === 'failed' ? 1 : 2,
           initialBackoffMs: 0,
           maxBackoffMs: 0,
         },
@@ -170,6 +174,20 @@ describe('nested retained owner journal isolation', () => {
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
         retry ? 0 : 1,
       )
+      if (mode === 'failed') {
+        // Its only turn ended with a recorded failed result: nothing is in doubt, so the manager
+        // settles down with that reason instead of holding its slot open for a recovery.
+        expect(parent.some((event) => event.kind === 'reconciled' && event.id === spawn.id)).toBe(
+          false,
+        )
+        const down = parent.find((event) => event.kind === 'settled' && event.id === spawn.id)
+        expect(down, JSON.stringify(parent)).toMatchObject({
+          status: 'down',
+          reason: expect.stringContaining(MALFORMED),
+        })
+        expect(down).not.toHaveProperty('retainedExecution')
+        return
+      }
       if (retry || parentInterruption) {
         const terminalWritten = mode === 'parent-terminal-loss'
         expect(parent.some((event) => event.kind === 'settled' && event.id === spawn.id)).toBe(

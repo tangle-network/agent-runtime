@@ -16,8 +16,13 @@
   owner checkpoints its workspace. It then destroys the environment once that checkpoint is newer
   than every execution event and its capture is complete. The next drive restores from that
   checkpoint in a new environment. A box that fails either condition stays.
+- A nested manager whose driver fails after its last own turn committed a failed result settles
+  `down` with that failure and closes its slot: no recovery can change that result. A dispatched
+  turn with no result, an accepted result, or an unfinished child keeps it `nested-recovery`
+  pending.
 
-Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts` and
+Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts`,
+`tests/kernel/nested-retained-owner-journal.test.ts` and
 `tests/runtime/retained-capture-resume.test.ts`.
 
 # Graph subtasks
