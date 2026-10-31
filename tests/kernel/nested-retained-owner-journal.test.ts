@@ -16,7 +16,8 @@ import { driverWakeEvents, scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const MALFORMED = 'Agent terminal outcome is malformed'
-// The refusal two magnetar-rust-sandbox-20261031f workers met 11 times, resending one prompt.
+// The refusal magnetar-rust-sandbox-20261031f's Codex agents met: :s0:s1 passed on its 7th
+// identical send, while :s1:s2 and :s2:s0 were refused 9 and 10 times in a row.
 const CONTENT_FILTERED =
   'codex execution failed: This content was flagged for possible cybersecurity risk. If this ' +
   'seems wrong, try rephrasing your request. (exit code 1)'
@@ -27,7 +28,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   'capability-refused': ['stopped by terminal-error', 'Capability discovery returned'],
   'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
   'content-filtered': [
-    "stopped by terminal-error: refused by the model provider's content filter",
+    "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
   ],
 }
@@ -53,8 +54,12 @@ describe('nested retained owner journal isolation', () => {
     'capability-refused',
     'same-failure',
     'content-filtered',
+    'content-filter-recovers',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
+    // The manager's turns: refused until the 8th refusal in a row stops it, or passing on the 7th.
+    const sends = mode === 'content-filtered' ? 8 : mode === 'content-filter-recovers' ? 7 : 1
+    const refusing = sends > 1
     const parentInterruption = mode.startsWith('parent-')
     it(`keeps backend evidence inside its owned tree (${mode})`, async () => {
       const directory = await mkdtemp(join(tmpdir(), 'nested-retained-owner-'))
@@ -67,16 +72,26 @@ describe('nested retained owner journal isolation', () => {
       let skew = 0
       const realNow = Date.now
       vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew)
+      const refused = new Set<string>()
+      let dispatches = 0
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
+        dispatch: async (turn) => {
+          const dispatched = await environment.dispatch!(turn)
+          dispatches += 1
+          if (refusing && (mode === 'content-filtered' || dispatches < sends))
+            refused.add(dispatched.controlRef?.executionId ?? '')
+          return dispatched
+        },
         session: (id, options) => {
           const session = environment.session!(id, options)
+          const filtered = refused.has(options?.controlRef?.executionId ?? '')
           return {
             ...session,
             async *events(eventOptions) {
               yield* session.events!(eventOptions)
               // Codex's refusal arrives under the Sandbox SDK's generic code.
-              if (mode === 'content-filtered')
+              if (filtered)
                 yield {
                   id: 'event-error',
                   type: 'error',
@@ -88,7 +103,7 @@ describe('nested retained owner journal isolation', () => {
               usage: { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
               ...(mode === 'failed' ? { success: false, error: MALFORMED } : {}),
-              ...(mode === 'content-filtered' ? { success: false, error: CONTENT_FILTERED } : {}),
+              ...(filtered ? { success: false, error: CONTENT_FILTERED } : {}),
             }),
           }
         },
@@ -184,12 +199,16 @@ describe('nested retained owner journal isolation', () => {
         journal,
         blobs: context.blobs,
         backend: { backend: 'provider', provider },
-        budget: { maxIterations: 8, maxTokens: 100 },
-        perWorker: { maxIterations: 3, maxTokens: 20 },
+        // Room for 20 refused turns: only the refusal streak's own bound may stop the manager.
+        budget: refusing
+          ? { maxIterations: 40, maxTokens: 400 }
+          : { maxIterations: 8, maxTokens: 100 },
+        perWorker: refusing
+          ? { maxIterations: 20, maxTokens: 200 }
+          : { maxIterations: 3, maxTokens: 20 },
         driverRetry: {
-          // Room for four more turns: only the refusal's own verdict ends content-filtered at one.
-          maxAttempts:
-            mode === 'content-filtered' ? 5 : mode === 'pending' || mode in DOWN_REASONS ? 1 : 2,
+          maxAttempts: refusing ? 20 : mode === 'pending' || mode in DOWN_REASONS ? 1 : 2,
+          ...(refusing ? { maxConsecutiveFailures: 20 } : {}),
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -225,9 +244,9 @@ describe('nested retained owner journal isolation', () => {
       const nested = (await context.journal.loadTree(spawn.ownedTreeRoot)) ?? []
       const { parent: _parent, ownedTreeRoot: _tree, ...expectedOwner } = spawn
       expect(nested[0]).toEqual(expectedOwner)
-      expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
+      expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(sends)
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        retry || (mode in DOWN_REASONS && mode !== 'failed' && mode !== 'content-filtered') ? 0 : 1,
+        retry || (mode in DOWN_REASONS && mode !== 'failed' && !refusing) ? 0 : sends,
       )
       const downReasons = DOWN_REASONS[mode]
       if (downReasons !== undefined) {
@@ -350,8 +369,8 @@ describe('nested retained owner journal isolation', () => {
           expect.objectContaining({ content: 'durable result' }),
         )
       }
-      expect(tokens(nested)).toBe(5)
-      expect(tokens(parent)).toBe(5)
+      expect(tokens(nested)).toBe(5 * sends)
+      expect(tokens(parent)).toBe(5 * sends)
       expect(creates).toBe(1)
       expect(injected).toBe(retry)
     })

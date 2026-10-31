@@ -328,6 +328,113 @@ describe('an opted-in root pauses where it used to stop', () => {
     expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 1 })
   }, 60_000)
 
+  it('pauses a Discovery root at its 8th content-filter refusal in a row, naming the refusal', async () => {
+    // magnetar-rust-sandbox-20261031f's root met the refusal, then passed on a later attempt, so
+    // the bound never ends a root: an opted-in root pauses with the refusal on its record.
+    const dir = await runDirectory()
+    const proxy = await coordinationProxy()
+    proxies.push(proxy)
+    const runDir = join(dir, 'run')
+    const context = createFileRunContext(runDir)
+    const refusal =
+      'codex execution failed: This content was flagged for possible cybersecurity risk. If ' +
+      'this seems wrong, try rephrasing your request. (exit code 1)'
+    let dispatches = 0
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      dispatch: async (turn) => {
+        dispatches += 1
+        return environment.dispatch!(turn)
+      },
+      session: (id, options) => {
+        const session = environment.session!(id, options)
+        return {
+          ...session,
+          result: async () => ({ ...(await session.result()), success: false, error: refusal }),
+          cancelRun: async (request): Promise<AgentRunCancellationAcknowledgement> => ({
+            operationId: request.operationId,
+            requestDigest: request.requestDigest,
+            run: request.run,
+            status: 'accepted',
+            effect: 'cancelled',
+          }),
+        }
+      },
+    })
+    const base = durableRetainedProvider(join(dir, 'provider.json'))
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      capabilities: async () => ({
+        ...(await base.capabilities()),
+        create: { runtimeAttachments: { mcp: true } },
+      }),
+      create: async (input) => wrap(await base.create(input)),
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const runId = 'stop-pause-content-filter'
+    const rows: Paused[] = []
+    const journal = pacedJournal(runDir, (row) => {
+      rows.push(row)
+      cancelRun(runDir, 'stop-refused', { operator: 'test-operator', reason: 'reword the play' })
+    })
+    const result = (await supervise(
+      testAgentProfile('refused-root', {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
+      'Produce the answer.',
+      {
+        runDir,
+        runId,
+        journal,
+        blobs: context.blobs,
+        backend: { backend: 'provider', provider },
+        driverBackend: { backend: 'provider', provider },
+        budget: { maxIterations: 100, maxTokens: 1000 },
+        // Discovery's root policy (runner/play-compile.mjs), with the backoff removed.
+        driverRetry: {
+          pauseRootStops: true,
+          maxConsecutiveFailures: 12,
+          transientOutageMs: Number.MAX_SAFE_INTEGER,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+        },
+        continuation: openContinuation(),
+        retainedAtSettlement: 'release',
+        teardownConfirmMs: 0,
+        deliverable: { describe: 'the answer', check: () => false },
+        coordination: {
+          authentication: {
+            signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
+          },
+          publicUrl: (address) => {
+            proxy.forwardTo(address.port)
+            return `${proxy.url}/manager`
+          },
+        },
+      },
+    )) as SupervisedResult<unknown>
+    expect(dispatches).toBe(8)
+    expect(rows).toEqual([
+      expect.objectContaining({
+        replacesStop: 'repeated-failure',
+        cause: expect.stringContaining('This content was flagged for possible cybersecurity risk'),
+        streak: 1,
+        pauseMs: 5 * 60_000,
+      }),
+    ])
+    // The pause held the run open for its operator; nothing ended it on the refusals.
+    expect(result).toMatchObject({
+      kind: 'no-winner',
+      reason: 'cancelled',
+      operator: 'test-operator',
+    })
+    expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 1 })
+  }, 60_000)
+
   it.each([false, true])(
     'retries an AbortError the run did not issue, with no pause row (pauseRootStops=%s)',
     async (pauseRootStops) => {
