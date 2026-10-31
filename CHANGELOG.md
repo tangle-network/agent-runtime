@@ -1,3 +1,7 @@
+## 3.0.14
+
+A manager whose seat chain is exhausted no longer keeps its retained sandbox running while it waits for a seat. Before the pause, Runtime checkpoints the workspace and destroys the box. The drive after the pause starts a new environment restored from that checkpoint. A box without a verified checkpoint newer than its last turn, or whose capture is incomplete, is kept as before. On Discovery run magnetar-rust-sandbox-20261031b, the resume found every seat of four managers exhausted until 11-04 and paused them, and their 8 vCPU / 16 GiB boxes kept running.
+
 ## 3.0.13
 
 An accepted `submit_result` no longer cancels the manager's retained turn at once. The harness has `ACCEPTED_RESULT_GRACE_MS` to end the turn itself, so the turn's usage is reported and metered; a turn still running at the end of the grace is cancelled as before. Codex reports a turn's token usage only when the turn ends, and on Discovery run magnetar-rust-sandbox-20261031b every accepted Codex worker, cancelled about a second after its submission, metered `tokensKnown: false` after hours of work. A `stop` or a stop rule still cancels at once.
