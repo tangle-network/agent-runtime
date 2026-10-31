@@ -6,6 +6,7 @@ import type {
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
 import { isCredentialRefusal } from './credential-refusal'
+import { errorProperty } from './error-message'
 import { detachedSnapshot } from './snapshot'
 import { type TraceRootWriter, traceRootWriter } from './trace-root'
 import type {
@@ -210,9 +211,9 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  *   the thrower, never inferred.
  *
  * Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
- * list — never its message text, because the provider is not a dependency of this package and
- * its messages are not a contract. #1204's exhibit 3 (an event without a stable id) is delivered
- * rather than thrown since agent-provider-tangle 1.4.0, so it no longer reaches this path; its
+ * list — and one untyped Sandbox refusal's text, never other message text: the provider is not a
+ * dependency of this package and its messages are not a contract. #1204's exhibit 3 (an event
+ * without a stable id) is delivered rather than thrown since agent-provider-tangle 1.4.0; its
  * exhibit 6 is typed as `JsonBoundError` (`code: 'JSON_BOUND_VIOLATION'`) since 1.5.0 and lands
  * with the schema violations. A provider still throwing plain `Error`s lands on `'unobservable'`,
  * which is the safe side.
@@ -246,30 +247,25 @@ const causeMessages: Record<RetainedPendingCause, string> = {
 export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
 
 /**
- * The Sandbox SDK's codes for a box that cannot be provisioned for this profile, sent with HTTP
- * 422 when the failure is deterministic: a profile file mount outside the box's writable roots,
- * refused before any box exists, and a profile-file materialization that would fail the same way
- * again. On Discovery run queens21-h22-capture-root-1-20261019c every child profile mounted
- * `/work/queens21_count.c` on a read-only root filesystem, and 154 attempts across 4 workers were
- * retried as a lost transport. The same codes at another status may be transient and are not
- * read here.
+ * The Sandbox SDK's codes for a box that cannot be provisioned for this profile, by the HTTP status
+ * each is sent with: a mount outside the box's writable roots and a materialization that would fail
+ * the same way again (422), a mounted file changed on both sides since the last mount (409; before
+ * Sandbox typed it, a bare 500 read by its text, which magnetar-rust-sandbox-20261031g's managers
+ * retried every turn). On Discovery run queens21-h22-capture-root-1-20261019c every child profile
+ * mounted `/work/queens21_count.c` on a read-only root filesystem, and 154 attempts across 4
+ * workers were retried as a lost transport. The same codes at another status may be transient.
  */
-const PROVISIONING_REFUSAL_CODES: ReadonlySet<string> = new Set([
-  'PROFILE_FILE_MOUNT_OUTSIDE_ROOTS',
-  'PROFILE_FILES_MATERIALIZE_FAILED',
+const PROVISIONING_REFUSALS: ReadonlyMap<string, number> = new Map([
+  ['PROFILE_FILE_MOUNT_OUTSIDE_ROOTS', 422],
+  ['PROFILE_FILES_MATERIALIZE_FAILED', 422],
+  ['PROFILE_FILE_CONFLICT', 409],
 ])
+const UNTYPED_FILE_CONFLICT = /Refusing to replace existing profile file: /u
 
 /** True for an error that is itself a deterministic provisioning refusal (see above). */
-export function isProvisioningRefusal(value: object): boolean {
-  try {
-    const code = readString(value, 'code')
-    const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
-    return code !== undefined && status === 422 && PROVISIONING_REFUSAL_CODES.has(code)
-  } catch {
-    // An error whose fields cannot be read is no refusal this classifier can name.
-    return false
-  }
-}
+export const isProvisioningRefusal = (value: object): boolean =>
+  refusedAs(PROVISIONING_REFUSALS, value) ||
+  (value instanceof Error && UNTYPED_FILE_CONFLICT.test(errorProperty(value, 'message') ?? ''))
 
 /**
  * Platform refusals the orchestrator answers BEFORE it forwards a dispatch, by machine code and
@@ -281,12 +277,16 @@ const PLATFORM_PREDISPATCH_REFUSALS: ReadonlyMap<string, number> = new Map([
 ])
 
 /** True for an error that is itself a named platform refusal of a dispatch (see above). */
-export function isPlatformPredispatchRefusal(value: object): boolean {
+export const isPlatformPredispatchRefusal = (value: object): boolean =>
+  refusedAs(PLATFORM_PREDISPATCH_REFUSALS, value)
+
+/** True when `value` carries one of `refusals`' codes at the status that code is sent with. */
+function refusedAs(refusals: ReadonlyMap<string, number>, value: object): boolean {
   try {
     const code = readString(value, 'code')
     const status = readNumber(value, 'status') ?? readNumber(value, 'statusCode')
     // An unnamed code has no expected status; never let two absent values match.
-    const expected = code === undefined ? undefined : PLATFORM_PREDISPATCH_REFUSALS.get(code)
+    const expected = code === undefined ? undefined : refusals.get(code)
     return expected !== undefined && expected === status
   } catch {
     return false

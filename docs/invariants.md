@@ -24,6 +24,10 @@
   schema or bound refusal (the Sandbox SDK's `INVALID_CAPABILITY_DOCUMENT` included), at the first
   attempt, or when the same transient failure without progress repeats 10 times over 5 minutes,
   inside the transient-outage window too. The root keeps waiting an outage out.
+- A profile file the box cannot take (Sandbox's `PROFILE_FILE_CONFLICT` at 409, or the untyped
+  `Refusing to replace existing profile file` it sent before) is refused before the turn runs: the
+  manager stops at that attempt, never retried as a lost transport, and its parent's wake names the
+  file.
 - A model provider's content-filter refusal is retried; the 8th in a row (any other outcome resets
   the count) stops the agent with `repeated-failure` and `refused by the model provider's content
   filter`. A nested manager settles `down` and its parent's next wake carries that reason; an
