@@ -14,6 +14,7 @@ import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } fro
 import {
   DISPATCH_NOT_ADMITTED_CODE,
   isProvisioningRefusal,
+  isSchemaRejection,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
 } from './retained-executor'
@@ -209,12 +210,7 @@ export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
 /** Provider schemas and JSON bounds reject the request deterministically. */
 function isProviderSchemaRejection(error: Error): boolean {
   try {
-    return (
-      error.name === 'ZodError' ||
-      error.name === 'ValidationError' ||
-      Reflect.get(error, 'code') === 'JSON_BOUND_VIOLATION' ||
-      Array.isArray(Reflect.get(error, 'issues'))
-    )
+    return error.name === 'ValidationError' || isSchemaRejection(error)
   } catch {
     return false
   }

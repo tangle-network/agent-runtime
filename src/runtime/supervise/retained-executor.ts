@@ -314,6 +314,19 @@ export const TRANSPORT_ERROR_CODES: ReadonlySet<string> = new Set([
   'NETWORK_ERROR',
 ])
 
+/** Refused by a schema or bound, the same way every attempt: agent-provider-tangle's JsonBoundError
+ *  (#1204's exhibit 6) or the Sandbox SDK refusing a capability document as HTTP 502, which
+ *  institutional-compiler-20261031c:s14 retried 44 times as a lost transport. */
+export function isSchemaRejection(value: object): boolean {
+  const code = readString(value, 'code')
+  return (
+    readString(value, 'name') === 'ZodError' ||
+    Array.isArray(Reflect.get(value, 'issues')) ||
+    code === 'JSON_BOUND_VIOLATION' ||
+    code === 'INVALID_CAPABILITY_DOCUMENT'
+  )
+}
+
 function readNumber(value: object, key: string): number | undefined {
   const read: unknown = Reflect.get(value, key)
   return typeof read === 'number' && Number.isFinite(read) ? read : undefined
@@ -344,13 +357,6 @@ const credentialAdmissionRefusals = new WeakSet<RetainedExecutionPendingError>()
 export function classifyRetainedPendingCause(
   cause: unknown,
   phase: RetainedPendingPhase = 'execution',
-): RetainedPendingCause {
-  return classifyPendingCause(cause, phase)
-}
-
-function classifyPendingCause(
-  cause: unknown,
-  phase: RetainedPendingPhase,
   onCredentialRefusal?: () => void,
 ): RetainedPendingCause {
   const seen = new Set<object>()
@@ -377,13 +383,7 @@ function classifyPendingCause(
       queue.unshift({ value: Reflect.get(value, 'cause'), phase: 'execution' })
       continue
     }
-    if (
-      name === 'ZodError' ||
-      Array.isArray(Reflect.get(value, 'issues')) ||
-      // agent-provider-tangle's bound refusal (JsonBoundError, since 1.5.0): the same fact as a
-      // schema violation, typed at last — #1204's exhibit 6.
-      code === 'JSON_BOUND_VIOLATION'
-    ) {
+    if (isSchemaRejection(value)) {
       // A schema or bound violation at admission is a rejected request. After admission it is
       // the runtime refusing the PROVIDER's answer — a contract violation on the provider's side.
       return at === 'admission' ? 'request-rejected' : 'provider-contract'
@@ -474,7 +474,7 @@ export class RetainedExecutionPendingError extends Error {
     let credentialRefused = false
     const resolved =
       pendingCause === 'admission' || pendingCause === 'execution'
-        ? classifyPendingCause(cause, pendingCause, () => {
+        ? classifyRetainedPendingCause(cause, pendingCause, () => {
             credentialRefused = true
           })
         : pendingCause

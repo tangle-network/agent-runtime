@@ -47,7 +47,7 @@ export function createTangleSandboxExactProcessProvider(
 
   const exactProcess: AgentExactProcessProvider = {
     async create(input: CreateAgentExactProcessEnvironmentInput) {
-      throwIfAborted(input.signal)
+      input.signal?.throwIfAborted()
       assertNoProviderOptions(input.providerOptions)
       const egressPolicy = sandboxEgressPolicy(input.egress)
       const metadata = exactMetadata(input.metadata, name, egressPolicy)
@@ -71,7 +71,7 @@ export function createTangleSandboxExactProcessProvider(
         },
       )
       try {
-        throwIfAborted(input.signal)
+        input.signal?.throwIfAborted()
         assertExactSandboxMetadata(sandbox, metadata)
         await assertExactSandboxEgress(sandbox, egressPolicy)
       } catch (error) {
@@ -524,16 +524,12 @@ function nonnegativeInteger(value: number, label: string): number {
   return value
 }
 
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  signal?.throwIfAborted()
-}
-
 async function afterAbortCheck<T>(
   signal: AbortSignal | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
-  throwIfAborted(signal)
+  signal?.throwIfAborted()
   const result = await operation()
-  throwIfAborted(signal)
+  signal?.throwIfAborted()
   return result
 }

@@ -167,6 +167,9 @@ export function driverRetryLimits(run: DriverRetryRun): DriverRetryLimits {
   }
 }
 
+/** A run of identical failures and when its first one failed. */
+type Streak = { readonly error: string; readonly count: number; readonly since: number }
+
 /** One failed drive, as the loop read it the moment it failed. */
 interface DriverFailure {
   readonly error: unknown
@@ -199,12 +202,10 @@ export class DriverRetryLoop {
   // Consecutive failures that left the same unfinished retained invocation pending for the same
   // reason, and the abandonments since the last progress or completed drive.
   private samePending: { readonly cause: RetainedPendingCause; readonly count: number } | undefined
-  // The current streak of instant failures with one error, and when its first one failed.
-  private sameFailure:
-    | { readonly error: string; readonly count: number; readonly since: number }
-    | undefined
-  // The current streak of identical `PartialFailureError` attempts that gained nothing.
-  private samePartial: { readonly error: string; readonly count: number } | undefined
+  // The current streaks, each with its first failure: instant failures with one error, and
+  // identical transient attempts that gained nothing.
+  private sameFailure: Streak | undefined
+  private sameIdle: Streak | undefined
   private abandonments = 0
   // Stop-pauses in a row since the last attempt that made progress, for the stop-pause ladder.
   private stopPauses = 0
@@ -353,7 +354,7 @@ export class DriverRetryLoop {
     this.chargedFailures = 0
     this.consecutiveBarren = 0
     this.sameFailure = undefined
-    this.samePartial = undefined
+    this.sameIdle = undefined
     this.samePending = undefined
     this.abandonments = 0
     this.outageSince = undefined
@@ -558,17 +559,13 @@ export class DriverRetryLoop {
       sameFailure !== undefined &&
       sameFailure.count >= REPEATED_FAILURE_LIMIT &&
       failedAt - sameFailure.since >= REPEATED_FAILURE_WINDOW_MS
-    const samePartial =
-      classification === 'transient' &&
-      !progressed &&
-      failure.pending === undefined &&
-      causedByPartialFailure(error)
-        ? {
-            error: message,
-            count: this.samePartial?.error === message ? this.samePartial.count + 1 : 1,
-          }
+    const sameIdle =
+      classification === 'transient' && !progressed && failure.pending === undefined
+        ? this.sameIdle?.error === message
+          ? { ...this.sameIdle, count: this.sameIdle.count + 1 }
+          : { error: message, count: 1, since: failedAt }
         : undefined
-    this.samePartial = samePartial
+    this.sameIdle = sameIdle
     // An aborted run failed because it was stopped, so the abort names the stop, not the failure.
     if (run.signal.aborted) return abortStop(run.signal)
     if (classification === 'terminal') return 'terminal-error'
@@ -576,8 +573,17 @@ export class DriverRetryLoop {
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
     // The same failed box twice with nothing gained: the outage window below would retry it
-    // for fifteen minutes, because the attempt spent nothing.
-    if (samePartial !== undefined && samePartial.count >= SAME_PARTIAL_FAILURE_LIMIT) {
+    // for fifteen minutes, because the attempt spent nothing. A nested manager meets its one
+    // retained execution's failure on every re-entry too, so the repeated-failure bound ends it
+    // inside the window (Discovery's unbounded one kept s14 retrying 45 minutes); the root waits.
+    if (
+      sameIdle !== undefined &&
+      (causedByPartialFailure(error)
+        ? sameIdle.count >= SAME_PARTIAL_FAILURE_LIMIT
+        : run.nested === true &&
+          sameIdle.count >= REPEATED_FAILURE_LIMIT &&
+          failedAt - sameIdle.since >= REPEATED_FAILURE_WINDOW_MS)
+    ) {
       return 'repeated-failure'
     }
     if (inOutage) return undefined
@@ -711,7 +717,7 @@ export class DriverRetryLoop {
     this.outageSince = undefined
     this.samePending = undefined
     this.sameFailure = undefined
-    this.samePartial = undefined
+    this.sameIdle = undefined
     this.abandonments = 0
     const durationMs = this.limits.now() - startedAt
     const after = run.progress()

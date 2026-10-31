@@ -191,6 +191,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       stopSignal: session.state.stopController.signal,
       sleep: (ms, signal) => sleepScopeWait(scope, ms, signal, 'paused-root'),
       ...rootStopPause(config, session),
+      nested: (config.nodeContextSeed?.depth ?? 0) > 0,
       resolvePending: (failure, failures) =>
         abandonScopeRetainedOwnerInvocation(scope, failure, failures),
       wait: {
