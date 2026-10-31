@@ -257,6 +257,18 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     }
     return active.close
   }
+  // Keep two journal categories while reconciling their sum against this driver's one parent
+  // reservation: `spent` = settled child WORK, written on this driver's settlement; `metered` =
+  // nested driver INFERENCE, re-homed as a separate metered event, on a crash too, so the pool
+  // and the journal agree. Answers the child work.
+  const rollUp = (events: readonly SpawnEvent[]): Spend => {
+    const childWork = sumSpend(events.filter(isSettled))
+    const totalMetered = sumMetered(events)
+    const reservation = addSpend(childWork, totalMetered)
+    meteredSpend = nonZeroOrUndef(unreportedSpend(totalMetered, previouslyMetered))
+    accounting = { reported: childWork, reservation }
+    return childWork
+  }
 
   const executor: Executor<unknown> = {
     runtime: driverRuntime,
@@ -369,19 +381,8 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         // settlement joins it.
         void releaseManagerEnvironment(nestedScope).catch(() => undefined)
 
-        // Read the nested tree's events ONCE. Keep two journal categories while reconciling their
-        // sum against this driver's one parent reservation:
-        //  - `spent` = settled child WORK, written on this driver's settlement.
-        //  - `metered` = nested driver INFERENCE, re-homed as a separate metered event.
         const events = await loadTreeEvents(journal, nestedRoot)
-        const settled = events.filter(isSettled)
-        const childWork = sumSpend(settled)
-        const totalMetered = sumMetered(events)
-        meteredSpend = nonZeroOrUndef(unreportedSpend(totalMetered, previouslyMetered))
-        accounting = {
-          reported: childWork,
-          reservation: addSpend(childWork, totalMetered),
-        }
+        const childWork = rollUp(events)
         // A manager may finish work itself through an assignment-selected completion check. That
         // accepted submission is already independent evidence, so carry it to this settlement
         // instead of requiring an unrelated nested child or running the check again.
@@ -410,26 +411,34 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
           () => undefined,
           (error: unknown) => error,
         )
-        // Crash mid-run: the nested tree still holds the durable `metered` events the sub-driver
-        // already wrote (pool already debited them). Cache them so the parent's down-path re-home
-        // lands the partial inference and the two ledgers stay in agreement. A missing tree must
-        // not mask the original error.
-        const partial = await safeRollup(journal, nestedRoot)
-        meteredSpend = partial?.metered
-          ? nonZeroOrUndef(unreportedSpend(partial.metered, previouslyMetered))
-          : undefined
-        accounting = partial?.accounting
+        meteredSpend = undefined
+        accounting = undefined
         const events = await journal.loadTree(nestedRoot).catch(() => undefined)
+        try {
+          if (events) rollUp(events)
+        } catch {
+          // A missing tree or a malformed ledger must not mask the original error.
+        }
         const settledIds = new Set(
           events
             ?.filter((event) => event.kind === 'settled' || event.kind === 'cancelled')
             .map((event) => event.id),
         )
         const terminalAdmissionRefusal = isTerminalAdmissionRefusal(err)
+        const turns = events?.filter(
+          (event) =>
+            event.id === seam.nodeId &&
+            (event.kind === 'execution-admitted' || event.kind === 'execution-result'),
+        )
+        const last = turns?.at(-1)
+        const inDoubt =
+          last?.kind === 'execution-result' && last.outcome?.success === false
+            ? events?.filter((event) => !turns?.includes(event))
+            : events
         if (
           driver.resultAccepted?.() === true ||
           spec.acceptedSubmission?.() === true ||
-          events?.some(
+          inDoubt?.some(
             (event) =>
               (event.kind === 'execution-admitted' &&
                 (event.admission.phase === 'dispatched' ||
@@ -439,7 +448,8 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
               (event.kind === 'spawned' && event.parent !== undefined && !settledIds.has(event.id)),
           )
         ) {
-          // Intent alone does not keep a definitive admission refusal pending. Any later
+          // Intent alone does not keep a definitive admission refusal pending, nor does a last own
+          // turn that committed a failed result (institutional-compiler-20261031c:s9). Any other
           // admission, accepted output, or unfinished child still needs its original recovery.
           throw new RetainedExecutionPendingError(err, 'nested-recovery')
         }
@@ -601,12 +611,11 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
   )
 }
 
-/** An all-zero spend that carries an UNKNOWN marker counts as non-zero: a sub-driver whose turns
- *  went unmeasured did real work, and dropping its `metered` event here would re-hide upstream the
- *  very turn the driver refused to skip. */
-function isNonZeroSpend(s: Spend): boolean {
-  return (
-    s.iterations > 0 ||
+/** A spend, or `undefined` when it is all-zero — so `metered()` returns undefined for a driver
+ *  whose sub-tree did no inference (and the parent journals no empty `metered` event). A spend
+ *  with an UNKNOWN marker is non-zero: a sub-driver whose turns went unmeasured did real work. */
+function nonZeroOrUndef(s: Spend): Spend | undefined {
+  return s.iterations > 0 ||
     s.tokens.input > 0 ||
     s.tokens.output > 0 ||
     s.usd > 0 ||
@@ -614,37 +623,8 @@ function isNonZeroSpend(s: Spend): boolean {
     s.tokensKnown === false ||
     s.usdKnown === false ||
     Object.keys(s.resources ?? {}).length > 0
-  )
-}
-
-/** A spend, or `undefined` when it is all-zero — so `metered()` returns undefined for a driver
- *  whose sub-tree did no inference (and the parent journals no empty `metered` event). */
-function nonZeroOrUndef(s: Spend): Spend | undefined {
-  return isNonZeroSpend(s) ? s : undefined
-}
-
-/** Sum the nested tree's metered events, tolerating a missing tree (a crash before `beginTree`
- *  landed) — never throw here, or it would mask the original `act` error on the crash path. */
-async function safeRollup(
-  journal: SpawnJournal,
-  nestedRoot: string,
-): Promise<
-  { readonly metered: Spend | undefined; readonly accounting: ExecutorAccounting } | undefined
-> {
-  try {
-    const events = await loadTreeEvents(journal, nestedRoot)
-    const childWork = sumSpend(events.filter(isSettled))
-    const metered = nonZeroOrUndef(sumMetered(events))
-    return {
-      metered,
-      accounting: {
-        reported: childWork,
-        reservation: addSpend(childWork, metered ?? zeroSpend()),
-      },
-    }
-  } catch {
-    return undefined
-  }
+    ? s
+    : undefined
 }
 
 /** Derive the driver child's delivery verdict from an accepted direct submission, or from its
