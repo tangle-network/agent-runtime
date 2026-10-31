@@ -296,7 +296,7 @@ importers:
         specifier: 5.0.0
         version: 5.0.0(@tangle-network/sandbox@1.0.128(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7)))
       '@tangle-network/sandbox':
-        specifier: 'catalog:'
+        specifier: 1.0.128
         version: 1.0.128(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
       '@tangle-network/sandbox-ui':
         specifier: 4.0.0
