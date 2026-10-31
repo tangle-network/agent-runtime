@@ -42106,7 +42106,13 @@ Rebuild controls for one exact provider-owned coding-agent process.
 
 **`Stable`**
 
-Record the intent before dispatch and resolve only after that admission is durable.
+Dispatch one detached, replayable run and return only after exact durable
+coordinates are confirmed by the provider and persisted by the caller.
+
+The required `onAdmission` hook first records a digest-only intent before
+creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
+reference. The returned promise resolves only after the dispatched admission
+is durable, so a crash cannot lose a successful start's exact reference.
 
 #### Parameters
 
