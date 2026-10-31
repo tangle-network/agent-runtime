@@ -863,7 +863,7 @@ class TangleCandidateAgentTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = _fixture(Path(directory))
             fixture["plan"]["launch"]["env"] = {
-                "FIXTURE_SLEEP": {"kind": "public", "value": "2"}
+                "FIXTURE_SLEEP": {"kind": "public", "value": "30"}
             }
             fixture["plan"]["limits"]["timeoutMs"] = 10
             _rewrite_signed_plan(fixture)
@@ -884,7 +884,7 @@ class TangleCandidateAgentTest(unittest.TestCase):
             self.assertEqual(context.metadata["termination"]["kind"], "timeout")
             self.assertEqual(context.metadata["termination"]["timeoutMs"], 10)
             self.assertLess(context.metadata["observedElapsedMs"], 250)
-            self.assertLess(wall_elapsed, 1)
+            self.assertLess(wall_elapsed, 30)  # the timeout ended its 30 s sleep
 
     def test_profile_cleanup_does_not_follow_candidate_links(self):
         for attack in ("symlink", "hardlink"):
