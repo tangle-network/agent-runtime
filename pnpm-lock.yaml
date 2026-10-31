@@ -208,7 +208,7 @@ catalogs:
       specifier: ^2.2.0
       version: 2.2.0
     '@tangle-network/sandbox':
-      specifier: 1.0.128
+      specifier: ^1.0.128
       version: 1.0.128
     '@types/node':
       specifier: 26.6.5
