@@ -329,7 +329,7 @@ async function providerAttemptFactory(
       ...backend.promptOptions,
       backend: {
         ...turn,
-        ...(turn.type === undefined && providerHarness !== undefined
+        ...(turn.type === undefined && providerHarness !== undefined && providerHarness !== 'gemini'
           ? { type: providerHarness }
           : {}),
         ...(turn.profile === undefined ? { profile: input.profile } : {}),
