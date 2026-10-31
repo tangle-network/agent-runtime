@@ -24,6 +24,9 @@
   schema or bound refusal (the Sandbox SDK's `INVALID_CAPABILITY_DOCUMENT` included), at the first
   attempt, or when the same transient failure without progress repeats 10 times over 5 minutes,
   inside the transient-outage window too. The root keeps waiting an outage out.
+- A model provider's content-filter refusal ends its driver at the first attempt: the same prompt is
+  never resent. A nested manager settles `down` with `refused by the model provider's content
+  filter`, and its parent's next wake carries that reason.
 
 Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts`,
 `tests/kernel/nested-retained-owner-journal.test.ts` and

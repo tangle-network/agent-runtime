@@ -12,16 +12,24 @@ import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { superviseForTest } from '../helpers/runtime-with-test-brain'
-import { scriptedDriverBrain } from './scripted-brain'
+import { driverWakeEvents, scriptedDriverBrain } from './scripted-brain'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const MALFORMED = 'Agent terminal outcome is malformed'
+// The refusal two magnetar-rust-sandbox-20261031f workers met 11 times, resending one prompt.
+const CONTENT_FILTERED =
+  'codex execution failed: This content was flagged for possible cybersecurity risk. If this ' +
+  'seems wrong, try rephrasing your request. (exit code 1)'
 // What the manager's down settlement names, by the institutional-compiler-20261031c failure it
 // replays: s9's failed turn, s14's refused capability document, and a 502 that never changes.
 const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   failed: [MALFORMED],
   'capability-refused': ['stopped by terminal-error', 'Capability discovery returned'],
   'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
+  'content-filtered': [
+    "stopped by terminal-error: refused by the model provider's content filter",
+    CONTENT_FILTERED,
+  ],
 }
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
@@ -44,6 +52,7 @@ describe('nested retained owner journal isolation', () => {
     'failed',
     'capability-refused',
     'same-failure',
+    'content-filtered',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     const parentInterruption = mode.startsWith('parent-')
@@ -64,11 +73,22 @@ describe('nested retained owner journal isolation', () => {
           const session = environment.session!(id, options)
           return {
             ...session,
+            async *events(eventOptions) {
+              yield* session.events!(eventOptions)
+              // Codex's refusal arrives under the Sandbox SDK's generic code.
+              if (mode === 'content-filtered')
+                yield {
+                  id: 'event-error',
+                  type: 'error',
+                  data: { message: CONTENT_FILTERED, code: 'AGENT_EXECUTION_FAILED' },
+                }
+            },
             result: async () => ({
               ...(await session.result()),
               usage: { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
               ...(mode === 'failed' ? { success: false, error: MALFORMED } : {}),
+              ...(mode === 'content-filtered' ? { success: false, error: CONTENT_FILTERED } : {}),
             }),
           }
         },
@@ -149,6 +169,7 @@ describe('nested retained owner journal isolation', () => {
         },
       }
       const finalizer = () => ({ finalizedBy: 'manager' })
+      const rootSaw: Array<ReadonlyArray<Record<string, unknown>>> = []
       const manager = testAgentProfile('manager', {
         harness: 'codex',
         tools: runtimeToolDeclarations('stop'),
@@ -166,7 +187,9 @@ describe('nested retained owner journal isolation', () => {
         budget: { maxIterations: 8, maxTokens: 100 },
         perWorker: { maxIterations: 3, maxTokens: 20 },
         driverRetry: {
-          maxAttempts: mode === 'pending' || mode in DOWN_REASONS ? 1 : 2,
+          // Room for four more turns: only the refusal's own verdict ends content-filtered at one.
+          maxAttempts:
+            mode === 'content-filtered' ? 5 : mode === 'pending' || mode in DOWN_REASONS ? 1 : 2,
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -174,18 +197,21 @@ describe('nested retained owner journal isolation', () => {
         },
         coordination,
         finalizer,
-        brain: scriptedDriverBrain([
-          {
-            toolCalls: [
-              {
-                name: 'spawn_worker',
-                arguments: { profile: manager, task: 'Manage.', key: 'manager' },
-              },
-            ],
-          },
-          { content: 'waiting for the manager' },
-          { content: 'done' },
-        ]),
+        brain: scriptedDriverBrain(
+          [
+            {
+              toolCalls: [
+                {
+                  name: 'spawn_worker',
+                  arguments: { profile: manager, task: 'Manage.', key: 'manager' },
+                },
+              ],
+            },
+            { content: 'waiting for the manager' },
+            { content: 'done' },
+          ],
+          rootSaw,
+        ),
       }).catch((error: unknown) => {
         if (!injected) throw error
         expect(error).toMatchObject({
@@ -201,7 +227,7 @@ describe('nested retained owner journal isolation', () => {
       expect(nested[0]).toEqual(expectedOwner)
       expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        retry || (mode in DOWN_REASONS && mode !== 'failed') ? 0 : 1,
+        retry || (mode in DOWN_REASONS && mode !== 'failed' && mode !== 'content-filtered') ? 0 : 1,
       )
       const downReasons = DOWN_REASONS[mode]
       if (downReasons !== undefined) {
@@ -217,6 +243,15 @@ describe('nested retained owner journal isolation', () => {
         expect(down).not.toHaveProperty('retainedExecution')
         // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
         expect(creates).toBe(mode === 'same-failure' ? 10 : 1)
+        // The lead is woken with the reason, so it can reword or re-scope the refused task.
+        if (mode === 'content-filtered')
+          expect(rootSaw.flatMap(driverWakeEvents)).toContainEqual(
+            expect.objectContaining({
+              failure: expect.objectContaining({
+                cause: expect.stringContaining(DOWN_REASONS[mode]![0]!),
+              }),
+            }),
+          )
         return
       }
       if (retry || parentInterruption) {
