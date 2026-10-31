@@ -12,6 +12,10 @@
 - An accepted attempt still requires complete capture before its workspace may change.
   Pending capture keeps the pursuit re-enterable and cannot seal a winner. Partial or foreign
   captures never authorize reuse or deletion. Explicit cancellation retains its settlement rules.
+- A manager that waits out an exhausted seat chain keeps no running box. Before the wait, the
+  owner checkpoints its workspace. It then destroys the environment once that checkpoint is newer
+  than every execution event and its capture is complete. The next drive restores from that
+  checkpoint in a new environment. A box that fails either condition stays.
 
 Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.ts` and
 `tests/runtime/retained-capture-resume.test.ts`.
