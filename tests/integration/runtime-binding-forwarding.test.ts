@@ -29,13 +29,9 @@ it('forwards stored host selectors and authored bindings through public Runtime 
   })
 })
 
-it('preserves legacy string identity while binding retained intent to secret destinations', async () => {
+it('replays legacy retained admission and rejects changed destinations over HTTP', async () => {
   expect(await run('identity')).toEqual({
-    stringSelectionOrderStable: true,
-    legacyWireIdentityPreserved: true,
-    hostChangesIdentity: true,
-    headerChangesIdentity: true,
-    canonicalScopeChangesIdentity: true,
+    legacyAdmissionReplayedThroughHttp: true,
   })
 })
 

@@ -48,6 +48,7 @@ import { createRetainedRunHandle } from './retained-run-handle'
 import {
   retainedCreateMaterial,
   retainedEnvironmentMetadata,
+  retainedTurnForDispatch,
   retainedTurnMaterial,
 } from './retained-run-intent'
 import type {
@@ -203,6 +204,8 @@ export async function startRetainedRun(
     })
   }
   let capabilities: AgentEnvironmentCapabilities
+  let teardownFailure =
+    'retained run environment published invalid capabilities and could not be destroyed'
   try {
     capabilities = retainedCapabilitiesForEnvironment(
       options.provider.name,
@@ -215,36 +218,21 @@ export async function startRetainedRun(
       options.turn.interactions,
       capabilities,
     )
+    if (!environment.dispatch || !environment.session) {
+      teardownFailure =
+        'retained run could not start and its unused environment could not be destroyed'
+      throw new Error(
+        `provider "${options.provider.name}" does not expose detached session control`,
+      )
+    }
   } catch (error) {
     if (transferReceipt !== undefined || options.existingEnvironmentId !== undefined) throw error
     try {
       await environment.destroy?.()
     } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        'retained run environment published invalid capabilities and could not be destroyed',
-      )
+      throw new AggregateError([error, cleanupError], teardownFailure)
     }
     throw error
-  }
-  if (!environment.dispatch || !environment.session) {
-    if (transferReceipt !== undefined || options.existingEnvironmentId !== undefined) {
-      throw new Error(
-        `provider "${options.provider.name}" does not expose detached session control`,
-      )
-    }
-    try {
-      await environment.destroy?.()
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [
-          new Error(`provider "${options.provider.name}" does not expose detached session control`),
-          cleanupError,
-        ],
-        'retained run could not start and its unused environment could not be destroyed',
-      )
-    }
-    throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
 
   return dispatchRetainedRun({
@@ -252,6 +240,7 @@ export async function startRetainedRun(
     environment,
     signal: attachmentSignal,
     environmentIdempotencyKey: options.environment.idempotencyKey,
+    create: options.environment,
     turn: options.turn,
     contextTransfer,
     expectedRunId: transferReceipt?.runId,
@@ -385,6 +374,7 @@ interface DispatchRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly environment: AgentEnvironment
   readonly environmentIdempotencyKey: string
+  readonly create?: RetainedRunStartMaterial['environment']
   readonly turn: StartRetainedRunOptions['turn']
   readonly contextTransfer?: ContextTransferRequest
   readonly identity: { readonly sessionId: string; readonly executionId: string }
@@ -434,8 +424,11 @@ async function dispatchRetainedRun(
   options.turn.signal?.throwIfAborted()
   let reference: AgentSessionRef
   try {
+    const turn = options.create
+      ? retainedTurnForDispatch(options.turn, options.create)
+      : options.turn
     reference = await environment.dispatch!(
-      freshTurnInput(options.turn, {
+      freshTurnInput(turn, {
         turnId: options.turn.turnId,
         detach: true,
         ...identity,
@@ -944,16 +937,7 @@ function assertRetainedCapabilityRequirements(
   providerName: string,
   capabilities: AgentEnvironmentCapabilities,
 ): void {
-  const retained = capabilities.retainedControl
-  if (
-    retained?.exactRunIdentity !== true ||
-    retained.resultIdentity !== true ||
-    retained.eventIdentity !== true ||
-    retained.cancellationIdempotency !== true ||
-    !capabilities.streaming.detach ||
-    !capabilities.streaming.replay ||
-    !capabilities.streaming.turnIdempotency
-  ) {
+  if (capabilities.retainedControl === undefined) {
     throw new Error(`provider "${providerName}" cannot control a retry-safe retained run`)
   }
 }

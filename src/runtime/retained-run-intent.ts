@@ -9,6 +9,7 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { recordValue } from '../record-value'
+import { promptOptionsFromAgentTurnInput } from './turn-input'
 
 function definedMaterial(fields: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
@@ -140,4 +141,15 @@ export function retainedTurnMaterial(
     contextTransferRequestDigest: contextTransfer?.requestDigest,
     ...fields,
   })
+}
+
+export function retainedTurnForDispatch(turn: AgentTurnInput, env: CreateAgentEnvironmentInput) {
+  if (recordValue(turn.providerOptions?.backend)?.runtimeSecrets === undefined) return turn
+  const publicBackend = promptOptionsFromAgentTurnInput(turn).backend
+  const profile = publicBackend?.profile === undefined ? env.profile : publicBackend.profile
+  if (typeof profile === 'string' || !profile) return turn
+  const backend: Record<string, unknown> = { ...publicBackend, profile }
+  if (backend.type === undefined)
+    backend.type = profile.harness === undefined ? env.backend : profile.harness
+  return { ...turn, providerOptions: { ...turn.providerOptions, backend } }
 }
