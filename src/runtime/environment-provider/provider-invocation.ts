@@ -11,6 +11,7 @@ import type {
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import type { ProviderWorkspaceCaptureProvenance } from '../provider-workspace-retention'
 import type { RetainedRunHandle } from '../retained-run-types'
+import { recordRuntimeOwnedProviderAttemptStart } from '../supervise/materialization'
 import { concreteProfileModel } from '../supervise/model-policy'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { detachedSnapshot } from '../supervise/snapshot'
@@ -66,12 +67,13 @@ export async function* streamProviderExecutor(
   const started = Date.now()
   const turn = invocationTurn(args)
   args.scope.state.providerSessionId = turn.sessionId ?? null
+  recordRuntimeOwnedProviderAttemptStart(args.scope.executor()) // one attempt per dispatch
   const source = await providerExecutionSource(args, turn, args.signal)
   const environment = source.environment
   args.onEnvironment(environment)
   args.scope.mirrors.startNativeMirror(environment)
   const usage = new ProviderUsageAccount(args, turn.model)
-  const observer = new ProviderTurnObserver(args, usage, source.retained)
+  const observer = new ProviderTurnObserver(args, usage, source.retained, turn.model)
   const settlement = new ProviderTurnSettlement(
     args,
     environment,
