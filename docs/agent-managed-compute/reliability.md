@@ -97,6 +97,7 @@ A root driver turn that ends with a failed outcome is a driver failure under `dr
 A failure without a code is transient; a code the bridge never retries, such as `capability_denied`, is terminal.
 A refusal for capacity is `unavailable`: HTTP 429, 503 or 529, or an upstream code such as the router's `provider_quota_exhausted`.
 A harness that prints the router's refusal as text keeps the code in it, so the text is read for that code; text can only lengthen a retry, never end a run.
+The one text verdict that ends a drive is a model provider's content-filter refusal, which Codex reports under the generic `AGENT_EXECUTION_FAILED`: the same prompt is refused again, so it is terminal at its first attempt and the agent settles `down` with `refused by the model provider's content filter` for its parent to reword or re-scope.
 An `unavailable` failure pauses the driver, then re-enters it with the original task.
 The pause starts at `driverRetry.unavailablePauseMs` (15 s) and doubles to `maxUnavailablePauseMs` (5 min).
 A pause consumes neither `maxAttempts` nor `maxConsecutiveFailures`; only the deadline, the budget, cancellation and `enabled: false` end it.

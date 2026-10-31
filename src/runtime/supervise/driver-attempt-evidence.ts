@@ -1,10 +1,4 @@
-import {
-  AgentEvalError,
-  BackendTransportError,
-  ConfigError,
-  RuntimeRunStateError,
-  ValidationError,
-} from '../../errors'
+import { AgentEvalError, BackendTransportError, RuntimeRunStateError } from '../../errors'
 import type { BlockedToolReport } from '../../mcp/tools/coordination-contracts'
 import { CheckUnavailableError } from './completion-gate'
 import type { ContinuationEntry } from './continuation'
@@ -158,6 +152,20 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * A model provider's content filter refuses the same prompt every time, so the turn is terminal
+ * and the agent settles failed with this reason, for its parent to reword or re-scope the task.
+ * Codex names it only in text, under the generic `AGENT_EXECUTION_FAILED`: on Discovery run
+ * magnetar-rust-sandbox-20261031f two workers resent one refused prompt 6 and 5 times.
+ */
+const CONTENT_FILTER_REASON = "refused by the model provider's content filter"
+const isContentFilterRefusal = (error: unknown): boolean =>
+  causeChain(error).some(
+    (cause) =>
+      cause instanceof Error &&
+      /\bcontent was flagged for possible\b/iu.test(errorProperty(cause, 'message') ?? ''),
+  )
+
+/**
  * A driver's harness turn ran to its terminal result, and that result reported failure.
  *
  * A provider executor reports a failed turn as a returned outcome, not a thrown error, so without
@@ -165,8 +173,8 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
  * A 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform
  * key expired mid-turn. A new turn succeeds in both cases.
  *
- * `errorCode` is the provider's machine code when it reported one. The classifier reads the code
- * and never the text, because the text is written for people and changes without notice.
+ * `errorCode` is the provider's machine code when it reported one. The classifier reads the code;
+ * text decides only a printed capacity code and a content-filter refusal, which have none.
  */
 export class HarnessTurnFailedError extends Error {
   readonly runtime: string
@@ -279,20 +287,14 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
  * `upstream_unavailable`) when the subscription account owner has no account with room.
  */
 function capacityCode(error: Error): string | undefined {
-  let code: unknown
   try {
-    code = Reflect.get(error, 'code')
+    const code: unknown = Reflect.get(error, 'code')
+    return typeof code === 'string' && UNAVAILABLE_CODES.has(code.toLowerCase())
+      ? code.toLowerCase()
+      : undefined
   } catch {
     return undefined
   }
-  if (typeof code !== 'string') return undefined
-  const normalized = code.toLowerCase()
-  return UNAVAILABLE_CODES.has(normalized) ? normalized : undefined
-}
-
-/** True when the upstream refused for capacity and the same request will succeed later. */
-function isUpstreamUnavailable(error: unknown): boolean {
-  return upstreamUnavailableSignal(error) !== undefined
 }
 
 /**
@@ -331,37 +333,30 @@ export function classifyDriverFailure(
   }
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (isCredentialRefusal(error)) return 'terminal'
-  // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
-  if (causeChain(error).some(isProvisioningRefusal)) return 'terminal'
+  // A profile the box cannot be provisioned for, or a prompt the content filter refuses, fails the
+  // same way on every attempt and every box.
+  if (causeChain(error).some(isProvisioningRefusal) || isContentFilterRefusal(error))
+    return 'terminal'
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
     if (error.errorCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.errorCode)) {
       return 'terminal'
     }
-    if (isUpstreamUnavailable(error)) return 'unavailable'
+    if (upstreamUnavailableSignal(error) !== undefined) return 'unavailable'
     return foreignHttpStatusVerdict(error) ?? 'transient'
   }
   if (error instanceof BackendTransportError) {
     if (error.upstreamCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.upstreamCode))
       return 'terminal'
-    if (isUpstreamUnavailable(error)) return 'unavailable'
+    if (upstreamUnavailableSignal(error) !== undefined) return 'unavailable'
     const status = error.status
-    if (status === undefined) return 'transient'
-    if (status === 408 || status >= 500) return 'transient'
-    return 'terminal'
+    return status === undefined || status === 408 || status >= 500 ? 'transient' : 'terminal'
   }
-  if (
-    error instanceof ValidationError ||
-    error instanceof ConfigError ||
-    error instanceof RuntimeRunStateError
-  ) {
-    return 'terminal'
-  }
-  // Every other AgentEvalError (session mismatch, planner, analyst, not-found) is a structural
-  // refusal too. Kept after the transport check, which is itself an AgentEvalError subclass.
+  // Every AgentEvalError (validation, config, run state, session mismatch, not-found) is a
+  // structural refusal. Kept after the transport check, which is itself an AgentEvalError subclass.
   if (error instanceof AgentEvalError) return 'terminal'
-  if (isUpstreamUnavailable(error)) return 'unavailable'
+  if (upstreamUnavailableSignal(error) !== undefined) return 'unavailable'
   return foreignHttpStatusVerdict(error) ?? 'transient'
 }
 
@@ -477,7 +472,8 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
     const pauses = attempts.filter((attempt) => attempt.classification === 'unavailable')
     const pausedMs = pauses.reduce((sum, attempt) => sum + (attempt.retryInMs ?? 0), 0)
     super(
-      `supervisor driver failed after ${attempts.length} attempt(s) — stopped by ${stop}; ` +
+      `supervisor driver failed after ${attempts.length} attempt(s) — stopped by ${stop}` +
+        (isContentFilterRefusal(cause) ? `: ${CONTENT_FILTER_REASON}; ` : '; ') +
         (pauses.length === 0
           ? ''
           : `${pauses.length} attempt(s) met an unavailable upstream and paused ` +

@@ -1,0 +1,3 @@
+type: patch
+---
+A model provider's content-filter refusal is terminal for the turn's prompt: the driver never resends it. Codex reports the refusal only as text ("This content was flagged for possible …") under the generic `AGENT_EXECUTION_FAILED` code, so it was classified transient and retried with the identical prompt. The agent now settles failed at its first attempt with `refused by the model provider's content filter` in its stop reason, and a nested manager's parent is woken with that reason so the lead can reword or re-scope the task. On Discovery run magnetar-rust-sandbox-20261031f two workers resent one refused prompt 6 and 5 times.
