@@ -5490,7 +5490,7 @@ execution can be reconciled. Six exhibits in three days wore the first name for 
   the thrower, never inferred.
 
 Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
-list — and one untyped Sandbox refusal's text, never other message text: the provider is not a
+list — and two untyped Sandbox refusals' text, never other message text: the provider is not a
 dependency of this package and its messages are not a contract. #1204's exhibit 3 (an event
 without a stable id) is delivered rather than thrown since agent-provider-tangle 1.4.0; its
 exhibit 6 is typed as `JsonBoundError` (`code: 'JSON_BOUND_VIOLATION'`) since 1.5.0 and lands
