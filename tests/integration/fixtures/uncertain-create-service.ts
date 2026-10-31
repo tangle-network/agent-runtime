@@ -15,9 +15,9 @@ import {
   record,
   registry,
   runtimeCapabilities,
-  secretProfileReceipt,
   type Scenario,
   type ServiceState,
+  secretProfileReceipt,
   terminal,
 } from './uncertain-create-protocol'
 
