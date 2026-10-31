@@ -863,22 +863,31 @@ describe('a shape change is classified from the declarations it was built from',
   }
   const options = (member: string) =>
     `export interface StartOptions {\n  readonly cwd: string;\n${member}}\nexport declare function start(options: StartOptions): void;\n`
+  // A callable interface (DriveHarness) is both called and implemented; its arguments still split.
+  const callable = (member: string) =>
+    `export interface Drive {\n  (args: {\n  readonly cwd: string;\n${member}}): void;\n}\n`
 
-  it('asks a patch for an added optional member and a major for an added required one', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
-    roots.push(root)
-    await git(root, 'init', '--quiet', '--initial-branch=main')
-    const released = await build(root, '1.0.0', options(''))
-    await tag(root, 'v1.0.0')
+  it.each([
+    ['an options interface', options],
+    ['a callable interface argument', callable],
+  ])(
+    'asks a patch for an added optional member of %s and a major for an added required one',
+    async (_form, options) => {
+      const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
+      roots.push(root)
+      await git(root, 'init', '--quiet', '--initial-branch=main')
+      const released = await build(root, '1.0.0', options(''))
+      await tag(root, 'v1.0.0')
 
-    await build(root, '1.0.1', options('  readonly journalRoot?: string;\n'))
-    await expect(check(root, released)).resolves.toMatchObject({
-      stdout: expect.stringContaining('needing a patch bump, paid for by 1.0.0 -> 1.0.1 (patch)'),
-    })
+      await build(root, '1.0.1', options('  readonly journalRoot?: string;\n'))
+      await expect(check(root, released)).resolves.toMatchObject({
+        stdout: expect.stringContaining('needing a patch bump, paid for by 1.0.0 -> 1.0.1 (patch)'),
+      })
 
-    await build(root, '1.0.1', options('  readonly journalRoot: string;\n'))
-    const failure = await check(root, released).catch((error) => error)
-    expect(failure.stderr).toContain('(added readonly journalRoot)')
-    expect(failure.stderr).toContain('breaking change needing a major bump')
-  })
+      await build(root, '1.0.1', options('  readonly journalRoot: string;\n'))
+      const failure = await check(root, released).catch((error) => error)
+      expect(failure.stderr).toContain('readonly journalRoot)')
+      expect(failure.stderr).toContain('breaking change needing a major bump')
+    },
+  )
 })
