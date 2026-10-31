@@ -91,8 +91,10 @@ export function secretProfileReceipt(backend: unknown): string {
 }
 export function readRecords(path: string): WireRecord[] {
   try {
-    return readFileSync(path, 'utf8')
-      .trim()
+    const text = readFileSync(path, 'utf8')
+    // A record larger than one write may be read mid-append: only a terminated line is whole.
+    return text
+      .slice(0, text.lastIndexOf('\n') + 1)
       .split('\n')
       .filter(Boolean)
       .map((line) => JSON.parse(line))
