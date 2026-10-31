@@ -38,6 +38,10 @@ const FILE_CONFLICT =
   'materializeProfileFileMounts: [eval]:24\nError: Refusing to replace existing profile file: inputs/repository.md'
 // The same conflict once Sandbox types it; only the code and status say what it is.
 const TYPED_FILE_CONFLICT = 'inputs/repository.md changed in the box and in the profile'
+// What it answered 20261031h's managers s0, s1 and s2 on their second turn: each profile mounted
+// inputs/commission.md and /home/agent/inputs/commission.md, one target since Sandbox SDK 1.0.157.
+const DUPLICATE_TARGET =
+  'materializeProfileFileMounts: [eval]:62\nError: Duplicate profile file target: /home/agent/inputs/commission.md'
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
@@ -63,6 +67,7 @@ describe('nested retained owner journal isolation', () => {
     'content-filter-recovers',
     'file-conflict',
     'file-conflict-409',
+    'file-duplicate',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     // The manager's turns: refused until the 8th refusal in a row stops it, or passing on the 7th.
@@ -88,6 +93,7 @@ describe('nested retained owner journal isolation', () => {
           if (mode === 'file-conflict-409')
             throw new ServerError(TYPED_FILE_CONFLICT, 409, undefined, 'PROFILE_FILE_CONFLICT')
           if (mode === 'file-conflict') throw new ServerError(FILE_CONFLICT)
+          if (mode === 'file-duplicate') throw new ServerError(DUPLICATE_TARGET)
           const dispatched = await environment.dispatch!(turn)
           dispatches += 1
           if (refusing && (mode === 'content-filtered' || dispatches < sends))
@@ -219,7 +225,7 @@ describe('nested retained owner journal isolation', () => {
           : { maxIterations: 3, maxTokens: 20 },
         driverRetry: {
           maxAttempts:
-            refusing || mode.startsWith('file-conflict')
+            refusing || mode.startsWith('file-')
               ? 20
               : mode === 'pending' || mode in DOWN_REASONS
                 ? 1
@@ -260,7 +266,7 @@ describe('nested retained owner journal isolation', () => {
       const nested = (await context.journal.loadTree(spawn.ownedTreeRoot)) ?? []
       const { parent: _parent, ownedTreeRoot: _tree, ...expectedOwner } = spawn
       expect(nested[0]).toEqual(expectedOwner)
-      if (mode.startsWith('file-conflict')) {
+      if (mode.startsWith('file-')) {
         // The refusal recurs on every turn and nothing ran: one attempt, never a lost transport,
         // and the lead is woken with the file it names.
         expect(dispatches).toBe(0)
@@ -271,7 +277,11 @@ describe('nested retained owner journal isolation', () => {
           expect.objectContaining({
             settled: spawn.id,
             status: 'down',
-            reason: expect.stringContaining('inputs/repository.md'),
+            reason: expect.stringContaining(
+              mode === 'file-duplicate'
+                ? '/home/agent/inputs/commission.md'
+                : 'inputs/repository.md',
+            ),
           }),
         )
         return

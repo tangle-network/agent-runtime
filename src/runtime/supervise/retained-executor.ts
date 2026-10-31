@@ -211,7 +211,7 @@ export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorC
  *   the thrower, never inferred.
  *
  * Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
- * list — and one untyped Sandbox refusal's text, never other message text: the provider is not a
+ * list — and two untyped Sandbox refusals' text, never other message text: the provider is not a
  * dependency of this package and its messages are not a contract. #1204's exhibit 3 (an event
  * without a stable id) is delivered rather than thrown since agent-provider-tangle 1.4.0; its
  * exhibit 6 is typed as `JsonBoundError` (`code: 'JSON_BOUND_VIOLATION'`) since 1.5.0 and lands
@@ -249,23 +249,23 @@ export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
 /**
  * The Sandbox SDK's codes for a box that cannot be provisioned for this profile, by the HTTP status
  * each is sent with: a mount outside the box's writable roots and a materialization that would fail
- * the same way again (422), a mounted file changed on both sides since the last mount (409; before
- * Sandbox typed it, a bare 500 read by its text, which magnetar-rust-sandbox-20261031g's managers
- * retried every turn). On Discovery run queens21-h22-capture-root-1-20261019c every child profile
- * mounted `/work/queens21_count.c` on a read-only root filesystem, and 154 attempts across 4
- * workers were retried as a lost transport. The same codes at another status may be transient.
+ * the same way again (422), a mounted file changed on both sides since the last mount (409). Two
+ * bare 500s are read by text: that conflict before Sandbox typed it, and two mounts of one target
+ * (magnetar-rust-sandbox-20261031g's and 20261031h's managers retried them every turn). On run
+ * queens21-h22-capture-root-1-20261019c 154 attempts across 4 workers retried a read-only mount of
+ * `/work/queens21_count.c` as a lost transport. The same codes at another status may be transient.
  */
 const PROVISIONING_REFUSALS: ReadonlyMap<string, number> = new Map([
   ['PROFILE_FILE_MOUNT_OUTSIDE_ROOTS', 422],
   ['PROFILE_FILES_MATERIALIZE_FAILED', 422],
   ['PROFILE_FILE_CONFLICT', 409],
 ])
-const UNTYPED_FILE_CONFLICT = /Refusing to replace existing profile file: /u
+const TEXT_REFUSALS = /Refusing to replace existing profile file: |Duplicate profile file target: /u
 
 /** True for an error that is itself a deterministic provisioning refusal (see above). */
 export const isProvisioningRefusal = (value: object): boolean =>
   refusedAs(PROVISIONING_REFUSALS, value) ||
-  (value instanceof Error && UNTYPED_FILE_CONFLICT.test(errorProperty(value, 'message') ?? ''))
+  (value instanceof Error && TEXT_REFUSALS.test(errorProperty(value, 'message') ?? ''))
 
 /**
  * Platform refusals the orchestrator answers BEFORE it forwards a dispatch, by machine code and
