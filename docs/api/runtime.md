@@ -17550,13 +17550,17 @@ Local ownership does not provide distributed fencing.
 
 > `readonly` **view**: [`TreeView`](#treeview)
 
-The live tree — reads the in-memory nursery, not the journal.
-
 ##### budget
 
 > `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Conserved-pool readouts (post-reservation).
+
+##### rootDeadlineAtMs?
+
+> `readonly` `optional` **rootDeadlineAtMs?**: `number`
+
+The run's absolute deadline, inherited unchanged across child time boxes.
 
 ##### workerCapacity
 
@@ -17574,8 +17578,7 @@ The worker-slot allocator as this scope sees it. Every scope of a tree, and ever
 
 > **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](#spawnrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
-Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
-lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
+Spawn a child. Worker admission precedes a lazy factory, so full allocation creates nothing.
 Reserves `opts.budget` from the conserved pool atomically; refunds the unspent remainder on
 settle. Returns a typed outcome — fail-closed on an exhausted pool, an exceeded depth ceiling, a
 full worker allocation, or a still-live duplicate `key` (the caller inspects `ok` before
@@ -20391,8 +20394,6 @@ The durable coordination side-log seam. `append` records one bus event (kinds it
 
 > `readonly` **url**: `string`
 
-The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`.
-
 ##### port
 
 > `readonly` **port**: `number`
@@ -20427,14 +20428,15 @@ Runtime-only credentials. Never put these headers in canonical profiles or journ
 
 > `readonly` **credentialExpiresAt**: `number` \| `undefined`
 
-The current credential's expiry under `authentication.ttlMs`; undefined when it lives as long
- as the scope.
+Finite lease expiry, capped by the root run's absolute deadline.
+
+##### credentialSigned?
+
+> `readonly` `optional` **credentialSigned?**: `boolean`
 
 ##### submittedResult
 
 > **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
-
-The first driver-authored result whose injected independent check passed.
 
 The first result whose injected independent check passed, if the driver submitted one.
 
@@ -20445,9 +20447,6 @@ The first result whose injected independent check passed, if the driver submitte
 ##### drainResolved
 
 > **drainResolved**: () => `Promise`\<`number`\>
-
-Post-loop drain of already-settled, unpulled children into the ledger — call before reading
- `settled()` for a finalize, so a delivered child the harness never awaited is not lost.
 
 Post-loop drain: pull every ALREADY-settled, unpulled child into the ledger (publishing each
 as a `settled` bus event for the audit trail) WITHOUT awaiting live children. The driver
@@ -20491,8 +20490,6 @@ Their findings remain evidence and never replace the manager's output or enter i
 
 > **history**: () => readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[]
 
-The full ordered bus-event log for current-process observability and audit evidence.
-
 The full ordered log of every bus event — UP (settled / question / finding), authorized
  instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
  timestamp, and priority. A receipt is evidence and is never auto-delivered on restart.
@@ -20504,8 +20501,6 @@ readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[
 ##### stats
 
 > **stats**: () => [`CoordinationStats`](mcp.md#coordinationstats)
-
-Bus throughput counters for live dashboards.
 
 Bus throughput counters (published / pulled / by-kind) for live dashboards, plus one
  counter per [SpawnRefusalCause](mcp.md#spawnrefusalcause) the pre-flight refused. `preflight` is present
@@ -20519,8 +20514,6 @@ Bus throughput counters (published / pulled / by-kind) for live dashboards, plus
 ##### raiseFinding
 
 > **raiseFinding**: (`finding`) => `Promise`\<`void`\>
-
-Raise a `finding` on the bus from an online detector watching a worker's live pipe.
 
 Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
@@ -20542,17 +20535,29 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 > **rotateCredential**(): `void`
 
-Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts.
-
 ###### Returns
 
 `void`
 
+##### bindCredential()?
+
+> `optional` **bindCredential**(`install`): `Promise`\<() => `Promise`\<`void`\>\>
+
+Bind a trusted holder; renewal stops and drains before its release.
+
+###### Parameters
+
+###### install
+
+(`headers`) => `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<() => `Promise`\<`void`\>\>
+
 ##### settled()
 
 > **settled**(): readonly [`SettledWorker`](#settledworker)[]
-
-The coordination tools' settled-worker ledger (for the driver's finalize).
 
 ###### Returns
 
@@ -20570,8 +20575,6 @@ readonly [`SettledWorker`](#settledworker)[]
 
 > **mailHistory**(): readonly [`PeerMailEvent`](#peermailevent)[]
 
-Every peer-mail attempt in order, delivered and refused alike. Empty when peer mail is off.
-
 ###### Returns
 
 readonly [`PeerMailEvent`](#peermailevent)[]
@@ -20579,9 +20582,6 @@ readonly [`PeerMailEvent`](#peermailevent)[]
 ##### stopMailThread()
 
 > **stopMailThread**(`threadId`): `boolean`
-
-End one peer exchange: every further mail on the thread is refused `thread-stopped`. Returns
- false when peer mail is off or the thread was already stopped.
 
 ###### Parameters
 
@@ -27211,9 +27211,7 @@ Inherited `TRACE_ID` / `PARENT_SPAN_ID`, merged into `CreateSandboxOptions.env` 
 
 ### ScopeArgs
 
-Construction args for `createScope`. The supervisor threads the shared pool, journal,
- blob store, and executor registry through; `depth`/`maxDepth` pair the runtime
- recursion ceiling with the conserved pool (R3).
+Scope construction: conserved pool, journal, executors, tree identity and recursion bounds.
 
 #### Properties
 
@@ -27228,6 +27226,10 @@ This scope's owning node id — children get `${parentId}:s${seq}` ids.
 > `readonly` **root**: `string`
 
 Journal/blob root key the supervisor `beginTree`'d.
+
+##### rootDeadlineAtMs?
+
+> `readonly` `optional` **rootDeadlineAtMs?**: `number`
 
 ##### pool
 
@@ -29520,17 +29522,11 @@ Published in `tools/list` when present.
 
 ### DriveHarness()
 
-How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
- seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
- `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_worker / observe_agent / submit_result as native tools over the live scope.
+Drive an external harness with the live scope's coordination tools mounted over MCP.
 
 > **DriveHarness**(`args`): `Promise`\<`void`\>
 
-How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
- seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
- `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_worker / observe_agent / submit_result as native tools over the live scope.
+Drive an external harness with the live scope's coordination tools mounted over MCP.
 
 #### Parameters
 
@@ -29585,6 +29581,18 @@ The standing instruction assembled from the profile: its system prompt in either
 
 Runtime-only transport credentials; never append them to the authored profile or task.
 
+###### coordinationCredentialExpiresAt?
+
+`number`
+
+###### coordinationCredentialSigned?
+
+`boolean`
+
+###### coordinationBindCredential?
+
+(`install`) => `Promise`\<() => `Promise`\<`void`\>\>
+
 ###### peerMailUrl?
 
 `string`
@@ -29608,10 +29616,7 @@ Data-only product tool surface mounted on the coordination MCP. Runtime-owned dr
 
 `"fresh"` \| `"native"`
 
-The manager's `continuation.session` on every drive, re-entered or not. `fresh`: each drive
- that carries `reentry` starts a new harness session, keeping the environment and its files;
- `compose` then always writes the full re-entry task. Absent or `native`: today's
- same-session continuation where the backend proves it.
+Fresh re-entry starts another native session in the same workspace; native continues it.
 
 ###### reentry?
 
@@ -42101,13 +42106,7 @@ Rebuild controls for one exact provider-owned coding-agent process.
 
 **`Stable`**
 
-Dispatch one detached, replayable run and return only after exact durable
-coordinates are confirmed by the provider and persisted by the caller.
-
-The required `onAdmission` hook first records a digest-only intent before
-creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
-reference. The returned promise resolves only after the dispatched admission
-is durable, so a crash cannot lose a successful start's exact reference.
+Record the intent before dispatch and resolve only after that admission is durable.
 
 #### Parameters
 
