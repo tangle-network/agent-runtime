@@ -1265,7 +1265,7 @@ describe('coordination credential continuity', () => {
     )
   })
 
-  it('resumes scope-bound signed credentials only when the receiver permits that lifetime', async () => {
+  it('resumes a signed credential whether or not the receiver sets an explicit ttl', async () => {
     const signingKeys = { activeKeyId: 'run', keys: { run: 'k'.repeat(48) } }
     const proxy = await publicProxy()
     const publicUrl = ({ port }: { port: number }) => {
@@ -1288,7 +1288,7 @@ describe('coordination credential continuity', () => {
             headers: { ...original, 'content-type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
           })
-          expect(response.status).toBe(ttlMs === undefined ? 200 : 401)
+          expect(response.status).toBe(200)
         },
       )
     }
