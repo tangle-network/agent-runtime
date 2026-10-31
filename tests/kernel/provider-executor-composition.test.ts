@@ -9,7 +9,11 @@
  * contract composes the same way.
  */
 
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
@@ -18,12 +22,17 @@ import type {
   AgentTurnInput,
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
+import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
+import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
+  Agent,
   AgentSpec,
   ExecutorContext,
   ExecutorResult,
+  SpawnEvent,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { testAgentProfile } from './test-agent-profile'
@@ -317,5 +326,132 @@ describe("createExecutor({ backend: 'provider' })", () => {
     // credential back onto the provider turn, so the box the provider owns still receives it.
     expect(turns).not.toHaveLength(0)
     expect(turns[0]?.providerOptions?.backend).toEqual(seatCredential.backend)
+  })
+})
+
+/**
+ * The provider evidence a metered turn journals. On Discovery run magnetar-rust-sandbox-20261031b
+ * (Runtime 3.0.5) every codex worker's `metered` event read
+ * `providerModel: { status: 'unknown', attempts: [{ observations: [] }], reason: 'provider-model-missing' }`
+ * while the same stream's `execution.started` and `done` both carried
+ * `effectiveBackend: { model: 'gpt-6.1-sol', source: 'profile' }`: the provider path read the
+ * served identity for `servedBackend` and never recorded it as the attempt's observation.
+ */
+describe('provider evidence on the spawn journal', () => {
+  const roots: string[] = []
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
+
+  const servedProfile = testAgentProfile('served-worker', {
+    harness: 'codex',
+    model: { provider: 'openai', default: 'gpt-6.1-sol' },
+  })
+
+  function servedEvents(
+    effectiveBackend: Record<string, unknown> | undefined,
+  ): AgentEnvironmentEvent[] {
+    const served = effectiveBackend === undefined ? {} : { effectiveBackend }
+    return [
+      { type: 'execution.started', data: { executionId: 'exec-1', ...served } },
+      { type: 'text', data: { text: 'served answer' } },
+      {
+        type: 'done',
+        data: { outcome: { type: 'completed' }, ...served },
+        usage: { inputTokens: 2939, outputTokens: 149 },
+        usageMode: 'cumulative',
+      },
+    ] as AgentEnvironmentEvent[]
+  }
+
+  /** Run one provider worker under a supervisor and return its journaled settlement. */
+  async function settledLeaf(
+    events: AgentEnvironmentEvent[],
+  ): Promise<Extract<SpawnEvent, { kind: 'settled' }>> {
+    const root = await mkdtemp(join(tmpdir(), 'provider-evidence-'))
+    roots.push(root)
+    const context = createFileRunContext(join(root, 'run'))
+    const provider: AgentEnvironmentProvider = {
+      name: 'served-fixture',
+      capabilities: () => ({}) as AgentEnvironmentCapabilities,
+      async create(): Promise<AgentEnvironment> {
+        return {
+          id: 'env-served',
+          provider: 'served-fixture',
+          status: async () => 'running',
+          destroy: async () => {},
+          async *stream(): AsyncGenerator<AgentEnvironmentEvent> {
+            for (const event of events) yield event
+          },
+        } as unknown as AgentEnvironment
+      },
+    }
+    const worker: Agent<unknown, unknown> = Object.assign(
+      { name: 'leaf', act: async () => 'unused' },
+      {
+        executorSpec: {
+          profile: servedProfile,
+          harness: servedProfile.harness,
+          executorFactory: providerAsExecutor(provider, { destroyOnSettle: true }),
+        },
+      },
+    )
+    const result = await createSupervisor<string, string>().run(
+      {
+        name: 'root',
+        act: async (_task, scope) => {
+          scope.spawn(worker, 'task', {
+            key: 'work',
+            budget: { maxIterations: 1, maxTokens: 100_000 },
+          })
+          expect((await scope.next())?.kind).toBe('done')
+          return 'completed'
+        },
+      },
+      'root-task',
+      {
+        ...context,
+        runId: 'root',
+        budget: { maxIterations: 10, maxTokens: 100_000 },
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root-profile' }),
+          taskDigest: canonicalCandidateDigest('root-task'),
+        },
+        journal: context.journal,
+      },
+    )
+    expect(result.kind).toBe('winner')
+    const settled = ((await context.journal.loadTree('root')) ?? []).find(
+      (event) => event.id === 'root:s0' && event.kind === 'settled',
+    )
+    if (settled?.kind !== 'settled') throw new Error('the leaf never settled')
+    return settled
+  }
+
+  it('journals the served model the platform reported beside the usage it settled', async () => {
+    const settled = await settledLeaf(
+      servedEvents({ provider: 'openai', model: 'gpt-6.1-sol', source: 'profile' }),
+    )
+    expect(settled.spent.tokens).toMatchObject({ input: 2939, output: 149 })
+    expect(settled.spent.tokensKnown).not.toBe(false)
+    expect(settled.providerModel).toMatchObject({ status: 'known', models: ['gpt-6.1-sol'] })
+  })
+
+  it('journals a conflict when the platform served a model other than the declared one', async () => {
+    const settled = await settledLeaf(
+      servedEvents({ provider: 'openai', model: 'gpt-5.4', source: 'environment' }),
+    )
+    expect(settled.providerModel).toMatchObject({
+      status: 'unknown',
+      reason: 'provider-model-conflict',
+    })
+  })
+
+  it('keeps the model unknown when the platform reported none', async () => {
+    const settled = await settledLeaf(servedEvents(undefined))
+    expect(settled.providerModel).toMatchObject({
+      status: 'unknown',
+      reason: 'provider-model-missing',
+    })
   })
 })

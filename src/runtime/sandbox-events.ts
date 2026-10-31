@@ -87,40 +87,27 @@ export interface SandboxServedBackend {
 }
 
 /**
- * Read the served execution identity off one Sandbox event.
- *
- * The platform reports `effectiveBackend` on `execution.started` and again on the terminal
- * event (`@tangle-network/sandbox`, `EffectiveBackend`). Absence returns `undefined`
- * and must stay unknown — a request is not a receipt, so nothing here may be inferred from
- * what was asked for.
+ * Read the served execution identity off one Sandbox event: the platform reports `effectiveBackend`
+ * on `execution.started` and again on the terminal event. Absence stays unknown — a request is
+ * not a receipt, so nothing here may be inferred from what was asked for.
  */
 export function sandboxEventServedBackend(event: SandboxEvent): SandboxServedBackend | undefined {
-  if (!event || typeof event !== 'object') return undefined
-  const data = plainRecord(event.data)
-  const served = plainRecord(data?.effectiveBackend)
-  if (!served) return undefined
-  const provider = firstString(served.provider)
-  const model = firstString(served.model)
-  const source = firstString(served.source)
-  if (provider === undefined && model === undefined) return undefined
-  return {
-    ...(provider !== undefined ? { provider } : {}),
-    ...(model !== undefined ? { model } : {}),
-    ...(source !== undefined ? { source } : {}),
-  }
+  const served = plainRecord(
+    plainRecord((event as { data?: unknown } | null)?.data)?.effectiveBackend,
+  )
+  const named = (['provider', 'model', 'source'] as const).flatMap((key) => {
+    const value = firstString(served?.[key])
+    return value === undefined ? [] : [[key, value] as const]
+  })
+  if (!named.some(([key]) => key !== 'source')) return undefined
+  return Object.fromEntries(named)
 }
 
 /**
  * Fail the execution when the platform reports serving a model other than the exact one asked for.
- *
- * Measured motive (agent-runtime#892, live infrastructure): 6 of 6 boxes whose profile
- * declared `zai-coding-plan/glm-5.2` reported
- * `{"provider":"openai-compat","model":"deepseek/deepseek-v4-flash","source":"environment"}`,
- * while the materialization receipt recorded the declared model as `status: "known"`. Sending
- * `backend.model` makes that substitution unlikely; only reading the report back makes it
- * detectable. A run that cannot say which model produced its evidence must not settle as one
- * that can.
- *
+ * Measured motive (agent-runtime#892): 6 of 6 boxes declaring `zai-coding-plan/glm-5.2` reported
+ * `deepseek/deepseek-v4-flash` (`source: "environment"`) while the materialization receipt recorded
+ * the declared model as known; only reading the report back detects the substitution.
  * Silent when the platform reports no served model: unobserved stays unobserved.
  */
 export function assertSandboxServedModel(
@@ -128,14 +115,12 @@ export function assertSandboxServedModel(
   expected: { readonly provider?: string; readonly model?: string } | undefined,
 ): void {
   const wanted = expected?.model?.trim()
-  if (!wanted) return
-  const served = sandboxEventServedBackend(event)
-  if (served?.model === undefined) return
+  const served = wanted ? sandboxEventServedBackend(event) : undefined
+  if (!wanted || served?.model === undefined) return
   if (sameModelId(served.model, wanted, [served.provider, expected?.provider])) return
-  const attribution = [
-    served.provider !== undefined ? `provider ${JSON.stringify(served.provider)}` : undefined,
-    served.source !== undefined ? `source ${JSON.stringify(served.source)}` : undefined,
-  ].filter((part): part is string => part !== undefined)
+  const attribution = Object.entries({ provider: served.provider, source: served.source }).flatMap(
+    ([key, value]) => (value === undefined ? [] : [`${key} ${JSON.stringify(value)}`]),
+  )
   const detail = attribution.length > 0 ? ` (${attribution.join(', ')})` : ''
   throw new Error(
     `sandbox served model ${JSON.stringify(served.model)}${detail} instead of the exact profile model ${JSON.stringify(wanted)}`,
@@ -156,7 +141,7 @@ export function assertSandboxServedModel(
  * `glm-5.2` was served `glm-5.3`). A version suffix is the whole difference between two
  * instruments, so nothing here may treat it as noise.
  */
-function sameModelId(
+export function sameModelId(
   served: string,
   wanted: string,
   providers: readonly (string | undefined)[],
