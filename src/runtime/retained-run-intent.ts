@@ -9,7 +9,6 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 
-/** Replay-only projection of the create identity persisted before Interface 5. */
 export function legacyRetainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
@@ -66,7 +65,6 @@ export function retainedCreateMaterial(
   }
 }
 
-/** Add the retained ownership marker without attaching turn identity. */
 export function retainedEnvironmentMetadata(
   metadata: Record<string, unknown> | undefined,
   idempotencyKey: string,
@@ -120,7 +118,6 @@ function retainedSecretNames(
   )
 }
 
-/** Project one headless turn into the material that `freshTurnInput` forwards. */
 export function retainedTurnMaterial(
   input: AgentTurnInput,
   contextTransfer: ContextTransferRequest | undefined,
@@ -135,9 +132,21 @@ export function retainedTurnMaterial(
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.context === undefined ? {} : { context: input.context }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
-    ...(input.providerOptions === undefined ? {} : { providerOptions: input.providerOptions }),
+    ...(input.providerOptions === undefined
+      ? {}
+      : { providerOptions: retainedTurnProviderOptions(input.providerOptions) }),
     ...(contextTransfer === undefined
       ? {}
       : { contextTransferRequestDigest: contextTransfer.requestDigest }),
   }
+}
+
+function retainedTurnProviderOptions(options: NonNullable<AgentTurnInput['providerOptions']>) {
+  const backend = options.backend
+  if (!backend || typeof backend !== 'object' || Array.isArray(backend)) return options
+  const record = backend as Record<string, unknown>
+  const secrets = record.runtimeSecrets
+  if (!secrets || typeof secrets !== 'object' || Array.isArray(secrets)) return options
+  const { runtimeSecrets: _values, ...publicBackend } = record
+  return { ...options, backend: { ...publicBackend, runtimeSecretNames: Object.keys(secrets).sort() } }
 }
