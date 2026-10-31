@@ -5,10 +5,7 @@ import {
   execOnlyEnvironmentCapabilities,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
-import {
-  assertRetainedRunReplayMaterial,
-  startRetainedRun,
-} from './retained-run-start'
+import { assertRetainedRunReplayMaterial, startRetainedRun } from './retained-run-start'
 import type { RetainedRunIntentAdmission, RetainedRunStartMaterial } from './retained-run-types'
 
 const hash = (value: string): Sha256Digest => `sha256:${value.repeat(64)}`
