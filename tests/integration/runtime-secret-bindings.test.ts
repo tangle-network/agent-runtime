@@ -263,7 +263,7 @@ it('isolates sequential default caller credentials even when callers reuse a run
   })
 })
 
-it('keeps old and new authority valid until hot-rekey acknowledgement, then revokes old authority', async () => {
+it('keeps the replaced bearer valid after an acknowledged rekey, so a holder that never switched keeps its tools', async () => {
   expect(await run('renewal')).toMatchObject({
     settled: true,
     mcpAccepted: true,
@@ -271,10 +271,20 @@ it('keeps old and new authority valid until hot-rekey acknowledgement, then revo
     handoverOverlap: true,
     issuerPolicyPreserved: true,
     rootLifetimeOutlivesLease: true,
-    oldRevokedAfterAcknowledgement: true,
+    priorListsToolsAfterRenewal: true,
     stored: 0,
     deleteCalls: 1,
     updates: 1,
+  })
+})
+it('stops the manager with the cause when its holder presents a signed bearer past its lease', async () => {
+  expect(await run('stale-holder')).toMatchObject({
+    settled: false,
+    mcpAccepted: false,
+    priorListsToolsAfterRenewal: true,
+    expiredHolderStopsManager: true,
+    stopReason: 'coordination credential expired in its holder: no renewal reached it',
+    deleteCalls: 1,
   })
 })
 it('rebinds an existing quiescent host secret through acknowledged update before dispatch', async () => {

@@ -395,7 +395,11 @@ async function readCheckAtTurnEnd(loop: ManagerTurnLoop, attempt: number): Promi
 function reportManagerLoop(loop: ManagerTurnLoop): void {
   loop.reported = true
   const { mcp, controls, state } = loop.session
-  const stopReason = controls.stopReason() ?? state.progressStopReason
+  const stopped = state.stopController.signal.reason
+  const stopReason =
+    controls.stopReason() ??
+    state.progressStopReason ??
+    (typeof stopped === 'string' ? stopped : undefined)
   const closedBy: DriverContinuationRecord['closedBy'] = mcp.submittedResult()
     ? 'result-accepted'
     : mcp.isStopped()

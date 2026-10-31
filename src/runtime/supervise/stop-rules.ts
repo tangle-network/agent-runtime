@@ -40,7 +40,7 @@ import { ValidationError } from '../../errors'
 import { areaUnderCurve, bestSoFar, plateauLength } from '../anytime'
 import { isTerminalNodeStatus } from './node-status'
 import type { WorkerProgress } from './progress'
-import type { Scope, Settled } from './types'
+import type { Scope } from './types'
 
 /** One settled unit of work, reduced to what a stop rule reads. `objective` is the run's own
  *  quality signal (a verdict score, a test pass-rate, a judge rating); `undefined` = this
@@ -190,21 +190,6 @@ export function createProgressTracker(opts: ProgressTrackerOptions = {}): Progre
     evaluate(rule, scope, viewOpts) {
       return rule(this.view(scope, viewOpts))
     },
-  }
-}
-
-/** Build a `ProgressSample` from a scope settlement. The objective is the verdict score and
- *  `delivered` is the verdict's `valid` — the SAME single delivery signal `finalizeBestDelivered`
- *  and `defaultSelectWinner` use, so "progress" and "winner" cannot disagree. */
-export function sampleFromSettled(settled: Settled<unknown>, at: number): ProgressSample {
-  if (settled.kind === 'down') {
-    return { id: settled.handle.id, at, delivered: false }
-  }
-  return {
-    id: settled.handle.id,
-    at,
-    ...(settled.verdict?.score !== undefined ? { objective: settled.verdict.score } : {}),
-    delivered: settled.verdict?.valid === true,
   }
 }
 

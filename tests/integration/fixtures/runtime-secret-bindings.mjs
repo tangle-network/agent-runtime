@@ -73,7 +73,9 @@ let prepared = false,
   metadataGets = 0,
   updates = 0,
   handoverOverlap = false,
-  oldRevokedAfterAcknowledgement = false
+  priorListsToolsAfterRenewal = false,
+  expiredHolderStopsManager = false,
+  issuedAt = 0
 let firstCommit
 const committed = new Promise((resolve) => {
   firstCommit = resolve
@@ -213,7 +215,7 @@ const api = createServer(async (request, response) => {
       assert.match(body.name, /^AGENT_RUNTIME_COORDINATION_TOKEN_[A-F0-9]{24}$/)
       const policy = capturePolicy(body, body.name)
       secretValues.add(body.value)
-      if (!issued) issued = body.value
+      if (!issued) [issued, issuedAt] = [body.value, Date.now()]
       if (['quiescent-rebind', 'rekey-conflict'].includes(mode) && !stored.has(body.name)) {
         stored.set(body.name, 'fixture-prior-quiescent-value')
         revisions.set(body.name, nextRevision())
@@ -258,7 +260,7 @@ const api = createServer(async (request, response) => {
         return answer(response, 409, { code: 'CONFLICT', message: 'revision changed' })
       const prior = stored.get(name)
       secretValues.add(body.value)
-      if (mode === 'renewal') {
+      if (['renewal', 'stale-holder'].includes(mode)) {
         const accepted = async (value) => {
           const response = await fetch(publicUrl, {
             method: 'POST',
@@ -454,22 +456,26 @@ const api = createServer(async (request, response) => {
         response.end(frames)
         return
       }
-      if (mode === 'renewal') {
+      if (['renewal', 'stale-holder'].includes(mode)) {
+        // The holder keeps the bearer it started with, as a box whose acknowledged rekey never
+        // reached its MCP client does (institutional-compiler-20261031f).
+        const list = async (value) => {
+          const listed = await fetch(attachment.url, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${value}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 'held', method: 'tools/list' }),
+          })
+          const tools = (await listed.json().catch(() => null))?.result?.tools ?? []
+          return listed.status === 200 && tools.some((tool) => tool.name === 'stop')
+        }
         const deadline = Date.now() + 6000
         while (!updates && Date.now() < deadline) await delay(20)
         assert.ok(updates > 0)
-        while (Date.now() < deadline) {
-          const prior = await fetch(attachment.url, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${issued}`, 'content-type': 'application/json' },
-            body: JSON.stringify({ jsonrpc: '2.0', id: 'retired', method: 'tools/list' }),
-          })
-          await prior.body?.cancel()
-          if (prior.status === 401) {
-            oldRevokedAfterAcknowledgement = true
-            break
-          }
-          await delay(20)
+        priorListsToolsAfterRenewal = await list(issued)
+        if (mode === 'stale-holder') {
+          while (Date.now() < issuedAt + 4500) await delay(20)
+          expiredHolderStopsManager =
+            !(await list(issued)) && !(await list(stored.get(reference.key)))
         }
       }
       const refused = await rpc('Bearer fixture-invalid-bearer')
@@ -606,6 +612,7 @@ try {
       rejected = false,
       resultKind,
       resultReason,
+      stopReason,
       failureText
     try {
       for (let run = 0; run < (mode === 'namespace' ? 2 : 1); run++) {
@@ -639,7 +646,12 @@ try {
                     ? { ttlMs: 10000 }
                     : mode === 'renewal'
                       ? { ttlMs: 4000 }
-                      : true,
+                      : mode === 'stale-holder'
+                        ? {
+                            ttlMs: 4000,
+                            signingKeys: { activeKeyId: 'k', keys: { k: 'k'.repeat(48) } },
+                          }
+                        : true,
               publicUrl: ({ port }) => {
                 upstream = `http://127.0.0.1:${port}/coordination`
                 return mode === 'http-remote'
@@ -655,6 +667,7 @@ try {
         )
         resultKind = result.kind
         resultReason = result.reason
+        stopReason = result.continuation?.stopReason
         failureText = safeFailure(result.error?.message)
         settled = result.kind === 'winner' && result.out?.custody === 'complete'
         rejected = result.kind === 'no-winner' && result.reason === 'driver-failed'
@@ -707,7 +720,7 @@ try {
       JSON.stringify({
         mode,
         issuerPolicyPreserved: assertPolicyIdentity(),
-        rootLifetimeOutlivesLease: mode === 'renewal',
+        rootLifetimeOutlivesLease: ['renewal', 'stale-holder'].includes(mode),
         unrelatedDeclarationPreserved: callerDefaultsPreserved,
         legacyCoordinationEnvNormalized: mode === 'bound' && callerDefaultsPreserved,
         prefixEnvPreserved: callerDefaultsPreserved,
@@ -715,6 +728,7 @@ try {
         rejected,
         resultKind,
         resultReason,
+        stopReason,
         failureText,
         protocolFailures,
         mcpAccepted,
@@ -735,7 +749,8 @@ try {
         privateTurns: privateTurns.length,
         updates,
         handoverOverlap,
-        oldRevokedAfterAcknowledgement,
+        priorListsToolsAfterRenewal,
+        expiredHolderStopsManager,
         secretPosts: requests.filter((request) => request === 'POST /v1/secrets').length,
         legacyStorePortAbsent: provider.secrets === undefined,
         foreignRawRowPreserved:

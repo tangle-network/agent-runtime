@@ -32,6 +32,20 @@ Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.t
 `tests/kernel/nested-retained-owner-journal.test.ts` and
 `tests/runtime/retained-capture-resume.test.ts`.
 
+# Coordination credential lease
+
+- A credential renewal never shortens a lease. The bearer it replaces stays valid until its own
+  expiry, even after the provider acknowledges installing the new one: an acknowledged
+  installation can miss the process that presents the bearer, and revoking at acknowledgement left
+  institutional-compiler-20261031f's root without its coordination tools. Only `rotateCredential()`
+  revokes at once.
+- A signed bearer of the manager that arrives after its lease ended means no renewal reached its
+  holder. The manager stops, and the run's continuation names the cause; it never runs on without
+  its coordination tools.
+
+Scenario coverage lives in `tests/integration/runtime-secret-bindings.test.ts` (`renewal` and
+`stale-holder`).
+
 # Graph subtasks
 
 - A `run_graph` subtask is one reservation from its caller's conserved pool. The graph's root node
