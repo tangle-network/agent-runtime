@@ -5,7 +5,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { ServerError } from '@tangle-network/sandbox'
+import { parseErrorResponse, ServerError } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
@@ -27,6 +27,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   failed: [MALFORMED],
   'capability-refused': ['stopped by terminal-error', 'Capability discovery returned'],
   'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
+  'shape-refused': ['stopped by terminal-error', '32000m > 16000m'],
   'content-filtered': [
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
@@ -42,6 +43,18 @@ const TYPED_FILE_CONFLICT = 'inputs/repository.md changed in the box and in the 
 // inputs/commission.md and /home/agent/inputs/commission.md, one target since Sandbox SDK 1.0.157.
 const DUPLICATE_TARGET =
   'materializeProfileFileMounts: [eval]:62\nError: Duplicate profile file target: /home/agent/inputs/commission.md'
+// What Sandbox answered creates for magnetar-rust-sandbox-20261101a's :s1:s1, :s1:s3, :s5 and
+// :s6:s1 while every cpx62's room was held, and the same refusal for a box no cpx62 can ever hold.
+const shapeRefusal = (reason: string) =>
+  parseErrorResponse(
+    409,
+    JSON.stringify({
+      error: `HTTP 409: Provision failed — (container) — Provision failed during container phase: ${reason}`,
+      code: 'NO_HOST_FITS_SHAPE',
+    }),
+  )
+const HELD_ROOM =
+  'No cpx62 host can hold 8000m / 16384 MiB, and none would be bought: its room is held placeable on cpx62'
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
@@ -68,6 +81,8 @@ describe('nested retained owner journal isolation', () => {
     'file-conflict',
     'file-conflict-409',
     'file-duplicate',
+    'capacity-waits',
+    'shape-refused',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     // The manager's turns: refused until the 8th refusal in a row stops it, or passing on the 7th.
@@ -145,6 +160,11 @@ describe('nested retained owner journal isolation', () => {
             skew += 40_000
             throw new ServerError('Bad Gateway', 502)
           }
+          if (mode === 'capacity-waits' && creates < 3) throw shapeRefusal(HELD_ROOM)
+          if (mode === 'shape-refused')
+            throw shapeRefusal(
+              'No cpx62 host can hold 32000m / 16384 MiB, and none would be bought: 32000m > 16000m placeable on cpx62',
+            )
           return wrap(await base.create(input))
         },
         get: async (id) => {
@@ -227,10 +247,12 @@ describe('nested retained owner journal isolation', () => {
           maxAttempts:
             refusing || mode.startsWith('file-')
               ? 20
-              : mode === 'pending' || mode in DOWN_REASONS
+              : mode === 'pending' || mode === 'capacity-waits' || mode in DOWN_REASONS
                 ? 1
                 : 2,
           ...(refusing ? { maxConsecutiveFailures: 20 } : {}),
+          // A capacity wait spends no attempt, so the held room's two refusals fit in one.
+          ...(mode === 'capacity-waits' ? { unavailablePauseMs: 0 } : {}),
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -413,7 +435,14 @@ describe('nested retained owner journal isolation', () => {
       }
       expect(tokens(nested)).toBe(5 * sends)
       expect(tokens(parent)).toBe(5 * sends)
-      expect(creates).toBe(1)
+      // The manager waited out the held room: two paused attempts, then the create that landed.
+      expect(creates).toBe(mode === 'capacity-waits' ? 3 : 1)
+      if (mode === 'capacity-waits')
+        expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
+          { record: { classification: 'unavailable', unavailableSignal: 'capacity_exhausted' } },
+          { record: { classification: 'unavailable', unavailableSignal: 'capacity_exhausted' } },
+          { record: { stop: 'completed', reentry: 'upstream-unavailable' } },
+        ])
       expect(injected).toBe(retry)
     })
   }
