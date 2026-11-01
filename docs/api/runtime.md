@@ -16065,8 +16065,8 @@ The spawned node's id, once admission minted one.
 
 ### ReservationFloor
 
-The part of each channel a reservation must leave free: a manager's own share of its slice,
- which its children may not reserve.
+A manager's own share of each channel of its slice. Its children may not reserve the part of
+ it the manager's own observed work has not yet spent.
 
 #### Properties
 
@@ -16101,7 +16101,7 @@ Wait for budget instead of failing, when the reservations still open would retur
 
 > `readonly` `optional` **keep?**: [`ReservationFloor`](#reservationfloor)
 
-Leave this much of each channel free after the reservation.
+Leave this owner share free after the reservation, less what `observe` already charged.
 
 ***
 
@@ -16153,6 +16153,12 @@ while the public readout remains explicitly unknown.
 ##### committed?
 
 > `readonly` `optional` **committed?**: [`Spend`](#spend-1)
+
+##### owner?
+
+> `readonly` `optional` **owner?**: [`Spend`](#spend-1)
+
+The part of `committed` the owner's own work spent, charged against its kept share.
 
 ##### uncertainReservations?
 
@@ -19696,7 +19702,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 ### RecursiveReservationPolicy
 
 Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
-kept free for its own inference while children hold their declared slices.
+for its own inference: its turns spend that share first, and its children may reserve the rest.
 
 #### Properties
 

@@ -654,10 +654,7 @@ export function sumSpendFromEvents(events: SpawnEvent[]): {
   return totals
 }
 
-function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
-  childWork: Spend
-  driverInference: Spend
-} {
+function sumMeasuredSpendFromEvents(events: SpawnEvent[], ownerId?: NodeId) {
   const budgets = new Map(
     events.flatMap((event) =>
       event.kind === 'spawned' ? [[event.id, event.budget] as const] : [],
@@ -694,7 +691,8 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   for (const [id, spend] of owners) {
     driverInference = addSpend(driverInference, withBudgetResources(spend, budgets.get(id) ?? {}))
   }
-  return { childWork, driverInference }
+  const owner = ownerId === undefined ? undefined : owners.get(ownerId)
+  return { childWork, driverInference, owner }
 }
 
 /** Restore the same journal projection and accounting for root and nested scopes. @internal */
@@ -725,7 +723,7 @@ export async function prepareScopeResume(
     (event) =>
       (event.kind !== 'metered' && event.kind !== 'reconciled') || !recovering.has(event.id),
   )
-  const measured = sumMeasuredSpendFromEvents(measuredEvents)
+  const measured = sumMeasuredSpendFromEvents(measuredEvents, parentId)
   const hasCommittedEvidence = measuredEvents.some(
     (event) =>
       event.kind === 'metered' ||
@@ -740,6 +738,7 @@ export async function prepareScopeResume(
       ...(hasCommittedEvidence
         ? { committed: addSpend(measured.childWork, measured.driverInference) }
         : {}),
+      owner: measured.owner,
       uncertainReservations: uncertainSpawnBudgets(prior, recovering),
     },
     resumeFrom: {

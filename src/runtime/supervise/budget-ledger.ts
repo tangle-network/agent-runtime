@@ -5,7 +5,7 @@
  * ceiling rather than a measurement, and the named-resource states.
  */
 
-import { chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
+import { addSpend, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
 import type { BudgetPoolRestore, ReservationFloor, ReservationShortfall } from './budget'
 import { withBudgetResources } from './resources'
 import { assertValidBudget, assertValidSpend } from './spend-validation'
@@ -48,6 +48,8 @@ export interface BudgetLedger {
   freeIterations: number
   reservedIterations: number
   committedIterations: number
+  /** The owner's own observed work. It spends the owner's kept share (`ReservationFloor`) first. */
+  ownerSpent: Spend
 }
 
 export interface ResourceSettlement {
@@ -82,6 +84,7 @@ export function openBudgetLedger(root: Budget, runStartedAtMs: number): BudgetLe
     freeIterations: root.maxIterations,
     reservedIterations: 0,
     committedIterations: 0,
+    ownerSpent: { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 },
   }
 }
 
@@ -180,12 +183,13 @@ export function ledgerShortfalls(
       short(`resource:${name}`, limit, state.remaining, state.reserved)
   }
   if (l.usdCapped && l.usdTainted) short('usd', wantUsd, 0, 0, true)
-  const tokensFree = l.freeTokens - (keep?.tokens ?? 0)
-  const iterationsFree = l.freeIterations - (keep?.iterations ?? 0)
+  const kept = (share = 0, spent: number) => Math.max(0, share - spent)
+  const tokensFree = l.freeTokens - kept(keep?.tokens, chargedTokens(l.ownerSpent.tokens))
+  const iterationsFree = l.freeIterations - kept(keep?.iterations, l.ownerSpent.iterations)
   if (wantTokens > tokensFree) short('tokens', wantTokens, tokensFree, l.reservedTokens)
   if (wantIterations > iterationsFree)
     short('iterations', wantIterations, iterationsFree, l.reservedIterations)
-  const usdFree = l.freeUsd - (keep?.usd ?? 0)
+  const usdFree = l.freeUsd - kept(keep?.usd, l.ownerSpent.usd)
   if (l.usdCapped && !l.usdTainted && wantUsd > usdFree)
     short('usd', wantUsd, usdFree, l.reservedUsd)
   return shortfalls
@@ -202,11 +206,8 @@ export function ledgerTake(l: BudgetLedger, b: Budget): void {
   l.reservedTokens += b.maxTokens
   l.freeIterations -= b.maxIterations
   l.reservedIterations += b.maxIterations
-  const wantUsd = b.maxUsd ?? 0
-  if (wantUsd > 0) {
-    l.freeUsd -= wantUsd
-    l.reservedUsd += wantUsd
-  }
+  l.freeUsd -= b.maxUsd ?? 0
+  l.reservedUsd += b.maxUsd ?? 0
 }
 
 /**
@@ -293,6 +294,14 @@ export function ledgerObserve(
   unknownUnderCap: boolean,
   requireAllResources: boolean,
 ): ResourceSettlement {
+  debit(l, spend)
+  l.ownerSpent = addSpend(l.ownerSpent, spend)
+  if (unknownUnderCap) l.usdTainted = true
+  return ledgerCommitResources(l, spend, undefined, requireAllResources)
+}
+
+/** Move measured `spend` from free to committed on the token, iteration and dollar channels. */
+function debit(l: BudgetLedger, spend: Spend): void {
   noteUnknowns(l, spend)
   const tokens = chargedTokens(spend.tokens)
   l.freeTokens -= tokens
@@ -301,8 +310,6 @@ export function ledgerObserve(
   l.committedIterations += spend.iterations
   l.committedUsd += spend.usd
   if (l.usdCapped) l.freeUsd -= spend.usd
-  if (unknownUnderCap) l.usdTainted = true
-  return ledgerCommitResources(l, spend, undefined, requireAllResources)
 }
 
 /**
@@ -312,27 +319,19 @@ export function ledgerObserve(
  * the prior spend ALREADY happened, and refusing to record it would be a zero-cost restart.
  */
 export function ledgerRestore(l: BudgetLedger, root: Budget, restore: BudgetPoolRestore): void {
+  if (restore.owner) l.ownerSpent = addSpend(l.ownerSpent, restore.owner)
   if (restore.committed !== undefined) {
     const committed = restore.committed
     assertValidSpend(committed, 'budget restore committed')
     ledgerValidateUnits(l, committed)
     ledgerCommitResources(l, committed)
-    noteUnknowns(l, committed)
-    const tokens = chargedTokens(committed.tokens)
-    l.freeTokens -= tokens
-    l.committedTokens += tokens
-    l.freeIterations -= committed.iterations
-    l.committedIterations += committed.iterations
-    l.committedUsd += committed.usd
-    if (l.usdCapped) {
-      l.freeUsd -= committed.usd
-      if (committed.usdKnown === false) {
-        // The prior process spent dollars it could not measure under a dollar cap: the remaining
-        // balance is not a sound bound, so consume it and close dollar admission.
-        l.usdTainted = true
-        if (l.freeUsd > 0) l.committedUsd += l.freeUsd
-        l.freeUsd = 0
-      }
+    debit(l, committed)
+    if (l.usdCapped && committed.usdKnown === false) {
+      // The prior process spent dollars it could not measure under a dollar cap: the remaining
+      // balance is not a sound bound, so consume it and close dollar admission.
+      l.usdTainted = true
+      if (l.freeUsd > 0) l.committedUsd += l.freeUsd
+      l.freeUsd = 0
     }
   }
   for (const [index, uncertain] of (restore.uncertainReservations ?? []).entries()) {
