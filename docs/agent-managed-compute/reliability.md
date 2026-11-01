@@ -96,6 +96,7 @@ The outcome keeps the provider's machine `errorCode` when the provider reports o
 A root driver turn that ends with a failed outcome is a driver failure under `driverRetry`, with the same bounds as a thrown failure.
 A failure without a code is transient; a code the bridge never retries, such as `capability_denied`, is terminal.
 A refusal for capacity is `unavailable`: HTTP 429, 503 or 529, or an upstream code such as the router's `provider_quota_exhausted`.
+So is Sandbox's 409 `NO_HOST_FITS_SHAPE` for a shape that fits (`its room is held placeable on <sku>`, signal `host-room-held`); one that names an exceeded dimension stays terminal.
 A harness that prints the router's refusal as text keeps the code in it, so the text is read for that code; text can only lengthen a retry, never end a run.
 A model provider's content-filter refusal, which Codex reports only as text under the generic `AGENT_EXECUTION_FAILED`, stays transient, because the filter does not refuse one prompt every time. Its 8th consecutive refusal stops the agent with `repeated-failure`, inside the outage window too, and names `refused by the model provider's content filter`: a nested manager settles `down` and its parent's next wake carries the reason; a root that opts into `pauseRootStops` pauses with the refusal on its `paused` row and re-enters, and one that does not ends with the reason in its error.
 An `unavailable` failure pauses the driver, then re-enters it with the original task.
