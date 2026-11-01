@@ -1,3 +1,9 @@
+## 3.0.23
+
+A manager's coordination public endpoint preflight that times out, loses its socket, or answers 408, 429 or 5xx is now an unavailable-upstream wait (`unavailableSignal: 'coordination-unreachable'`): the manager runs the check in its driver loop, pauses and re-enters within the run's deadline, budget and cancellation, instead of settling down before its first attempt. A 4xx, a TLS refusal or another server's answer stays terminal. The check's timeout is the listener's own `requestTimeoutMs` instead of at most 10 s. Source: Discovery run magnetar-rust-sandbox-20261101b, nodes :s2:s2 and :s1:s1.
+
+Sandbox's typed placement refusals `CAPACITY_EXHAUSTED`, `HOST_PRESSURE` and `PROVISIONING_PAUSED` are unavailable codes by themselves: a create or dispatch refused with one pauses and re-enters within the run's deadline, budget and cancellation whatever status rides with it, and its attempt carries the code as `unavailableSignal` (for example `capacity_exhausted`, where a 503 used to read `http-503`).
+
 ## 3.0.22
 
 A Sandbox create refused with 409 `NO_HOST_FITS_SHAPE` for a shape that fits (`its room is held placeable on <sku>`, no exceeded dimension) is now a capacity wait: the driver pauses and retries within the run's deadline, budget and cancellation, with `unavailableSignal: 'host-room-held'`, instead of settling down at its first attempt. A `NO_HOST_FITS_SHAPE` that names an exceeded dimension stays terminal. Source: Discovery run magnetar-rust-sandbox-20261101a, nodes :s1:s1, :s1:s3, :s5 and :s6:s1.
