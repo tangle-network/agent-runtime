@@ -30,10 +30,6 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'rate_limit_exceeded', // OpenAI-shaped 429
   'rate_limit_error', // Anthropic-shaped 429
   'overloaded_error', // Anthropic-shaped 529
-  // Sandbox: no host has room for a create now, at any status (its SDK's `capacity` failure kind).
-  'capacity_exhausted',
-  'host_pressure',
-  'provisioning_paused',
 ])
 
 /** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */
@@ -56,20 +52,19 @@ export function unavailableSignalInText(text: string): string | undefined {
 }
 
 /**
- * Sandbox answers a create it cannot place while every host's room is held as a 409 with no
- * capacity code, until the platform types it retryable. Four nodes of Discovery run
- * magnetar-rust-sandbox-20261101a went down on `No cpx62 host can hold 8000m / 16384 MiB, and none
- * would be bought: its room is held placeable on cpx62`. A shape over the host's ceiling names the
- * dimension it exceeds instead, and stays refused.
+ * Sandbox's 409 `NO_HOST_FITS_SHAPE` for a shape that fits its host's ceiling: no exceeded
+ * dimension, only `its room is held placeable on <sku>`. It is sent by mistake for "no room now"
+ * while new hosts cannot be planned, and the create lands within one autoscaler purchase. Four
+ * nodes of Discovery run magnetar-rust-sandbox-20261101a went down on it. A shape over the ceiling
+ * names the dimension it exceeds instead, and stays refused.
  */
-const HELD_ROOM_REFUSAL =
-  /\bNo \S+ host can hold [^,]+, and none would be bought: its room is held\b/u
+const HELD_ROOM_REFUSAL = /\bits room is held placeable\b/u
 
 /**
  * The code or status that marks a failed turn outcome as an upstream capacity refusal, or
- * `undefined`. The outcome's own `errorCode` decides first, then Sandbox's held-room text at any
- * status; other text is read only when no code or numeric status decided, because a harness CLI
- * can report the router's refusal as text.
+ * `undefined`. The outcome's own `errorCode` decides first, with Sandbox's held-room text beside its
+ * code; other text is read only when no code or numeric status decided, because a harness CLI can
+ * report the router's refusal as text.
  */
 export function unavailableSignalOfFailure(failure: {
   readonly error: string
@@ -78,7 +73,8 @@ export function unavailableSignalOfFailure(failure: {
 }): string | undefined {
   const code = failure.errorCode?.toLowerCase()
   if (code !== undefined && UNAVAILABLE_CODES.has(code)) return code
-  if (HELD_ROOM_REFUSAL.test(failure.error)) return 'capacity_exhausted'
+  if (code === 'no_host_fits_shape' && HELD_ROOM_REFUSAL.test(failure.error))
+    return 'host-room-held'
   if (failure.statusCode !== undefined) {
     return UNAVAILABLE_STATUSES.has(failure.statusCode) ? `http-${failure.statusCode}` : undefined
   }

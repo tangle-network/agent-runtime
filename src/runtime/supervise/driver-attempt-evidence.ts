@@ -224,7 +224,7 @@ function isDispatchNotAdmitted(error: Error): boolean {
  * A structured field is read first: a turn outcome's `errorCode`, a transport error's
  * `upstreamCode` and `status`, a provider SDK error's `code` and `status`. The failure text is read
  * only as {@link unavailableSignalOfFailure} says, because a harness CLI reports the router's
- * refusal as text and Sandbox has no code yet for a create refused while its hosts' room is held.
+ * refusal as text and Sandbox's held-room refusal shares its code with a shape that never fits.
  */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
@@ -241,7 +241,7 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   const harness = error instanceof HarnessTurnFailedError
   const failure = {
     error: errorProperty(error, 'message') ?? '',
-    errorCode: harness ? error.errorCode : transport ? error.upstreamCode : capacityCode(error),
+    errorCode: harness ? error.errorCode : transport ? error.upstreamCode : ownCode(error),
     statusCode: errorHttpStatus(error),
   }
   return (
@@ -251,17 +251,15 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
 }
 
 /**
- * The upstream capacity code an error carries as its own `code` field, or `undefined`. A provider
- * SDK names a capacity refusal with the router's code when no HTTP response exists to carry a
- * status: agent-provider-tangle's `TangleCredentialCapacityError` (`provider_quota_exhausted`,
+ * An error's own `code` field, read without trusting its getter. A provider SDK names a capacity
+ * refusal with the router's code when no HTTP response exists to carry a status:
+ * agent-provider-tangle's `TangleCredentialCapacityError` (`provider_quota_exhausted`,
  * `upstream_unavailable`) when the subscription account owner has no account with room.
  */
-function capacityCode(error: Error): string | undefined {
+function ownCode(error: Error): string | undefined {
   try {
     const code: unknown = Reflect.get(error, 'code')
-    return typeof code === 'string' && UNAVAILABLE_CODES.has(code.toLowerCase())
-      ? code.toLowerCase()
-      : undefined
+    return typeof code === 'string' ? code : undefined
   } catch {
     return undefined
   }
@@ -383,7 +381,7 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
           isDispatchNotAdmitted(value) ||
           isCredentialRefusal(value) ||
           // A capacity refusal before dispatch: the same request is admitted when room returns.
-          capacityCode(value) !== undefined)
+          UNAVAILABLE_CODES.has(ownCode(value)?.toLowerCase() ?? ''))
       )
         return value
       const members: unknown = Reflect.get(value, 'errors')

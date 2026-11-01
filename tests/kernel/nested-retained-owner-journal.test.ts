@@ -439,8 +439,8 @@ describe('nested retained owner journal isolation', () => {
       expect(creates).toBe(mode === 'capacity-waits' ? 3 : 1)
       if (mode === 'capacity-waits')
         expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
-          { record: { classification: 'unavailable', unavailableSignal: 'capacity_exhausted' } },
-          { record: { classification: 'unavailable', unavailableSignal: 'capacity_exhausted' } },
+          { record: { classification: 'unavailable', unavailableSignal: 'host-room-held' } },
+          { record: { classification: 'unavailable', unavailableSignal: 'host-room-held' } },
           { record: { stop: 'completed', reentry: 'upstream-unavailable' } },
         ])
       expect(injected).toBe(retry)
