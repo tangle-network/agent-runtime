@@ -30,6 +30,10 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'rate_limit_exceeded', // OpenAI-shaped 429
   'rate_limit_error', // Anthropic-shaped 429
   'overloaded_error', // Anthropic-shaped 529
+  // Sandbox: no host can place a box now (the SDK's `sandboxFailureKind` reads them as capacity).
+  'capacity_exhausted',
+  'host_pressure',
+  'provisioning_paused',
 ])
 
 /** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */

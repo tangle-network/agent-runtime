@@ -357,9 +357,11 @@ Remote public endpoints require HTTPS.
 
 Before provider admission, Runtime checks each configured public endpoint with authenticated `initialize` and `tools/list` requests.
 The returned grants must match that manager's exact tool names.
-The check takes at most 10 seconds, or `coordination.requestTimeoutMs` when shorter, and stops on manager cancellation.
+The check takes at most `coordination.requestTimeoutMs`, the listener's own bound on a request, and stops on manager cancellation.
 Responses are limited to 1 MiB independently of the incoming request limit, and redirects are refused.
-Failure closes the listener and reports a credential-free cause before inference starts.
+A manager runs the check in its driver loop before each drive admits a harness, until it passes once.
+A route that times out, loses its socket, or answers 408, 429 or 5xx is `unavailable` (signal `coordination-unreachable`): the manager pauses and re-enters within its deadline, budget and cancellation.
+Any other failure, such as a 4xx, a TLS refusal or another server's answer, ends the manager with a credential-free cause before inference starts; a direct `serveCoordinationMcp` caller gets that failure before the handle exists.
 This verifies the operator's public route; it does not establish reachability from the provider's network.
 Omitting `coordination.publicUrl` preserves local-only startup without this network check.
 

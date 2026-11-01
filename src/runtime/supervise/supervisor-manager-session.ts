@@ -85,6 +85,8 @@ export interface ManagerSession {
   readonly state: ManagerActState
   readonly mcp: CoordinationMcpHandle
   readonly controls: CoordinationTools
+  /** Proves the public coordination route once; each drive awaits it before admitting a harness. */
+  readonly reachable: () => Promise<void>
 }
 
 /** Bind this act's node tools and serve its coordination server, then route the lead's messages. */
@@ -119,7 +121,7 @@ export async function openManagerSession(
     ledger: undefined,
     keeper: undefined,
   }
-  const { handle: mcp, controls } = await serveManagerCoordination(
+  const served = await serveManagerCoordination(
     config,
     state,
     context,
@@ -127,10 +129,11 @@ export async function openManagerSession(
     nodeTools,
     progressStopObserver(deps, state, nodeObserver),
   )
+  const { handle: mcp, controls } = served
   state.ledger = mcp
   config.live.coordinator = mcp
   config.live.inbox = managerInboxRoute(config, state, controls)
-  return { state, mcp, controls }
+  return { state, mcp, controls, reachable: served.reachable }
 }
 
 /**
