@@ -268,12 +268,12 @@ export async function serveCoordinationMcp(
   return (await serveCoordinationMcpForManager(opts)).handle
 }
 
-/** Bind the advertised address, credential audience and paths, then prove public reachability. */
+/** Bind the advertised address, credential audience and paths, and say how to prove the route. */
 async function bindCoordinationAddress(
   ctx: CoordinationListenerContext,
   port: number,
   addressSignal: AbortSignal,
-): Promise<string> {
+) {
   const { opts, host, identity, state } = ctx
   const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
   const localUrl = `http://${urlHost}:${port}/mcp`
@@ -317,23 +317,25 @@ async function bindCoordinationAddress(
     state.controlPaths.add(`${path.replace(/\/$/, '')}/control`)
     state.mailPaths.add(`${path.replace(/\/$/, '')}/mail`)
   }
-  if (configured !== undefined) {
-    await preflightPublicCoordination({
+  const prove = () =>
+    preflightPublicCoordination({
       url,
       headers: ctx.credentials.headers,
       signal: opts.scope.signal,
       requestTimeoutMs: ctx.requestTimeoutMs,
       toolNames: opts.toolNames,
     })
-  }
-  return url
+  return { url, prove: configured === undefined ? async () => {} : prove }
 }
 
 /** Runtime-only binding: operator controls stay off the public MCP handle and tool grants. */
 export async function serveCoordinationMcpForManager(
   opts: Parameters<typeof serveCoordinationMcp>[0],
+  /** The manager's lifetime. A manager proves its public route from its driver loop
+   *  (`reachable`), so a route that cannot answer now pauses it like any unavailable upstream;
+   *  a caller without one proves the route here, before the handle exists. */
   lifetime?: AbortSignal,
-): Promise<{ handle: CoordinationMcpHandle; controls: CoordinationTools }> {
+) {
   const host = opts.host ?? '127.0.0.1'
   assertCoordinationTransport(opts)
   const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
@@ -418,9 +420,10 @@ export async function serveCoordinationMcpForManager(
       addressLifetime.abort(new Error('coordination listener closed'))
   }
 
-  let url: string
+  let bound: Awaited<ReturnType<typeof bindCoordinationAddress>>
   try {
-    url = await bindCoordinationAddress(ctx, port, addressLifetime.signal)
+    bound = await bindCoordinationAddress(ctx, port, addressLifetime.signal)
+    if (lifetime === undefined) await bound.prove()
   } catch (error) {
     releaseAddress()
     state.closed = true
@@ -429,6 +432,12 @@ export async function serveCoordinationMcpForManager(
       server.closeAllConnections()
     })
     throw error
+  }
+  const { url } = bound
+  let proven = lifetime === undefined
+  const reachable = async () => {
+    if (!proven) await bound.prove()
+    proven = true
   }
 
   let stopCredentialBinding: (() => Promise<void>) | undefined
@@ -549,7 +558,7 @@ export async function serveCoordinationMcpForManager(
     await handle.close()
     throw error
   }
-  return { handle, controls: coord }
+  return { handle, controls: coord, reachable }
 }
 
 export function coordinationBindingHost({ hostname }: URL) {

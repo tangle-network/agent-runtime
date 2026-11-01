@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { BackendTransportError } from '../errors'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
-import { errMessage } from './supervise/error-message'
+import { causeChain, errMessage } from './supervise/error-message'
 import { PLATFORM_FAILURE_CODES } from './supervise/executor-outcome'
 import {
   classifyRetainedPendingCause,
@@ -14,7 +14,6 @@ import {
 import { UNAVAILABLE_CODES, UNAVAILABLE_STATUSES } from './supervise/upstream-unavailable'
 
 const MAX_CAUSE_CHARS = 2_048
-const MAX_CHAIN_STEPS = 12
 const MACHINE_CODE_PATTERN = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/u
 
 /**
@@ -103,24 +102,6 @@ function read(value: object, key: string): unknown {
   } catch {
     return undefined
   }
-}
-
-/** Every object in a failure's cause chain and aggregate members, bounded and cycle-safe. */
-function chain(error: unknown): object[] {
-  const out: object[] = []
-  const queue: unknown[] = [error]
-  while (queue.length > 0 && out.length < MAX_CHAIN_STEPS) {
-    const value = queue.shift()
-    if (typeof value !== 'object' || value === null || out.includes(value)) continue
-    out.push(value)
-    const members = read(value, 'errors')
-    if (Array.isArray(members)) {
-      const limit = Math.min(members.length, MAX_CHAIN_STEPS)
-      for (let index = 0; index < limit; index++) queue.push(read(members, String(index)))
-    }
-    queue.push(read(value, 'cause'))
-  }
-  return out
 }
 
 /** What the caller knows about how a failed operation ended. */
@@ -215,7 +196,7 @@ export function runtimeFailureCause(
       ? 'deadline-exceeded'
       : undefined
   try {
-    const links = chain(error)
+    const links = causeChain(error)
     // Prefer an upstream diagnosis across the whole chain over a wrapper's generic code.
     const providerCode = upstreamMachineCode(links)
     const upstream = links.find(

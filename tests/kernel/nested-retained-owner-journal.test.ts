@@ -28,6 +28,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   'capability-refused': ['stopped by terminal-error', 'Capability discovery returned'],
   'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
   'shape-refused': ['stopped by terminal-error', '32000m > 16000m'],
+  'preflight-refused': ['stopped by terminal-error', 'preflight failed: HTTP 404'],
   'content-filtered': [
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
@@ -55,6 +56,22 @@ const shapeRefusal = (reason: string) =>
   )
 const HELD_ROOM =
   'No cpx62 host can hold 8000m / 16384 MiB, and none would be bought: its room is held placeable on cpx62'
+// What Sandbox answered magnetar-rust-sandbox-20261101b's :s1:s3 and :s2:s1 while eu1 was braked.
+const NO_HOSTS = parseErrorResponse(
+  503,
+  JSON.stringify({
+    error:
+      'Provision failed — (container) — Provision failed during container phase: No available hosts with capacity: production-host-agent-02: cpu brake: pressure 57.6% at the 40% pressure brake',
+    code: 'CAPACITY_EXHAUSTED',
+  }),
+)
+// The signal each waiting mode's two paused attempts carry, before the attempt that completes.
+const WAITS: Partial<Record<string, string>> = {
+  'capacity-waits': 'host-room-held',
+  'capacity-503': 'capacity_exhausted',
+  // :s2:s2 and :s1:s1 of the same run settled down on this preflight's `timed out`.
+  'preflight-waits': 'coordination-unreachable',
+}
 const directories: string[] = []
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
@@ -83,6 +100,9 @@ describe('nested retained owner journal isolation', () => {
     'file-duplicate',
     'capacity-waits',
     'shape-refused',
+    'capacity-503',
+    'preflight-waits',
+    'preflight-refused',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     // The manager's turns: refused until the 8th refusal in a row stops it, or passing on the 7th.
@@ -161,6 +181,7 @@ describe('nested retained owner journal isolation', () => {
             throw new ServerError('Bad Gateway', 502)
           }
           if (mode === 'capacity-waits' && creates < 3) throw shapeRefusal(HELD_ROOM)
+          if (mode === 'capacity-503' && creates < 3) throw NO_HOSTS
           if (mode === 'shape-refused')
             throw shapeRefusal(
               'No cpx62 host can hold 32000m / 16384 MiB, and none would be bought: 32000m > 16000m placeable on cpx62',
@@ -209,9 +230,14 @@ describe('nested retained owner journal isolation', () => {
           }
         },
       }
-      const proxy = await coordinationProxy()
+      // The public route: its first two answers never arrive, or it is not this manager's route.
+      let unanswered = mode === 'preflight-waits' ? 2 : 0
+      const proxy = await coordinationProxy(() =>
+        mode === 'preflight-refused' ? 404 : unanswered-- > 0 ? 'hang' : undefined,
+      )
       proxies.push(proxy)
       const coordination = {
+        ...(mode === 'preflight-waits' ? { requestTimeoutMs: 1_000 } : {}),
         authentication: {
           signingKeys: { activeKeyId: 'test', keys: { test: 'nested-test-secret-'.repeat(3) } },
         },
@@ -247,12 +273,12 @@ describe('nested retained owner journal isolation', () => {
           maxAttempts:
             refusing || mode.startsWith('file-')
               ? 20
-              : mode === 'pending' || mode === 'capacity-waits' || mode in DOWN_REASONS
+              : mode === 'pending' || mode in WAITS || mode in DOWN_REASONS
                 ? 1
                 : 2,
           ...(refusing ? { maxConsecutiveFailures: 20 } : {}),
-          // A capacity wait spends no attempt, so the held room's two refusals fit in one.
-          ...(mode === 'capacity-waits' ? { unavailablePauseMs: 0 } : {}),
+          // A capacity wait spends no attempt, so the two refusals fit in one.
+          ...(mode in WAITS ? { unavailablePauseMs: 0 } : {}),
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -308,7 +334,11 @@ describe('nested retained owner journal isolation', () => {
         )
         return
       }
-      expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(sends)
+      // A refused route ends the drive before the harness is admitted.
+      const admitted = mode !== 'preflight-refused'
+      expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(
+        admitted ? sends : 0,
+      )
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
         retry || (mode in DOWN_REASONS && mode !== 'failed' && !refusing) ? 0 : sends,
       )
@@ -325,7 +355,7 @@ describe('nested retained owner journal isolation', () => {
           expect(down?.kind === 'settled' ? down.reason : '').toContain(reason)
         expect(down).not.toHaveProperty('retainedExecution')
         // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
-        expect(creates).toBe(mode === 'same-failure' ? 10 : 1)
+        expect(creates).toBe(mode === 'same-failure' ? 10 : admitted ? 1 : 0)
         // The lead is woken with the reason, so it can reword or re-scope the refused task.
         if (mode === 'content-filtered')
           expect(rootSaw.flatMap(driverWakeEvents)).toContainEqual(
@@ -435,12 +465,13 @@ describe('nested retained owner journal isolation', () => {
       }
       expect(tokens(nested)).toBe(5 * sends)
       expect(tokens(parent)).toBe(5 * sends)
-      // The manager waited out the held room: two paused attempts, then the create that landed.
-      expect(creates).toBe(mode === 'capacity-waits' ? 3 : 1)
-      if (mode === 'capacity-waits')
+      // The manager waited it out: two paused attempts, then the one that completed.
+      expect(creates).toBe(mode.startsWith('capacity-') ? 3 : 1)
+      const signal = WAITS[mode]
+      if (signal !== undefined)
         expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
-          { record: { classification: 'unavailable', unavailableSignal: 'host-room-held' } },
-          { record: { classification: 'unavailable', unavailableSignal: 'host-room-held' } },
+          { record: { classification: 'unavailable', unavailableSignal: signal } },
+          { record: { classification: 'unavailable', unavailableSignal: signal } },
           { record: { stop: 'completed', reentry: 'upstream-unavailable' } },
         ])
       expect(injected).toBe(retry)

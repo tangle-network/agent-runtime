@@ -171,6 +171,8 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       drive: async (attempt, reentry) => {
         let handedOff = false
         try {
+          // A route that timed out fails this drive as unavailable, so the loop pauses and re-enters.
+          await session.reachable()
           await driveManagerTurn(loop, attempt, reentry)
         } catch (error) {
           handedOff = error instanceof RunParkedError && error.runId === scope.view.root

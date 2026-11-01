@@ -1,0 +1,3 @@
+type: patch
+---
+A manager's coordination public endpoint preflight that times out, loses its socket, or answers 408, 429 or 5xx is now an unavailable-upstream wait (`unavailableSignal: 'coordination-unreachable'`): the manager runs the check in its driver loop, pauses and re-enters within the run's deadline, budget and cancellation, instead of settling down before its first attempt. A 4xx, a TLS refusal or another server's answer stays terminal. The check's timeout is the listener's own `requestTimeoutMs` instead of at most 10 s. Source: Discovery run magnetar-rust-sandbox-20261101b, nodes :s2:s2 and :s1:s1.

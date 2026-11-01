@@ -20,6 +20,7 @@ import type {
   AgentSessionStatus,
   AgentTurnResult,
 } from '@tangle-network/agent-interface/environment-provider'
+import { runAbortable } from './supervise/abortable'
 import { armDeadlineTimer } from './supervise/deadline'
 import { abortError } from './util'
 
@@ -195,16 +196,10 @@ export async function exactSessionCancel(
   if (!session.cancelRun) {
     throw new Error('provider session does not expose durable cancellation operations')
   }
-  let acknowledgement: unknown
-  try {
-    acknowledgement = await awaitAbortable(
-      Promise.resolve().then(() => session.cancelRun!(request, options)),
-      options.signal,
-    )
-  } catch (error) {
-    if (error instanceof RetainedRunProviderContractError) throw error
-    throw error
-  }
+  const acknowledgement: unknown = await awaitAbortable(
+    Promise.resolve().then(() => session.cancelRun!(request, options)),
+    options.signal,
+  )
   let exactAcknowledgement: AgentRunCancellationAcknowledgement
   try {
     exactAcknowledgement = AgentRunCancellationAcknowledgementSchema.parse(acknowledgement)
@@ -230,37 +225,13 @@ export async function awaitAbortable<T>(
   signal: AbortSignal | undefined,
 ): Promise<T> {
   if (signal === undefined) return await work
-  if (signal.aborted) {
-    void Promise.resolve(work).catch(() => undefined)
-    throw abortError(signal.reason)
-  }
-  return await new Promise<T>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => signal.removeEventListener('abort', onAbort)
-    const onAbort = () => {
-      queueMicrotask(() => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(abortError(signal.reason))
-      })
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    Promise.resolve(work).then(
-      (value) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve(value)
-      },
-      (error) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      },
-    )
-  })
+  // Work already running stays observed when the signal fired first.
+  if (signal.aborted) void Promise.resolve(work).catch(() => undefined)
+  return await runAbortable(
+    () => Promise.resolve(work),
+    signal,
+    () => abortError(signal.reason),
+  )
 }
 
 export async function exactSessionResult(session: AgentSession): Promise<AgentTurnResult> {

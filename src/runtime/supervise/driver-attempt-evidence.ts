@@ -2,6 +2,7 @@ import { AgentEvalError, BackendTransportError, RuntimeRunStateError } from '../
 import type { BlockedToolReport } from '../../mcp/tools/coordination-contracts'
 import { CheckUnavailableError } from './completion-gate'
 import type { ContinuationEntry } from './continuation'
+import { CoordinationUnreachableError } from './coordination-preflight'
 import { credentialCommandExit, isCredentialRefusal } from './credential-refusal'
 import type { DriverContractState, DriverReentry } from './driver-retry'
 import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
@@ -236,6 +237,7 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   // The check could not run. It is not a verdict on the director, so the loop pauses as it does
   // for an upstream out of capacity and never counts the turn for or against the run.
   if (error instanceof CheckUnavailableError) return 'check-unavailable'
+  if (error instanceof CoordinationUnreachableError) return 'coordination-unreachable'
   const transport = error instanceof BackendTransportError
   if (error instanceof AgentEvalError && !transport) return undefined
   const harness = error instanceof HarnessTurnFailedError

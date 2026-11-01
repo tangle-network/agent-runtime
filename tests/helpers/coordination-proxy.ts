@@ -1,11 +1,14 @@
 import { createServer, request } from 'node:http'
 
-/** A stable public address whose upstream changes when a retained coordinator restarts. */
-export async function coordinationProxy() {
+/** A stable public address whose upstream changes when a retained coordinator restarts. `answer`
+ *  is the route itself: it may leave a request unanswered (`hang`) or answer it with a status. */
+export async function coordinationProxy(answer?: () => number | 'hang' | undefined) {
   let upstream: { host: string; port: number } | undefined
   const server = createServer((incoming, outgoing) => {
-    if (!upstream) {
-      outgoing.writeHead(503).end()
+    const answered = answer?.()
+    if (answered === 'hang') return
+    if (!upstream || answered !== undefined) {
+      outgoing.writeHead(answered ?? 503).end()
       return
     }
     const target = request(

@@ -121,9 +121,12 @@ export function linkAbort(...sources: ReadonlyArray<AbortSignal>): LinkedAbort {
 export async function runAbortable<T>(
   act: () => Promise<T>,
   signal: AbortSignal,
-  fallback: string,
+  /** The abort's message when the signal states none, or the abort error itself. */
+  fallback: string | (() => unknown),
 ): Promise<T> {
-  if (signal.aborted) throw signalAbortError(signal, fallback)
+  const aborted = () =>
+    typeof fallback === 'string' ? signalAbortError(signal, fallback) : fallback()
+  if (signal.aborted) throw aborted()
   return await new Promise<T>((resolve, reject) => {
     let settled = false
     const cleanup = () => signal.removeEventListener('abort', onAbort)
@@ -132,7 +135,7 @@ export async function runAbortable<T>(
         if (settled) return
         settled = true
         cleanup()
-        reject(signalAbortError(signal, fallback))
+        reject(aborted())
       })
     }
     signal.addEventListener('abort', onAbort, { once: true })
