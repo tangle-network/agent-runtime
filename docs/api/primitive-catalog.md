@@ -987,7 +987,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `RemoteSupervisorReader` | interface | The existing coordination transport, restricted to reading the owned tree and worker output. |
 | `RemoteSupervisorTree` | interface | Current owned tree, including nested managers and resumed nodes. |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
-| `ReservationFloor` | interface | The part of each channel a reservation must leave free: a manager's own share of its slice, |
+| `ReservationFloor` | interface | A manager's own share of each channel of its slice. Its children may not reserve the part of |
 | `ReservationHolder` | interface | Who holds a reservation, recorded at `reserve` and refined through `attribute`, so a ticket |
 | `ReservationShortfall` | interface | One channel a `budget-exhausted` reservation could not fit. A refusal lists every such channel |
 | `ReservationTicket` | interface | Opaque, single-use reservation handle returned by `reserve` and consumed by |

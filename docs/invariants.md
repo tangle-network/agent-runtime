@@ -51,6 +51,18 @@ Scenario coverage lives in `tests/kernel/supervise-retained-owner-pending.test.t
 Scenario coverage lives in `tests/integration/runtime-secret-bindings.test.ts` (`renewal` and
 `stale-holder`).
 
+# Manager owner share
+
+- Under `reservationPolicy.ownerShare`, a manager's own observed work (its metered turns) spends
+  its share of its budget first. Its children may reserve everything else, so a manager that has
+  used part of its share never takes that part out of its team's. Once its turns pass the share,
+  they draw on what its children have not reserved.
+- A restarted manager counts the turns its journal recorded before the restart against its share.
+- A spawn refused for budget names, per channel, what is free now and what its running workers
+  hold, as `shortfalls` fields.
+
+Scenario coverage lives in `tests/runtime/reservation-wait.test.ts` (`a manager's own share`).
+
 # Graph subtasks
 
 - A `run_graph` subtask is one reservation from its caller's conserved pool. The graph's root node

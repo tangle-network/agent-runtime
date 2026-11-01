@@ -155,8 +155,8 @@ export type BudgetReadout = Readonly<{
   reservedTokens: number
 }>
 
-/** The part of each channel a reservation must leave free: a manager's own share of its slice,
- *  which its children may not reserve. */
+/** A manager's own share of each channel of its slice. Its children may not reserve the part of
+ *  it the manager's own observed work has not yet spent. */
 export interface ReservationFloor {
   readonly tokens: number
   readonly iterations: number
@@ -168,7 +168,7 @@ export interface ReserveOptions {
   /** Wait for budget instead of failing, when the reservations still open would return enough.
    *  The reservation then holds nothing until it is granted. */
   readonly wait?: boolean
-  /** Leave this much of each channel free after the reservation. */
+  /** Leave this owner share free after the reservation, less what `observe` already charged. */
   readonly keep?: ReservationFloor
 }
 
@@ -220,6 +220,8 @@ export interface ReservationShortfall {
  * while the public readout remains explicitly unknown. */
 export interface BudgetPoolRestore {
   readonly committed?: Spend
+  /** The part of `committed` the owner's own work spent, charged against its kept share. */
+  readonly owner?: Spend
   readonly uncertainReservations?: ReadonlyArray<Budget>
 }
 

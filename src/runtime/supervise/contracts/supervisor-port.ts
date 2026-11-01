@@ -22,7 +22,7 @@ export interface Supervisor<Task, Out> {
 }
 
 /** Optional recursive admission policy. `ownerShare` is the fraction of every manager's budget
- * kept free for its own inference while children hold their declared slices. */
+ * for its own inference: its turns spend that share first, and its children may reserve the rest. */
 export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
