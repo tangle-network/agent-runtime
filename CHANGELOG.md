@@ -1,3 +1,7 @@
+## 3.0.22
+
+A Sandbox create refused with 409 `NO_HOST_FITS_SHAPE` for a shape that fits (`its room is held placeable on <sku>`, no exceeded dimension) is now a capacity wait: the driver pauses and retries within the run's deadline, budget and cancellation, with `unavailableSignal: 'host-room-held'`, instead of settling down at its first attempt. A `NO_HOST_FITS_SHAPE` that names an exceeded dimension stays terminal. Source: Discovery run magnetar-rust-sandbox-20261101a, nodes :s1:s1, :s1:s3, :s5 and :s6:s1.
+
 ## 3.0.21
 
 A profile that mounts one file twice is no longer retried as a lost transport. Sandbox's untyped `Duplicate profile file target` refusal now reads as a provisioning refusal: the request was refused before it ran, the driver stops at that attempt, and the parent's wake names the file. On Discovery run magnetar-rust-sandbox-20261031h, managers s0, s1 and s2 mounted `inputs/commission.md` and `/home/agent/inputs/commission.md`, one target since Sandbox SDK 1.0.157, and retried this refusal on every turn after their first.
