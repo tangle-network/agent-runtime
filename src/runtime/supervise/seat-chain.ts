@@ -318,6 +318,9 @@ export function seatExecutionProfile(profile: AgentProfile, stage: SeatStage): A
       default: stage.model,
       provider: stage.provider,
       ...(stage.reasoningEffort === undefined ? {} : { reasoningEffort: stage.reasoningEffort }),
+      ...(stage.credentialSource === undefined
+        ? {}
+        : { metadata: { ...profile.model?.metadata, credentialSource: stage.credentialSource } }),
     },
   } as AgentProfile
 }
