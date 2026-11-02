@@ -492,11 +492,11 @@ async function discardInvalidSandbox(sandbox: SandboxInstance, cause: unknown): 
   throw cause
 }
 
-function sortedDomains(domains: readonly string[]): string[] {
-  return [...domains].sort((left, right) => left.localeCompare(right))
+function sortedDomains<Domain>(domains: readonly Domain[]): Domain[] {
+  return [...domains].sort((left, right) => String(left).localeCompare(String(right)))
 }
 
-function requiredText(value: string, label: string): string {
+function requiredText(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim())
     throw new Error(`${label} must be a non-empty string`)
   return value
