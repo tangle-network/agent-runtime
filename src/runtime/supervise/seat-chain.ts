@@ -332,6 +332,9 @@ export function authoredSeatStages(profile: AgentProfile): readonly SeatStage[] 
 }
 
 const USAGE_LIMIT_CODES = new Set([
+  // A harness turn's outcome code for its exhausted subscription quota: the Sandbox sidecar's
+  // `rate_limit_event rejected`, and the exact result agent-provider-tangle refuses with it.
+  'provider_quota_exhausted',
   'subscription_usage_limit',
   'usage_limit_reached',
   'usage_limit_exceeded',
