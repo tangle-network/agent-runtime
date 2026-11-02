@@ -14,6 +14,7 @@ import {
 import type { RetainedRunHandle } from '../retained-run-types'
 import { extractTransportEventIdentity } from '../sandbox-transport-events'
 import { armDeadlineTimer } from '../supervise/deadline'
+import { causeChain } from '../supervise/error-message'
 import { RetainedExecutionPendingError } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
@@ -58,6 +59,35 @@ function observationFailureText(failure: { readonly error: unknown }): string {
     0,
     2_048,
   )
+}
+
+/**
+ * agent-provider-tangle refuses a retained result whose run failed `provider_quota_exhausted` (the
+ * Sandbox sidecar's `rate_limit_event rejected`) with `TangleCredentialCapacityError` at 429. The
+ * run ended: this is its failed result, the seat's usage limit, not an execution to reconcile
+ * (magnetar-rust-sandbox-20261102a re-read refused seats 1,360 times). Its reset is named, but not
+ * in the `reset at` form a driver holds its pause to, so a seat chain moves to its next seat.
+ */
+function exactQuotaRefusal(error: unknown) {
+  try {
+    const refusal = causeChain(error).find(
+      (cause) =>
+        Reflect.get(cause, 'name') === 'TangleCredentialCapacityError' &&
+        Reflect.get(cause, 'code') === 'provider_quota_exhausted',
+    )
+    const resetAt: unknown = refusal && Reflect.get(refusal, 'resetAt')
+    return refusal === undefined
+      ? undefined
+      : {
+          text: '',
+          success: false,
+          error: `Subscription account capacity is unavailable${typeof resetAt === 'string' ? ` until ${resetAt}` : ''}`,
+          errorCode: 'provider_quota_exhausted',
+          statusCode: 429,
+        }
+  } catch {
+    return undefined
+  }
 }
 
 /** Everything one retained dispatch has observed of its event stream and exact result. */
@@ -144,17 +174,20 @@ export class RetainedObservation {
   }
 
   private async resultFrame(): Promise<AgentEnvironmentEvent> {
-    let result: AgentTurnResult
+    let result: AgentTurnResult & { readonly errorCode?: string; readonly statusCode?: number }
     try {
       result = await this.readExactResult()
     } catch (error) {
       if (this.signal.aborted) throw error
-      if (this.failure === undefined) throw error
-      throw new AggregateError(
-        [this.failure.error, error],
-        `retained event observation failed (${observationFailureText(this.failure)}) and its exact result could not be reconciled`,
-        { cause: error },
-      )
+      const refusal = exactQuotaRefusal(error)
+      if (refusal !== undefined) result = refusal
+      else if (this.failure === undefined) throw error
+      else
+        throw new AggregateError(
+          [this.failure.error, error],
+          `retained event observation failed (${observationFailureText(this.failure)}) and its exact result could not be reconciled`,
+          { cause: error },
+        )
     }
     return {
       type: 'result',
@@ -162,6 +195,7 @@ export class RetainedObservation {
         finalText: result.text,
         success: result.success,
         ...(result.error ? { error: result.error } : {}),
+        ...(result.errorCode ? { errorCode: result.errorCode, statusCode: result.statusCode } : {}),
         usageMode: 'cumulative',
         ...(this.failure === undefined
           ? {}

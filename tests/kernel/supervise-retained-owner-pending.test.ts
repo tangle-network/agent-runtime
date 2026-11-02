@@ -109,6 +109,12 @@ interface Fixture {
   /** On re-entry every seat stays exhausted until the run journals a seat pause; the clock then
    *  passes it. */
   readonly seatPause?: boolean
+  /** Executions whose exact result the provider refuses with the account's quota refusal. */
+  readonly quotaRefused?: (dispatched: number) => boolean
+  /** When an exhausted seat resumes. Default 2026-01-01, already past. */
+  readonly seatResumeAt?: string
+  /** Cancel the run once it journals a seat pause. */
+  readonly cancelOnSeatPause?: boolean
 }
 
 async function superviseRoot(fixture: Fixture) {
@@ -130,6 +136,7 @@ async function superviseRoot(fixture: Fixture) {
   const environments: string[] = []
   const restoredCheckpointIds: string[] = []
   let skew = 0
+  const seatEvents: unknown[] = []
   let rejectMethod!: (error: Error) => void
   const methodResult = new Promise<unknown>((_resolve, reject) => {
     rejectMethod = reject
@@ -220,6 +227,14 @@ async function superviseRoot(fixture: Fixture) {
         result: async () => {
           if (executionId !== undefined && lost.has(executionId))
             throw Object.assign(new Error('retained run not found'), { status: 404 })
+          const dispatchedAt = dispatched.findIndex((turn) => turn.executionId === executionId)
+          if (fixture.quotaRefused?.(dispatchedAt + 1)) {
+            // agent-provider-tangle refuses a result its sidecar ended `rate_limit_event rejected`.
+            throw Object.assign(credentialCapacityRefusal(), {
+              status: 429,
+              resetAt: '2026-11-09T00:00:00.000Z',
+            })
+          }
           const result = await session.result()
           if (fixture.firstTurnFailure && executionId === dispatched[0]?.executionId) {
             return { ...result, success: false, ...fixture.firstTurnFailure }
@@ -380,7 +395,7 @@ async function superviseRoot(fixture: Fixture) {
     {
       runDir,
       journal:
-        fixture.crashOnInput === undefined && !fixture.seatPause
+        fixture.crashOnInput === undefined && !fixture.seatPause && !fixture.cancelOnSeatPause
           ? context.journal
           : {
               beginTree: context.journal.beginTree.bind(context.journal),
@@ -389,8 +404,10 @@ async function superviseRoot(fixture: Fixture) {
                 if (event.kind === 'execution-input' && ++inputs === fixture.crashOnInput)
                   throw new Error('supervisor process died')
                 // The pause's two-minute recheck passes at once.
-                if (event.kind === 'seat-paused') skew += 125_000
+                if (event.kind === 'seat-paused' && fixture.seatPause) skew += 125_000
                 await context.journal.appendEvent(root, event)
+                if (event.kind === 'seat-paused' && fixture.cancelOnSeatPause)
+                  cancelRun(runDir, 'seat-paused-cancel', { operator: 'test', reason: 'paused' })
               },
             },
       blobs: context.blobs,
@@ -409,8 +426,8 @@ async function superviseRoot(fixture: Fixture) {
               excludedSeatIds: readonly string[]
             }) =>
               (fixture.seatPause && fixture.directory !== undefined && skew === 0) ||
-              (request.stageIndex === 0 && request.excludedSeatIds.length > 0)
-                ? { resumeAt: '2026-01-01T00:00:00.000Z' }
+              request.excludedSeatIds.length > 0
+                ? { resumeAt: fixture.seatResumeAt ?? '2026-01-01T00:00:00.000Z' }
                 : {
                     seat: request.stageIndex === 0 ? 'claude-seat' : 'codex-seat',
                     backend: {
@@ -441,6 +458,11 @@ async function superviseRoot(fixture: Fixture) {
       }),
       retainedAtSettlement: 'release',
       teardownConfirmMs: 0,
+      hooks: {
+        onEvent: (event) => {
+          if (event.target === 'agent.seat') seatEvents.push(event.payload)
+        },
+      },
       deliverable: {
         describe: 'the delivered answer',
         check: (value) => (value as { answer?: unknown }).answer === 'delivered',
@@ -489,6 +511,7 @@ async function superviseRoot(fixture: Fixture) {
     environments,
     destroyed,
     restoredCheckpointIds,
+    seatEvents,
     firstCaptureExecution,
     base,
     evidence: await Promise.all(
@@ -693,6 +716,51 @@ describe('supervised root with a pending retained turn', () => {
     expect(run.restoredCheckpointIds).toEqual([`checkpoint-${source}`])
     expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
   }, 150_000)
+
+  it("moves past a seat whose exact result is refused for quota, then pauses once to the chain's reset", async () => {
+    // magnetar-rust-sandbox-20261102a: children re-read one quota-rejected Claude seat 1,360 times
+    // as transient, and one seat pause was written 2,382 times.
+    const resumeAt = new Date(Date.now() + 3_600_000).toISOString()
+    const run = await superviseRoot({
+      seatSwitch: true,
+      quotaRefused: () => true,
+      seatResumeAt: resumeAt,
+      cancelOnSeatPause: true,
+      submitOn: Number.POSITIVE_INFINITY,
+    })
+    expect(run.result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
+    // One turn on each seat, each a committed refusal: nothing was left to reconcile.
+    expect(run.dispatched).toHaveLength(2)
+    expect(count(run.events, 'execution-result')).toBe(2)
+    expect(count(run.events, 'execution-abandoned')).toBe(0)
+    expect(run.attempts.slice(0, 2)).toEqual([
+      expect.objectContaining({
+        classification: 'unavailable',
+        unavailableSignal: 'subscription-usage-limit',
+      }),
+      expect.objectContaining({
+        classification: 'unavailable',
+        unavailableSignal: 'subscription-usage-limit',
+      }),
+    ])
+    expect(
+      run.events.flatMap((event) =>
+        event.kind === 'seat-segment' ? [[event.seat, event.phase, event.reason]] : [],
+      ),
+    ).toEqual([
+      ['claude-seat', 'started', undefined],
+      ['claude-seat', 'ended', 'usage-limit'],
+      ['codex-seat', 'started', undefined],
+      ['codex-seat', 'ended', 'usage-limit'],
+    ])
+    expect(run.events.filter((event) => event.kind === 'seat-paused')).toEqual([
+      expect.objectContaining({ resumeAt }),
+    ])
+    const paused = run.seatEvents.filter(
+      (event) => (event as { phase?: string }).phase === 'paused',
+    )
+    expect(paused).toEqual([expect.objectContaining({ resumeAt })])
+  })
 
   it('continues a retained Codex turn when only raw process capture is partial', async () => {
     const run = await superviseRoot({ captureFailure: 'raw-partial', submitOn: 2 })

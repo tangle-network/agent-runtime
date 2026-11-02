@@ -289,7 +289,9 @@ export class ManagerDriveSession {
           (event.kind === 'seat-paused' ||
             (event.kind === 'seat-segment' && event.phase === 'started')),
       )
-    let afterRecheck = paused?.kind === 'seat-paused' && Date.parse(paused.resumeAt) <= now()
+    // The pause this node is in, if any: a recheck that finds the same reset writes no second row.
+    let pausedUntil = paused?.kind === 'seat-paused' ? paused.resumeAt : undefined
+    let afterRecheck = pausedUntil !== undefined && Date.parse(pausedUntil) <= now()
     for (;;) {
       try {
         const seat = await seatChain.next(usageLimit && !afterRecheck, afterRecheck)
@@ -298,18 +300,27 @@ export class ManagerDriveSession {
         return seat
       } catch (error) {
         if (!(error instanceof SeatChainExhaustedError)) throw error
-        await seatSelection.journal.appendEvent(seatJournalRoot, {
-          kind: 'seat-paused',
-          id: scope.view.root,
-          resumeAt: error.resumeAt,
-          seq: Date.parse(error.resumeAt),
-          at: new Date(now()).toISOString(),
-        })
-        await seatSelection.onPause(scope.view.root, error.resumeAt, 'paused')
+        if (error.resumeAt !== pausedUntil) {
+          pausedUntil = error.resumeAt
+          await seatSelection.journal.appendEvent(seatJournalRoot, {
+            kind: 'seat-paused',
+            id: scope.view.root,
+            resumeAt: error.resumeAt,
+            seq: Date.parse(error.resumeAt),
+            at: new Date(now()).toISOString(),
+          })
+          await seatSelection.onPause(scope.view.root, error.resumeAt, 'paused')
+        }
         // A box it cannot checkpoint and retire stays, as before; the run's release still owns it.
         await releaseScopeRetainedOwnerForSeatPause(scope, error.resumeAt).catch(() => undefined)
-        const waitMs = Math.max(1_000, Date.parse(error.resumeAt) - now())
-        await sleepScopeWait(scope, waitMs, scope.signal, 'seat-wait')
+        // A paused manager has no seat to act with, so nothing before the reset rechecks the chain.
+        // A wait ends early at a root's deadline or when its scope aborts, which returns every
+        // wait at once: re-selecting there wrote one pause of magnetar-rust-sandbox-20261102a
+        // 2,382 times.
+        while (now() < Date.parse(error.resumeAt)) {
+          scope.signal.throwIfAborted()
+          await sleepScopeWait(scope, Date.parse(error.resumeAt) - now(), scope.signal, 'seat-wait')
+        }
         afterRecheck = true
       }
     }
