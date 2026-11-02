@@ -4967,7 +4967,7 @@ Every parsed flag (standard + `spec.flags`), by name without `--`.
 
 ##### harnesses
 
-> **harnesses**: readonly (`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`)[]
+> **harnesses**: readonly (`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`)[]
 
 ##### models
 
@@ -5250,7 +5250,7 @@ Harness × model axes for `expandProfileAxes`. Defaults: the canonical
 
 ###### harnesses?
 
-> `optional` **harnesses?**: readonly (`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`)[]
+> `optional` **harnesses?**: readonly (`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`)[]
 
 ###### models?
 
@@ -6130,7 +6130,7 @@ measured none.
 
 ##### harness
 
-> `readonly` **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> `readonly` **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 The harness family whose adapter produced this report.
 
@@ -9531,7 +9531,7 @@ Caller-declared execution placement. Matching never changes the authored profile
 
 ###### harness
 
-> **harness**: `NonNullable`\<`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"` \| `undefined`\>
+> **harness**: `NonNullable`\<`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"` \| `undefined`\>
 
 ###### provider?
 
@@ -15796,7 +15796,7 @@ Local native capture, after the admitted jobs are proven terminal. Retained live
 
 ###### harness
 
-`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### profileDigest
 
@@ -15901,7 +15901,7 @@ session under `root`, which is correct only for a store no other run writes to.
 
 ##### harness
 
-> `readonly` **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> `readonly` **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 The harness family that wrote the store.
 
@@ -23501,7 +23501,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### stack?
 
@@ -28853,7 +28853,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### stack?
 
@@ -40724,7 +40724,7 @@ cannot read the numbers.
 
 ##### harness?
 
-`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 #### Returns
 

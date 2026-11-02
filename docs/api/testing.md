@@ -1638,7 +1638,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### stack?
 
@@ -2864,7 +2864,7 @@ from its latest checkpoint when the provider holds one.
 
 ###### harness?
 
-> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> `readonly` `optional` **harness?**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### stack?
 

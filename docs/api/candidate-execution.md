@@ -1051,7 +1051,7 @@ Provider-neutral model request resolved before any grant is reserved.
 
 ###### harness
 
-> **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+> **harness**: `"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### reasoningEffort
 
@@ -1288,7 +1288,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### harness
 
-`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### reasoningEffort
 
@@ -1746,7 +1746,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### harness
 
-`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"forge"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"cli-base"` \| `"gemini"`
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
 
 ###### reasoningEffort
 
