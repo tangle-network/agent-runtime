@@ -1,0 +1,3 @@
+type: patch
+---
+A seat stage's `credentialSource` (Agent Interface 5.10.16) is now that stage's credential intent: a stage that names one runs on a profile whose `model.metadata.credentialSource` says so, live and when the journal rebuilds the stage's profile on recovery; a stage that names none inherits the profile's. Every stage used to inherit the pool's intent, so on Discovery canary setup-smoke-ad744553 the keyless opencode stage after an exhausted Fable stage carried `subscription` into its managed environment, and its first turn failed "Tangle turn credential source differs from its environment". Runtime now requires Agent Interface ^5.10.16.

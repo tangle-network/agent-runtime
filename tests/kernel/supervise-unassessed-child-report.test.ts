@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
@@ -25,6 +26,8 @@ function wakeEventsIn(prompt: unknown): Array<Record<string, any>> {
 async function childReportFlow(
   mode: 'unassessed' | 'nested' | 'checked' | 'submitted' | 'failed' | 'seat-leaf',
   nativeGrantAvailable = true,
+  /** setup-smoke-ad744553's pool: a subscription profile whose last stage is managed. */
+  managedLastStage = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'unassessed-child-report-'))
   const runId = 'child-report'
@@ -41,7 +44,11 @@ async function childReportFlow(
     harness: 'claude-code',
     ...(mode === 'seat-leaf'
       ? {
-          model: { provider: 'anthropic', default: 'claude-opus-4-1' },
+          model: {
+            provider: 'anthropic',
+            default: 'claude-opus-4-1',
+            ...(managedLastStage ? { metadata: { credentialSource: 'subscription' } } : {}),
+          },
           seats: [
             {
               harness: 'claude-code',
@@ -55,6 +62,7 @@ async function childReportFlow(
               model: 'gpt-6-sol',
               selector: { kind: 'all-eligible' as const },
               tools: {},
+              ...(managedLastStage ? { credentialSource: 'managed' as const } : {}),
             },
           ],
         }
@@ -73,6 +81,7 @@ async function childReportFlow(
   let childCheckCalls = 0
   let childDispatches = 0
   const childSeatMarkers: string[] = []
+  const childCreateProfiles: AgentProfile[] = []
   const childInvocations: Array<{ environmentId: string; sessionId: string }> = []
   const nativeGrants: string[] = []
   const seatSelectionEnvironments: Array<string | undefined> = []
@@ -105,6 +114,7 @@ async function childReportFlow(
         input.profile.name === child.name
       ) {
         childSeatMarkers.push(input.env?.SEAT_MARKER ?? '<missing>')
+        childCreateProfiles.push(input.profile)
       }
       const attachment = input.runtimeAttachments?.mcp?.['agent-runtime-coordination']
       if (attachment?.transport !== 'http') throw new Error('missing coordination attachment')
@@ -347,6 +357,7 @@ async function childReportFlow(
       outRef,
       childCheckCalls,
       childSeatMarkers,
+      childCreateProfiles,
       childInvocations,
       nativeGrants,
       seatSelectionEnvironments,
@@ -447,6 +458,22 @@ describe('managed native child report in the parent wake', () => {
       ['started', 'codex-seat-c', undefined],
       ['ended', 'codex-seat-c', 'completed'],
     ])
+  })
+
+  it("runs a subscription pool's managed stage on a managed profile, live and rebuilt from the journal", async () => {
+    // setup-smoke-ad744553 (Runtime 3.0.25): the keyless stage after an exhausted Fable stage inherited the
+    // pool's 'subscription' intent, and its first turn was refused by its managed environment.
+    const flow = await childReportFlow('seat-leaf', true, true)
+    expect(flow.settlement).toMatchObject({ status: 'done', verdict: { valid: true } })
+    const [first, last] = flow.childCreateProfiles
+    expect(first?.model?.metadata).toEqual({ credentialSource: 'subscription' })
+    expect(last?.model).toMatchObject({ default: 'gpt-6-sol', metadata: { credentialSource: 'managed' } })
+    // The stage's materialization commits only when the journal rebuild of its profile matches the receipt.
+    const rebuilt = flow.nestedEvents.filter((event) => event.kind === 'seat-materialized').at(-1)
+    expect(rebuilt?.kind === 'seat-materialized' ? rebuilt.receipt : undefined).toMatchObject({
+      model: { status: 'known', id: 'gpt-6-sol' },
+      effectiveProfileDigest: canonicalAgentProfileDigest(last!),
+    })
   })
 
   it('refuses a same-provider seat without a native credential grant before dispatch', async () => {

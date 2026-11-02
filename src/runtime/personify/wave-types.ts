@@ -161,12 +161,6 @@ export interface FanoutSynthesis<D> {
   collect(settled: Settled<Outcome<D>>): Outcome<D>
 }
 
-/** `fanout(items, opts)` — build the fanout combinator over a static item list. */
-export type Fanout = <Task, Item, D>(
-  items: ReadonlyArray<Item>,
-  opts: FanoutOptions<Item, D>,
-) => CombinatorShape<Task, D>
-
 /**
  * `loopUntil({ until, step })` — iterative deepening inside the conserved pool: spawn one `step`
  * child per round, ask `until` whether the accumulated state satisfies the goal, and stop when it
@@ -198,12 +192,6 @@ export interface LoopUntilState<State> {
   readonly round: number
   readonly value: State
 }
-
-/** `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. */
-export type LoopUntil = <Task, State, D>(
-  seed: State,
-  spec: LoopUntilSpec<Task, State, D>,
-) => CombinatorShape<Task, D>
 
 /**
  * `panel(judges)` — M judges over ONE artifact, merged WRITE-ONLY (selector≠judge taken to its
