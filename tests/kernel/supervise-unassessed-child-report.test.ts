@@ -467,7 +467,10 @@ describe('managed native child report in the parent wake', () => {
     expect(flow.settlement).toMatchObject({ status: 'done', verdict: { valid: true } })
     const [first, last] = flow.childCreateProfiles
     expect(first?.model?.metadata).toEqual({ credentialSource: 'subscription' })
-    expect(last?.model).toMatchObject({ default: 'gpt-6-sol', metadata: { credentialSource: 'managed' } })
+    expect(last?.model).toMatchObject({
+      default: 'gpt-6-sol',
+      metadata: { credentialSource: 'managed' },
+    })
     // The stage's materialization commits only when the journal rebuild of its profile matches the receipt.
     const rebuilt = flow.nestedEvents.filter((event) => event.kind === 'seat-materialized').at(-1)
     expect(rebuilt?.kind === 'seat-materialized' ? rebuilt.receipt : undefined).toMatchObject({
