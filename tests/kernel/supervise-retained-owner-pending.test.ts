@@ -137,6 +137,9 @@ async function superviseRoot(fixture: Fixture) {
   const restoredCheckpointIds: string[] = []
   let skew = 0
   const seatEvents: unknown[] = []
+  const seatsUsed = new Set<string>()
+  let selections = 0
+  let selectionsAtPause: number | undefined
   let rejectMethod!: (error: Error) => void
   const methodResult = new Promise<unknown>((_resolve, reject) => {
     rejectMethod = reject
@@ -406,8 +409,11 @@ async function superviseRoot(fixture: Fixture) {
                 // The pause's two-minute recheck passes at once.
                 if (event.kind === 'seat-paused' && fixture.seatPause) skew += 125_000
                 await context.journal.appendEvent(root, event)
-                if (event.kind === 'seat-paused' && fixture.cancelOnSeatPause)
-                  cancelRun(runDir, 'seat-paused-cancel', { operator: 'test', reason: 'paused' })
+                if (event.kind === 'seat-paused' && selectionsAtPause === undefined) {
+                  selectionsAtPause = selections
+                  if (fixture.cancelOnSeatPause)
+                    cancelRun(runDir, 'seat-paused-cancel', { operator: 'test', reason: 'paused' })
+                }
               },
             },
       blobs: context.blobs,
@@ -424,18 +430,24 @@ async function superviseRoot(fixture: Fixture) {
             selectSeat: async (request: {
               stageIndex: number
               excludedSeatIds: readonly string[]
-            }) =>
-              (fixture.seatPause && fixture.directory !== undefined && skew === 0) ||
-              request.excludedSeatIds.length > 0
-                ? { resumeAt: fixture.seatResumeAt ?? '2026-01-01T00:00:00.000Z' }
-                : {
-                    seat: request.stageIndex === 0 ? 'claude-seat' : 'codex-seat',
-                    backend: {
-                      backend: 'provider' as const,
-                      provider,
-                      workspaceRetention: retention,
-                    },
-                  },
+              resumeSeatId?: string
+            }) => {
+              selections += 1
+              const seat = request.stageIndex === 0 ? 'claude-seat' : 'codex-seat'
+              // A refused seat's account stays exhausted however the chain asks again.
+              const refused = fixture.quotaRefused !== undefined && seatsUsed.has(seat)
+              if (
+                (fixture.seatPause && fixture.directory !== undefined && skew === 0) ||
+                request.excludedSeatIds.length > 0 ||
+                (refused && request.resumeSeatId === undefined)
+              )
+                return { resumeAt: fixture.seatResumeAt ?? '2026-01-01T00:00:00.000Z' }
+              seatsUsed.add(seat)
+              return {
+                seat,
+                backend: { backend: 'provider' as const, provider, workspaceRetention: retention },
+              }
+            },
           }
         : {}),
       budget: {
@@ -512,6 +524,7 @@ async function superviseRoot(fixture: Fixture) {
     destroyed,
     restoredCheckpointIds,
     seatEvents,
+    selections: () => ({ total: selections, atPause: selectionsAtPause }),
     firstCaptureExecution,
     base,
     evidence: await Promise.all(
@@ -760,6 +773,9 @@ describe('supervised root with a pending retained turn', () => {
       (event) => (event as { phase?: string }).phase === 'paused',
     )
     expect(paused).toEqual([expect.objectContaining({ resumeAt })])
+    // The cancel woke the wait before the reset: it ended the run without selecting again.
+    const { total, atPause } = run.selections()
+    expect(total).toBe(atPause)
   })
 
   it('continues a retained Codex turn when only raw process capture is partial', async () => {
