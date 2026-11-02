@@ -1,3 +1,7 @@
+## 3.0.27
+
+Runtime 3.0.26 was tagged but not published: its release tests ran against Sandbox SDK 1.0.194, whose `SandboxError` model (1.0.191+) builds refusals differently, and three nested-owner refusal tests failed. Runtime's development Sandbox is now 1.0.190, the last release with the earlier error model whose types carry the Agent Interface 5.10.16 harnesses. This release carries 3.0.26's change: a seat stage's `credentialSource` is that stage's credential intent.
+
 ## 3.0.26
 
 A seat stage's `credentialSource` (Agent Interface 5.10.16) is now that stage's credential intent: a stage that names one runs on a profile whose `model.metadata.credentialSource` says so, live and when the journal rebuilds the stage's profile on recovery; a stage that names none inherits the profile's. Every stage used to inherit the pool's intent, so on Discovery canary setup-smoke-ad744553 the keyless opencode stage after an exhausted Fable stage carried `subscription` into its managed environment, and its first turn failed "Tangle turn credential source differs from its environment". Runtime now requires Agent Interface ^5.10.16.
