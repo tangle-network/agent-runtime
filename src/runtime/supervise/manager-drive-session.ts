@@ -313,13 +313,13 @@ export class ManagerDriveSession {
         }
         // A box it cannot checkpoint and retire stays, as before; the run's release still owns it.
         await releaseScopeRetainedOwnerForSeatPause(scope, error.resumeAt).catch(() => undefined)
-        // A paused manager has no seat to act with, so nothing before the reset rechecks the chain.
-        // A wait ends early at a root's deadline or when its scope aborts, which returns every
-        // wait at once: re-selecting there wrote one pause of magnetar-rust-sandbox-20261102a
-        // 2,382 times.
-        while (now() < Date.parse(error.resumeAt)) {
+        // A paused manager has no seat to act with: nothing before the reset rechecks the chain. An
+        // aborted scope returns every wait at once, and re-selecting then wrote one pause of
+        // magnetar-rust-sandbox-20261102a 2,382 times. The timer runs on the wall clock, not `now`.
+        const wakeAt = Date.now() + Math.max(0, Date.parse(error.resumeAt) - now())
+        while (Date.now() < wakeAt) {
           scope.signal.throwIfAborted()
-          await sleepScopeWait(scope, Date.parse(error.resumeAt) - now(), scope.signal, 'seat-wait')
+          await sleepScopeWait(scope, wakeAt - Date.now(), scope.signal, 'seat-wait')
         }
         afterRecheck = true
       }
