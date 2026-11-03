@@ -7,6 +7,7 @@ import { credentialCommandExit, isCredentialRefusal } from './credential-refusal
 import type { DriverContractState, DriverReentry } from './driver-retry'
 import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
 import {
+  DISPATCH_EXECUTION_CHANGED_CODE,
   DISPATCH_NOT_ADMITTED_CODE,
   isProvisioningRefusal,
   isSchemaRejection,
@@ -219,6 +220,15 @@ function isDispatchNotAdmitted(error: Error): boolean {
   }
 }
 
+/** Sandbox confirmed the dispatch but named a different execution: deterministic on every retry. */
+function isDispatchExecutionChanged(value: object): boolean {
+  try {
+    return Reflect.get(value, 'code') === DISPATCH_EXECUTION_CHANGED_CODE
+  } catch {
+    return false
+  }
+}
+
 /**
  * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
  *
@@ -297,6 +307,9 @@ export function classifyDriverFailure(
   // the session. A run never starts a turn beside an execution that owns its session, so it stops
   // with the refusal named. The refusal reaches this check only from a retained admission.
   if (admission !== undefined && isDispatchNotAdmitted(admission)) return 'terminal'
+  // The provider confirmed the dispatch and then contradicted it: the same answer arrives on
+  // every retry, retained or not (agent-sdk #475).
+  if (causeChain(error).some(isDispatchExecutionChanged)) return 'terminal'
   if (admission !== undefined) return classifyDriverFailure(admission, signal, stopSignal)
   if (error instanceof Error && errorProperty(error, 'name') === 'AbortError') {
     return stopSignal?.aborted === true ? 'terminal' : 'transient'
