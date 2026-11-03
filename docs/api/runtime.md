@@ -21537,8 +21537,7 @@ Stamp the event, await every subscriber in order, then make it pull-visible. A s
 
 **`Experimental`**
 
-Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
- ties broken FIFO by `seq`; `undefined` when nothing matches.
+[EventBus.pullRecord](#pullrecord)'s event alone.
 
 ###### Parameters
 
@@ -21556,14 +21555,32 @@ readonly `E`\[`"type"`\][]
 
 **`Experimental`**
 
-[EventBus.pull](#pull), returning the stamped record, so a consumer can later acknowledge the
- exact event it received by `seq`.
+Remove and return the highest-priority QUEUED record whose type is in `kinds` (any if omitted),
+ ties broken FIFO by `seq`; `undefined` when nothing matches.
 
 ###### Parameters
 
 ###### kinds?
 
 readonly `E`\[`"type"`\][]
+
+###### Returns
+
+[`BusRecord`](#busrecord)\<`E`\> \| `undefined`
+
+##### take()?
+
+> `optional` **take**(`seq`): [`BusRecord`](#busrecord)\<`E`\> \| `undefined`
+
+**`Experimental`**
+
+Remove and return the queued record with this `seq`, which its consumer read another way.
+
+###### Parameters
+
+###### seq
+
+`number`
 
 ###### Returns
 
@@ -21576,7 +21593,7 @@ readonly `E`\[`"type"`\][]
 **`Experimental`**
 
 The queued, not-yet-pulled records in publish order (filtered by `kinds` when given), as a
- copy: reading it never changes what `pull` returns next.
+ copy: reading it never changes what `pullRecord` returns next.
 
 ###### Parameters
 
