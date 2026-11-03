@@ -1,3 +1,7 @@
+## 3.0.36
+
+`observe_agent` no longer teaches `outputPath: ["content"]` for every worker: its description says the settled artifact is what the worker submitted (often a plain string), else its provider result, to omit `outputPath` to read it whole, and that `["content"]` applies to a provider result. A path that does not resolve now names itself, the step it stopped on and what the artifact is there (`the artifact at [] is a string`, or an object's fields), and says to omit `outputPath`. On Discovery run canary-chain-20261103b the root asked two submitted results, the strings "9592" and "8392", for `["content"]` and received only `outputPath does not identify a retained field`.
+
 ## 3.0.35
 
 The MCP server serves `events_subscribe`, `events_fetch`, `events_ack` and `events_unsubscribe` over a wired event source: an idempotent-by-key subscription lifecycle on the native observer journal with at-least-once delivery until acknowledged, digest-chain page verification, lazy expiry that carries the unacknowledged cursor through a same-key resubscribe, sliding expiry for actively reconnecting consumers, and acknowledgements bounded by the journal high-watermark. `agent-runtime-mcp` serves the tools read-only over one pursuit's durable journal (`MCP_ENABLE_EVENTS=1` with `AGENT_RUNTIME_EVENTS_JOURNAL`); an absent journal file is a valid empty journal, and cross-pursuit aggregation stays with the host platform. No scheduler, trigger or second event authority is introduced.
