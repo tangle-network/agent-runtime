@@ -1841,6 +1841,25 @@ wire here.
 Required to enable delegate_ui_audit. Wire one that executes an exact
 agent profile through Runtime and returns the provider-neutral UI audit result.
 
+##### eventSource?
+
+> `optional` **eventSource?**: [`McpEventSource`](#mcpeventsource)
+
+**`Experimental`**
+
+Required to enable the `events_*` subscription tools — the runtime-owned
+piece of the agent-inbox event track: expose the native event journal with
+an idempotent subscribe / at-least-once fetch / forward-only ack lifecycle.
+No scheduler is wired here; recurrence stays with its native owners.
+
+##### eventSubscriptionStore?
+
+> `optional` **eventSubscriptionStore?**: [`EventSubscriptionStore`](#eventsubscriptionstore-1)
+
+**`Experimental`**
+
+Optional durable subscription store for the `events_*` tools. Default in-memory.
+
 ##### feedbackStore?
 
 > `optional` **feedbackStore?**: [`FeedbackStore`](#feedbackstore)
@@ -3607,6 +3626,202 @@ The completion oracle the authored workers settle against (settled ⟺ delivered
 > `optional` **allowedModels?**: readonly `string`[]
 
 Restrict the run to this subset of models.
+
+***
+
+### McpEventRecord
+
+**`Experimental`**
+
+One immutable journaled record exposed through the subscription surface.
+
+#### Properties
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+**`Experimental`**
+
+##### pursuitId
+
+> `readonly` **pursuitId**: `string`
+
+**`Experimental`**
+
+##### kind
+
+> `readonly` **kind**: `"event"` \| `"decision"`
+
+**`Experimental`**
+
+##### observedAt
+
+> `readonly` **observedAt**: `number`
+
+**`Experimental`**
+
+##### digest
+
+> `readonly` **digest**: `string`
+
+**`Experimental`**
+
+##### previousDigest?
+
+> `readonly` `optional` **previousDigest?**: `string`
+
+**`Experimental`**
+
+Digest of the previous record in the journal; absent on the first record.
+
+##### payload
+
+> `readonly` **payload**: `unknown`
+
+**`Experimental`**
+
+The native runtime hook event or decision point, verbatim.
+
+***
+
+### McpEventSource
+
+**`Experimental`**
+
+The native event source. The default adapter wraps a durable `ObserverJournal`.
+
+#### Methods
+
+##### read()
+
+> **read**(): `Promise`\<readonly [`McpEventRecord`](#mcpeventrecord)[]\>
+
+**`Experimental`**
+
+###### Returns
+
+`Promise`\<readonly [`McpEventRecord`](#mcpeventrecord)[]\>
+
+***
+
+### EventSubscription
+
+**`Experimental`**
+
+Registered subscription state. The cursor is the last ACKNOWLEDGED sequence.
+
+#### Properties
+
+##### subscriptionId
+
+> `readonly` **subscriptionId**: `string`
+
+**`Experimental`**
+
+##### key
+
+> `readonly` **key**: `string`
+
+**`Experimental`**
+
+##### kinds
+
+> `readonly` **kinds**: readonly (`"event"` \| `"decision"`)[]
+
+**`Experimental`**
+
+##### cursor
+
+> **cursor**: `number`
+
+**`Experimental`**
+
+##### createdAt
+
+> `readonly` **createdAt**: `number`
+
+**`Experimental`**
+
+##### expiresAt
+
+> `readonly` **expiresAt**: `number` \| `null`
+
+**`Experimental`**
+
+***
+
+### EventSubscriptionStore
+
+**`Experimental`**
+
+Injectable subscription store. The default is in-memory; durable owners may supply their own.
+
+#### Methods
+
+##### get()
+
+> **get**(`subscriptionId`): `Promise`\<[`EventSubscription`](#eventsubscription) \| `null`\>
+
+**`Experimental`**
+
+###### Parameters
+
+###### subscriptionId
+
+`string`
+
+###### Returns
+
+`Promise`\<[`EventSubscription`](#eventsubscription) \| `null`\>
+
+##### findByKey()
+
+> **findByKey**(`key`): `Promise`\<[`EventSubscription`](#eventsubscription) \| `null`\>
+
+**`Experimental`**
+
+###### Parameters
+
+###### key
+
+`string`
+
+###### Returns
+
+`Promise`\<[`EventSubscription`](#eventsubscription) \| `null`\>
+
+##### put()
+
+> **put**(`subscription`): `Promise`\<`void`\>
+
+**`Experimental`**
+
+###### Parameters
+
+###### subscription
+
+[`EventSubscription`](#eventsubscription)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### delete()
+
+> **delete**(`subscriptionId`): `Promise`\<`void`\>
+
+**`Experimental`**
+
+###### Parameters
+
+###### subscriptionId
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ***
 

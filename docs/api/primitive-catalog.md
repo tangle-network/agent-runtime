@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@3.0.32` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@3.0.34` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1456,7 +1456,7 @@ Import from `@tangle-network/agent-runtime/testing` — 24 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 111 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 115 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1491,10 +1491,14 @@ Import from `@tangle-network/agent-runtime/mcp` — 111 exports.
 | `DelegationRecord` | interface | Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) — |
 | `DelegationResumeDriver` | interface | Re-attaches restored in-flight records to their detached runs. The queue |
 | `DelegationTraceSpan` | interface | One span of a delegation's compact trace. Flat (parent linkage by id), all |
+| `EventSubscription` | interface | Registered subscription state. The cursor is the last ACKNOWLEDGED sequence. |
+| `EventSubscriptionStore` | interface | Injectable subscription store. The default is in-memory; durable owners may supply their own. |
 | `FleetHandle` | interface | Minimal `SandboxFleet` surface the fleet executor calls. Declared |
 | `JsonRpcMessage` | interface | One JSON-RPC 2.0 request or notification. |
 | `JsonRpcResponse` | interface | One JSON-RPC 2.0 response. |
 | `ManagerWake` | interface | One wake of a manager that ended its turn with work open. |
+| `McpEventRecord` | interface | One immutable journaled record exposed through the subscription surface. |
+| `McpEventSource` | interface | The native event source. The default adapter wraps a durable `ObserverJournal`. |
 | `McpToolAnnotations` | interface | MCP tool annotations (protocol 2025-03-26 and later). Hints a client reads |
 | `McpToolDescriptor` | interface | A callable MCP tool exposed by either stdio server. |
 | `McpTransport` | interface | Stdio-shaped transport used by the shared JSON-RPC server implementation. |
