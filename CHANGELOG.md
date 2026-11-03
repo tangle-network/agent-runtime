@@ -1,3 +1,7 @@
+## 3.0.33
+
+The MCP server serves `events_subscribe`, `events_fetch`, `events_ack` and `events_unsubscribe` over a wired event source: an idempotent-by-key subscription lifecycle on the native observer journal with at-least-once delivery until acknowledged, digest-chain page verification, lazy expiry that carries the unacknowledged cursor through a same-key resubscribe, sliding expiry for actively reconnecting consumers, and acknowledgements bounded by the journal high-watermark. `agent-runtime-mcp` serves the tools read-only over one pursuit's durable journal (`MCP_ENABLE_EVENTS=1` with `AGENT_RUNTIME_EVENTS_JOURNAL`); an absent journal file is a valid empty journal, and cross-pursuit aggregation stays with the host platform.
+
 ## 3.0.32
 
 A retained turn whose stream and exact result stop answering settles pending once its run status read fails, outlasts 60 seconds, or finds the run ended, instead of waiting forever.
