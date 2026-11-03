@@ -10,6 +10,7 @@ import {
   workerInboxFileFromEventDir,
   writeWorkerSteer,
 } from '../../src/runtime'
+import { connectHttpMcp } from '../../src/runtime/http-mcp-client'
 import type { Agent, AgentSpec, ExecutorResult } from '../../src/runtime/supervise/types'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
@@ -150,4 +151,43 @@ describe('supervisePursuit root steering', () => {
         expect(existsSync(join(supervisorRunDir(root, runId), 'steers'))).toBe(false)
     },
   )
+
+  it('delivers a root steer the manager read in its journal, so submit_result is not refused', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pursuit-read-steer-'))
+    roots.push(root)
+    const runId = 'read-root-steer'
+    const operationId = 'read-root-steer-1'
+    writeWorkerSteer(root, runId, runId, { operationId, message: 'cite the official host' })
+    const submissions: unknown[] = []
+    await supervisePursuit(
+      testAgentProfile(runId, {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('read_journal', 'submit_result'),
+      }),
+      'read the journal, then submit',
+      {
+        pursuitId: `pursuit:${runId}`,
+        runId,
+        runDir: root,
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        driverRetry: { enabled: false },
+        driveHarness: async ({ coordinationMcpUrl: url, coordinationMcpHeaders: protectedHeaders }) => {
+          const connection = await connectHttpMcp({ url, protectedHeaders })
+          const call = async (name: string, args: Record<string, unknown>) =>
+            JSON.parse(await connection.callTool(name, args))
+          let read = 0
+          for (let tries = 0; read === 0 && tries < 50; tries++) {
+            read = (await call('read_journal', { kinds: ['lead-message'] })).entries.length
+            if (read === 0) await new Promise((resolve) => setTimeout(resolve, 100))
+          }
+          submissions.push(read, await call('submit_result', { result: { answer: 'done' } }))
+        },
+      },
+    )
+    // Before the fix the steer stayed queued after the read: `{ accepted: false, error: 'open-work' }`.
+    expect(submissions).toEqual([1, expect.objectContaining({ accepted: true })])
+    expect(readWorkerSteerAcknowledgement(supervisorRunDir(root, runId), operationId)?.effect).toBe(
+      'delivered',
+    )
+  })
 })

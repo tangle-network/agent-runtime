@@ -68,6 +68,8 @@ export interface EventBus<E extends BusEvent> {
   /** {@link EventBus.pull}, returning the stamped record, so a consumer can later acknowledge the
    *  exact event it received by `seq`. */
   pullRecord(kinds?: ReadonlyArray<E['type']>): BusRecord<E> | undefined
+  /** Remove and return the queued record with this `seq`, which its consumer read another way. */
+  take(seq: number): BusRecord<E> | undefined
   /** The queued, not-yet-pulled records in publish order (filtered by `kinds` when given), as a
    *  copy: reading it never changes what `pull` returns next. */
   queued(kinds?: ReadonlyArray<E['type']>): ReadonlyArray<BusRecord<E>>
@@ -120,12 +122,12 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
     return best
   }
 
-  const pullRecord = (kinds?: ReadonlyArray<E['type']>): BusRecord<E> | undefined => {
-    const i = bestIndex(kinds)
+  const pullAt = (i: number): BusRecord<E> | undefined => {
     if (i < 0) return undefined
     pulled++
     return queue.splice(i, 1)[0]
   }
+  const pullRecord = (kinds?: ReadonlyArray<E['type']>) => pullAt(bestIndex(kinds))
 
   return {
     async publish(event, opts) {
@@ -149,6 +151,7 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       return pullRecord(kinds)?.event
     },
     pullRecord,
+    take: (seq) => pullAt(queue.findIndex((r) => r.seq === seq)),
     queued(kinds) {
       return queue.filter((r) => matches(r, kinds))
     },

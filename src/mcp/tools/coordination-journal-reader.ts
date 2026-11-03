@@ -16,9 +16,12 @@ import { safeJsonText } from './coordination-json'
 export function createJournalReader({
   opts,
   bus,
+  readSteer,
 }: {
   readonly opts: CoordinationToolsOptions
   readonly bus: EventBus<CoordinationEvent>
+  /** A lead message of this process the manager's own read returned in full, by bus `seq`. */
+  readonly readSteer: (seq: number) => void
 }) {
   let journalReadTo = 0
 
@@ -161,6 +164,8 @@ export function createJournalReader({
       }
       entries.push(row)
       usedBytes += bytes
+      if (trackOwnRead && !candidate.prior && record.event.type === 'lead-message')
+        readSteer(record.seq)
     }
     const last = entries[entries.length - 1]
     const nextRow = last === undefined ? sinceRow : last.row + 1
