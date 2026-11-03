@@ -563,7 +563,7 @@ describe('supervisePursuit root stream', () => {
   /**
    * The durable test provider, advertising the coordination attachment a provider-placed root
    * needs, with the root's session prepending the three parts to its retained events. After the
-   * parts are handed to Runtime and its 1 s flush window closes, the session reads the run directory
+   * parts are handed to Runtime and the event loop turns once, the session reads the run directory
    * before yielding anything else, so `seenDuringTurn` is what was on disk while the turn was open.
    */
   function rootProvider(seen: { duringTurn?: number }): AgentEnvironmentProvider {
@@ -576,8 +576,8 @@ describe('supervisePursuit root stream', () => {
           ...session,
           async *events(eventOptions) {
             for (const part of rootParts) yield structuredClone(part)
-            // Appends land together when the flush window closes (one fenced write per window).
-            await new Promise((resolve) => setTimeout(resolve, 1_100))
+            // After a quiet second, appends land together when the event loop turns.
+            await new Promise((resolve) => setImmediate(resolve))
             seen.duringTurn = existsSync(streamPath())
               ? readFileSync(streamPath(), 'utf8')
                   .split('\n')
