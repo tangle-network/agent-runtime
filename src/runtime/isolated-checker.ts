@@ -511,28 +511,26 @@ async function runInBox(
   return evidence ? { ...result, box: evidence } : result
 }
 
-/** Refuse unless the box reads each file with its manifest digest. A name holding a newline or
- * backslash, which coreutils escapes, does not compare. */
+/** Refuse unless the box reads each file with its manifest digest. `find` names the files: a box
+ * process takes 256 arguments at most. A name holding a newline or backslash, which coreutils
+ * escapes, does not compare. */
 async function verifyBoxTree(
   box: SandboxInstance,
   files: readonly { path: string; sha256: string }[],
 ) {
-  if (files.length === 0) return
-  const child = await box.process.spawnExact(
-    'sha256sum',
-    ['--', ...files.map((file) => file.path)],
-    {
-      cwd: BOX_TREE,
-      env: { PATH: '/usr/bin:/bin', LANG: 'C' },
-      inheritEnv: false,
-      timeoutMs: BOX_SETUP_SECONDS * 1_000,
-    },
-  )
+  const hash = ['.', '-type', 'f', '-exec', 'sha256sum', '{}', '+']
+  const child = await box.process.spawnExact('find', hash, {
+    cwd: BOX_TREE,
+    env: { PATH: '/usr/bin:/bin', LANG: 'C' },
+    inheritEnv: false,
+    timeoutMs: BOX_SETUP_SECONDS * 1_000,
+  })
   let listing = ''
   for await (const text of child.stdout()) listing += text
   if ((await child.wait()) !== 0) throw new Error('Check box could not hash the tree it received')
+  // Each line is `<hex>  ./<path>`.
   const read = new Set(
-    listing.split('\n').map((line) => `sha256:${line.slice(0, 64)} ${line.slice(66)}`),
+    listing.split('\n').map((line) => `sha256:${line.slice(0, 64)} ${line.slice(68)}`),
   )
   for (const file of files)
     if (!read.has(`${file.sha256} ${file.path}`))
