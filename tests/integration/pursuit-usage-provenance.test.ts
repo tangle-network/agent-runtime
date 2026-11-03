@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -20,13 +20,15 @@ import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
 
-/** A worker whose provider reports the prompt-cache split, so replay has cache classes to lose. */
+/** A worker whose provider reports the prompt-cache split, so replay has cache classes to lose,
+ *  after streaming `frames` deltas and an awaiting-result mark as a chatty Sandbox turn does. */
 function cachingLeaf(
   name: string,
   input: number,
   cacheRead: number,
   cacheWrite: number,
   usd: number,
+  frames = 0,
 ): Agent<unknown, unknown> {
   // Every prompt token is classified: the pool refuses a split whose classes exceed `input`.
   const tokens = {
@@ -41,6 +43,13 @@ function cachingLeaf(
     runtime: 'caching-test-worker',
     execute() {
       return (async function* () {
+        for (let frame = 0; frame < frames; frame += 1)
+          yield { kind: 'progress', progress: { kind: 'text_delta', text: 'x' } } as UsageEvent
+        if (frames > 0)
+          yield {
+            kind: 'progress',
+            progress: { kind: 'awaiting-result', since: new Date().toISOString() },
+          } as UsageEvent
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', ...tokens } as UsageEvent
         yield { kind: 'cost', usd, usdKnown: true, provenance: 'provider-receipt' } as UsageEvent
@@ -113,7 +122,7 @@ describe('pursuit projection usage and totals', () => {
           driveHarness,
           makeWorkerAgent: (profile: { name: string }) =>
             profile.name === 'reader'
-              ? cachingLeaf('reader', 120, 80, 8, 0.002)
+              ? cachingLeaf('reader', 120, 80, 8, 0.002, 2_000)
               : cachingLeaf('writer', 60, 10, 5, 0.001),
         },
       )
@@ -135,6 +144,17 @@ describe('pursuit projection usage and totals', () => {
       expect(reader?.cost).toMatchObject({ usd: 0.002, usdKnown: true, provenance: 'reported' })
       expect(reader?.timing?.wallMs).toBeGreaterThanOrEqual(0)
       expect(reader?.timing?.settledAt).toBeGreaterThanOrEqual(reader?.timing?.startedAt ?? 0)
+
+      // Each journal `progress` row is a durable append: the reader's 2,000 frames publish on a
+      // leading-edge second per worker, not a row each, and its awaiting-result row stays (#2339).
+      const rows = (await readFile(join(runDir, 'spawn-journal.jsonl'), 'utf8'))
+        .split('\n')
+        .filter((line) => line.includes('"kind":"progress"'))
+        .map((line) => JSON.parse(line).event)
+        .filter((event) => event.kind === 'progress')
+      const drainedMs = (reader?.timing?.settledAt ?? 0) - (reader?.timing?.startedAt ?? 0)
+      expect(rows.length).toBeLessThanOrEqual(2 * (2 + Math.ceil(drainedMs / 1_000)))
+      expect(rows.filter((row) => row.awaitingResult !== undefined)).toHaveLength(1)
 
       const run = replayed.runs.find((candidate) => candidate.runId === runId)
       const totals = run?.totals
