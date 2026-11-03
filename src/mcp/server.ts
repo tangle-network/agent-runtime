@@ -58,6 +58,7 @@ import {
   DELEGATION_STATUS_INPUT_SCHEMA,
   DELEGATION_STATUS_TOOL_NAME,
 } from './tools/delegation-status'
+import { createEventsTools, type EventSubscriptionStore, type McpEventSource } from './tools/events'
 import type { TraceContext } from './trace-propagation'
 
 export type { JsonRpcResponse, McpToolDescriptor } from './protocol'
@@ -76,6 +77,15 @@ export interface McpServerOptions {
    * agent profile through Runtime and returns the provider-neutral UI audit result.
    */
   uiAuditorDelegate?: UiAuditorDelegate
+  /**
+   * Required to enable the `events_*` subscription tools — the runtime-owned
+   * piece of the agent-inbox event track: expose the native event journal with
+   * an idempotent subscribe / at-least-once fetch / forward-only ack lifecycle.
+   * No scheduler is wired here; recurrence stays with its native owners.
+   */
+  eventSource?: McpEventSource
+  /** Optional durable subscription store for the `events_*` tools. Default in-memory. */
+  eventSubscriptionStore?: EventSubscriptionStore
   /** Override the default in-memory feedback store. */
   feedbackStore?: FeedbackStore
   /** Override the default in-memory task queue. */
@@ -162,6 +172,18 @@ export function createMcpServer(options: McpServerOptions = {}): McpServer {
     inputSchema: DELEGATION_STATUS_INPUT_SCHEMA as unknown as Record<string, unknown>,
     handler: createDelegationStatusHandler({ queue }),
   })
+  if (options.eventSource) {
+    const events = createEventsTools({
+      eventSource: options.eventSource,
+      ...(options.eventSubscriptionStore !== undefined
+        ? { subscriptionStore: options.eventSubscriptionStore }
+        : {}),
+    })
+    tools.set(events.subscribeTool.name, events.subscribeTool)
+    tools.set(events.fetchTool.name, events.fetchTool)
+    tools.set(events.ackTool.name, events.ackTool)
+    tools.set(events.unsubscribeTool.name, events.unsubscribeTool)
+  }
   tools.set(DELEGATION_HISTORY_TOOL_NAME, {
     name: DELEGATION_HISTORY_TOOL_NAME,
     description: DELEGATION_HISTORY_DESCRIPTION,
