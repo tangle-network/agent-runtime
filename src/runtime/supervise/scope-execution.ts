@@ -142,14 +142,14 @@ async function foldExecutorStream<C>(
       async (running, event) => {
         live.spent = running
         live.lastActivityAt = now()
-        const awaiting = event.kind === 'progress' && event.progress.kind === 'awaiting-result'
-        if (!awaiting && live.lastActivityAt - publishedAt < 1_000) return
+        const mark = event.kind === 'progress' ? event.progress : undefined
+        if (mark?.kind !== 'awaiting-result' && live.lastActivityAt - publishedAt < 1_000) return
         publishedAt = live.lastActivityAt
         await journal.appendEvent(journalRoot, {
           kind: 'progress',
           id: live.id,
           spend: running,
-          ...(awaiting ? { awaitingResult: { since: event.progress.since } } : {}),
+          ...(mark?.kind === 'awaiting-result' ? { awaitingResult: { since: mark.since } } : {}),
           seq: nextProgressSeq(),
           at: new Date(publishedAt).toISOString(),
         })
