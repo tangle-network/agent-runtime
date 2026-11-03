@@ -171,6 +171,7 @@ describe('supervisePursuit root steering', () => {
         runDir: root,
         budget: { maxIterations: 4, maxTokens: 10_000 },
         driverRetry: { enabled: false },
+        makeWorkerAgent: () => gatedWorker(Promise.resolve()),
         driveHarness: async (drive) => {
           const connection = await connectHttpMcp({
             url: drive.coordinationMcpUrl,
