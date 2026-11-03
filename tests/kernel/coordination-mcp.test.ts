@@ -137,6 +137,8 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
           } while (outputOffset !== null)
           reconstructed = JSON.parse(chunks.join(''))
           expect(await blobs.get(settled.outRef)).toEqual(output)
+          const direct = await call('observe_agent', { outRef: settled.outRef })
+          expect(direct.outputPage.text.length).toBeGreaterThan(0)
         } finally {
           await mcp.close()
         }
