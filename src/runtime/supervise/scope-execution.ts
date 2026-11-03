@@ -120,13 +120,11 @@ interface ExecutionEvidence {
 }
 
 /**
- * Drain a streaming executor, folding usage events as they arrive. Each event republishes the
- * running total and a fresh activity stamp onto the live child, so `scope.progress(id)` sees a
- * worker mid-flight. The fold does not abort when the total crosses the reservation: executors
- * report usage after the call it measures (the sandbox executor in its terminal receipt), so the
- * crossing report is often the last event, and aborting would discard completed work while saving
- * no spend. A cap that prevents spend belongs in the executor; an overspend is recorded at
- * reconciliation.
+ * Fold a streaming executor's running total onto the live child, so `scope.progress(id)` sees it.
+ * The fold never aborts at the reservation: usage arrives after the call it measures, often last,
+ * so aborting would discard completed work and save no spend; reconciliation records overspend.
+ * `progress` rows, replaced by the settlement, publish on a leading-edge second (#2337, #2339);
+ * awaiting-result rows always publish.
  */
 async function foldExecutorStream<C>(
   { live, childAbort, now }: ChildExecutionAttempt<C>,
@@ -137,21 +135,23 @@ async function foldExecutorStream<C>(
   priorSpent: Spend | undefined,
 ): Promise<Spend> {
   live.events.start()
+  let publishedAt = Number.NEGATIVE_INFINITY
   try {
     return await foldStream(
       stream,
       async (running, event) => {
         live.spent = running
         live.lastActivityAt = now()
+        const mark = event.kind === 'progress' ? event.progress : undefined
+        if (mark?.kind !== 'awaiting-result' && live.lastActivityAt - publishedAt < 1_000) return
+        publishedAt = live.lastActivityAt
         await journal.appendEvent(journalRoot, {
           kind: 'progress',
           id: live.id,
           spend: running,
-          ...(event.kind === 'progress' && event.progress.kind === 'awaiting-result'
-            ? { awaitingResult: { since: event.progress.since } }
-            : {}),
+          ...(mark?.kind === 'awaiting-result' ? { awaitingResult: { since: mark.since } } : {}),
           seq: nextProgressSeq(),
-          at: new Date(now()).toISOString(),
+          at: new Date(publishedAt).toISOString(),
         })
       },
       childAbort.signal,
