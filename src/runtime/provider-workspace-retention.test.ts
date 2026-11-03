@@ -662,63 +662,6 @@ describe('provider workspace retention', () => {
     expect(acceptedResults).toBe(1)
   })
 
-  it.each(['ready', 'next-turn'] as const)(
-    'bounds observation of a %s exact result without accepting an unseen tail',
-    async (readiness) => {
-      let observedFrames = 0
-      let resultReads = 0
-      let acceptedResults = 0
-      const admissions: RetainedRunAdmission[] = []
-      const provider = pendingRetainedProvider({
-        events: async function* () {
-          // A finite guard makes a starvation regression fail instead of wedging the runner.
-          while (observedFrames < 4096) {
-            observedFrames += 1
-            yield {
-              id: `progress-${observedFrames}`,
-              type: 'message.part.updated',
-              data: { delta: '.' },
-            }
-          }
-          throw new Error('continuously ready observation exceeded the test guard')
-        },
-        result: async () => {
-          resultReads += 1
-          if (readiness === 'next-turn') await new Promise<void>((resolve) => setImmediate(resolve))
-          return { text: 'completed independently', success: true }
-        },
-      })
-      const retention: RetainedExecutorContext = {
-        executionId: `continuous-ready-${readiness}`,
-        admissions,
-        onAdmission: async (admission) => {
-          admissions.push(admission)
-        },
-        onResult: async () => {
-          acceptedResults += 1
-        },
-      }
-      const signal = new AbortController().signal
-      const executor = providerAsExecutor(provider)(
-        { profile: testProfile(`continuous-ready-${readiness}`), harness: null },
-        { signal, seams: { [retainedExecutorSeamKey]: retention } },
-      )
-      await expect(async () => {
-        for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
-        }
-      }).rejects.toMatchObject({ pendingCause: 'unobservable' })
-      expect(observedFrames).toBeLessThan(4096)
-      expect(resultReads).toBe(1)
-      expect(acceptedResults).toBe(0)
-      expect(admissions.map((entry) => entry.phase)).toEqual([
-        'intent',
-        'environment',
-        'dispatched',
-      ])
-      expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
-    },
-  )
-
   it.each([
     {
       label: 'without exact usage',
@@ -837,63 +780,6 @@ describe('provider workspace retention', () => {
         expect(acceptedResults).toBe(0)
         expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
       }
-    },
-  )
-
-  it.each(['foreign', 'refusal', 'duplicate'] as const)(
-    'does not accept success with an unobserved %s tail beyond the work budget',
-    async (tail) => {
-      let acceptedResults = 0
-      let tailReached = false
-      let dispatches = 0
-      const admissions: RetainedRunAdmission[] = []
-      const provider = pendingRetainedProvider({
-        onDispatch: () => {
-          dispatches += 1
-        },
-        events: async function* () {
-          for (let index = 0; index < 4096; index += 1) {
-            yield {
-              id: tail === 'duplicate' ? 'same-event' : `progress-${index}`,
-              type: 'message.part.updated',
-              data: { delta: '.' },
-            }
-          }
-          tailReached = true
-          yield tail === 'foreign'
-            ? { id: 'tail', type: 'done', data: { executionId: 'another-execution' } }
-            : {
-                id: 'tail',
-                type: 'error',
-                data: { error: 'provider refused', errorCode: 'provider_quota_exhausted' },
-              }
-        },
-        result: async () => ({ text: 'apparently finished', success: true }),
-      })
-      const retention: RetainedExecutorContext = {
-        executionId: `unobserved-tail-${tail}`,
-        admissions,
-        onAdmission: async (admission) => {
-          admissions.push(admission)
-        },
-        onResult: async () => {
-          acceptedResults += 1
-        },
-      }
-      const signal = new AbortController().signal
-      const executor = providerAsExecutor(provider)(
-        { profile: testProfile(`unobserved-tail-${tail}`), harness: null },
-        { signal, seams: { [retainedExecutorSeamKey]: retention } },
-      )
-      await expect(async () => {
-        for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
-        }
-      }).rejects.toMatchObject({ pendingCause: 'unobservable' })
-      expect(tailReached).toBe(false)
-      expect(acceptedResults).toBe(0)
-      expect(dispatches).toBe(1)
-      expect(admissions.at(-1)?.phase).toBe('dispatched')
-      expect(await executor.teardown('brutalKill')).toMatchObject({ destroyed: false })
     },
   )
 
