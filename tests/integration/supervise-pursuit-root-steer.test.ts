@@ -171,8 +171,11 @@ describe('supervisePursuit root steering', () => {
         runDir: root,
         budget: { maxIterations: 4, maxTokens: 10_000 },
         driverRetry: { enabled: false },
-        driveHarness: async ({ coordinationMcpUrl: url, coordinationMcpHeaders: protectedHeaders }) => {
-          const connection = await connectHttpMcp({ url, protectedHeaders })
+        driveHarness: async (drive) => {
+          const connection = await connectHttpMcp({
+            url: drive.coordinationMcpUrl,
+            protectedHeaders: drive.coordinationMcpHeaders,
+          })
           const call = async (name: string, args: Record<string, unknown>) =>
             JSON.parse(await connection.callTool(name, args))
           let read = 0

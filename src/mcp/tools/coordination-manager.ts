@@ -110,7 +110,8 @@ export function createCoordinationToolsForManager(
     bus,
     readSteer: (seq) => {
       const record = bus.take(seq)
-      if (record) state.deliveries.push({ record, attempt: state.driverAttempt, acknowledged: false })
+      const attempt = state.driverAttempt
+      if (record) state.deliveries.push({ record, attempt, acknowledged: false })
     },
   })
   const ackEnv: AcknowledgementEnv = { opts, bus, state, leadReceipts }

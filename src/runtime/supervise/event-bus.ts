@@ -62,16 +62,13 @@ export interface EventBus<E extends BusEvent> {
    *  failure leaves the event invisible and retrying the SAME event object reuses the exact stamp.
    *  This lets an awaited product observer commit its record before a supervisor can consume it. */
   publish(event: E, opts?: PublishOptions): Promise<BusRecord<E>>
-  /** Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
+  /** Remove and return the highest-priority QUEUED record whose type is in `kinds` (any if omitted),
    *  ties broken FIFO by `seq`; `undefined` when nothing matches. */
-  pull(kinds?: ReadonlyArray<E['type']>): E | undefined
-  /** {@link EventBus.pull}, returning the stamped record, so a consumer can later acknowledge the
-   *  exact event it received by `seq`. */
   pullRecord(kinds?: ReadonlyArray<E['type']>): BusRecord<E> | undefined
   /** Remove and return the queued record with this `seq`, which its consumer read another way. */
   take(seq: number): BusRecord<E> | undefined
   /** The queued, not-yet-pulled records in publish order (filtered by `kinds` when given), as a
-   *  copy: reading it never changes what `pull` returns next. */
+   *  copy: reading it never changes what `pullRecord` returns next. */
   queued(kinds?: ReadonlyArray<E['type']>): ReadonlyArray<BusRecord<E>>
   /** Register a pass-through handler; it receives the stamped record of every event published after
    *  registration. Returns an unsubscribe fn. */
@@ -146,9 +143,6 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       byKind[event.type] = (byKind[event.type] ?? 0) + 1
       if (opts?.queue !== false) for (const handler of [...queuedHandlers]) handler(record)
       return record
-    },
-    pull(kinds) {
-      return pullRecord(kinds)?.event
     },
     pullRecord,
     take: (seq) => pullAt(queue.findIndex((r) => r.seq === seq)),
