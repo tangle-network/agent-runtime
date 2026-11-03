@@ -32,6 +32,7 @@ import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import type { SupervisorSpanOptions } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
+import type { PromptRegistry } from './prompt-registry'
 import type { RunContext } from './run-context'
 import type { ExecutorConfig } from './runtime'
 import type { SelectSeat } from './seat-chain'
@@ -224,6 +225,11 @@ export interface SuperviseOptions {
   /** The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
    *  may start by `graphDigest`. Omit and `run_graph` takes graphs as data only. */
   readonly graphRegistry?: string
+  /** The directive registry a graph subtask (a manager's `run_graph`, and a `maps` edge's `graph`
+   *  item) resolves its edge directives against. `runGraph` passes its own `registry`, so a nested
+   *  flow reads the directives of the graph that started it. Omit and subtasks resolve against the
+   *  seeded kernel registry. */
+  readonly promptRegistry?: PromptRegistry
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
