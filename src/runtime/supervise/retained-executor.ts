@@ -247,14 +247,6 @@ const causeMessages: Record<RetainedPendingCause, string> = {
 export const DISPATCH_NOT_ADMITTED_CODE = 'DISPATCH_NOT_ADMITTED'
 
 /**
- * agent-provider-tangle's `TangleDispatchExecutionChangedError` (since 5.0.8): Sandbox CONFIRMED
- * the dispatch but named an execution id other than the requested run's. The provider's own
- * answer violates its contract, identically on every retry (agent-sdk #475: 107 retries over
- * 39 minutes, all classed transient, before the run settled all-children-down).
- */
-export const DISPATCH_EXECUTION_CHANGED_CODE = 'DISPATCH_EXECUTION_CHANGED'
-
-/**
  * The Sandbox SDK's codes for a box that cannot be provisioned for this profile, by the HTTP status
  * each is sent with: a mount outside the box's writable roots and a materialization that would fail
  * the same way again (422), a mounted file changed on both sides since the last mount (409). Two
@@ -400,10 +392,6 @@ export function classifyRetainedPendingCause(
     // dispatch the provider already confirmed.
     if (code === DISPATCH_NOT_ADMITTED_CODE)
       return at === 'admission' ? 'request-rejected' : 'provider-contract'
-    // Sandbox confirmed the dispatch but named a different execution: a broken answer at either
-    // phase. Nothing about the request can change it — repeating the dispatch receives the same
-    // contradiction — so it is a provider contract violation, which the driver classifies terminal.
-    if (code === DISPATCH_EXECUTION_CHANGED_CODE) return 'provider-contract'
     // The box could not be provisioned for this profile, at either phase: no turn ran in it.
     if (isProvisioningRefusal(value)) return 'request-rejected'
     // The credential command refused this route before dispatch. After admission, a refusal

@@ -88,12 +88,6 @@ export {
   type DelegateHandlerOptions,
   type DelegateResult,
 } from './tools/delegate'
-export type {
-  EventSubscription,
-  EventSubscriptionStore,
-  McpEventRecord,
-  McpEventSource,
-} from './tools/events'
 export {
   environmentReader,
   type ResolvedSpawnResourcePath,

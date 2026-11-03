@@ -1,18 +1,25 @@
 /**
- * `events_*` MCP tools — the runtime-owned piece of the agent-inbox event track (chatgpt-plugins
- * #18 / agent-runtime #1497): expose the NATIVE event journal (the durable `ObserverJournal`:
- * runtime hook events + decision points, digest-chained) via an explicit subscription lifecycle.
+ *
+ * `events_*` MCP tools — the runtime-owned piece of the agent-inbox event
+ * track (chatgpt-plugins #18 / agent-runtime #1497): expose the NATIVE event
+ * journal (the durable `ObserverJournal`: runtime hook events + decision
+ * points, digest-chained) through an explicit subscription lifecycle.
+ *
  * Boundaries, by design:
- * - No scheduler, no cron, no second schedule authority. Recurrence and wake-ups stay with the
- *   native trigger owners; these tools only read and acknowledge what the journal already recorded.
- * - Delivery is at-least-once until acknowledged: `events_fetch` pages from the acknowledged
- *   cursor, so a lost response is redelivered, and sequence numbers deduplicate on the client.
- * - Records are verified against the journal's digest chain on every page; a mutated, reordered
- *   or deleted tail refuses the page instead of serving unverifiable history.
- * - Subscriptions are idempotent by caller key: a reconnect resubscribes to the SAME subscription
- *   (same id, same cursor), never a duplicate stream.
- * - Optional expiry is lazy: an expired subscription reads as gone, and the caller resubscribes
- *   with the same key to resume from its cursor.
+ * - No scheduler, no cron, no second schedule authority. Recurrence and
+ *   wake-ups stay with the native trigger owners; these tools only read and
+ *   acknowledge what the journal already recorded.
+ * - Delivery is at-least-once until acknowledged: `events_fetch` pages from
+ *   the acknowledged cursor, so a lost response is redelivered, and sequence
+ *   numbers deduplicate on the client.
+ * - Records are verified against the journal's digest chain on every page; a
+ *   mutated, reordered or deleted tail refuses the page instead of serving
+ *   unverifiable history.
+ * - Subscriptions are idempotent by caller key: a reconnect resubscribes to
+ *   the SAME subscription (same id, same cursor), never a duplicate stream.
+ * - Optional expiry is lazy: an expired subscription reads as gone, and the
+ *   caller resubscribes with the same key to resume from its cursor.
+ *
  * @experimental
  */
 
