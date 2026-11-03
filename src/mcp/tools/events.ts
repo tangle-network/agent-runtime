@@ -167,8 +167,10 @@ async function liveSubscription(
   nowMs: number,
 ): Promise<EventSubscription> {
   const subscription = await store.get(subscriptionId)
+  // An expired subscription is NOT deleted here: its row is the consumer's
+  // durable resume position, and `events_subscribe` with the same key replaces
+  // it while carrying the cursor. Only an explicit unsubscribe deletes.
   if (!subscription || expired(subscription, nowMs)) {
-    if (subscription) await store.delete(subscription.subscriptionId)
     throw new ValidationError(
       `events: unknown or expired subscription "${subscriptionId}"; resubscribe with the same key to resume from its cursor`,
     )
@@ -213,19 +215,30 @@ export function createEventsTools(options: EventsToolOptions): McpToolDescriptor
     }
     const ttlSeconds = rawTtl ?? DEFAULT_TTL_SECONDS
     // Idempotent resubscribe: the same key resumes the same subscription and
-    // cursor. A reconnect never creates a second stream for one consumer.
+    // cursor. A reconnect never creates a second stream for one consumer, and an
+    // ACTIVE consumer's expiry slides: reconnecting keeps the subscription alive.
     const existing = await store.findByKey(key)
     if (existing && !expired(existing, now())) {
+      const renewed: EventSubscription = { ...existing, expiresAt: now() + ttlSeconds * 1000 }
+      await store.put(renewed)
       return {
-        subscriptionId: existing.subscriptionId,
+        subscriptionId: renewed.subscriptionId,
         key,
-        cursor: existing.cursor,
-        kinds: [...existing.kinds],
-        expiresAt: existing.expiresAt,
+        cursor: renewed.cursor,
+        kinds: [...renewed.kinds],
+        expiresAt: renewed.expiresAt,
       }
     }
+    // An expired subscription's cursor is its consumer's durable position:
+    // resubscribing with the same key resumes THERE, never at the current
+    // watermark — otherwise every unacknowledged event between the two would be
+    // silently skipped, breaking the at-least-once contract.
+    const resumedCursor = existing ? existing.cursor : undefined
     if (existing) await store.delete(existing.subscriptionId)
-    const cursor = fromSequence !== undefined ? fromSequence : await currentHighWatermark(source)
+    const cursor =
+      fromSequence !== undefined
+        ? fromSequence
+        : (resumedCursor ?? (await currentHighWatermark(source)))
     const subscription: EventSubscription = {
       subscriptionId: randomUUID(),
       key,
@@ -296,6 +309,15 @@ export function createEventsTools(options: EventsToolOptions): McpToolDescriptor
       throw new ValidationError('events_ack: `sequence` must be a non-negative integer')
     }
     const subscription = await liveSubscription(store, value.subscriptionId, now())
+    // An acknowledgement beyond the journal's high-watermark would permanently
+    // skip records that arrive later with a sequence at or below it. Only a
+    // sequence the journal actually reached may be acknowledged.
+    const highWatermark = await currentHighWatermark(source)
+    if (value.sequence > highWatermark) {
+      throw new ValidationError(
+        `events_ack: \`sequence\` ${value.sequence} is beyond the journal high-watermark ${highWatermark}; acknowledge only delivered records`,
+      )
+    }
     // The cursor only moves forward: a duplicated or stale acknowledgement is a no-op.
     if (value.sequence > subscription.cursor) subscription.cursor = value.sequence
     await store.put(subscription)

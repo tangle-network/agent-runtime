@@ -131,33 +131,96 @@ describe('events subscription tools over the native journal', () => {
     expect(next.records.map((record) => record.sequence)).toEqual([3])
   })
 
-  it('expires subscriptions lazily and requires resubscribe; unsubscribe is idempotent', async () => {
-    const source = chain([{ payload: { type: 'a' } }])
+  it('expires subscriptions lazily; resubscribe-by-key resumes the UNACKNOWLEDGED cursor, never the watermark', async () => {
+    const source = chain([
+      { payload: { type: 'a' } },
+      { payload: { type: 'b' } },
+      { payload: { type: 'c' } },
+    ])
     let now = 1_000
     const tools = createEventsTools({ eventSource: source, now: () => now })
     const subscribed = (await tools.subscribeTool.handler({
       key: 'k',
       fromSequence: 0,
       ttlSeconds: 60,
-    })) as {
-      subscriptionId: string
+    })) as { subscriptionId: string }
+    const page = (await tools.fetchTool.handler({ subscriptionId: subscribed.subscriptionId })) as {
+      records: McpEventRecord[]
     }
+    expect(page.records).toHaveLength(3)
+    await tools.ackTool.handler({ subscriptionId: subscribed.subscriptionId, sequence: 1 })
     now += 61_000
     await expect(
       tools.fetchTool.handler({ subscriptionId: subscribed.subscriptionId }),
     ).rejects.toBeInstanceOf(ValidationError)
-    // Resubscribing with the same key resumes from the acknowledged cursor.
-    const resumed = (await tools.subscribeTool.handler({ key: 'k', fromSequence: 0 })) as {
+    // Resubscribing WITHOUT fromSequence must resume at the acknowledged cursor (1),
+    // not at the watermark (3): records 2 and 3 are still owed to this consumer.
+    const resumed = (await tools.subscribeTool.handler({ key: 'k' })) as {
       subscriptionId: string
       cursor: number
     }
-    expect(resumed.cursor).toBe(0)
+    expect(resumed.cursor).toBe(1)
+    const redelivered = (await tools.fetchTool.handler({
+      subscriptionId: resumed.subscriptionId,
+    })) as {
+      records: McpEventRecord[]
+    }
+    expect(redelivered.records.map((record) => record.sequence)).toEqual([2, 3])
     expect(await tools.unsubscribeTool.handler({ subscriptionId: resumed.subscriptionId })).toEqual(
       { subscriptionId: resumed.subscriptionId, removed: true },
     )
     expect(await tools.unsubscribeTool.handler({ subscriptionId: resumed.subscriptionId })).toEqual(
       { subscriptionId: resumed.subscriptionId, removed: false },
     )
+  })
+
+  it('slides expiry for an actively reconnecting consumer', async () => {
+    const source = chain([{ payload: { type: 'a' } }])
+    let now = 1_000
+    const tools = createEventsTools({ eventSource: source, now: () => now })
+    const first = (await tools.subscribeTool.handler({
+      key: 'k',
+      fromSequence: 0,
+      ttlSeconds: 60,
+    })) as {
+      subscriptionId: string
+      expiresAt: number
+    }
+    now += 50_000
+    const resumed = (await tools.subscribeTool.handler({ key: 'k', ttlSeconds: 60 })) as {
+      subscriptionId: string
+      expiresAt: number
+    }
+    expect(resumed.subscriptionId).toBe(first.subscriptionId)
+    expect(resumed.expiresAt).toBe(now + 60_000)
+    // The original expiry has passed, but the sliding renewal keeps it live.
+    now += 55_000
+    const stillLive = (await tools.fetchTool.handler({
+      subscriptionId: resumed.subscriptionId,
+    })) as {
+      records: McpEventRecord[]
+    }
+    expect(stillLive.records).toHaveLength(1)
+  })
+
+  it('refuses an acknowledgement beyond the journal high-watermark', async () => {
+    const source = chain([{ payload: { type: 'a' } }, { payload: { type: 'b' } }])
+    const tools = createEventsTools({ eventSource: source })
+    const subscribed = (await tools.subscribeTool.handler({ key: 'k', fromSequence: 0 })) as {
+      subscriptionId: string
+    }
+    await expect(
+      tools.ackTool.handler({ subscriptionId: subscribed.subscriptionId, sequence: 99 }),
+    ).rejects.toThrow(/beyond the journal high-watermark/)
+    // The refused ack did not move the cursor: everything is still owed.
+    const page = (await tools.fetchTool.handler({ subscriptionId: subscribed.subscriptionId })) as {
+      records: McpEventRecord[]
+      cursor: number
+    }
+    expect(page.cursor).toBe(0)
+    expect(page.records.map((record) => record.sequence)).toEqual([1, 2])
+    // A legit ack of the real watermark works.
+    await tools.ackTool.handler({ subscriptionId: subscribed.subscriptionId, sequence: 2 })
   })
 
   it('refuses a page whose journal chain no longer links', async () => {
