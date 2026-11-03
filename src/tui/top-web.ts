@@ -12,6 +12,8 @@ export type { TopInspection, TopInspectionSource } from './top-web-agent'
 
 /** Interval for reconciling missed filesystem notifications in the live viewer. */
 export const TOP_SNAPSHOT_RECONCILE_MS = 500
+const JOURNALS = ['observer.jsonl', 'spawn-journal.jsonl', 'journal.jsonl']
+const stampOf = (info: { size: number; mtimeMs: number }) => `${info.size}:${info.mtimeMs}`
 
 /** A reconnect always receives current truth; deltas replace changed roots atomically. */
 export interface TopSnapshotFrame {
@@ -70,8 +72,8 @@ export async function serveTopWeb(options: TopWebOptions) {
       for (const root of roots) {
         // A root untouched since its last parse, whose journal file did not move, keeps its snapshot (#2355): the
         // reconcile pass degrades to stat calls instead of re-parsing every journal on the host.
-        const marker = ['observer.jsonl', 'spawn-journal.jsonl', 'journal.jsonl'].map((name) => resolve(root, name)).find((path) => existsSync(path))
-        const stamp = marker ? await stat(marker).then((info) => `${info.size}:${info.mtimeMs}`, () => 'none') : 'runs-root'
+        const marker = JOURNALS.map((name) => resolve(root, name)).find((path) => existsSync(path))
+        const stamp = marker ? await stat(marker).then(stampOf, () => 'none') : 'runs-root'
         if (!touched.has(root) && snapshots.has(root) && lastStamps.get(root) === stamp) continue
         lastStamps.set(root, stamp)
         const snapshot = marker?.endsWith('observer.jsonl')
@@ -132,7 +134,11 @@ export async function serveTopWeb(options: TopWebOptions) {
   await refresh()
   // Each root's watcher marks its own root: a transcript write (which no snapshot digest covers) still wakes that
   // root's agent streams, and only those (#2355).
-  for (const root of roots) watchers.push(watch(root, { recursive: true }, () => { touched.add(root); schedule() }))
+  const mark = (root: string) => () => {
+    touched.add(root)
+    schedule()
+  }
+  for (const root of roots) watchers.push(watch(root, { recursive: true }, mark(root)))
   // Watch notifications may be coalesced or lost; the same loader reconciles them without a second model.
   const reconcile = setInterval(schedule, TOP_SNAPSHOT_RECONCILE_MS)
   const heartbeat = setInterval(() => {

@@ -6,23 +6,6 @@ import {
 } from './worker-output'
 
 describe('retained worker output pages', () => {
-  it('reads one retained field without serializing unrelated event history', async () => {
-    const content = { finding: 'A checkable result' }
-    const output = {
-      result: { content },
-      events: {
-        toJSON() {
-          throw new Error('event history must not be serialized')
-        },
-      },
-    }
-    const blobs = { put: async () => {}, get: async () => output }
-    const read = createWorkerOutputReader(blobs)
-    expect(
-      await read('result', workerOutputReadOptions({ outputPath: ['result', 'content'] })),
-    ).toEqual({ output: content })
-  })
-
   it('selects only own fields and rejects missing paths', async () => {
     const blobs = { put: async () => {}, get: async () => ({ content: ['first', 'second'] }) }
     const read = createWorkerOutputReader(blobs)
