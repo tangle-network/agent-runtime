@@ -13,7 +13,7 @@ export function createWorkerSettlement({
   readonly opts: CoordinationToolsOptions
   readonly nodeForWorker: ReturnType<typeof createSpawnAdmission>['nodeForWorker']
 }) {
-  // Outputs of descendants this manager learned by content address from a team summary.
+  // Outputs this manager learned by content address: settlements and their team summaries.
   const descendantOutRefs = new Set<string>(opts.sourceEvidenceRefs ?? [])
   const projectSettled = (settled: Settled<unknown>, resumed = false): SettledWorker => {
     const node = nodeForWorker(settled.handle.id)
@@ -51,10 +51,9 @@ export function createWorkerSettlement({
       ...(settled.subtree === undefined ? {} : { subtree: settled.subtree }),
       ...(resumed ? { resumed: true as const } : {}),
     }
-    // A result a manager was told about by digest is one it may read; no other digest is.
-    for (const result of settled.subtree?.results ?? []) {
-      if (result.outRef !== undefined) descendantOutRefs.add(result.outRef)
-    }
+    // A manager may read a result it was told about by digest, settled or summarized; no other.
+    const told = [settled.outRef, ...(settled.subtree?.results ?? []).map((r) => r.outRef)]
+    for (const outRef of told) if (outRef !== undefined) descendantOutRefs.add(outRef)
     return detachedFrozen<SettledWorker>(
       settled.kind === 'done'
         ? {
