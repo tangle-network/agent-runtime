@@ -12,6 +12,7 @@ import {
 } from '../../src/runtime'
 import { connectHttpMcp } from '../../src/runtime/http-mcp-client'
 import type { Agent, AgentSpec, ExecutorResult } from '../../src/runtime/supervise/types'
+import { testContinuation } from '../helpers/continuation'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const roots: string[] = []
@@ -172,6 +173,8 @@ describe('supervisePursuit root steering', () => {
         budget: { maxIterations: 4, maxTokens: 10_000 },
         driverRetry: { enabled: false },
         makeWorkerAgent: () => gatedWorker(Promise.resolve()),
+        deliverable: { check: (out: unknown) => (out as { answer?: string })?.answer === 'done' },
+        continuation: testContinuation({ deadline: 1 }),
         driveHarness: async (drive) => {
           const connection = await connectHttpMcp({
             url: drive.coordinationMcpUrl,
