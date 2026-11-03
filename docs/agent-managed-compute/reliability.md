@@ -24,8 +24,7 @@ The exact result is terminal authority for the admitted turn; a provider must no
 Runtime starts the exact-result read after the first validated event, or at the next scheduler turn if no event arrives.
 Each pending event read gets one scheduler turn before an exact result can close a quiet subscription; terminal frames do not discard ready trailing evidence.
 Runtime yields to the scheduler every 1,024 iterator frames, including duplicates, so a busy stream cannot starve result transport or cancellation.
-After the result settles, at most 1,024 further frames are observed across the live subscription and its one replay. This is an observation-work limit, not a provider buffering or latency guarantee.
-Exhausting that limit leaves the original invocation unresolved with its admission preserved: unobserved binding or refusal evidence cannot become accepted success.
+After the result settles, at most 1,024 further frames are observed across the live subscription and its one replay; the rest are not read and the result settles with incomplete observation recorded. A subscription without a cursor replays the execution from its first frame, so a reconciled or long turn routinely sends that many.
 A valid exact result can settle a quiet open subscription, with incomplete observation recorded even if a terminal frame was seen. Incomplete token and dollar totals remain unknown while observed subtotals are retained; exact cumulative token usage can cover missing stream receipts, but a bare numeric cost is not a billing receipt.
 Subscription cleanup cannot block that exact result or a provider contract verdict; workspace capture and source teardown retain their separate verified-receipt requirements.
 This scheduler ordering does not certify that later provider or network events were observed.

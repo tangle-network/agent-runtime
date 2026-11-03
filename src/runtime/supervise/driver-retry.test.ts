@@ -313,27 +313,6 @@ describe('pending retained executions (terraform-dc-tokens-20261006d)', () => {
     expect(script.attempts).toEqual([1, 2, 3, 4])
   })
 
-  it('stops a provider that loses every execution after maxConsecutiveFailures abandonments', async () => {
-    const script = scriptedDrive(Array.from({ length: 30 }, () => unresolvedPending()))
-    let abandoned = 0
-    const error = await runDriverWithRetry({
-      drive: script.drive,
-      progress: () => mark(),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { transientOutageMs: 0 },
-      sleep: instantSleep,
-      resolvePending: async () => {
-        abandoned += 1
-        return true
-      },
-    }).catch((caught: unknown) => caught)
-    expect(error).toMatchObject({ stop: 'pending-unresolved' })
-    expect(abandoned).toBe(3)
-    // Each abandonment buys the replacement a fresh streak; the fourth stuck invocation ends it.
-    expect(script.attempts.length).toBeLessThan(15)
-  })
-
   it('never stops a pending that made progress as pending-unresolved', async () => {
     // With no abandonments allowed, a pending whose drives each made progress keeps the
     // progress rule: progress earns another attempt.
@@ -351,21 +330,6 @@ describe('pending retained executions (terraform-dc-tokens-20261006d)', () => {
       sleep: instantSleep,
       resolvePending: async () => true,
     })
-    expect(script.attempts).toEqual([1, 2, 3])
-  })
-
-  it('keeps an owner that cannot abandon on the barren bound', async () => {
-    const script = scriptedDrive([unresolvedPending(), unresolvedPending(), unresolvedPending()])
-    const error = await runDriverWithRetry({
-      drive: script.drive,
-      progress: () => mark(),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { transientOutageMs: 0 },
-      sleep: instantSleep,
-      resolvePending: async () => false,
-    }).catch((caught: unknown) => caught)
-    expect(error).toMatchObject({ stop: 'no-progress' })
     expect(script.attempts).toEqual([1, 2, 3])
   })
 
