@@ -24,6 +24,10 @@
  *   MCP_ENABLE_DELEGATE              set to `1` to serve the generic `delegate` verb. Its authoring
  *                                    supervisor runs the brain on the router and spawns authored
  *                                    workers as sub-sandboxes via the same client; needs a sandbox key.
+ *   MCP_ENABLE_EVENTS                set to `1` to serve the `events_*` subscription tools read-only
+ *                                    over one durable observer journal.
+ *   AGENT_RUNTIME_EVENTS_JOURNAL     absolute path of that observer-journal file. Absent or empty
+ *                                    file = valid empty journal; records appear as the run appends.
  *   MCP_SUPERVISOR_MODEL             required exact supervisor brain model id
  *   MCP_SUPERVISOR_ROUTER_KEY        required router key for the supervisor brain
  *   MCP_SUPERVISOR_ROUTER_BASE_URL   required router base, normalized to `/v1`
@@ -47,12 +51,15 @@
  * @experimental
  */
 
+import { isAbsolute } from 'node:path'
+import { FileObserverJournal } from '../durable/observer-journal'
 import type { SandboxClient } from '../runtime'
 import { delegateEnabled, resolveDelegateSupervisor } from './delegate-supervisor-provisioning'
 import { FileDelegationStore } from './delegation-store'
 import { createMcpServer } from './server'
 import { DelegationTaskQueue } from './task-queue'
 import type { DelegateHandlerOptions } from './tools/delegate'
+import { type McpEventSource, observerJournalEventSource } from './tools/events'
 import { readTraceContextFromEnv, type TraceContext } from './trace-propagation'
 
 const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
@@ -109,8 +116,10 @@ async function main(): Promise<void> {
   }
 
   const durableQueue = await buildDurableQueueFromEnv(traceContext)
+  const eventSource = await buildEventSourceFromEnv()
   const server = createMcpServer({
     ...(delegateSupervisor ? { delegateSupervisor } : {}),
+    ...(eventSource ? { eventSource } : {}),
     traceContext,
     ...(durableQueue ? { queue: durableQueue } : {}),
   })
@@ -133,6 +142,33 @@ async function main(): Promise<void> {
   process.on('SIGTERM', shutdown)
 
   await server.serve()
+}
+
+/** `MCP_ENABLE_EVENTS=1` + `AGENT_RUNTIME_EVENTS_JOURNAL=<file>` serves the
+ *  `events_*` subscription tools read-only over ONE pursuit's durable observer
+ *  journal. An absent file is a valid empty journal: consumers subscribe at
+ *  watermark 0 and see records as the run appends them. Cross-pursuit
+ *  aggregation belongs to the host/platform layer, not this bin. */
+async function buildEventSourceFromEnv(): Promise<McpEventSource | undefined> {
+  if (process.env.MCP_ENABLE_EVENTS !== '1') return undefined
+  const journalPath = process.env.AGENT_RUNTIME_EVENTS_JOURNAL
+  if (!journalPath || !isAbsolute(journalPath)) {
+    process.stderr.write(
+      'agent-runtime-mcp: MCP_ENABLE_EVENTS=1 requires AGENT_RUNTIME_EVENTS_JOURNAL set to an absolute observer-journal file path.\n',
+    )
+    process.exit(2)
+  }
+  const journal = await FileObserverJournal.open(journalPath)
+  if (journal) {
+    process.stderr.write(
+      `agent-runtime-mcp: events enabled — read-only observer journal ${journalPath} (pursuit ${journal.pursuitId})\n`,
+    )
+    return observerJournalEventSource(journal)
+  }
+  process.stderr.write(
+    `agent-runtime-mcp: events enabled — journal ${journalPath} has no committed records yet; serving an empty journal.\n`,
+  )
+  return { read: async () => [] }
 }
 
 async function buildDurableQueueFromEnv(
