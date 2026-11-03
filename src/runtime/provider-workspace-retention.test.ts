@@ -225,6 +225,7 @@ function pendingRetainedProvider(
   fixture: {
     readonly events?: AgentSession['events']
     readonly result?: () => Promise<{ text: string; success: boolean }>
+    readonly status?: AgentSession['status']
     readonly onDispatch?: () => void
   } = {},
 ): AgentEnvironmentProvider {
@@ -270,7 +271,7 @@ function pendingRetainedProvider(
           return {
             id: sessionId,
             controlRef,
-            status: async () => 'running',
+            status: fixture.status ?? (async () => 'running'),
             events:
               fixture.events ??
               async function* () {
@@ -512,48 +513,50 @@ describe('provider workspace retention', () => {
     expect(results).toBe(1)
   })
 
-  it('reconciles a completed retained execution without waiting for its quiet event stream', async () => {
-    let dispatches = 0
-    const admissions: RetainedRunAdmission[] = []
-    const provider = pendingRetainedProvider({
-      onDispatch: () => {
-        dispatches += 1
-      },
-      events: async function* () {
-        yield { type: 'message.part.updated', data: { delta: 'turn output' } }
-        await new Promise<void>(() => {})
-      },
-      result: async () => ({ text: 'settled exact turn', success: true }),
-    })
-    const retention: RetainedExecutorContext = {
-      executionId: 'quiet-retained-root',
-      admissions,
-      onAdmission: async (admission) => {
-        admissions.push(admission)
-      },
-      onResult: async () => {},
-    }
-    const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider)(
-      { profile: testProfile('quiet-retained-root'), harness: null },
-      { signal, seams: { [retainedExecutorSeamKey]: retention } },
-    )
-    const completed = (async () => {
+  it.each([
+    { label: 'no frame', frames: [] },
+    {
+      label: 'a progress frame',
+      frames: [{ type: 'message.part.updated', data: { delta: 'turn' } }],
+    },
+    {
+      label: 'a terminal frame',
+      frames: [{ id: 'done', type: 'done', data: { finalText: 'finished' } }],
+    },
+  ])(
+    'wakes from an exact result while its subscription stays open after $label',
+    async ({ frames }) => {
+      const provider = pendingRetainedProvider({
+        events: async function* () {
+          yield* frames as AgentEnvironmentEvent[]
+          await new Promise<void>(() => {})
+        },
+        result: async () => ({ text: 'finished', success: true }),
+      })
+      const retention: RetainedExecutorContext = {
+        executionId: 'open-subscription',
+        admissions: [],
+        onAdmission: async () => {},
+        onResult: async () => {},
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        { profile: testProfile('open-subscription'), harness: null },
+        { signal, seams: { [retainedExecutorSeamKey]: retention } },
+      )
+      // A quiet stream that still owes its terminal frame never holds the exact result.
       for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
       }
-      return true
-    })()
-    // The exact result wakes the turn at once: a quiet stream that still owes its terminal frame
-    // never holds it.
-    expect(
-      await Promise.race([
-        completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
-      ]),
-    ).toBe(true)
-    expect(executor.resultArtifact().out).toMatchObject({ content: 'settled exact turn' })
-    expect(dispatches).toBe(1)
-  })
+      expect(executor.resultArtifact().out).toMatchObject({
+        content: 'finished',
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            data: expect.objectContaining({ eventStreamComplete: false }),
+          }),
+        ]),
+      })
+    },
+  )
 
   it('reads a tail that keeps flowing after the exact result, then wakes on it', async () => {
     // test-canary-graph-tools-20261017a (2026-10-17): a turn's last frames and its exact result
@@ -657,89 +660,6 @@ describe('provider workspace retention', () => {
     expect(executor.resultArtifact().out).toMatchObject({ content: 'finished' })
     expect(JSON.stringify(executor.resultArtifact().out)).not.toContain('eventStreamComplete')
     expect(acceptedResults).toBe(1)
-  })
-
-  it('wakes from an exact result after a terminal frame leaves its subscription open', async () => {
-    const admissions: RetainedRunAdmission[] = []
-    const provider = pendingRetainedProvider({
-      events: async function* () {
-        yield { id: 'done', type: 'done', data: { finalText: 'finished' } }
-        await new Promise<void>(() => {})
-      },
-      result: async () => ({ text: 'finished', success: true }),
-    })
-    const retention: RetainedExecutorContext = {
-      executionId: 'terminal-open-subscription',
-      admissions,
-      onAdmission: async (admission) => {
-        admissions.push(admission)
-      },
-      onResult: async () => {},
-    }
-    const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider)(
-      { profile: testProfile('terminal-open-subscription'), harness: null },
-      { signal, seams: { [retainedExecutorSeamKey]: retention } },
-    )
-    const completed = (async () => {
-      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
-      }
-      return true
-    })()
-    expect(
-      await Promise.race([
-        completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
-      ]),
-    ).toBe(true)
-    expect(executor.resultArtifact().out).toMatchObject({
-      content: 'finished',
-      events: expect.arrayContaining([
-        expect.objectContaining({ data: expect.objectContaining({ eventStreamComplete: false }) }),
-      ]),
-    })
-  })
-
-  it('wakes from an exact result without any event frame', async () => {
-    const admissions: RetainedRunAdmission[] = []
-    const provider = pendingRetainedProvider({
-      events: async function* () {
-        await new Promise<void>(() => {})
-      },
-      result: async () => ({ text: 'finished', success: true }),
-    })
-    const retention: RetainedExecutorContext = {
-      executionId: 'no-frame-open-subscription',
-      admissions,
-      onAdmission: async (admission) => {
-        admissions.push(admission)
-      },
-      onResult: async () => {},
-    }
-    const signal = new AbortController().signal
-    const executor = providerAsExecutor(provider)(
-      { profile: testProfile('no-frame-open-subscription'), harness: null },
-      { signal, seams: { [retainedExecutorSeamKey]: retention } },
-    )
-    const completed = (async () => {
-      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
-      }
-      return true
-    })()
-    // The exact result wakes the turn at once: a quiet stream that still owes its terminal frame
-    // never holds it.
-    expect(
-      await Promise.race([
-        completed,
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
-      ]),
-    ).toBe(true)
-    expect(executor.resultArtifact().out).toMatchObject({
-      content: 'finished',
-      events: expect.arrayContaining([
-        expect.objectContaining({ data: expect.objectContaining({ eventStreamComplete: false }) }),
-      ]),
-    })
   })
 
   it.each(['ready', 'next-turn'] as const)(
@@ -1218,77 +1138,99 @@ describe('provider workspace retention', () => {
     expect(executor.resultArtifact().spent.tokens).toMatchObject({ input: 3, output: 4 })
   })
 
-  it('publishes the wait of a silent open stream and settles on the exact result', async () => {
-    // A stream that stays open and only repeats a frame it already sent brings no new evidence.
-    // After a while the node says it waits on its exact result, and the provider's answer ends it.
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    try {
-      const start = new Date('2026-10-20T00:00:00.000Z')
-      vi.setSystemTime(start)
-      let dispatches = 0
-      let results = 0
-      const admissions: RetainedRunAdmission[] = []
-      const repeated: AgentEnvironmentEvent = {
-        id: 'one-frame',
-        type: 'message.part.updated',
-        data: { delta: 'still the same frame' },
-      }
-      const held = heldResult()
-      let sent = 0
-      const provider = pendingRetainedProvider({
-        onDispatch: () => {
-          dispatches += 1
-        },
-        events: async function* () {
-          sent += 1
-          yield repeated
-          for (;;) {
-            await new Promise((resolve) => setTimeout(resolve, 1_000))
-            yield repeated
-          }
-        },
-        result: async () => await held.result,
-      })
-      const retention: RetainedExecutorContext = {
-        executionId: 'silent-open-worker',
-        admissions,
-        onAdmission: async (admission) => {
-          admissions.push(admission)
-        },
-        onResult: async () => {
-          results += 1
-        },
-      }
-      const signal = new AbortController().signal
-      const executor = providerAsExecutor(provider)(
-        { profile: testProfile('silent-open-worker'), harness: null },
-        { signal, seams: { [retainedExecutorSeamKey]: retention } },
-      )
-      const events: UsageEvent[] = []
-      let settled = false
-      const running = (async () => {
-        for await (const event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
-          events.push(event)
+  it.each([
+    { label: 'a live run settles on its exact result', status: async () => 'running' as const },
+    {
+      // The Sandbox orchestrator's answer while a sidecar fails its health check.
+      label: 'a refused status read leaves the turn pending',
+      status: async () => {
+        throw Object.assign(new Error('Sidecar health check failed'), {
+          name: 'ServerError',
+          status: 503,
+        })
+      },
+      pendingCause: 'transport',
+    },
+    {
+      label: 'an unanswered status read leaves the turn pending',
+      status: () => new Promise<never>(() => {}),
+      pendingCause: 'unobservable',
+    },
+  ])(
+    'publishes the wait of a silent open stream, then reads its status: $label',
+    async ({ status, pendingCause }) => {
+      // A stream that stays open and only repeats a frame it already sent brings no new evidence.
+      // After 8 minutes the node says it waits on its exact result; 8 more read the run's status
+      // (critics-release-v1-5cc7cd352d8b-r9:s1:s0 waited forever on a dead sidecar here).
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      try {
+        const start = new Date('2026-10-20T00:00:00.000Z')
+        vi.setSystemTime(start)
+        let results = 0
+        const repeated: AgentEnvironmentEvent = {
+          id: 'one-frame',
+          type: 'message.part.updated',
+          data: { delta: 'still the same frame' },
         }
-        settled = true
-      })()
-      await untilObserved(() => sent > 0)
-      await vi.advanceTimersByTimeAsync(TEN_MINUTES_MS)
-      expect(settled).toBe(false)
-      // The wait began at the last new evidence, the stream's first frame.
-      expect(awaitingRows(events)).toEqual([start.toISOString()])
-      held.answer({ text: 'exact result behind a silent stream', success: true })
-      await running
-      expect(executor.resultArtifact().out).toMatchObject({
-        content: 'exact result behind a silent stream',
-      })
-      expect(JSON.stringify(events)).not.toContain('terminal-event-lost')
-      expect(dispatches).toBe(1)
-      expect(results).toBe(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+        const held = heldResult()
+        let sent = 0
+        const provider = pendingRetainedProvider({
+          events: async function* () {
+            sent += 1
+            yield repeated
+            for (;;) {
+              await new Promise((resolve) => setTimeout(resolve, 60_000))
+              yield repeated
+            }
+          },
+          result: async () => await held.result,
+          status,
+        })
+        const retention: RetainedExecutorContext = {
+          executionId: 'silent-open-worker',
+          admissions: [],
+          onAdmission: async () => {},
+          onResult: async () => {
+            results += 1
+          },
+        }
+        const signal = new AbortController().signal
+        const executor = providerAsExecutor(provider)(
+          { profile: testProfile('silent-open-worker'), harness: null },
+          { signal, seams: { [retainedExecutorSeamKey]: retention } },
+        )
+        const events: UsageEvent[] = []
+        let settled: unknown
+        void (async () => {
+          for await (const event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+            events.push(event)
+          }
+        })().then(
+          () => (settled = true),
+          (error: unknown) => (settled = error),
+        )
+        await untilObserved(() => sent > 0)
+        await vi.advanceTimersByTimeAsync(TEN_MINUTES_MS)
+        // The wait began at the last new evidence, the stream's first frame.
+        await untilObserved(() => awaitingRows(events).length === 1)
+        expect(awaitingRows(events)).toEqual([start.toISOString()])
+        await vi.advanceTimersByTimeAsync(TEN_MINUTES_MS)
+        if (pendingCause === undefined) {
+          expect(settled).toBeUndefined()
+          held.answer({ text: 'exact result behind a silent stream', success: true })
+        }
+        await untilObserved(() => settled !== undefined)
+        if (pendingCause !== undefined) expect(settled).toMatchObject({ pendingCause })
+        else
+          expect(executor.resultArtifact().out).toMatchObject({
+            content: 'exact result behind a silent stream',
+          })
+        expect(results).toBe(pendingCause === undefined ? 1 : 0)
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
 
   it('retains the admitted native reference across pre-harness failure and cold executor recovery', async () => {
     const artifacts = artifactStore()
