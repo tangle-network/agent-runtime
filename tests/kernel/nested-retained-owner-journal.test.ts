@@ -5,7 +5,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { parseErrorResponse, ServerError } from '@tangle-network/sandbox'
+import { parseErrorResponse, ServerError, TimeoutError } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
@@ -21,8 +21,13 @@ const MALFORMED = 'Agent terminal outcome is malformed'
 const CONTENT_FILTERED =
   'codex execution failed: This content was flagged for possible cybersecurity risk. If this ' +
   'seems wrong, try rephrasing your request. (exit code 1)'
-// What the manager's down settlement names, by the institutional-compiler-20261031c failure it
-// replays: s9's failed turn, s14's refused capability document, and a 502 that never changes.
+// us-legal-exploits-20261103b:s1's first turns: one refusal, coded on the stream (A) or read
+// uncoded from the exact result (B), with reconciliations that timed out (R) between them.
+const EFFORT_REFUSED =
+  'opencode execution failed: reasoning_effort "medium" is not supported for model ' +
+  '"deepseek-v4.1-flash". Use one of: none, low, high, max. (exit code 1)'
+const EFFORT_TURNS = 'AAABRAABRAAB'
+// The down settlement's reason, by the failure each mode replays.
 const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   failed: [MALFORMED],
   'capability-refused': ['stopped by terminal-error', 'Capability discovery returned'],
@@ -33,6 +38,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
   ],
+  'effort-refused': ['after 12 attempt(s) — stopped by repeated-failure', EFFORT_REFUSED],
 }
 // What the Sandbox answered managers s0 and s1 of magnetar-rust-sandbox-20261031g on every turn
 // after their first, from the SDK's in-box profile file apply.
@@ -95,6 +101,7 @@ describe('nested retained owner journal isolation', () => {
     'same-failure',
     'content-filtered',
     'content-filter-recovers',
+    'effort-refused',
     'file-conflict',
     'file-conflict-409',
     'file-duplicate',
@@ -105,8 +112,11 @@ describe('nested retained owner journal isolation', () => {
     'preflight-refused',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
-    // The manager's turns: refused until the 8th refusal in a row stops it, or passing on the 7th.
-    const sends = mode === 'content-filtered' ? 8 : mode === 'content-filter-recovers' ? 7 : 1
+    // The manager's turns: refused until the refusal streak stops it, or passing on the 7th.
+    const sends =
+      { 'content-filtered': 8, 'content-filter-recovers': 7, 'effort-refused': 10 }[
+        mode as string
+      ] ?? 1
     const refusing = sends > 1
     const parentInterruption = mode.startsWith('parent-')
     it(`keeps backend evidence inside its owned tree (${mode})`, async () => {
@@ -120,8 +130,10 @@ describe('nested retained owner journal isolation', () => {
       let skew = 0
       const realNow = Date.now
       vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew)
-      const refused = new Set<string>()
+      // Each refused execution's refusal, and whether its stream carries it.
+      const refused = new Map<string, { error: string; streamed: boolean }>()
       let dispatches = 0
+      let attempts = 0
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         dispatch: async (turn) => {
@@ -129,33 +141,43 @@ describe('nested retained owner journal isolation', () => {
             throw new ServerError(TYPED_FILE_CONFLICT, 409, undefined, 'PROFILE_FILE_CONFLICT')
           if (mode === 'file-conflict') throw new ServerError(FILE_CONFLICT)
           if (mode === 'file-duplicate') throw new ServerError(DUPLICATE_TARGET)
+          const effort = mode === 'effort-refused' ? EFFORT_TURNS[attempts++] : undefined
+          if (effort !== undefined) skew += 40_000
+          if (effort === 'R') throw new TimeoutError(30_000, 'Request timed out after 30000ms')
           const dispatched = await environment.dispatch!(turn)
           dispatches += 1
-          if (refusing && (mode === 'content-filtered' || dispatches < sends))
-            refused.add(dispatched.controlRef?.executionId ?? '')
+          const executionId = dispatched.controlRef?.executionId ?? ''
+          if (effort !== undefined)
+            refused.set(executionId, { error: EFFORT_REFUSED, streamed: effort === 'A' })
+          else if (refusing && (mode === 'content-filtered' || dispatches < sends))
+            refused.set(executionId, { error: CONTENT_FILTERED, streamed: true })
           return dispatched
         },
         session: (id, options) => {
           const session = environment.session!(id, options)
-          const filtered = refused.has(options?.controlRef?.executionId ?? '')
+          const refusal = refused.get(options?.controlRef?.executionId ?? '')
           return {
             ...session,
             async *events(eventOptions) {
               yield* session.events!(eventOptions)
-              // Codex's refusal arrives under the Sandbox SDK's generic code.
-              if (filtered)
+              // A streamed refusal arrives under the Sandbox SDK's generic code.
+              if (refusal?.streamed)
                 yield {
                   id: 'event-error',
                   type: 'error',
-                  data: { message: CONTENT_FILTERED, code: 'AGENT_EXECUTION_FAILED' },
+                  data: { message: refusal.error, code: 'AGENT_EXECUTION_FAILED' },
                 }
             },
             result: async () => ({
               ...(await session.result()),
-              usage: { inputTokens: 3, outputTokens: 2 },
+              // s1's refused turns metered no tokens.
+              usage:
+                mode === 'effort-refused'
+                  ? { inputTokens: 0, outputTokens: 0 }
+                  : { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
               ...(mode === 'failed' ? { success: false, error: MALFORMED } : {}),
-              ...(filtered ? { success: false, error: CONTENT_FILTERED } : {}),
+              ...(refusal ? { success: false, error: refusal.error } : {}),
             }),
           }
         },
@@ -357,12 +379,10 @@ describe('nested retained owner journal isolation', () => {
         // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
         expect(creates).toBe(mode === 'same-failure' ? 10 : admitted ? 1 : 0)
         // The lead is woken with the reason, so it can reword or re-scope the refused task.
-        if (mode === 'content-filtered')
+        for (const reason of refusing ? downReasons : [])
           expect(rootSaw.flatMap(driverWakeEvents)).toContainEqual(
             expect.objectContaining({
-              failure: expect.objectContaining({
-                cause: expect.stringContaining(DOWN_REASONS[mode]![0]!),
-              }),
+              failure: expect.objectContaining({ cause: expect.stringContaining(reason) }),
             }),
           )
         return
