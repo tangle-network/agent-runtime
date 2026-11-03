@@ -103,7 +103,17 @@ export function createCoordinationToolsForManager(
     await replayResumeEvents()
     if (opts.routeFlow !== undefined) await routes.start()
   }
-  const journal = createJournalReader({ opts, bus })
+  // A steer the manager read in its journal is delivered to this attempt, as a wake delivers it.
+  // us-legal-exploits-20261103d's root was refused submit_result for six steers it had read.
+  const journal = createJournalReader({
+    opts,
+    bus,
+    readSteer: (seq) => {
+      const record = bus.take(seq)
+      const attempt = state.driverAttempt
+      if (record) state.deliveries.push({ record, attempt, acknowledged: false })
+    },
+  })
   const ackEnv: AcknowledgementEnv = { opts, bus, state, leadReceipts }
 
   const { maps, routes } = createFlowRouting({
