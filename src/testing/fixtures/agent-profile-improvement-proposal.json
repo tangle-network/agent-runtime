@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt", "skills"],
-  "digest": "sha256:adf0d31bf3bfe983ae10f128836b398a358ed80a049d75d2cf075a4733662fd4",
+  "digest": "sha256:49a6ad9ae4f864e56b1dfde0b955f84dec5bf5f32b2c1cb26d3e9f2071e53011",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -1715,7 +1715,7 @@
     ],
     "metadata": {
       "fixture": "agent-profile-improvement-proposal",
-      "runtimeVersion": "3.0.30"
+      "runtimeVersion": "3.0.31"
     },
     "objectives": [
       {
@@ -1826,7 +1826,7 @@
       "baselineContentHash": "sha256:21c495a37c418c10bde64fbaa188beddeed31f1f051ea60a6a6582a9ee0db704",
       "candidateContentHash": "sha256:103f77bc8481601eef1ad5fe6ba84a40dffabc3a44f421f8c8559121edab84e9",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:02dc3155236dccb241a72f5fed7a8084a899ef1bb670ee593f6a498eb53f0be7",
+      "recordDigest": "sha256:ca71291f3eb0c05872dff53a8cc4fe54cd4eecf84acd06a30407564c11abd1dd",
       "runId": "profile-improvement-1",
       "schema": "agent-profile-improvement-experiment"
     }
