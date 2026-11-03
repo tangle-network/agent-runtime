@@ -1,8 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { access, cp, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { captureMaterializedWorkspace } from '../../src/candidate-execution/artifacts'
@@ -60,16 +59,8 @@ function localBoxes(root: string) {
         }),
         egress: { get: async () => ({ policy: options.egressPolicy }) },
         fs: {
-          mkdir: async (path: string) => {
-            await mkdir(join(dir, path), { recursive: true })
-          },
-          uploadData: async (path: string, bytes: Uint8Array, opts: { mode: number }) => {
-            await mkdir(dirname(join(dir, path)), { recursive: true })
-            await writeFile(join(dir, path), bytes, { mode: opts.mode })
-            return {
-              hash: createHash('sha256').update(bytes).digest('hex'),
-              size: bytes.byteLength,
-            }
+          uploadDir: async (local: string, remote: string) => {
+            await cp(local, join(dir, remote), { recursive: true })
           },
         },
         process: {
