@@ -563,8 +563,8 @@ describe('supervisePursuit root stream', () => {
   /**
    * The durable test provider, advertising the coordination attachment a provider-placed root
    * needs, with the root's session prepending the three parts to its retained events. After the
-   * parts are handed to Runtime, the session reads the run directory before yielding anything
-   * else, so `seenDuringTurn` is what was on disk while the turn was still open.
+   * parts are handed to Runtime and the event loop turns once, the session reads the run directory
+   * before yielding anything else, so `seenDuringTurn` is what was on disk while the turn was open.
    */
   function rootProvider(seen: { duringTurn?: number }): AgentEnvironmentProvider {
     const base = durableRetainedProvider(join(runDir, 'provider.json'))
@@ -576,6 +576,8 @@ describe('supervisePursuit root stream', () => {
           ...session,
           async *events(eventOptions) {
             for (const part of rootParts) yield structuredClone(part)
+            // Appends land together when the event loop turns (one fenced write per turn).
+            await new Promise((resolve) => setImmediate(resolve))
             seen.duringTurn = existsSync(streamPath())
               ? readFileSync(streamPath(), 'utf8')
                   .split('\n')
@@ -631,8 +633,8 @@ describe('supervisePursuit root stream', () => {
       backend: { backend: 'provider', provider: rootProvider(seen) },
     })
 
-    // Every part the root had streamed was on disk BEFORE the turn continued: a root killed at
-    // that instant keeps what it thought, said, and called.
+    // Every part the root had streamed was on disk once the event loop turned, before the turn
+    // continued: a root killed at that instant keeps what it thought, said, and called.
     expect(seen.duringTurn).toBe(rootProgress.length)
 
     const lines = await readStreamLines()
