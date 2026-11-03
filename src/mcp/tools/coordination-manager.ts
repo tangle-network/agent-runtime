@@ -109,7 +109,7 @@ export function createCoordinationToolsForManager(
     opts,
     bus,
     readSteer: (seq) => {
-      const record = bus.take(seq)
+      const record = bus.take?.(seq)
       const attempt = state.driverAttempt
       if (record) state.deliveries.push({ record, attempt, acknowledged: false })
     },

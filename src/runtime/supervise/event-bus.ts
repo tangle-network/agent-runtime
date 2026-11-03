@@ -1,24 +1,15 @@
 /**
+ * The child→parent message bus: the one pipe for every message a worker, sub-driver or analyst
+ * sends up to the driver (settled outputs, questions and trace-analyst findings), in two lanes:
  *
- * The child→parent message bus: the ONE pipe carrying every message a worker, sub-driver, or
- * analyst sends up to the driver — settled outputs, questions, and trace-analyst findings. It
- * unifies channels that were ad-hoc before (the settled-worker cursor, the ask-parent question
- * channel, and analyst results) into a single typed primitive with two lanes:
- *
- *   - PASS-THROUGH (`subscribe`): every published event reaches subscribers immediately — the
- *     express lane for online steering and live observation (a UI, a hook, the parent's box).
+ *   - PASS-THROUGH (`subscribe`): every published event reaches subscribers immediately, for online
+ *     steering and live observation.
  *   - STANDBY (`pull`): events also queue so the driver consumes them on its own cadence. The queue
- *     is PRIORITY-ordered: a higher-`priority` event (a blocking question) is bumped ahead of
- *     queued settles/findings so the driver sees it first; ties resolve FIFO by publish order.
+ *     is PRIORITY-ordered: a higher-`priority` event (a blocking question) is bumped ahead of queued
+ *     settles and findings; ties resolve FIFO by publish order.
  *
- * Observability is first-class (A++): every event is stamped with a monotonic `seq` and wall-clock
- * `at`, the full ordered `history()` is retained as current-process audit evidence, and `stats()`
- * exposes published/pulled counts by kind. Subscribers receive the stamped record, not a bare event.
- *
- * The interface is transport-agnostic on purpose. Same box → this in-process queue. Cross box →
- * the SAME publish/pull/subscribe surface backed by a durable mailbox on the parent's box (children
- * POST events with at-least-once retry; payloads are blob refs so the event stays small). Consumers
- * depend only on this interface, so distribution is a transport swap, never an architecture change.
+ * Every event is stamped with a monotonic `seq` and wall-clock `at`; `history()` keeps this
+ * process's ordered log and `stats()` counts published and pulled events by kind.
  *
  * @experimental
  */
@@ -62,11 +53,13 @@ export interface EventBus<E extends BusEvent> {
    *  failure leaves the event invisible and retrying the SAME event object reuses the exact stamp.
    *  This lets an awaited product observer commit its record before a supervisor can consume it. */
   publish(event: E, opts?: PublishOptions): Promise<BusRecord<E>>
+  /** {@link EventBus.pullRecord}'s event alone. */
+  pull(kinds?: ReadonlyArray<E['type']>): E | undefined
   /** Remove and return the highest-priority QUEUED record whose type is in `kinds` (any if omitted),
    *  ties broken FIFO by `seq`; `undefined` when nothing matches. */
   pullRecord(kinds?: ReadonlyArray<E['type']>): BusRecord<E> | undefined
   /** Remove and return the queued record with this `seq`, which its consumer read another way. */
-  take(seq: number): BusRecord<E> | undefined
+  take?(seq: number): BusRecord<E> | undefined
   /** The queued, not-yet-pulled records in publish order (filtered by `kinds` when given), as a
    *  copy: reading it never changes what `pullRecord` returns next. */
   queued(kinds?: ReadonlyArray<E['type']>): ReadonlyArray<BusRecord<E>>
@@ -144,6 +137,7 @@ export function createEventBus<E extends BusEvent>(now: () => number = Date.now)
       if (opts?.queue !== false) for (const handler of [...queuedHandlers]) handler(record)
       return record
     },
+    pull: (kinds) => pullRecord(kinds)?.event,
     pullRecord,
     take: (seq) => pullAt(queue.findIndex((r) => r.seq === seq)),
     queued(kinds) {
