@@ -1,3 +1,7 @@
+## 3.0.35
+
+The MCP server serves `events_subscribe`, `events_fetch`, `events_ack` and `events_unsubscribe` over a wired event source: an idempotent-by-key subscription lifecycle on the native observer journal with at-least-once delivery until acknowledged, digest-chain page verification, lazy expiry that carries the unacknowledged cursor through a same-key resubscribe, sliding expiry for actively reconnecting consumers, and acknowledgements bounded by the journal high-watermark. `agent-runtime-mcp` serves the tools read-only over one pursuit's durable journal (`MCP_ENABLE_EVENTS=1` with `AGENT_RUNTIME_EVENTS_JOURNAL`); an absent journal file is a valid empty journal, and cross-pursuit aggregation stays with the host platform. No scheduler, trigger or second event authority is introduced.
+
 ## 3.0.34
 
 A nested manager whose turns fail with the same harness refusal and gain nothing now stops with `repeated-failure` at the existing bound (10 attempts over 5 minutes) and settles `down` naming the refusal. The streak compares a harness refusal by its text, so the copy the stream codes (`AGENT_EXECUTION_FAILED`) and the uncoded copy the exact result returns count as one failure, and a timed-out reconciliation between two refusals neither counts nor resets it. On Discovery run us-legal-exploits-20261103b, manager s1 retried `reasoning_effort "medium" is not supported for model "deepseek-v4.1-flash"` 26 times in a row, never 10 alike, and failed 71 attempts over 2 hours.
