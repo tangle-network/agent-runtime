@@ -41,7 +41,8 @@ describe('credential-source execution boundaries', () => {
   it.each(['router', 'bridge', 'sandbox'] as const)(
     'refuses credential intent on the %s path instead of dropping it',
     (path) => {
-      for (const credentialSource of ['managed', 'subscription']) {
+      // #440: router | api-key | subscription, with managed as the deprecated spelling of router.
+      for (const credentialSource of ['managed', 'router', 'api-key', 'subscription']) {
         expect(() =>
           profileModelExecutionSettings(
             { model: { ...model, metadata: { credentialSource } } },
@@ -52,6 +53,27 @@ describe('credential-source execution boundaries', () => {
       }
     },
   )
+})
+
+describe('credential-source vocabulary', () => {
+  it('accepts the full vocabulary on the provider path and refuses anything else', () => {
+    for (const credentialSource of ['router', 'api-key', 'subscription', 'managed']) {
+      expect(() =>
+        profileModelExecutionSettings(
+          { model: { ...model, metadata: { credentialSource } } },
+          'test',
+          'provider',
+        ),
+      ).not.toThrow()
+    }
+    expect(() =>
+      profileModelExecutionSettings(
+        { model: { ...model, metadata: { credentialSource: 'byok' } } },
+        'test',
+        'provider',
+      ),
+    ).toThrow(/credentialSource must be router, api-key, subscription, or the deprecated managed/)
+  })
 })
 
 describe('separate completion ceilings', () => {

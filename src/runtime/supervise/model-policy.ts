@@ -209,13 +209,17 @@ export function profileModelExecutionSettings(
       `${context}: unsupported AgentProfile.model.metadata fields: ${unknown.join(', ')}`,
     )
   }
+  // The credential vocabulary is router | api-key | subscription (agent-sdk #440); `managed` is
+  // the deprecated spelling of `router` and stays readable so authored profiles keep parsing.
   if (
     metadata.credentialSource !== undefined &&
-    metadata.credentialSource !== 'managed' &&
-    metadata.credentialSource !== 'subscription'
+    metadata.credentialSource !== 'router' &&
+    metadata.credentialSource !== 'api-key' &&
+    metadata.credentialSource !== 'subscription' &&
+    metadata.credentialSource !== 'managed'
   ) {
     throw new ConfigError(
-      `${context}: AgentProfile.model.metadata.credentialSource must be managed or subscription`,
+      `${context}: AgentProfile.model.metadata.credentialSource must be router, api-key, subscription, or the deprecated managed`,
     )
   }
   const temperature = finiteNumber(metadata.temperature, `${context}: temperature`)
