@@ -1,3 +1,7 @@
+## 3.0.32
+
+A retained turn whose stream and exact result stop answering settles pending once its run status read fails, outlasts 60 seconds, or finds the run ended, instead of waiting forever.
+
 ## 3.0.31
 
 A steer a manager reads in `read_journal` is delivered to that attempt, so `submit_result` is no longer refused with `open-work` for steers it already read. `EventBus` gains an optional `take(seq)`.
