@@ -310,8 +310,8 @@ function observeAgentTool(ctx: WorkerToolsCtx): McpToolDescriptor {
         outRef: {
           type: 'string',
           description:
-            'Instead of workerId: the content address of a result listed in a settled ' +
-            "worker's `subtree.results` or authorized for your analyst assignment, to read it in full.",
+            "Instead of workerId: the content address of a settled worker's result, one in its " +
+            '`subtree.results`, or one authorized for your analyst assignment, to read it in full.',
         },
         outputPath: {
           type: 'array',
@@ -410,7 +410,7 @@ async function observeAgentHandler(ctx: WorkerToolsCtx, raw: unknown): Promise<u
       return {
         error: 'unknown-result' as const,
         reason:
-          'this outRef was not authorized as assignment evidence or listed in a subtree summary; pass an authorized source ref, a subtree.results outRef, or observe your own worker by workerId',
+          "this outRef is not a settled worker's result, one in its subtree summary, or authorized assignment evidence; pass one of those, or observe your own worker by workerId",
       }
     }
     return { outRef, ...(await readWorkerOutput(outRef, outputRead)) }
