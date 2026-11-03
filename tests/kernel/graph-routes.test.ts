@@ -28,6 +28,7 @@ import {
   type GraphTopology,
   graphRegistry,
   InMemorySpawnJournal,
+  kernelPromptRegistry,
   type MakeWorkerAgent,
   promptHandle,
   type RunGraphOptions,
@@ -762,6 +763,35 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
     expect(res.ledger.filter((row) => row.kind === 'routes').map((row) => row.edge)).toEqual([
       'routes:entry->plan',
     ])
+  })
+
+  it("resolves an item flow's directives against the graph's own registry", async () => {
+    const registry = kernelPromptRegistry()
+    registry.register({
+      surface: 'items/check',
+      version: 1,
+      text: 'Check the critic result against its item.',
+    })
+    const item: GraphTopology = {
+      nodes: [node('critic'), node('verify')],
+      entry: [{ node: 'critic', task: { item: true } }],
+      edges: [
+        routes('critic', 'verify', { directive: promptHandle('items/check/v1') }),
+        routes('verify', { finish: 'verified' }),
+      ],
+    }
+    const { res, spawns } = await run(
+      mapped(item, 'all-or-refuse'),
+      { plan: [{ out: { assignments: ['a', 'b'] } }], collect: [{ out: { collected: 2 } }] },
+      { registry },
+    )
+    expect(rows(res.ledger)).not.toContainEqual(expect.stringContaining('unpropagated'))
+    expect(res.result.kind).toBe('winner')
+    const verifies = spawns.filter((s) => s.node === 'verify')
+    expect(verifies).toHaveLength(2)
+    for (const spawn of verifies) {
+      expect(spawn.instructions.join('\n')).toContain('Check the critic result against its item.')
+    }
   })
 
   it('a down settle inside one item ends that item only; settled-subset joins the rest', async () => {

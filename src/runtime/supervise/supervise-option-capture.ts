@@ -49,6 +49,7 @@ const superviseOptionKeys = [
   'extraTools',
   'finalizer',
   'graphRegistry',
+  'promptRegistry',
   'hooks',
   'inheritSpawnRights',
   'journal',
@@ -233,8 +234,8 @@ type UncapturedCallableOption = Exclude<
 >
 
 /** A callback-valued option missing from `superviseExecutableOptionKeys` makes this assignment
- *  fail, and the compiler error names the key. Add it to the list AND to the destructuring below —
- *  the list alone carries no value through. */
+ *  fail, and the compiler error names the key. Add it to the list; the capture forwards every
+ *  listed key by reference. */
 const everyCallableOptionIsListed: UncapturedCallableOption extends never
   ? true
   : UncapturedCallableOption = true
@@ -255,6 +256,25 @@ void everyListedExecutableOptionExists
 export const SUPERVISE_EXECUTABLE_OPTION_KEYS: ReadonlyArray<keyof SuperviseOptions> =
   Object.freeze([...superviseExecutableOptionKeys])
 
+/** The options captured as the exact references selected at intake, never deep-snapshot: every
+ *  callback, plus live collaborators. Stores, journals and registries resolve lazily, hooks and
+ *  otel exporters are process objects, and a shared `workerSlots` allocator is held by other runs
+ *  too. Object-valued options that only contain callbacks are captured field by field below. */
+const superviseReferenceOptionKeys: ReadonlySet<string> = new Set<keyof SuperviseOptions>([
+  ...superviseExecutableOptionKeys,
+  'blobs',
+  'hooks',
+  'journal',
+  'otel',
+  'promptRegistry',
+  'registry',
+  'resume',
+  'rootHandle',
+  'runContext',
+  'signal',
+  'workerSlots',
+])
+
 /**
  * Refuse a callback that reached the decision-data remainder, naming the option.
  *
@@ -271,8 +291,7 @@ function assertNoUncapturedExecutableOption(decisionData: Readonly<Record<string
     throw new ValidationError(
       `supervise: option ${carried.sort().join(', ')} carries a callback that the option capture ` +
         'does not forward, so the run would fail on a structured-clone refusal that names the ' +
-        'snapshot instead of the option; lift the key out of the decision data in ' +
-        'captureSuperviseOptions and add it to superviseExecutableOptionKeys',
+        'snapshot instead of the option; add the key to superviseExecutableOptionKeys',
     )
   }
 }
@@ -286,48 +305,23 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
-    selectSeat,
     coordination,
     driverBackend,
     deliverable,
-    resolveDeliverable,
     router,
     compaction,
     watchWorkers,
     analysts,
-    makeWorkerAgent,
-    makeLeafAgent,
-    recoverExecutor,
-    resume,
-    resolveSpawnProfile,
-    blobs,
-    journal,
-    runContext,
-    registry,
-    hooks,
-    otel,
-    authorizeSpawn,
-    authorizeMessage,
-    driveHarness,
-    resolveDriveHarness,
-    resolveSupervisorTools,
-    escalateQuestion,
-    decideGate,
-    onCoordinationEvent,
-    executeExtraTool,
-    stopRule,
-    onProgressStop,
-    onDriverAttempt,
     continuation,
     workerRetry,
-    onWorkerRetry,
-    finalizer,
-    now,
-    signal,
-    rootHandle,
-    workerSlots,
-    ...decisionData
+    ...rest
   } = opts
+  const references: Record<string, unknown> = {}
+  const decisionData: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(rest)) {
+    if (!superviseReferenceOptionKeys.has(key)) decisionData[key] = value
+    else if (value !== undefined) references[key] = value
+  }
   assertNoUncapturedExecutableOption(decisionData)
   const capturedData = detachedSnapshot(decisionData, 'supervise options')
   const capturedCoordination =
@@ -444,49 +438,16 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
 
   return Object.freeze({
     ...capturedData,
+    ...references,
     ...(capturedCoordination === undefined ? {} : { coordination: capturedCoordination }),
     ...(capturedBackend === undefined ? {} : { backend: capturedBackend }),
-    ...(selectSeat === undefined ? {} : { selectSeat }),
     ...(capturedDriverBackend === undefined ? {} : { driverBackend: capturedDriverBackend }),
     ...(capturedDeliverable === undefined ? {} : { deliverable: capturedDeliverable }),
-    ...(resolveDeliverable === undefined ? {} : { resolveDeliverable }),
     ...(capturedRouter === undefined ? {} : { router: capturedRouter }),
     ...(capturedCompaction === undefined ? {} : { compaction: capturedCompaction }),
     ...(capturedWatchWorkers === undefined ? {} : { watchWorkers: capturedWatchWorkers }),
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
-    ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
-    ...(makeLeafAgent === undefined ? {} : { makeLeafAgent }),
-    ...(recoverExecutor === undefined ? {} : { recoverExecutor }),
-    ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
-    ...(blobs === undefined ? {} : { blobs }),
-    ...(journal === undefined ? {} : { journal }),
-    ...(resume === undefined ? {} : { resume }),
-    ...(runContext === undefined ? {} : { runContext }),
-    // A number is decision data; a shared allocator is a live collaborator other runs also hold.
-    ...(workerSlots === undefined ? {} : { workerSlots }),
-    ...(authorizeSpawn === undefined ? {} : { authorizeSpawn }),
-    ...(authorizeMessage === undefined ? {} : { authorizeMessage }),
-    ...(driveHarness === undefined ? {} : { driveHarness }),
-    ...(resolveDriveHarness === undefined ? {} : { resolveDriveHarness }),
-    ...(resolveSupervisorTools === undefined ? {} : { resolveSupervisorTools }),
-    ...(escalateQuestion === undefined ? {} : { escalateQuestion }),
-    ...(decideGate === undefined ? {} : { decideGate }),
-    ...(onCoordinationEvent === undefined ? {} : { onCoordinationEvent }),
-    ...(executeExtraTool === undefined ? {} : { executeExtraTool }),
-    ...(stopRule === undefined ? {} : { stopRule }),
-    ...(onProgressStop === undefined ? {} : { onProgressStop }),
-    ...(onDriverAttempt === undefined ? {} : { onDriverAttempt }),
     ...(capturedContinuation === undefined ? {} : { continuation: capturedContinuation }),
     ...(capturedWorkerRetry === undefined ? {} : { workerRetry: capturedWorkerRetry }),
-    ...(onWorkerRetry === undefined ? {} : { onWorkerRetry }),
-    ...(finalizer === undefined ? {} : { finalizer }),
-    ...(now === undefined ? {} : { now }),
-    ...(signal === undefined ? {} : { signal }),
-    ...(rootHandle === undefined ? {} : { rootHandle }),
-    // Live collaborators: registries resolve lazily, hooks and otel exporters are process objects.
-    // They are captured as the exact references selected at intake, never deep-snapshot.
-    ...(registry === undefined ? {} : { registry }),
-    ...(hooks === undefined ? {} : { hooks }),
-    ...(otel === undefined ? {} : { otel }),
-  })
+  }) as SuperviseOptions
 }

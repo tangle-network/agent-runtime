@@ -42,6 +42,8 @@ export function createSuperviseWorkers(
   // around it (`graph-overlay`). Served only where this run builds the worker path, because that
   // path is what pins the graph's nodes; a caller-owned `makeWorkerAgent` decides its own children.
   const graphOverlays = new Set<GraphOverlay>()
+  // A subtask's edge directives resolve where its starting graph's do.
+  const subtaskDirectives = options.promptRegistry ?? kernelPromptRegistry()
   const graphSubtasks: GraphSubtasks | undefined =
     options.makeWorkerAgent === undefined
       ? {
@@ -52,7 +54,7 @@ export function createSuperviseWorkers(
                   ? parseGraphSubtaskTopology(input.graph)
                   : await storedGraphTopology(options.graphRegistry, input.graphDigest)
               const prepared = prepareGraphSubtask(topology, {
-                registry: kernelPromptRegistry(),
+                registry: subtaskDirectives,
                 ...(analysts ? { analysts } : {}),
                 ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
               })
@@ -79,10 +81,9 @@ export function createSuperviseWorkers(
   // profile carries — on a fresh spawn and on recovery alike.
   const productAuthority = productSpawnAuthority(options.authorizeSpawn)
   const graphOverlayFor = (topology: GraphSubtaskTopology) => {
-    const registry = kernelPromptRegistry()
-    const validated = validateGraphSubtask(topology, registry, analysts)
+    const validated = validateGraphSubtask(topology, subtaskDirectives, analysts)
     const overlay = createGraphOverlay(validated, {
-      registry,
+      registry: subtaskDirectives,
       journal,
       runId,
       now,

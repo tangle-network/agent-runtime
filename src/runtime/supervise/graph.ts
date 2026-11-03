@@ -388,6 +388,8 @@ const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'continuityByProfile',
   // A graph pins every node and its delegation edges; a node never gains spawn rights it lacks.
   'inheritSpawnRights',
+  // The graph's own directive `registry`, which its maps items and `run_graph` subtasks resolve against.
+  'promptRegistry',
 ] as const
 
 /** Caller-facing on `RunGraphOptions`, but the graph wraps or defaults the value before it goes in:
@@ -894,6 +896,7 @@ export function superviseAgentGraph(
       authorizeSpawn: overlay.authorizeSpawn,
       resolveSpawnProfile: overlay.resolveSpawnProfile,
       inheritSpawnRights: false,
+      promptRegistry: registry,
       ...(opts.makeLeafAgent ? { makeLeafAgent: opts.makeLeafAgent } : {}),
       journal,
       blobs,
