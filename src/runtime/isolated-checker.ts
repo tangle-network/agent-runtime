@@ -10,11 +10,13 @@ import {
   opendir,
   readlink,
   realpath,
+  rm,
   stat,
   symlink,
+  writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import {
   type AgentCandidateWorkspaceManifestMaterial,
@@ -363,8 +365,6 @@ const BOX_TREE = 'tree'
 const BOX_SETUP_SECONDS = 900
 /** The box's own process timeout is a backstop behind this module's deadline. */
 const BOX_PROCESS_BACKSTOP_MS = 30_000
-/** Concurrent file deliveries into one check box. */
-const BOX_UPLOADS = 4
 /** The box's process supervisor prefixes this to stderr when it cannot start the executable. */
 const BOX_EXEC_FAILURE = 'process-supervisor: exec failed'
 
@@ -450,28 +450,21 @@ async function runInBox(
       throw new Error(
         `Check box egress is ${egress.mode} ${JSON.stringify(egress.allowDomains ?? [])}, not ${wanted.mode} ${JSON.stringify(wanted.allowDomains ?? [])}`,
       )
-    await box.fs.mkdir(BOX_TREE, { recursive: true })
-    const digests = new Map(captured.manifest.files.map((entry) => [entry.path, entry.sha256]))
-    const target = box
-    const pending = [...captured.files]
-    const deliver = async () => {
-      try {
-        for (let file = pending.shift(); file; file = pending.shift()) {
-          options.signal?.throwIfAborted()
-          const received = await target.fs.uploadData(`${BOX_TREE}/${file.path}`, file.bytes, {
-            mode: file.mode,
-          })
-          const receivedDigest = `sha256:${received.hash.replace(/^sha256:/, '').toLowerCase()}`
-          if (receivedDigest !== digests.get(file.path) || received.size !== file.bytes.byteLength)
-            throw new Error(`Check box received different bytes for ${file.path}`)
-        }
-      } catch (error) {
-        // One failed delivery ends every other one before the box is deleted.
-        pending.length = 0
-        throw error
+    // One archive, not a request per file: a box's sidecar admits a few hundred file requests a
+    // minute. It is staged from the captured bytes, so the box receives what the manifest names.
+    const staging = await mkdtemp(join(tmpdir(), 'runtime-check-box-'))
+    try {
+      for (const file of captured.files) {
+        const path = join(staging, file.path)
+        await mkdir(dirname(path), { recursive: true })
+        await writeFile(path, file.bytes, { mode: file.mode })
       }
+      options.signal?.throwIfAborted()
+      await box.fs.uploadDir(staging, BOX_TREE)
+    } finally {
+      await rm(staging, { recursive: true, force: true })
     }
-    await Promise.all(Array.from({ length: BOX_UPLOADS }, deliver))
+    await verifyBoxTree(box, captured.manifest.files)
     evidence = {
       sandboxId: box.id,
       account,
@@ -516,6 +509,34 @@ async function runInBox(
     }
   }
   return evidence ? { ...result, box: evidence } : result
+}
+
+/** Refuse unless the box reads each file with its manifest digest. A name holding a newline or
+ * backslash, which coreutils escapes, does not compare. */
+async function verifyBoxTree(
+  box: SandboxInstance,
+  files: readonly { path: string; sha256: string }[],
+) {
+  if (files.length === 0) return
+  const child = await box.process.spawnExact(
+    'sha256sum',
+    ['--', ...files.map((file) => file.path)],
+    {
+      cwd: BOX_TREE,
+      env: { PATH: '/usr/bin:/bin', LANG: 'C' },
+      inheritEnv: false,
+      timeoutMs: BOX_SETUP_SECONDS * 1_000,
+    },
+  )
+  let listing = ''
+  for await (const text of child.stdout()) listing += text
+  if ((await child.wait()) !== 0) throw new Error('Check box could not hash the tree it received')
+  const read = new Set(
+    listing.split('\n').map((line) => `sha256:${line.slice(0, 64)} ${line.slice(66)}`),
+  )
+  for (const file of files)
+    if (!read.has(`${file.sha256} ${file.path}`))
+      throw new Error(`Check box received different bytes for ${file.path}`)
 }
 
 /** Blocked unless the placement names domains; then strict, with no implicit domain list. */
