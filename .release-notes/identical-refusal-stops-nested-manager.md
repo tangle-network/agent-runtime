@@ -1,3 +1,0 @@
-type: patch
----
-A nested manager whose turns fail with the same harness refusal and gain nothing now stops with `repeated-failure` at the existing bound (10 attempts over 5 minutes) and settles `down` naming the refusal. The streak compares a harness refusal by its text, so the copy the stream codes (`AGENT_EXECUTION_FAILED`) and the uncoded copy the exact result returns count as one failure, and a timed-out reconciliation between two refusals neither counts nor resets it. On Discovery run us-legal-exploits-20261103b, manager s1 retried `reasoning_effort "medium" is not supported for model "deepseek-v4.1-flash"` 26 times in a row, never 10 alike, and failed 71 attempts over 2 hours.
