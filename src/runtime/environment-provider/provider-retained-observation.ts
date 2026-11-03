@@ -9,6 +9,7 @@ import { defaultRedactor } from '../../redact'
 import {
   assertEventBinding,
   awaitAbortable,
+  isTerminalSessionStatus,
   RetainedRunProviderContractError,
 } from '../retained-run-binding'
 import type { RetainedRunHandle } from '../retained-run-types'
@@ -18,13 +19,11 @@ import { causeChain } from '../supervise/error-message'
 import { RetainedExecutionPendingError } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
-/**
- * How long a retained stream may go without new evidence before the node publishes that it waits
- * on its exact result. Silence never ends the turn (ending there failed 18 still-running attempts
- * as `terminal-event-lost`); only the exact result or an abort does. The bound on
- * a wait that never ends is the Lab keeper's hung-root re-drive after 15 minutes without a write.
- */
+// Silence never ends a turn. This long without evidence publishes the wait on the exact result
+// once, then reads the run's status: a live or unknown answer keeps the wait.
 const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
+// A status read that fails, outlasts this, or finds the run ended leaves the turn pending.
+const RETAINED_STATUS_READ_MS = 60_000
 
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
@@ -48,11 +47,7 @@ type FrameRead =
   | { kind: 'exact-result' }
   | { kind: 'quiet' }
 
-/**
- * Why the event stream stopped short, as bounded redacted text. A settlement reason reads messages
- * and `cause` links only, never an AggregateError's members, so a wrapper that omits this hides
- * which layer lost the stream (critics-tournament-v1-158ca88e83bf:s1).
- */
+/** Why the event stream stopped short, as bounded redacted text for the settlement reason. */
 function observationFailureText(failure: { readonly error: unknown }): string {
   const error = failure.error
   return String(defaultRedactor(error instanceof Error ? error.message : String(error))).slice(
@@ -61,13 +56,7 @@ function observationFailureText(failure: { readonly error: unknown }): string {
   )
 }
 
-/**
- * agent-provider-tangle refuses a retained result whose run failed `provider_quota_exhausted` (the
- * Sandbox sidecar's `rate_limit_event rejected`) with `TangleCredentialCapacityError` at 429. The
- * run ended: this is its failed result, the seat's usage limit, not an execution to reconcile
- * (magnetar-rust-sandbox-20261102a re-read refused seats 1,360 times). Its reset is named, but not
- * in the `reset at` form a driver holds its pause to, so a seat chain moves to its next seat.
- */
+/** A result refused `provider_quota_exhausted` is the ended run's failed result, not one to reconcile. */
 function exactQuotaRefusal(error: unknown) {
   try {
     const refusal = causeChain(error).find(
@@ -93,23 +82,19 @@ function exactQuotaRefusal(error: unknown) {
 /** Everything one retained dispatch has observed of its event stream and exact result. */
 export class RetainedObservation {
   private failure: { error: unknown } | undefined
-  // The last frame that carried a replay position, and whether any frame ended the turn. The
-  // SSE contract lets a frame arrive with no position; such a frame does not move the cursor,
-  // so this is where a reconnect resumes from.
+  // Where a reconnect resumes: the last frame that carried a replay position.
   private lastReplayPosition: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
-  // The node publishes its wait once per invocation; the row's `since` is when it began.
-  private awaitingPublished = false
+  // When the turn last acted on silence: unset until it publishes its wait (once per invocation;
+  // the row's `since` is when the silence began), then each live status answer.
+  private silenceHandledAt: number | undefined
   private exactResult: Promise<AgentTurnResult> | undefined
   private exactResultSettled = false
   private observedFrames = 0
   private framesAfterResult = 0
   private budgetExceeded = false
-  // One reaction on the exact result for the whole drain; each read adds and removes its waker. A
-  // reaction per read on this run-long promise kept every drained event reachable through
-  // Promise.race: free-tier supervisors (~225 KB part states per update) hit node's 4 GB heap
-  // limit within an hour.
+  // One reaction on the run-long exact result; a reaction per read kept every drained event alive.
   private readonly exactWakers = new Set<() => void>()
   private exactWatched = false
   private readonly seenEvents = new Map<string, string>()
@@ -127,26 +112,12 @@ export class RetainedObservation {
     session: AgentSession,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult> {
     this.lastObservedAt = Date.now()
-    const completed = yield* this.drain(() =>
-      session.events({ executionId: this.handle.controlRef.executionId, signal: this.signal }),
-    )
+    const completed = yield* this.drain(session)
     if (!completed && !this.sawTerminal && this.lastReplayPosition !== undefined) {
-      // The stream broke before the terminal receipt, which is where a Sandbox execution reports
-      // token usage and the exact result lacks it: a break used to settle a 15-minute turn at 0
-      // tokens, debited as nothing (mech-interp-foundations-pi-20260915k turn 1, -20260915l turns
-      // 2 and 3). The provider replays from a cursor, so resume once from the last replay
-      // position; a second failure keeps the first as the recorded cause.
+      // The terminal receipt carries the turn's usage: resume once; a second failure keeps the first.
       const firstFailure = this.failure
       this.failure = undefined
-      const since = this.lastReplayPosition
-      const resumed = yield* this.drain(() =>
-        session.events({
-          executionId: this.handle.controlRef.executionId,
-          since,
-          signal: this.signal,
-        }),
-      )
-      if (!resumed) this.failure = firstFailure
+      if (!(yield* this.drain(session, this.lastReplayPosition))) this.failure = firstFailure
     }
     if (this.budgetExceeded) {
       // Keep a definite exact-result error rather than masking it as observation loss. A result
@@ -161,16 +132,56 @@ export class RetainedObservation {
     if (!this.sawTerminal && this.failure === undefined) {
       this.failure = { error: new Error('retained provider stream did not yield a terminal event') }
     }
-    // Observation failure does not establish execution failure: only the exact retained result
-    // settles the invocation, and a short stream is not an end. The node waits on it as long as the
-    // provider takes. The Sandbox SDK builds that result by replaying events, and a short replay
-    // returns `success: false` "Agent stream ended without a terminal event" with no error code,
-    // indistinguishable from the execution's own failure (64 of 82 C1 attempts).
-    // The SDK owns that verdict.
-    if (!this.sawTerminal && !this.exactResultSettled && !this.awaitingPublished) {
+    // A short stream is not an end: only the exact result settles the invocation.
+    if (!this.sawTerminal && !this.exactResultSettled && this.silenceHandledAt === undefined) {
       yield this.awaitingResult(Date.now())
     }
+    while (!(await this.exactOrQuiet())) await this.confirmRunLive(session)
     yield await this.resultFrame()
+  }
+
+  /** True once the exact result settles, false once a quiet interval passes first. */
+  private exactOrQuiet(): Promise<boolean> {
+    let unwatch = [() => {}]
+    return new Promise<boolean>((resolve) => {
+      unwatch = [this.armQuiet(() => resolve(false)), this.onExactResult(() => resolve(true))]
+    }).finally(() => unwatch.map((stop) => stop()))
+  }
+
+  private armQuiet(onQuiet: () => void): () => void {
+    const quietFrom = Math.max(this.lastObservedAt, this.silenceHandledAt ?? 0)
+    const quietMs = RETAINED_AWAITING_RESULT_AFTER_MS - (Date.now() - quietFrom)
+    return armDeadlineTimer(Math.max(0, quietMs), onQuiet)
+  }
+
+  /** Ask the provider whether the run still lives; throw when it cannot say so in time. */
+  private async confirmRunLive(session: AgentSession): Promise<void> {
+    const deadline = new AbortController()
+    const clear = armDeadlineTimer(RETAINED_STATUS_READ_MS, () =>
+      deadline.abort(new Error(`no status answer within ${RETAINED_STATUS_READ_MS} ms`)),
+    )
+    const signal = AbortSignal.any([this.signal, deadline.signal])
+    let cause: unknown
+    try {
+      const status = await awaitAbortable(
+        Promise.resolve().then(() => session.status({ signal })),
+        signal,
+      )
+      if (status !== null && !isTerminalSessionStatus(status)) {
+        this.silenceHandledAt = Date.now()
+        return
+      }
+      cause = new Error(`provider status reads ${status}`)
+    } catch (error) {
+      if (this.signal.aborted) throw error
+      cause = deadline.signal.aborted ? deadline.signal.reason : error
+    } finally {
+      clear()
+    }
+    throw new Error(
+      `retained provider brought no frame or exact result since ${new Date(this.lastObservedAt).toISOString()} and did not confirm its run live`,
+      { cause },
+    )
   }
 
   private async resultFrame(): Promise<AgentEnvironmentEvent> {
@@ -246,7 +257,7 @@ export class RetainedObservation {
   }
 
   private awaitingResult(since: number): RetainedAwaitingResult {
-    this.awaitingPublished = true
+    this.silenceHandledAt = Date.now()
     return { awaitingResultSince: new Date(since).toISOString() }
   }
 
@@ -282,20 +293,12 @@ export class RetainedObservation {
         Promise.resolve().then(() => iterator.next()),
         this.signal,
       ).then((value) => ({ kind: 'event' as const, value }))
-      // No new evidence for a while publishes the wait; the read and the result race on.
-      const quiet = this.awaitingPublished
-        ? undefined
-        : new Promise<FrameRead>((resolve) => {
-            clearQuiet = armDeadlineTimer(
-              Math.max(0, RETAINED_AWAITING_RESULT_AFTER_MS - (Date.now() - this.lastObservedAt)),
-              () => resolve({ kind: 'quiet' }),
-            )
-          })
-      return await Promise.race([
-        this.pendingRead,
-        exactWake,
-        ...(quiet === undefined ? [] : [quiet]),
-      ])
+      // No new evidence for a while publishes the wait or asks after the run; the read and the
+      // result race on.
+      const quiet = new Promise<FrameRead>((resolve) => {
+        clearQuiet = this.armQuiet(() => resolve({ kind: 'quiet' }))
+      })
+      return await Promise.race([this.pendingRead, exactWake, quiet])
     } finally {
       if (wake !== undefined) clearImmediate(wake)
       if (grace !== undefined) clearTimeout(grace)
@@ -350,12 +353,19 @@ export class RetainedObservation {
 
   /** Yield one subscription's new frames; false when the stream failed rather than ended. */
   private async *drain(
-    open: () => AsyncIterable<AgentEnvironmentEvent>,
+    session: AgentSession,
+    since?: string,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult, boolean> {
     let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
     let failed = false
     try {
-      iterator = open()[Symbol.asyncIterator]()
+      iterator = session
+        .events({
+          executionId: this.handle.controlRef.executionId,
+          ...(since === undefined ? {} : { since }),
+          signal: this.signal,
+        })
+        [Symbol.asyncIterator]()
     } catch (error) {
       if (this.signal.aborted) throw error
       this.failure = { error }
@@ -385,7 +395,8 @@ export class RetainedObservation {
           break
         }
         if (observed.kind === 'quiet') {
-          yield this.awaitingResult(this.lastObservedAt)
+          if (this.silenceHandledAt !== undefined) await this.confirmRunLive(session)
+          else yield this.awaitingResult(this.lastObservedAt)
           continue
         }
         if (observed.kind === 'exact-result') {
