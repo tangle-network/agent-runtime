@@ -2593,6 +2593,19 @@ The graph registry directory (`graph-registry`) whose stored graphs a manager's 
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
 
+##### promptRegistry?
+
+> `readonly` `optional` **promptRegistry?**: [`PromptRegistry`](runtime.md#promptregistry)
+
+The directive registry a graph subtask (a manager's `run_graph`, and a `maps` edge's `graph`
+ item) resolves its edge directives against. `runGraph` passes its own `registry`, so a nested
+ flow reads the directives of the graph that started it. Omit and subtasks resolve against the
+ seeded kernel registry.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`promptRegistry`](runtime.md#promptregistry-1)
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
