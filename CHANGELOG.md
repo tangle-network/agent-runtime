@@ -1,3 +1,9 @@
+## 3.0.38
+
+`observe_agent` reads a settled worker's own `outRef`, the content address its settlement event names, as well as the `subtree.results` ones. On Discovery run canary-chain-20261103e the root passed the outRef from its worker's settlement and got `unknown-result`; it had to observe by `workerId` instead. The refusal for any other digest now names what it accepts.
+
+3.0.37 was tagged but never reached npm: its qualify job failed `pnpm run lint` on `src/tui/top-web.ts`, now formatted. 3.0.38 carries its change.
+
 ## 3.0.37
 
 A retained turn whose exact result has settled returns that result: frames past 1,024 after it are not read, and the result records incomplete observation instead of failing `unobservable`. Ten failures in a row over 5 minutes, without progress, that leave invocations pending for one cause now stop the driver `pending-unresolved` with that cause, whether or not their abandonments were confirmed and inside the outage window too.
