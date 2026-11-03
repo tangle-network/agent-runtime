@@ -16,15 +16,13 @@
  * `events`, its committed line count) is what `result.json` and `failure.json` carry. The winner's
  * `outRef` keeps its meaning; this is a separate reference.
  *
- * Durability boundary: each line is written synchronously to an `O_APPEND` descriptor before the
- * next event is drained, and the file is fsynced at every drive-attempt boundary and at close, not
- * per line. An fsync per line cost 7.1 ms per event over
- * 1,000 events and 8.1 ms over 5,000 (~80 s for a root emitting ten thousand text deltas, all of
- * it serialized inside the drain loop that also meters the budget); an async `FileHandle.write`
- * still cost 0.9 to 1.1 ms per line in the thread pool the children's journal writes share; a
- * `writeSync` costs 6 µs. A process kill loses nothing written; only a kernel crash or power
- * loss can drop lines written since the last fsync, and the reader's torn-tail rule keeps such a
- * file readable.
+ * Durability boundary: lines appended in one event-loop turn reach an `O_APPEND` descriptor in one
+ * fenced `writeSync` when the turn ends; the file is fsynced at each drive-attempt boundary and at
+ * close. A fence fsyncs a lock-owner file (one ext4 journal commit): 10-20 ms on SSD and ~400 ms on
+ * a busy SMR drive, where a fence per line drained 2.5 events/s while the model streamed hundreds
+ * (us-legal-exploits-20261103a, 2026-11-02); grouped, a slow disk grows the groups, not the backlog.
+ * A process kill loses at most the turn in progress; a kernel crash or power loss can drop lines
+ * written since the last fsync, and the reader's torn-tail rule keeps such a file readable.
  *
  * The bridge wire carries text and tool calls only: cli-bridge's SSE frames decode
  * `delta.content` and `delta.tool_calls`, never a reasoning delta. A bridge-placed root's retained
@@ -81,7 +79,7 @@ export type RootStreamRecord = {
 export interface RootStreamSink {
   /** Mark the next drive attempt; opens the file on the first call. */
   beginAttempt(): Promise<void>
-  /** Append one event; the line is in the kernel when this returns. */
+  /** Append one event; its line reaches the kernel when the current event-loop turn ends. */
   append(event: ExecutorProgressEvent): void
   /** Fsync, close the writer, and return the receipt, or `undefined` when no attempt ever began. */
   close(): Promise<RootStreamReceipt | undefined>
@@ -104,6 +102,21 @@ export function createRootStreamSink(
   let attempt = 0
   let seq = 0
   let closed = false
+  const pending: string[] = []
+  let failure: unknown
+
+  // Group commit: one fenced write per turn; a lost claim is thrown to the next caller.
+  const flush = (): void =>
+    withClaim(() => {
+      const writer = fd
+      if (pending.length === 0 || writer === undefined) return
+      const lines = pending.splice(0).join('\n')
+      try {
+        fenceRunWrite(() => writeLine(writer, lines))
+      } catch (error) {
+        failure ??= error
+      }
+    })
 
   const openOnce = async (): Promise<void> => {
     if (fd !== undefined) return
@@ -149,43 +162,30 @@ export function createRootStreamSink(
         // A retry re-enters the harness after the previous attempt's lines; make them durable
         // before the next attempt appends after them.
         const writer = fd
+        flush()
+        if (failure !== undefined) throw failure
         if (writer !== undefined) fenceRunWrite(() => fsyncSync(writer))
         await openOnce()
       })
     },
     append(event) {
-      return withClaim(() =>
-        fenceRunWrite(() => {
-          if (closed) throw new Error('root stream: append after close')
-          if (fd === undefined) throw new Error('root stream: append before beginAttempt')
-          const at = new Date(now()).toISOString()
-          const record = { seq: seq + 1, at, attempt, event }
-          // A progress payload is JSON the wire already parsed, so this branch is a guard, not a
-          // path: a value JSON cannot encode (a BigInt, a cycle, a hostile `toJSON`) is recorded as
-          // a dropped line so the turn continues and the file still says something was lost.
-          let line: string | undefined
-          try {
-            line = JSON.stringify(record)
-          } catch (error) {
-            line = JSON.stringify({
-              seq: seq + 1,
-              at,
-              attempt,
-              dropped: { kind: event.kind, reason: errorMessage(error) },
-            })
-          }
-          if (line === undefined) {
-            line = JSON.stringify({
-              seq: seq + 1,
-              at,
-              attempt,
-              dropped: { kind: event.kind, reason: 'event serialized to nothing' },
-            })
-          }
-          writeLine(fd, line)
-          seq += 1
-        }),
-      )
+      if (closed) throw new Error('root stream: append after close')
+      if (fd === undefined) throw new Error('root stream: append before beginAttempt')
+      if (failure !== undefined) throw failure
+      seq += 1
+      const at = new Date(now()).toISOString()
+      // A progress payload is JSON the wire already parsed, so this is a guard, not a path: a value
+      // JSON cannot encode (a BigInt, a cycle, a hostile `toJSON`) is recorded as a dropped line so
+      // the turn continues and the file still says something was lost.
+      let line: string
+      try {
+        line = JSON.stringify({ seq, at, attempt, event })
+      } catch (error) {
+        const dropped = { kind: event.kind, reason: errorMessage(error) }
+        line = JSON.stringify({ seq, at, attempt, dropped })
+      }
+      pending.push(line)
+      if (pending.length === 1) setImmediate(flush)
     },
     async close() {
       return withClaim(async () => {
@@ -194,6 +194,8 @@ export function createRootStreamSink(
         const writer = fd
         if (writer === undefined) return undefined
         try {
+          flush()
+          if (failure !== undefined) throw failure
           fenceRunWrite(() => fsyncSync(writer))
         } finally {
           closeSync(writer)
@@ -231,9 +233,7 @@ export async function readRootStreamReceipt(
   let events = 0
   try {
     for await (const _record of readCommittedJsonLines<RootStreamRecord>(path, {
-      onBytes: (bytes) => {
-        hash.update(bytes)
-      },
+      onBytes: (bytes) => void hash.update(bytes),
     })) {
       events += 1
     }
