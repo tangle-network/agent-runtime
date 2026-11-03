@@ -1,3 +1,7 @@
+## 3.0.29
+
+The root stream, and each node stream, now makes at most one fenced write per second under load (#2337). The first line after a quiet second still reaches disk when the event loop turns. It used to take the run's fsynced mutation lock for every line, and in 3.0.28 (#2332) for every event-loop turn, which still meant one upstream page of about 24 lines per fence. On Discovery runs whose run directory sits on a busy SMR drive, fences took 150 ms median and 1.8 s at p90. The relay drained 2.5 events/s per line (us-legal-exploits-20261103a) and about 20/s per turn (us-legal-exploits-20261103b), while the model streamed about 210 reasoning deltas/s, so the supervisor fell minutes behind its box with its main thread in disk wait. A process kill now loses at most the last second. A lost claim is still thrown to the next `append`, `beginAttempt` or `close`.
+
 ## 3.0.28
 
 A `maps` edge's `graph` item flow and a manager's `run_graph` subtask now resolve their edge directives against the `registry` passed to `runGraph`, the same registry the starting graph uses. Before, they resolved only against the seeded kernel registry, so an item flow whose directives were registered on the caller's registry refused its first spawn ("prompt registry: no entry for …"). `SuperviseOptions.promptRegistry` carries that registry; `runGraph` sets it.
