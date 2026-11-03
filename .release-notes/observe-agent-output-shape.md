@@ -1,0 +1,3 @@
+type: patch
+---
+`observe_agent` no longer teaches `outputPath: ["content"]` for every worker: its description says the settled artifact is what the worker submitted (often a plain string), else its provider result, to omit `outputPath` to read it whole, and that `["content"]` applies to a provider result. A path that does not resolve now names itself, the step it stopped on and what the artifact is there (`the artifact at [] is a string`, or an object's fields), and says to omit `outputPath`. On Discovery run canary-chain-20261103b the root asked two submitted results, the strings "9592" and "8392", for `["content"]` and received only `outputPath does not identify a retained field`.

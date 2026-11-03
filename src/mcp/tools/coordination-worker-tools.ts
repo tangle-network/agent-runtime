@@ -278,8 +278,8 @@ function observeAgentTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       'but whose settlement you have not yet drained reports `settlementPending` with its ' +
       'terminal kind; its `status` still reads running until your next wake ' +
       'delivers it, so end your turn rather than observing again. The settled output ' +
-      'artifact is returned once drained. Select a field with `outputPath`, for example ["content"] ' +
-      'to read a provider result without its event history. Omit it to read the complete artifact. ' +
+      'artifact is returned once drained: what the worker submitted, often a plain string, else its provider ' +
+      'result. Omit `outputPath` to read it whole; ["content"] selects a provider result without its events. ' +
       'Large outputs return a bounded JSON `outputPage`; ' +
       'repeat with `outputOffset: outputPage.nextOffset` until it is null, concatenate page text, ' +
       'then parse the JSON. Offsets and limits count UTF-16 characters. The full artifact stays ' +

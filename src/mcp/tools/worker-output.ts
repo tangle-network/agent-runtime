@@ -47,11 +47,21 @@ function samePath(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((field, index) => field === right[index])
 }
 
+// A rejected path names what it stopped on: canary-chain-20261103b's root asked a submitted string for ["content"].
+const shapeOf = (value: unknown) =>
+  value === null
+    ? 'null'
+    : typeof value !== 'object'
+      ? `a ${typeof value}`
+      : `${Array.isArray(value) ? 'an array' : 'an object'} with fields ${Object.keys(value).slice(0, 20).join(', ') || 'none'}`
+
 function selectWorkerOutput(output: unknown, path: readonly string[]): unknown {
   let selected = output
-  for (const field of path) {
+  for (const [step, field] of path.entries()) {
     if (selected === null || typeof selected !== 'object' || !Object.hasOwn(selected, field)) {
-      throw new Error('observe_agent outputPath does not identify a retained field')
+      throw new Error(
+        `observe_agent outputPath ${JSON.stringify(path)} does not identify a retained field: the artifact at ${JSON.stringify(path.slice(0, step))} is ${shapeOf(selected)}. Omit outputPath to read the complete artifact.`,
+      )
     }
     selected = (selected as Record<string, unknown>)[field]
   }

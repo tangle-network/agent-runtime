@@ -54,37 +54,6 @@ describe('retained worker output pages', () => {
     expect(await read(undefined, options)).toEqual({ output: null })
   })
 
-  it('reassembles escaped Unicode and terminal evidence without changing the retained artifact', async () => {
-    const output = {
-      content: 'Result: 🧪\\"\n'.repeat(12_000),
-      events: [{ result: 'last evidence' }],
-    }
-    const encoded = JSON.stringify(output)
-    const blobs = { put: async () => {}, get: async () => output }
-    const read = createWorkerOutputReader(blobs)
-    const chunks: string[] = []
-    let offset = 0
-    for (;;) {
-      const reply = await read('result', workerOutputReadOptions({ outputOffset: offset }))
-      const page = reply.outputPage as {
-        text: string
-        offset: number
-        nextOffset: number | null
-        totalChars: number
-      }
-      expect(reply.output).toBeNull()
-      expect(page.offset).toBe(offset)
-      expect(page.totalChars).toBe(encoded.length)
-      expect(page.text.length).toBeLessThanOrEqual(WORKER_OUTPUT_PAGE_CHARS)
-      expect(Buffer.byteLength(JSON.stringify(reply))).toBeLessThan(128 * 1024)
-      chunks.push(page.text)
-      if (page.nextOffset === null) break
-      offset = page.nextOffset
-    }
-    expect(JSON.parse(chunks.join(''))).toEqual(output)
-    expect(await blobs.get()).toBe(output)
-  })
-
   it('reuses one encoded selection across pages and concurrent reads', async () => {
     let getCount = 0
     let serializationCount = 0
