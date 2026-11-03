@@ -576,7 +576,7 @@ describe('supervisePursuit root stream', () => {
           ...session,
           async *events(eventOptions) {
             for (const part of rootParts) yield structuredClone(part)
-            // Appends land together when the event loop turns (one fenced write per turn).
+            // After a quiet second, appends land together when the event loop turns.
             await new Promise((resolve) => setImmediate(resolve))
             seen.duringTurn = existsSync(streamPath())
               ? readFileSync(streamPath(), 'utf8')
