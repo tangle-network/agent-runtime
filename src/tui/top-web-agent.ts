@@ -46,7 +46,7 @@ export async function serveTopAgent({
   base: string
   roots: readonly string[]
   snapshots: ReadonlyMap<string, TopSnapshot>
-  transcripts: Set<() => void>
+  transcripts: Set<(changedRoots: ReadonlySet<string>) => void>
   source?: TopInspectionSource
   readSessions?: TopSessionReader
 }) {
@@ -156,7 +156,10 @@ export async function serveTopAgent({
   const stream = createTopAgentStream(Date.now())
   response.write(`event: reset\ndata: ${JSON.stringify(stream.reset)}\n\n`)
   let updating = false
-  const update = () => {
+  let finalizing = false
+  const update = (changedRoots: ReadonlySet<string>) => {
+    // Only this agent's own root wakes it (#2355); the close path below forces one final pass naming its root.
+    if (!finalizing && !changedRoots.has(root!)) return
     if (updating || response.destroyed || response.writableEnded) return
     updating = true
     void (async () => {
@@ -192,6 +195,11 @@ export async function serveTopAgent({
       })
   }
   transcripts.add(update)
-  response.on('close', () => transcripts.delete(update))
-  update()
+  response.on('close', () => {
+    finalizing = true
+    transcripts.delete(update)
+    // The run may be over for this viewer: one last read so a terminal record appended just before close reaches it.
+    update(new Set([root!]))
+  })
+  update(new Set([root!]))
 }

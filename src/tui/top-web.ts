@@ -44,9 +44,13 @@ export async function serveTopWeb(options: TopWebOptions) {
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
   const host = options.host ?? '127.0.0.1'
   const clients = new Set<ServerResponse>()
-  const transcripts = new Set<() => void>()
+  // Each per-agent stream registers with the root it serves; a read that changed only some roots wakes only those
+  // streams (#2355): an event in run A no longer re-reads the inspections of run B's open viewers.
+  const transcripts = new Set<(changedRoots: ReadonlySet<string>) => void>()
   const snapshots = new Map<string, TopSnapshot>()
   const digests = new Map<string, string>()
+  const touched = new Set<string>()
+  const lastStamps = new Map<string, string>()
   const watchers: FSWatcher[] = []
   let sequence = 0
   let reading = false
@@ -64,11 +68,17 @@ export async function serveTopWeb(options: TopWebOptions) {
     try {
       const changed: TopSnapshot[] = []
       for (const root of roots) {
-        const snapshot = existsSync(resolve(root, 'observer.jsonl'))
+        // A root untouched since its last parse, whose journal file did not move, keeps its snapshot (#2355): the
+        // reconcile pass degrades to stat calls instead of re-parsing every journal on the host.
+        const marker = ['observer.jsonl', 'spawn-journal.jsonl', 'journal.jsonl'].map((name) => resolve(root, name)).find((path) => existsSync(path))
+        const stamp = marker ? await stat(marker).then((info) => `${info.size}:${info.mtimeMs}`, () => 'none') : 'runs-root'
+        if (!touched.has(root) && snapshots.has(root) && lastStamps.get(root) === stamp) continue
+        lastStamps.set(root, stamp)
+        const snapshot = marker?.endsWith('observer.jsonl')
           ? await loadTopSnapshot(root, { runDir: root })
-          : existsSync(resolve(root, 'spawn-journal.jsonl'))
+          : marker?.endsWith('spawn-journal.jsonl')
             ? await loadTopSnapshot(root, { runDir: root, format: 'journal' })
-            : existsSync(resolve(root, 'journal.jsonl'))
+            : marker?.endsWith('journal.jsonl')
               ? await loadTopSnapshot(root, { runDir: root, format: 'workflow' })
               : await loadRunsRoot(root)
         const digest = createHash('sha256')
@@ -93,7 +103,9 @@ export async function serveTopWeb(options: TopWebOptions) {
         }
         for (const client of clients) send(client, frame)
       }
-      for (const update of transcripts) update()
+      const changedRoots = new Set([...changed.map((snapshot) => snapshot.root), ...touched])
+      touched.clear()
+      for (const update of transcripts) update(changedRoots)
     } finally {
       reading = false
       if (dirty && !closed) schedule()
@@ -118,7 +130,9 @@ export async function serveTopWeb(options: TopWebOptions) {
       }, 16)
   }
   await refresh()
-  for (const root of roots) watchers.push(watch(root, { recursive: true }, schedule))
+  // Each root's watcher marks its own root: a transcript write (which no snapshot digest covers) still wakes that
+  // root's agent streams, and only those (#2355).
+  for (const root of roots) watchers.push(watch(root, { recursive: true }, () => { touched.add(root); schedule() }))
   // Watch notifications may be coalesced or lost; the same loader reconciles them without a second model.
   const reconcile = setInterval(schedule, TOP_SNAPSHOT_RECONCILE_MS)
   const heartbeat = setInterval(() => {
