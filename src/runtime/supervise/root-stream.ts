@@ -16,13 +16,13 @@
  * `events`, its committed line count) is what `result.json` and `failure.json` carry. The winner's
  * `outRef` keeps its meaning; this is a separate reference.
  *
- * Durability boundary: lines appended in one event-loop turn reach an `O_APPEND` descriptor in one
- * fenced `writeSync` when the turn ends; the file is fsynced at each drive-attempt boundary and at
- * close. A fence fsyncs a lock-owner file (one ext4 journal commit): 10-20 ms on SSD and ~400 ms on
- * a busy SMR drive, where a fence per line drained 2.5 events/s while the model streamed hundreds
- * (us-legal-exploits-20261103a, 2026-11-02); grouped, a slow disk grows the groups, not the backlog.
- * A process kill loses at most the turn in progress; a kernel crash or power loss can drop lines
- * written since the last fsync, and the reader's torn-tail rule keeps such a file readable.
+ * Durability boundary: lines appended within a one-second window reach an `O_APPEND` descriptor in
+ * one fenced `writeSync`; the file is fsynced at each drive-attempt boundary and at close. A fence
+ * fsyncs a lock-owner file: 10-20 ms on SSD, 150 ms to 1.8 s on a busy SMR drive. There a fence per
+ * line drained 2.5 events/s, and a fence per event-loop turn (one upstream page, ~24 lines) ~20/s,
+ * while the model streamed ~210 (us-legal-exploits-20261103a and b); a window lets ingestion run
+ * between fences. A process kill loses at most the open window; a kernel crash or power loss can
+ * drop lines written since the last fsync, and the reader's torn-tail rule keeps the file readable.
  *
  * The bridge wire carries text and tool calls only: cli-bridge's SSE frames decode
  * `delta.content` and `delta.tool_calls`, never a reasoning delta. A bridge-placed root's retained
@@ -79,7 +79,7 @@ export type RootStreamRecord = {
 export interface RootStreamSink {
   /** Mark the next drive attempt; opens the file on the first call. */
   beginAttempt(): Promise<void>
-  /** Append one event; its line reaches the kernel when the current event-loop turn ends. */
+  /** Append one event; its line reaches the kernel within a second. */
   append(event: ExecutorProgressEvent): void
   /** Fsync, close the writer, and return the receipt, or `undefined` when no attempt ever began. */
   close(): Promise<RootStreamReceipt | undefined>
@@ -105,7 +105,7 @@ export function createRootStreamSink(
   const pending: string[] = []
   let failure: unknown
 
-  // Group commit: one fenced write per turn; a lost claim is thrown to the next caller.
+  // Group commit: one fenced write per window; a lost claim is thrown to the next caller.
   const flush = (): void =>
     withClaim(() => {
       const writer = fd
@@ -185,7 +185,7 @@ export function createRootStreamSink(
         line = JSON.stringify({ seq, at, attempt, dropped })
       }
       pending.push(line)
-      if (pending.length === 1) setImmediate(flush)
+      if (pending.length === 1) setTimeout(flush, 1_000).unref()
     },
     async close() {
       return withClaim(async () => {
