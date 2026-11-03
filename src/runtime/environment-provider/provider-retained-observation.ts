@@ -16,7 +16,6 @@ import type { RetainedRunHandle } from '../retained-run-types'
 import { extractTransportEventIdentity } from '../sandbox-transport-events'
 import { armDeadlineTimer } from '../supervise/deadline'
 import { causeChain } from '../supervise/error-message'
-import { RetainedExecutionPendingError } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
 // Silence never ends a turn. This long without evidence publishes the wait on the exact result
@@ -26,6 +25,8 @@ const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
 const RETAINED_STATUS_READ_MS = 60_000
 
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
+// Past this many frames after a settled exact result the rest are dropped and the result stands:
+// a subscription without a cursor replays the execution from its first frame.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
 /**
@@ -93,7 +94,6 @@ export class RetainedObservation {
   private exactResultSettled = false
   private observedFrames = 0
   private framesAfterResult = 0
-  private budgetExceeded = false
   // One reaction on the run-long exact result; a reaction per read kept every drained event alive.
   private readonly exactWakers = new Set<() => void>()
   private exactWatched = false
@@ -118,16 +118,6 @@ export class RetainedObservation {
       const firstFailure = this.failure
       this.failure = undefined
       if (!(yield* this.drain(session, this.lastReplayPosition))) this.failure = firstFailure
-    }
-    if (this.budgetExceeded) {
-      // Keep a definite exact-result error rather than masking it as observation loss. A result
-      // does not prove unobserved queued frames were bound or non-refusals.
-      throw new RetainedExecutionPendingError(
-        new Error(
-          `retained provider observation exceeded ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result`,
-        ),
-        'unobservable',
-      )
     }
     if (!this.sawTerminal && this.failure === undefined) {
       this.failure = { error: new Error('retained provider stream did not yield a terminal event') }
@@ -375,7 +365,11 @@ export class RetainedObservation {
     try {
       while (true) {
         if (this.framesAfterResult >= RETAINED_OBSERVATION_BATCH_EVENTS) {
-          this.budgetExceeded = true
+          this.failure ??= {
+            error: new Error(
+              `retained provider stream sent ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result; the rest were not read`,
+            ),
+          }
           break
         }
         if (

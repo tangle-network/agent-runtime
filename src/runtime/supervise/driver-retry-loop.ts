@@ -25,7 +25,7 @@ import type {
   DriverRetryRun,
 } from './driver-retry'
 import { errMessage } from './error-message'
-import { RetainedExecutionPendingError, type RetainedPendingCause } from './retained-executor'
+import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
   jitteredMs,
@@ -161,6 +161,12 @@ export function driverRetryLimits(run: DriverRetryRun): DriverRetryLimits {
 /** A run of identical failures and when its first one failed. */
 type Streak = { readonly error: string; readonly count: number; readonly since: number }
 
+/** True once a streak has run {@link REPEATED_FAILURE_LIMIT} alike over the window by `at`. */
+const repeatedBy = (streak: Streak | undefined, at: number): boolean =>
+  streak !== undefined &&
+  streak.count >= REPEATED_FAILURE_LIMIT &&
+  at - streak.since >= REPEATED_FAILURE_WINDOW_MS
+
 /** One failed drive, as the loop read it the moment it failed. */
 interface DriverFailure {
   readonly error: unknown
@@ -190,9 +196,10 @@ export class DriverRetryLoop {
   // Consecutive `unavailable` attempts, for the pause doubling only. Any other outcome, or an
   // unavailable attempt that still made progress, resets it: the upstream served in between.
   private consecutivePauses = 0
-  // Consecutive failures that left the same unfinished retained invocation pending for the same
-  // reason, and the abandonments since the last progress or completed drive.
-  private samePending: { readonly cause: RetainedPendingCause; readonly count: number } | undefined
+  // Failures without progress that left an invocation pending for one cause (`error`), across
+  // abandonments, and how many of them the current invocation failed.
+  private samePending: Streak | undefined
+  private pendingTries = 0
   // The current streaks, each with its first failure: instant failures with one error, and
   // identical transient attempts that gained nothing.
   private sameFailure: Streak | undefined
@@ -414,14 +421,15 @@ export class DriverRetryLoop {
       progressed,
       pending,
     }
-    this.samePending =
-      pending === undefined || classification !== 'transient'
-        ? undefined
-        : {
-            cause: pending.pendingCause,
-            count:
-              this.samePending?.cause === pending.pendingCause ? this.samePending.count + 1 : 1,
-          }
+    // Another failure or a pause holds the streak; progress or another cause ends it.
+    if (progressed) this.samePending = undefined
+    else if (pending !== undefined && classification === 'transient') {
+      const same = this.samePending?.error === pending.pendingCause ? this.samePending : undefined
+      this.pendingTries = same === undefined ? 1 : this.pendingTries + 1
+      this.samePending = same
+        ? { ...same, count: same.count + 1 }
+        : { error: pending.pendingCause, count: 1, since: startedAt + durationMs }
+    }
     if (classification === 'unavailable') await this.pause(failure)
     else await this.retry(failure)
   }
@@ -479,20 +487,20 @@ export class DriverRetryLoop {
     this.failures += 1
     const failedAt = limits.now()
     const stop = this.failureStop(failure, failedAt)
-    const abandoned = await this.abandonPending(failure, stop)
-    // A pending invocation that would be abandoned again after the run spent its abandonments
-    // without progress is not retried until the outage window or barren bound ends it: each
-    // replacement failed reconciliation the same way (terraform-dc-build-20261009g-fork re-entered
-    // one stopped sandbox 52 times over 26 minutes). The stop names the pending cause.
+    // One pending cause at the repeated-failure bound, however its abandonments went, or again
+    // once they are spent, stops with that cause inside the outage window too: in 4 h,
+    // magnetar-rust-sandbox-20261102a reconciled 3 ended executions 348 times.
+    const same = failure.pending && this.samePending
+    const repeated = repeatedBy(same, failedAt)
+    const abandoned = !repeated && (await this.abandonPending(failure, stop))
     const unresolved =
       !abandoned &&
-      !progressed &&
-      failure.pending !== undefined &&
-      this.samePending !== undefined &&
-      run.resolvePending !== undefined &&
-      this.abandonments >= limits.maxConsecutive &&
-      this.samePending.count >= SAME_PENDING_LIMIT &&
-      (stop === undefined || stop === 'no-progress')
+      same !== undefined &&
+      (stop === undefined || stop === 'no-progress') &&
+      (repeated ||
+        (run.resolvePending !== undefined &&
+          this.abandonments >= limits.maxConsecutive &&
+          this.pendingTries >= SAME_PENDING_LIMIT))
     const retryStop = abandoned ? undefined : unresolved ? 'pending-unresolved' : stop
 
     if (progressed) this.barrenReentries = 0
@@ -514,8 +522,7 @@ export class DriverRetryLoop {
       ...(abandoned ? { abandoned: true } : {}),
       retryInMs: backoff,
     })
-    // A retry re-enters with the ORIGINAL task, since the failed drive may never have read a
-    // re-prompt; the failure travels, so the caller can say why.
+    // Re-enter with the ORIGINAL task (the failed drive may never have read a re-prompt) and why.
     this.reentry = { reason: 'driver-failure', failure: errMessage(error), retry: this.failures }
     await limits.sleep(backoff, run.signal)
     // The wait is where an abort or a deadline most often lands; re-ask before re-entering.
@@ -550,10 +557,6 @@ export class DriverRetryLoop {
           ? { error: message, count: this.sameFailure.count + 1, since: this.sameFailure.since }
           : { error: message, count: 1, since: failedAt }
     this.sameFailure = sameFailure
-    const repeated =
-      sameFailure !== undefined &&
-      sameFailure.count >= REPEATED_FAILURE_LIMIT &&
-      failedAt - sameFailure.since >= REPEATED_FAILURE_WINDOW_MS
     const sameIdle =
       classification === 'transient' && !progressed && failure.pending === undefined
         ? this.sameIdle?.error === message
@@ -575,9 +578,7 @@ export class DriverRetryLoop {
       sameIdle !== undefined &&
       (causedByPartialFailure(error)
         ? sameIdle.count >= SAME_PARTIAL_FAILURE_LIMIT
-        : run.nested === true &&
-          sameIdle.count >= REPEATED_FAILURE_LIMIT &&
-          failedAt - sameIdle.since >= REPEATED_FAILURE_WINDOW_MS)
+        : run.nested === true && repeatedBy(sameIdle, failedAt))
     ) {
       return 'repeated-failure'
     }
@@ -586,35 +587,34 @@ export class DriverRetryLoop {
     // Progress resets the barren counter: a driver that is doing real work between crashes
     // has earned another attempt, and the budget remains the bound on how many. Progress is
     // read run-wide, so an attempt that dies on arrival with the same error is bounded here.
-    if (progressed) return repeated ? 'repeated-failure' : undefined
+    if (progressed) return repeatedBy(sameFailure, failedAt) ? 'repeated-failure' : undefined
     return this.consecutiveBarren + 1 >= limits.maxConsecutive ? 'no-progress' : undefined
   }
 
   // A pending invocation that failed reconciliation the same way twice, or that would now end the
   // run, is abandoned instead of retried (recording what the provider confirmed), and the next
-  // drive starts a new invocation with a new streak. Abandonments in a row without progress are
-  // bounded like failures, so a provider that loses every execution still ends the run.
+  // drive starts a new invocation. Abandonments in a row without progress are bounded too.
   private async abandonPending(
     failure: DriverFailure,
     stop: DriverAttemptStop | undefined,
   ): Promise<boolean> {
-    const { run, limits, samePending } = this
+    const { run, limits } = this
     const { pending } = failure
     if (
       pending === undefined ||
-      samePending === undefined ||
+      this.samePending === undefined ||
       run.resolvePending === undefined ||
       !limits.retryEnabled ||
       run.signal.aborted ||
       this.abandonments >= limits.maxConsecutive ||
-      !(stop === 'no-progress' || (stop === undefined && samePending.count >= SAME_PENDING_LIMIT))
+      !(stop === 'no-progress' || (stop === undefined && this.pendingTries >= SAME_PENDING_LIMIT))
     ) {
       return false
     }
-    const abandoned = await run.resolvePending(pending, samePending.count)
+    const abandoned = await run.resolvePending(pending, this.pendingTries)
     if (abandoned) {
       this.abandonments += 1
-      this.samePending = undefined
+      this.pendingTries = 0
       this.consecutiveBarren = 0
       this.outageSince = undefined
     }

@@ -27,6 +27,14 @@ const EFFORT_REFUSED =
   'opencode execution failed: reasoning_effort "medium" is not supported for model ' +
   '"deepseek-v4.1-flash". Use one of: none, low, high, max. (exit code 1)'
 const EFFORT_TURNS = 'AAABRAABRAAB'
+// Setup smoke 403b5c4c's second worker turn: its subscription re-read the execution from the first
+// frame, 5,470 reasoning deltas in 12 s, and the exact result settled inside that burst.
+const REPLAYED = 5_470
+// What magnetar-rust-sandbox-20261102a's reads of its ended executions' results met, 251 times;
+// stopping them met it too, so no attempt was abandoned. The 13th read answers.
+const CAPACITY = 'Subscription account capacity is unavailable'
+const capacityRefusal = () =>
+  Object.assign(new Error(CAPACITY), { name: 'TangleCredentialCapacityError', status: 429 })
 // The down settlement's reason, by the failure each mode replays.
 const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   failed: [MALFORMED],
@@ -110,6 +118,8 @@ describe('nested retained owner journal isolation', () => {
     'capacity-503',
     'preflight-waits',
     'preflight-refused',
+    'replayed',
+    'unreconciled',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending'
     // The manager's turns: refused until the refusal streak stops it, or passing on the 7th.
@@ -134,6 +144,7 @@ describe('nested retained owner journal isolation', () => {
       const refused = new Map<string, { error: string; streamed: boolean }>()
       let dispatches = 0
       let attempts = 0
+      let reads = 0
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         dispatch: async (turn) => {
@@ -156,10 +167,19 @@ describe('nested retained owner journal isolation', () => {
         session: (id, options) => {
           const session = environment.session!(id, options)
           const refusal = refused.get(options?.controlRef?.executionId ?? '')
+          const exact = async () => {
+            if (mode !== 'unreconciled' || reads++ >= 12) return session.result()
+            skew += 40_000
+            throw capacityRefusal()
+          }
           return {
             ...session,
             async *events(eventOptions) {
               yield* session.events!(eventOptions)
+              for (let n = 0; mode === 'replayed' && n < REPLAYED; n++) {
+                const part = { id: `prt-${n}`, type: 'reasoning', text: 'x' }
+                yield { id: `replay-${n}`, type: 'message.part.updated', data: { part } }
+              }
               // A streamed refusal arrives under the Sandbox SDK's generic code.
               if (refusal?.streamed)
                 yield {
@@ -168,8 +188,11 @@ describe('nested retained owner journal isolation', () => {
                   data: { message: refusal.error, code: 'AGENT_EXECUTION_FAILED' },
                 }
             },
+            ...(mode === 'unreconciled'
+              ? { cancelRun: () => Promise.reject(capacityRefusal()) }
+              : {}),
             result: async () => ({
-              ...(await session.result()),
+              ...(await exact()),
               // s1's refused turns metered no tokens.
               usage:
                 mode === 'effort-refused'
@@ -361,6 +384,18 @@ describe('nested retained owner journal isolation', () => {
       expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(
         admitted ? sends : 0,
       )
+      if (mode === 'unreconciled') {
+        // The 10th identical reconciliation of the one dispatch stops the manager, naming its
+        // cause; the parent keeps that execution to reconcile.
+        expect(nested.filter((event) => event.kind === 'driver-attempt').at(-1)).toMatchObject({
+          record: { attempt: 10, stop: 'pending-unresolved', pendingCause: 'unobservable' },
+        })
+        const ended = parent.find((event) => event.kind === 'reconciled' && event.id === spawn.id)
+        expect(ended?.kind === 'reconciled' && ended.reason).toMatch(
+          /stopped by pending-unres.+429/,
+        )
+        return expect(dispatches).toBe(1)
+      }
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
         retry || (mode in DOWN_REASONS && mode !== 'failed' && !refusing) ? 0 : sends,
       )
