@@ -360,7 +360,6 @@ The configured application inbox owns persistence and authorization. Its respons
 
 Settled coordination events include an `outputRead` call for `observe_agent`.
 That tool returns small artifacts directly and large artifacts as bounded JSON pages.
-Use `outputPath: ['content']` to select a provider result without serializing its event history.
 Paths select retained own fields; omitted paths preserve access to the complete artifact.
 Continue with the same path and the returned character offset to reconstruct a large value exactly.
 Successive pages reuse one encoding of the selected artifact.
