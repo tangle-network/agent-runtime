@@ -162,7 +162,7 @@ export function driverRetryLimits(run: DriverRetryRun): DriverRetryLimits {
 }
 
 /** A run of alike failures (text with ids and times blanked, code when one carried it). */
-type Streak = { error: string; code: string | undefined; count: number; since: number }
+type Streak = { error: string; code?: string | undefined; count: number; since: number }
 
 const harnessFailure = (error: unknown) =>
   causeChain(error).find(
