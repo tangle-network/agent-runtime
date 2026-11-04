@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,12 +22,15 @@ const MALFORMED = 'Agent terminal outcome is malformed'
 const CONTENT_FILTERED =
   'codex execution failed: This content was flagged for possible cybersecurity risk. If this ' +
   'seems wrong, try rephrasing your request. (exit code 1)'
-// us-legal-exploits-20261103b:s1's first turns: one refusal, coded on the stream (A) or read
-// uncoded from the exact result (B), with reconciliations that timed out (R) between them.
+// us-legal-exploits-20261103b:s1's turns: one refusal, coded on the stream (A) or read uncoded
+// from the exact result (B), a reconciliation that timed out (R), another refusal (C), a pass (.).
 const EFFORT_REFUSED =
   'opencode execution failed: reasoning_effort "medium" is not supported for model ' +
   '"deepseek-v4.1-flash". Use one of: none, low, high, max. (exit code 1)'
-const EFFORT_TURNS = 'AAABRAABRAAB'
+const EFFORT_TURNS: Partial<Record<string, string>> = {
+  'effort-refused': 'ABRA',
+  'effort-changes': 'ACACA.',
+}
 // Setup smoke 403b5c4c's second worker turn: its subscription re-read the execution from the first
 // frame, 5,470 reasoning deltas in 12 s, and the exact result settled inside that burst.
 const REPLAYED = 5_470
@@ -49,7 +53,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
   ],
-  'effort-refused': ['after 12 attempt(s) — stopped by repeated-failure', EFFORT_REFUSED],
+  'effort-refused': ['after 4 attempt(s) — stopped by repeated-failure', EFFORT_REFUSED],
 }
 // What the Sandbox answered managers s0 and s1 of magnetar-rust-sandbox-20261031g on every turn
 // after their first, from the SDK's in-box profile file apply.
@@ -113,6 +117,7 @@ describe('nested retained owner journal isolation', () => {
     'content-filtered',
     'content-filter-recovers',
     'effort-refused',
+    'effort-changes',
     'file-conflict',
     'file-conflict-409',
     'file-duplicate',
@@ -128,9 +133,11 @@ describe('nested retained owner journal isolation', () => {
     const retry = mode === 'retry' || mode === 'pending' || mode === 'unreconciled-restart'
     // The manager's turns: refused until the refusal streak stops it, or passing on the 7th.
     const sends =
-      { 'content-filtered': 8, 'content-filter-recovers': 7, 'effort-refused': 10 }[
+      { 'content-filtered': 8, 'content-filter-recovers': 7, 'effort-refused': 3 }[
         mode as string
-      ] ?? 1
+      ] ??
+      EFFORT_TURNS[mode]?.length ??
+      1
     const refusing = sends > 1
     const parentInterruption = mode.startsWith('parent-')
     it(`keeps backend evidence inside its owned tree (${mode})`, async () => {
@@ -157,14 +164,15 @@ describe('nested retained owner journal isolation', () => {
             throw new ServerError(TYPED_FILE_CONFLICT, 409, undefined, 'PROFILE_FILE_CONFLICT')
           if (mode === 'file-conflict') throw new ServerError(FILE_CONFLICT)
           if (mode === 'file-duplicate') throw new ServerError(DUPLICATE_TARGET)
-          const effort = mode === 'effort-refused' ? EFFORT_TURNS[attempts++] : undefined
-          if (effort !== undefined) skew += 40_000
+          const effort = EFFORT_TURNS[mode]?.[attempts++]
           if (effort === 'R') throw new TimeoutError(30_000, 'Request timed out after 30000ms')
           const dispatched = await environment.dispatch!(turn)
           dispatches += 1
           const executionId = dispatched.controlRef?.executionId ?? ''
-          if (effort !== undefined)
-            refused.set(executionId, { error: EFFORT_REFUSED, streamed: effort === 'A' })
+          // Each copy names its own request and time, which never make a failure different.
+          const error = `${effort === 'C' ? EFFORT_REFUSED.replace('medium', 'high') : EFFORT_REFUSED} [request ${randomUUID()} at ${new Date(Date.now()).toISOString()}]`
+          if (effort !== undefined && effort !== '.')
+            refused.set(executionId, { error, streamed: effort === 'A' })
           else if (refusing && (mode === 'content-filtered' || dispatches < sends))
             refused.set(executionId, { error: CONTENT_FILTERED, streamed: true })
           return dispatched
@@ -207,7 +215,7 @@ describe('nested retained owner journal isolation', () => {
               ...(await exact()),
               // s1's refused turns metered no tokens.
               usage:
-                mode === 'effort-refused'
+                mode.startsWith('effort-') && refusal
                   ? { inputTokens: 0, outputTokens: 0 }
                   : { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
@@ -518,8 +526,15 @@ describe('nested retained owner journal isolation', () => {
           expect.objectContaining({ content: 'durable result' }),
         )
       }
-      expect(tokens(nested)).toBe(5 * sends)
-      expect(tokens(parent)).toBe(5 * sends)
+      // A refusal that changes is retried past the identical-failure bound until a turn passes.
+      const passed = mode === 'effort-changes' ? 1 : sends
+      if (mode === 'effort-changes')
+        expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
+          ...Array(5).fill({ record: { classification: 'transient', madeProgress: false } }),
+          { record: { stop: 'completed', reentry: 'driver-failure' } },
+        ])
+      expect(tokens(nested)).toBe(5 * passed)
+      expect(tokens(parent)).toBe(5 * passed)
       // The manager waited it out: two paused attempts, then the one that completed.
       expect(creates).toBe(mode.startsWith('capacity-') ? 3 : 1)
       const signal = WAITS[mode]

@@ -63,13 +63,12 @@
  * no word of its three open workers, two barren continuations followed, and the barren bound of the
  * time settled the run `no-result-selected`.
  *
- * A TRANSIENT failure that spent nothing, settled nothing and made no progress is an infrastructure
- * outage until its streak has lasted `transientOutageMs`: within that window it consumes neither
- * `maxAttempts` nor the barren streak, like a pause. After it the failure bounds apply, so a
- * dead-on-arrival driver still stops in minutes rather than hours. The exceptions meet the same
- * failure on every re-entry and stop with `repeated-failure`: a box created and then failed its
- * setup (`PartialFailureError`) at a second identical attempt with no progress, and a `nested`
- * manager at the repeated-failure count and window. A failure that spent tokens keeps the bounds.
+ * A TRANSIENT failure that spent nothing, settled nothing and made no progress is an outage until
+ * its streak has lasted `transientOutageMs`: it consumes neither `maxAttempts` nor the barren
+ * streak, like a pause; after it the failure bounds apply. Failures met alike (ids and times
+ * blanked) on every re-entry with no progress stop with `repeated-failure` inside the window: a
+ * `PartialFailureError` box at the second, a `nested` manager's failed harness turn at the third,
+ * and its other failures at the repeated-failure count and window.
  * A Platform restart answered
  * `HTTP 502 ... Platform key verification unavailable` from 03:04:34 to 03:09:41Z, and the
  * coordinator's twelve attempts ran out at 03:07:12Z with no token spent.
