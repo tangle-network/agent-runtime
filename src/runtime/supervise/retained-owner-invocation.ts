@@ -8,6 +8,7 @@ import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
   type RetainedExecutionPendingError,
+  type RetainedObservedPosition,
   type RetainedWorkspaceRestore,
   type RetainedWorkspaceRestoreReceipt,
 } from './retained-executor'
@@ -35,6 +36,9 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
     event.kind === 'execution-admitted' ? [event.admission] : [],
   )
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
+  let observed: RetainedObservedPosition | undefined = events
+    .flatMap((event) => (event.kind === 'execution-observed' ? [event] : []))
+    .at(-1)
   const priorSession = taskEvent === undefined ? undefined : committedSession(events, start)
   let sequence = Math.max(0, ...events.map((event) => ('seq' in event ? event.seq : 0)))
   const traceRoots = traceRootWriter(args.blobs, args.nodeId)
@@ -60,8 +64,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       get newSession() {
         return state.freshSessions === true && state.priorSession !== undefined
       },
-      // The first retained turn must stay alive so a later deliberate invocation can reuse it.
-      // The owning scope releases it once the complete manager scope finishes.
+      // Kept alive for a later deliberate invocation; the scope releases it when the manager ends.
       preserveEnvironment: true,
       admissions,
       get restoreWorkspace() {
@@ -80,6 +83,15 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           seq: state.nextSequence(),
           at: new Date(args.now()).toISOString(),
         })
+      },
+      get observed() {
+        return observed
+      },
+      onObserved: async (position) => {
+        const at = new Date(args.now()).toISOString()
+        const row = { kind: 'execution-observed' as const, id: args.nodeId, ...position, at }
+        await args.journal.appendEvent(args.rootId, { ...row, seq: state.nextSequence() })
+        observed = position
       },
       onAdmission: async (admission) => {
         scope.signal.throwIfAborted()
@@ -132,8 +144,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         const outRef = contentAddress(result.out)
         await args.blobs.put(outRef, result.out)
         scope.signal.throwIfAborted()
-        // The abort is decided once the result is stored. Hashing the completed turn's events
-        // decides nothing, so an abort that arrives while they hash still commits the result.
+        // The abort is decided once the result is stored: one while its events hash still commits.
         const traceRoot = await traceRoots.write(outRef, result)
         const event: Extract<SpawnEvent, { kind: 'execution-result' }> = {
           kind: 'execution-result',
@@ -157,13 +168,9 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   owners.set(scope, state)
 }
 
-/**
- * The environment admission an invocation that starts at `before` continues in: that of the
- * latest earlier invocation with a committed result, looking past invocations Runtime abandoned,
- * which never committed one. A live process keeps the same session across an abandonment, so a
- * resumed one must derive it the same way or its replay of the next invocation would not match
- * the material that invocation admitted.
- */
+/** The environment admission an invocation starting at `before` continues in: the latest earlier
+ *  committed invocation's, past abandoned ones. A live process keeps its session across an
+ *  abandonment, so a resumed one derives it the same way or its replay would not match. */
 function committedSession(
   events: readonly SpawnEvent[],
   before: number,
@@ -194,16 +201,10 @@ function committedSession(
 /** Bounds the stop Runtime asks for before abandoning a dispatched invocation. */
 const ABANDON_STOP_TIMEOUT_MS = 30_000
 
-/**
- * Abandon the owner's in-flight invocation, which the driver retry loop asks for when the same
- * reconciliation keeps failing the same way (`DriverRetryRun.resolvePending`).
- *
- * Runtime abandons only after the provider confirms the dispatched execution stopped or is no
- * longer live. An intent without a dispatch reference, or an unconfirmed stop, keeps the original
- * invocation recoverable under the same identity. The journal refuses every later admission or
- * result of an abandoned invocation, so only its replacement can commit a result. Answers `false`,
- * journaling nothing, when there is no unfinished invocation or its native stop is unconfirmed.
- */
+/** Abandon the owner's in-flight invocation when its reconciliation keeps failing the same way
+ *  (`DriverRetryRun.resolvePending`), only once the provider confirms the dispatched execution
+ *  stopped or is not live; the journal then refuses its later admissions and results. Answers
+ *  `false`, journaling nothing, without an unfinished invocation or a confirmed native stop. */
 export async function abandonScopeRetainedOwnerInvocation(
   scope: Scope<unknown>,
   failure: RetainedExecutionPendingError,
@@ -219,12 +220,8 @@ export async function abandonScopeRetainedOwnerInvocation(
   if (latestInput?.kind !== 'execution-input' || latestInput.seq !== state.inputSequence)
     return false
   const attempt = owned.slice(owned.indexOf(latestInput))
-  if (
-    attempt.some(
-      (event) => event.kind === 'execution-result' || event.kind === 'execution-abandoned',
-    )
-  )
-    return false
+  const closing = new Set(['execution-result', 'execution-abandoned'])
+  if (attempt.some((event) => closing.has(event.kind))) return false
   const dispatched = [...attempt]
     .reverse()
     .flatMap((event) =>

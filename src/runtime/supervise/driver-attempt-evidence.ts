@@ -110,12 +110,11 @@ export function causedByPartialFailure(error: unknown): boolean {
 }
 
 /**
- * The pending invocation a failure left, when abandoning it is the resolution: the provider
- * answered and could not resolve the execution (`unobservable`), or a nested manager's recovery
- * could not be rebuilt (`nested-recovery`). A lost transport waits for the provider instead, in
- * the outage window: abandoning during a provider outage would start a second execution beside
- * one that may still run. A request refused before it ran has nothing to abandon: a capacity
- * refusal pauses and any other refusal is terminal. A contract violation stays terminal (#1204).
+ * The pending invocation a failure left, when abandoning it is the resolution: the provider could
+ * not resolve the execution (`unobservable`), or a nested manager's recovery could not be rebuilt
+ * (`nested-recovery`). A lost transport waits in the outage window instead, and a capacity refusal
+ * pauses, so neither starts a second execution beside one that may still run. A request refused
+ * before it ran has nothing to abandon. A contract violation stays terminal (#1204).
  */
 export function abandonablePending(error: unknown): RetainedExecutionPendingError | undefined {
   return error instanceof RetainedExecutionPendingError &&
@@ -155,10 +154,8 @@ export const isContentFilterRefusal = (error: unknown): boolean =>
 /**
  * A driver's harness turn ran to its terminal result, and that result reported failure.
  *
- * A provider executor reports a failed turn as a returned outcome, not a thrown error, so without
- * this error a failed turn reads as a completed drive and never reaches the retry decision.
- * A 53-minute turn ended `status code 524`, and another ended `Invalid API key` after a platform
- * key expired mid-turn. A new turn succeeds in both cases.
+ * A provider executor returns a failed turn as an outcome; without this error it reads as a
+ * completed drive and never reaches the retry decision (a turn ended `status code 524`).
  *
  * `errorCode` is the provider's machine code when it reported one. The classifier reads the code;
  * text decides only a printed capacity code and a content-filter refusal, which have none.
@@ -239,8 +236,8 @@ function isDispatchExecutionChanged(value: object): boolean {
  */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
-  const admission = retainedAdmissionCause(error)
-  if (admission !== undefined) return upstreamUnavailableSignal(admission)
+  const refusal = retainedAdmissionCause(error) ?? reconciliationCapacityRefusal(error)
+  if (refusal !== undefined) return upstreamUnavailableSignal(refusal)
   if (!(error instanceof Error)) return undefined
   if (isCredentialRefusal(error)) return undefined
   if (isProviderSchemaRejection(error)) return undefined
@@ -263,11 +260,26 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
 }
 
 /**
- * An error's own `code` field, read without trusting its getter. A provider SDK names a capacity
- * refusal with the router's code when no HTTP response exists to carry a status:
- * agent-provider-tangle's `TangleCredentialCapacityError` (`provider_quota_exhausted`,
- * `upstream_unavailable`) when the subscription account owner has no account with room.
+ * The capacity refusal an admitted execution's reconciliation met: a cause with an upstream
+ * capacity code or HTTP 429. The execution is unresolved, not failed, so the driver pauses and
+ * reconciles it again, never abandoning it; a contract violation stays terminal (#1204).
+ * magnetar-rust-sandbox-20261102a's managers met `TangleCredentialCapacityError: HTTP 429` on
+ * 1,407 reconciliations, each classed transient.
  */
+function reconciliationCapacityRefusal(error: unknown): Error | undefined {
+  if (!(error instanceof RetainedExecutionPendingError) || error.phase !== 'execution')
+    return undefined
+  if (error.pendingCause !== 'unobservable' && error.pendingCause !== 'transport') return undefined
+  return causeChain(error.cause).find(
+    (cause): cause is Error =>
+      cause instanceof Error &&
+      (UNAVAILABLE_CODES.has(ownCode(cause)?.toLowerCase() ?? '') ||
+        errorHttpStatus(cause) === 429),
+  )
+}
+
+/** An error's own `code` field, read without trusting its getter: agent-provider-tangle's
+ *  `TangleCredentialCapacityError` carries the router's code even with no HTTP status. */
 function ownCode(error: Error): string | undefined {
   try {
     const code: unknown = Reflect.get(error, 'code')
@@ -410,26 +422,14 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
 }
 
 /**
- * A foreign error that still carries an HTTP status is a refusal we can read.
- *
- * A provider SDK throws its own error classes, so an environment `create` that the platform
- * refused arrives here as neither a `BackendTransportError` nor an `AgentEvalError`, and the
- * default sends it to `transient`. A Tangle Sandbox create refused
- * `HTTP 400 {"code":"CONFIG_ERROR"}` for a key whose budget was fully reserved retried 14-22
- * times per node while the run showed a durable intent and no other event, so eleven of twelve
- * roots sat for 25 minutes with nothing to diagnose. The status was on the error the whole time.
- *
- * Reading it applies the same rule the transport branch already promises consumers: 408 and 5xx
- * are the upstream having a bad moment, and any other 4xx is a request that will fail identically
- * forever. The capacity statuses were answered before this point. Anything without a plain numeric
- * status keeps the historical default.
+ * A foreign error's HTTP status, read by the transport branch's rule: 408 and 5xx are a bad
+ * moment, any other 4xx fails identically forever. A provider SDK's own classes reach here: a
+ * Sandbox create refused `HTTP 400 {"code":"CONFIG_ERROR"}` for a fully reserved key was retried
+ * 14-22 times per node as transient. Capacity statuses were answered before this point.
  */
 function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | undefined {
-  // Only a thrown Error is read. `status` is a common field name on ordinary objects — a
-  // settlement, a run state, a provider-model record — and treating one of those as an HTTP
-  // refusal would silently stop retries that have nothing to do with a rejected request.
-  // `errorHttpStatus` is the same reader the persisted message uses, so a failure is classified
-  // from exactly the status an operator will see quoted back to them.
+  // Only a thrown Error: `status` is a common field on settlements and run states. The reader is
+  // the one the persisted message quotes.
   if (!(error instanceof Error)) return undefined
   const status = errorHttpStatus(error)
   if (status === undefined || status < 400) return undefined

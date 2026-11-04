@@ -54,27 +54,21 @@ export function createChildRetention({
     if (retainedWritesClosed) throw new ValidationError('retained child writer is closed')
     const pending = write()
     retainedWrites.add(pending)
-    void pending.then(
-      () => retainedWrites.delete(pending),
-      () => retainedWrites.delete(pending),
-    )
+    void pending.catch(() => undefined).finally(() => retainedWrites.delete(pending))
     return pending
   }
   const closeRetainedWrites = async () => {
     retainedWritesClosed = true
     await Promise.allSettled([...retainedWrites])
   }
-  // The invocation this child is running. A leaf whose upstream refused its turn continues in
-  // the same environment as a later invocation (`continueInvocation`), journaled the way an
-  // owner's later drive is: a new `execution-input`, then that invocation's own admissions
-  // and result. The first invocation's input takes the spawn ordinal; each later one the next
-  // number, so a recovery derives the same execution id from the journal.
+  // The invocation this child runs. A leaf refused for capacity continues in its environment as a
+  // later invocation, journaled as an owner's later drive is; its input takes the next number after
+  // the spawn ordinal, so a recovery derives the same execution id from the journal.
   let admissions = [...(recovery?.admissions ?? [])]
   let inputSeq = recovery?.continuation?.inputSeq ?? ordinal
   let pauseSeq = 0
   const onAdmission: RetainedExecutorContext['onAdmission'] = (admission) =>
     retainedWrite(async () => {
-      controller.signal.throwIfAborted()
       const existing = admissions.find((record) => record.phase === admission.phase)
       if (existing) {
         if (contentAddress(existing) !== contentAddress(admission)) {
@@ -97,7 +91,6 @@ export function createChildRetention({
     })
   const onResult: RetainedExecutorContext['onResult'] = (result) =>
     retainedWrite(async () => {
-      controller.signal.throwIfAborted()
       assertValidSpend(result.spent, 'retained executor result')
       executorFailureReason(result)
       await completeEvidence()
@@ -132,18 +125,7 @@ export function createChildRetention({
     nextSequence: () => captureSeq++,
     now,
   })
-  const onPause: NonNullable<RetainedExecutorContext['onPause']> = (pause) =>
-    retainedWrite(async () => {
-      await args.journal.appendEvent(args.root, {
-        kind: 'paused',
-        id,
-        ...pause,
-        seq: pauseSeq++,
-        at: new Date(now()).toISOString(),
-      })
-    })
-  // Only a keyed leaf can be continued (by re-spawning its key), so only one keeps its
-  // environment after a turn that ended over its budget or past its time box.
+  // Only a keyed leaf can be continued, so only it keeps its box after an over-budget or late turn.
   const holdMs = args.budgetStopHoldMs ?? DEFAULT_BUDGET_STOP_HOLD_MS
   const holdOnSettle =
     opts.key !== undefined && holdMs > 0
@@ -168,6 +150,17 @@ export function createChildRetention({
           ...(continuing.priorSpent === undefined ? {} : { priorSpent: continuing.priorSpent }),
         }),
     admissions,
+    ...(recovery?.observed === undefined ? {} : { observed: recovery.observed }),
+    onObserved: (position) =>
+      retainedWrite(() =>
+        args.journal.appendEvent(args.root, {
+          kind: 'execution-observed',
+          id,
+          ...position,
+          seq: ordinal,
+          at: new Date(now()).toISOString(),
+        }),
+      ),
     ...(holdOnSettle === undefined ? {} : { holdOnSettle }),
     ...(markRecoveryReady && continuing === undefined ? { onReady: markRecoveryReady } : {}),
     onAdmission,
@@ -181,14 +174,22 @@ export function createChildRetention({
       now,
       traceRoots,
     }),
-    onPause,
+    onPause: (pause) =>
+      retainedWrite(() =>
+        args.journal.appendEvent(args.root, {
+          kind: 'paused',
+          id,
+          ...pause,
+          seq: pauseSeq++,
+          at: new Date(now()).toISOString(),
+        }),
+      ),
     onWorkspaceCapture,
     onWorkspaceCaptureStarted,
     continueInvocation: async (nextTask) => {
       controller.signal.throwIfAborted()
       const live = readLive()
-      // An input after a committed result starts a new invocation; before one, it would pay
-      // for the unfinished turn twice (the journal refuses it too).
+      // Before a committed result, a new input would pay for the unfinished turn twice.
       if (live.acceptedResult === undefined) {
         throw new ValidationError(
           'scope: a retained child continues only after its invocation committed a result',
@@ -216,8 +217,7 @@ export function createChildRetention({
       })
       inputSeq = nextSeq
       admissions = []
-      // The committed result belongs to the invocation this one continues. A cancellation
-      // from here on leaves this invocation pending, not that result accepted.
+      // That result is the continued invocation's: a cancel now leaves this one pending.
       const priorSpent = live.acceptedResult.spent
       live.acceptedResult = undefined
       return retainedContext({

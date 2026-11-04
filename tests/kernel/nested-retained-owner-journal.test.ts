@@ -30,11 +30,14 @@ const EFFORT_TURNS = 'AAABRAABRAAB'
 // Setup smoke 403b5c4c's second worker turn: its subscription re-read the execution from the first
 // frame, 5,470 reasoning deltas in 12 s, and the exact result settled inside that burst.
 const REPLAYED = 5_470
-// What magnetar-rust-sandbox-20261102a's reads of its ended executions' results met, 251 times;
-// stopping them met it too, so no attempt was abandoned. The 13th read answers.
-const CAPACITY = 'Subscription account capacity is unavailable'
-const capacityRefusal = () =>
-  Object.assign(new Error(CAPACITY), { name: 'TangleCredentialCapacityError', status: 429 })
+// What magnetar-rust-sandbox-20261102a's managers' reconciliations met 1,407 times, in the shape
+// agent-provider-tangle gives it, coded or bare; stopping met it too. The 13th read answers.
+const capacityRefusal = (read: number) =>
+  Object.assign(new Error('Subscription account capacity is unavailable'), {
+    name: 'TangleCredentialCapacityError',
+    status: 429,
+    ...(read % 2 ? {} : { code: 'upstream_unavailable', reason: 'busy' }),
+  })
 // The down settlement's reason, by the failure each mode replays.
 const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   failed: [MALFORMED],
@@ -133,7 +136,6 @@ describe('nested retained owner journal isolation', () => {
       const directory = await mkdtemp(join(tmpdir(), 'nested-retained-owner-'))
       directories.push(directory)
       const context = createFileRunContext(join(directory, 'run'))
-      const base = durableRetainedProvider(join(directory, 'provider.json'))
       let creates = 0
       let injected = false
       // The clock alone is faked: each refused create takes 40 s of it.
@@ -145,6 +147,7 @@ describe('nested retained owner journal isolation', () => {
       let dispatches = 0
       let attempts = 0
       let reads = 0
+      const subscriptions: Array<{ since: string | undefined; frames: number }> = []
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         dispatch: async (turn) => {
@@ -168,14 +171,19 @@ describe('nested retained owner journal isolation', () => {
           const session = environment.session!(id, options)
           const refusal = refused.get(options?.controlRef?.executionId ?? '')
           const exact = async () => {
-            if (mode !== 'unreconciled' || reads++ >= 12) return session.result()
+            if (mode !== 'unreconciled' || reads >= 12) return session.result()
             skew += 40_000
-            throw capacityRefusal()
+            throw capacityRefusal(reads++)
           }
           return {
             ...session,
             async *events(eventOptions) {
-              yield* session.events!(eventOptions)
+              const read = { since: eventOptions?.since, frames: 0 }
+              subscriptions.push(read)
+              for await (const frame of session.events!(eventOptions)) {
+                read.frames += 1
+                yield frame
+              }
               for (let n = 0; mode === 'replayed' && n < REPLAYED; n++) {
                 const part = { id: `prt-${n}`, type: 'reasoning', text: 'x' }
                 yield { id: `replay-${n}`, type: 'message.part.updated', data: { part } }
@@ -189,7 +197,7 @@ describe('nested retained owner journal isolation', () => {
                 }
             },
             ...(mode === 'unreconciled'
-              ? { cancelRun: () => Promise.reject(capacityRefusal()) }
+              ? { cancelRun: () => Promise.reject(capacityRefusal(0)) }
               : {}),
             result: async () => ({
               ...(await exact()),
@@ -205,7 +213,7 @@ describe('nested retained owner journal isolation', () => {
           }
         },
       })
-      const provider: AgentEnvironmentProvider = {
+      const providerOver = (base: AgentEnvironmentProvider): AgentEnvironmentProvider => ({
         ...base,
         capabilities: async () => ({
           ...(await base.capabilities()),
@@ -237,16 +245,14 @@ describe('nested retained owner journal isolation', () => {
           const environment = await base.get!(id)
           return environment ? wrap(environment) : null
         },
-      }
+      })
+      const provider = providerOver(durableRetainedProvider(join(directory, 'provider.json')))
       const journal: SpawnJournal = {
         beginTree: context.journal.beginTree.bind(context.journal),
         loadTree: context.journal.loadTree.bind(context.journal),
         appendEvent: async (root, event) => {
-          const parentMeter =
-            root === 'root' &&
-            event.kind === 'metered' &&
-            event.id !== 'root' &&
-            event.spend.tokens.input > 0
+          const meter = event.kind === 'metered' && event.spend.tokens.input > 0
+          const parentMeter = root === 'root' && meter && event.id !== 'root'
           if (!injected && mode === 'parent-meter-before' && parentMeter) {
             injected = true
             throw new Error('parent inference write failed before persistence')
@@ -263,13 +269,7 @@ describe('nested retained owner journal isolation', () => {
             injected = true
             throw new Error('parent settlement acknowledgement lost')
           }
-          if (
-            retry &&
-            !injected &&
-            root !== 'root' &&
-            event.kind === 'metered' &&
-            event.spend.tokens.input > 0
-          ) {
+          if (retry && !injected && root !== 'root' && meter) {
             injected = true
             throw new Error('nested observation interrupted after usage commit')
           }
@@ -322,8 +322,8 @@ describe('nested retained owner journal isolation', () => {
                 ? 1
                 : 2,
           ...(refusing ? { maxConsecutiveFailures: 20 } : {}),
-          // A capacity wait spends no attempt, so the two refusals fit in one.
-          ...(mode in WAITS ? { unavailablePauseMs: 0 } : {}),
+          // A capacity wait spends no attempt, so the refusals fit in one.
+          ...(mode in WAITS || mode === 'unreconciled' ? { unavailablePauseMs: 0 } : {}),
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -385,15 +385,22 @@ describe('nested retained owner journal isolation', () => {
         admitted ? sends : 0,
       )
       if (mode === 'unreconciled') {
-        // The 10th identical reconciliation of the one dispatch stops the manager, naming its
-        // cause; the parent keeps that execution to reconcile.
-        expect(nested.filter((event) => event.kind === 'driver-attempt').at(-1)).toMatchObject({
-          record: { attempt: 10, stop: 'pending-unresolved', pendingCause: 'unobservable' },
-        })
-        const ended = parent.find((event) => event.kind === 'reconciled' && event.id === spawn.id)
-        expect(ended?.kind === 'reconciled' && ended.reason).toMatch(
-          /stopped by pending-unres.+429/,
-        )
+        // Each refused read pauses the manager, never abandoned, until the 13th answers.
+        const paused = ['upstream_unavailable', 'http-429'].map((unavailableSignal) => ({
+          record: { classification: 'unavailable', unavailableSignal },
+        }))
+        expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
+          ...Array(6).fill(paused).flat(),
+          { record: { stop: 'completed', reentry: 'upstream-unavailable' } },
+        ])
+        expect(nested.some((event) => event.kind === 'execution-abandoned')).toBe(false)
+        // The first read journals its last frame; each reconciliation resumes after it, reading none.
+        const [observed, ...more] = nested.filter((event) => event.kind === 'execution-observed')
+        const since = observed?.kind === 'execution-observed' ? observed.replayPosition : ''
+        expect([more, subscriptions.slice(1)]).toEqual([[], Array(12).fill({ since, frames: 0 })])
+        expect(subscriptions[0]?.frames).toBeGreaterThan(0)
+        const settled = parent.find((e) => e.kind === 'settled' && e.id === spawn.id)
+        expect(settled).toMatchObject({ status: 'done' })
         return expect(dispatches).toBe(1)
       }
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
@@ -440,22 +447,9 @@ describe('nested retained owner journal isolation', () => {
         }
         expect(nested.some((event) => event.kind === 'execution-admitted')).toBe(true)
         expect(creates).toBe(1)
-        const restartedBase = durableRetainedProvider(join(directory, 'provider.json'))
-        const restartedProvider: AgentEnvironmentProvider = {
-          ...restartedBase,
-          capabilities: async () => ({
-            ...(await restartedBase.capabilities()),
-            create: { runtimeAttachments: { mcp: true } },
-          }),
-          create: async (input) => {
-            creates++
-            return wrap(await restartedBase.create(input))
-          },
-          get: async (id) => {
-            const environment = await restartedBase.get!(id)
-            return environment ? wrap(environment) : null
-          },
-        }
+        const restartedProvider = providerOver(
+          durableRetainedProvider(join(directory, 'provider.json')),
+        )
         const restarted = createFileRunContext(join(directory, 'run'))
         await superviseForTest(root, 'Delegate.', {
           runDir: join(directory, 'run'),
@@ -470,6 +464,8 @@ describe('nested retained owner journal isolation', () => {
           finalizer,
           brain: scriptedDriverBrain([{ content: 'waiting for the manager' }, { content: 'done' }]),
         })
+        // The restarted process resumes after the frames the first one journaled, reading none.
+        if (retry) expect(subscriptions.slice(1)).toEqual([{ since: 'event-2', frames: 0 }])
         const recoveredParent = (await restarted.journal.loadTree('root')) ?? []
         const recoveredNested = (await restarted.journal.loadTree(spawn.ownedTreeRoot)) ?? []
         const settlement = recoveredParent.find(

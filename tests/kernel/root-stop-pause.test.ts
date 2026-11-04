@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { BackendTransportError } from '../../src/errors'
+import { awaitAbortable } from '../../src/runtime/retained-run-binding'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, runCancelRequestFile } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
@@ -34,9 +35,7 @@ import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
  * Opted-in recoverable root stops journal one `paused` row for the operator.
  * Terminal driver refusals settle immediately even when `driverRetry.pauseRootStops` is enabled.
  * A solve, named cancel or declared deadline can end the remaining recoverable waits.
- *
- * Every case runs through `supervise()` with a real run directory and journal; the harness drive
- * is faked at the process boundary, and the clock jumps over each pause once its row is written.
+ * Every case runs `supervise()` on a real run directory and journal, faking only the harness drive.
  */
 
 type Paused = Extract<SpawnEvent, { kind: 'paused' }>
@@ -126,8 +125,7 @@ function noWorkers(): never {
 
 describe('an opted-in root pauses where it used to stop', () => {
   it('ends a budget pause on a steer, pauses again while the pool stays spent, and reads the steer once budget returns', async () => {
-    // A worker's reservation and the root's own turn spend the pool, so the root's continuation
-    // meets a spent budget. Its release returns the budget, the way a raise reaches a live root's admission.
+    // A worker's reservation and the root's turn spend the pool; its release returns the budget.
     const dir = await runDirectory()
     const runId = 'budget-steer'
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
@@ -183,8 +181,10 @@ describe('an opted-in root pauses where it used to stop', () => {
             })
             return
           }
-          if (tasks.length === 3)
-            cancelRun(dir, 'stop-budget', { operator: 'test-operator', reason: 'steer read' })
+          if (tasks.length !== 3) return
+          // The cancel cuts the drive it lands in, as it cuts a live harness turn.
+          cancelRun(dir, 'stop-budget', { operator: 'test-operator', reason: 'steer read' })
+          await awaitAbortable(new Promise(() => {}), scope.signal)
         },
         driverRetry: { pauseRootStops: true, initialBackoffMs: 1, maxBackoffMs: 1 },
         deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },

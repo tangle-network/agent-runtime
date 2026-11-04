@@ -124,7 +124,7 @@ Provider turns carry an exact inline profile in `AgentTurnInput.profile`.
 Large profile resources do not belong in bounded `providerOptions` metadata.
 Runtime validates the turn before environment creation and binds its profile digest into retained admission identity. `assertProfileMaterializes(profile, harness, context)` from `/agent` or `/kernel` checks harness support without processes or I/O. Use it before admission when an adapter has no optional `validateProfile`; the provider remains authoritative for its execution capabilities and complete profile materialization.
 A request-schema refusal ends the driver attempt without repeated provisioning.
-A capacity refusal before dispatch was refused before it ran, and pauses the driver.
+A capacity refusal pauses the driver, before dispatch or on a retained reconciliation's exact-result read (`upstream_unavailable`, `provider_quota_exhausted` or HTTP 429), and never counts toward `pending-unresolved`; reconciliation resumes after the replay position its `execution-observed` row journaled.
 A credential command (`acct sandbox resolve`) that exits non-zero before any dispatch ran nothing; it pauses the driver as `credential-unavailable` and never counts toward `pending-unresolved`. Other failures before dispatch are not paused this way.
 A permanent unsupported credential-route refusal (`model_credential_refused`) before dispatch
 ends the driver after one attempt; after admission it does not settle the execution.
