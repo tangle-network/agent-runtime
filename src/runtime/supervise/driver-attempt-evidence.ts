@@ -16,6 +16,7 @@ import {
 } from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import {
+  printedStatus,
   UNAVAILABLE_CODES,
   UNAVAILABLE_STATUSES,
   unavailableSignalOfFailure,
@@ -42,6 +43,9 @@ export interface DriverAttemptRecord {
   /** Absent when the attempt completed. */
   readonly error?: string
   readonly classification?: DriverFailureClass
+  /** For a `transient` failure: `infra` (bounded as an outage) or `deterministic` (stops at the
+   *  second invocation that fails alike with no progress). */
+  readonly failureKind?: 'infra' | 'deterministic'
   /** Did anything change since the previous attempt (spend, settlement, submission)? */
   readonly madeProgress: boolean
   /** Set when this attempt ended the loop. */
@@ -91,23 +95,19 @@ export interface DriverAttemptRecord {
   readonly repromptRefusedBy?: DriverRepromptRefusal
 }
 
+/** Sandbox's `PartialFailureError` on `error` or a cause, read by name: packages that hold their own
+ *  copy of the class would miss an `instanceof`. */
+const causedByPartialFailure = (error: unknown): boolean =>
+  causeChain(error).some(
+    (cause) => cause instanceof Error && errorProperty(cause, 'name') === 'PartialFailureError',
+  )
+
 /** Why a completed drive with an unmet contract was not re-entered. `closed` means the run was
  *  already closed: the manager's own `stop` or a progress stop rule. A barren streak is never a
  *  refusal: it pauses the next continuation (`barrenPauseMs`). */
 export type DriverRepromptRefusal =
   | 'closed'
   | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
-
-/**
- * True when `error` or one of its causes is Sandbox's `PartialFailureError`. Read by name: the
- * class lives in `@tangle-network/sandbox`, which Runtime does not import, and a failure crosses
- * packages that may each hold their own copy of it, so `instanceof` would miss it.
- */
-export function causedByPartialFailure(error: unknown): boolean {
-  return causeChain(error).some(
-    (cause) => cause instanceof Error && errorProperty(cause, 'name') === 'PartialFailureError',
-  )
-}
 
 /**
  * The pending invocation a failure left, when abandoning it is the resolution: the provider could
@@ -435,6 +435,54 @@ function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | un
   if (status === undefined || status < 400) return undefined
   if (status === 408 || status >= 500) return 'transient'
   return 'terminal'
+}
+
+/** Transport errno codes and undici codes: the connection, not the request, failed. */
+const TRANSPORT_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+])
+const TRANSPORT_NAMES = new Set([
+  'TimeoutError',
+  'NetworkError',
+  'AbortError',
+  'RetainedStreamError',
+])
+
+/**
+ * A transient failure's kind, read from typed fields on any cause, never its text. `infra` is a
+ * transport that dropped, timed out or answered 408 or 5xx, and earns the outage bound; anything
+ * else foreign is `deterministic`, an answer that repeats, and earns no window. Of 4,449 failed
+ * attempts over the week to 2026-11-04, 2,019 were deterministic answers retried as transient
+ * (a failed box's 409, a play repository's exit 128, an expired key's 401, a harness refusal).
+ */
+export function transientFailureKind(error: unknown): 'infra' | 'deterministic' {
+  // A created box whose setup failed is met again on each re-entry, whatever cut it.
+  if (causedByPartialFailure(error)) return 'deterministic'
+  return causeChain(error).some((cause) => {
+    if (!(cause instanceof Error)) return false
+    // A harness CLI prints a gateway's status (`status code 524`) into its failure text.
+    const status =
+      cause instanceof HarnessTurnFailedError
+        ? (cause.statusCode ?? printedStatus(cause.message))
+        : errorHttpStatus(cause)
+    const code = ownCode(cause) ?? ''
+    return (
+      (status !== undefined && (status === 408 || status >= 500)) ||
+      TRANSPORT_CODES.has(code) ||
+      code.startsWith('UND_ERR_') ||
+      cause instanceof BackendTransportError ||
+      TRANSPORT_NAMES.has(errorProperty(cause, 'name') ?? '')
+    )
+  })
+    ? 'infra'
+    : 'deterministic'
 }
 
 /** The error a give-up throws: the original cause, re-described with the attempt history so

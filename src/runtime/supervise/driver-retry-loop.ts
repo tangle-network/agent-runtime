@@ -3,7 +3,6 @@ import { sleep } from '../util'
 import { isDeadlineAbortReason } from './deadline'
 import {
   abandonablePending,
-  causedByPartialFailure,
   classifyDriverFailure,
   type DriverAttemptRecord,
   type DriverAttemptStop,
@@ -11,6 +10,7 @@ import {
   type DriverRepromptRefusal,
   HarnessTurnFailedError,
   isContentFilterRefusal,
+  transientFailureKind,
   undispatchedCredentialExit,
   upstreamUnavailableSignal,
 } from './driver-attempt-evidence'
@@ -76,14 +76,12 @@ const CONTENT_FILTER_REFUSAL_LIMIT = 8
 const SAME_PENDING_LIMIT = 2
 
 /**
- * Attempts in a row failing on the same Sandbox `PartialFailureError` (a created box whose setup
- * failed) with nothing gained stop the loop: each re-entry meets the same durably bound box. Run
- * queens21-h22-capture-root-1-20261019c re-entered four such boxes 154 times in 37 minutes.
+ * Invocations in a row ending in one deterministic failure with nothing gained that stop the agent
+ * with no window, so its parent acts at once: a second proves what a third repeats. Over the week
+ * to 2026-11-04, us-legal-exploits-20261103b:s1 retried one harness refusal for 2 hours and
+ * queens21-h22-capture-root-1-20261019c re-entered four failed boxes 154 times in 37 minutes.
  */
-const SAME_PARTIAL_FAILURE_LIMIT = 2
-/** A nested manager's harness turns that ended failed alike, gaining nothing, stop it here with
- *  no window, so its parent acts at once (us-legal-exploits-20261103b:s1 retried one 2 hours). */
-const SAME_HARNESS_FAILURE_LIMIT = 3
+const SAME_DETERMINISTIC_LIMIT = 2
 
 /** `deadline` when a deadline cut the run, else `aborted`. Read before classification, which calls
  *  every failure after an abort terminal: 61 of 62 `terminal-error` runs were a cut deadline. */
@@ -164,15 +162,13 @@ export function driverRetryLimits(run: DriverRetryRun): DriverRetryLimits {
 /** A run of alike failures (text with ids and times blanked, code when one carried it). */
 type Streak = { error: string; code?: string | undefined; count: number; since: number }
 
-const harnessFailure = (error: unknown) =>
-  causeChain(error).find(
-    (cause): cause is HarnessTurnFailedError => cause instanceof HarnessTurnFailedError,
-  )
-
-/** The stream codes a refusal and the exact result does not, so an absent code matches any. */
+/** A failure compares by the first cause under any pending-reconciliation wrapper. The stream
+ *  codes a refusal and the exact result does not, so an absent code matches any. */
 function extend(streak: Streak | undefined, error: unknown, at: number): Streak {
-  const code = harnessFailure(error)?.errorCode
-  const text = (code ? errMessage(error).replace(` (${code})`, '') : errMessage(error))
+  const chain = causeChain(error)
+  const root = chain.find((cause) => !(cause instanceof RetainedExecutionPendingError)) ?? error
+  const code = chain.find((cause) => cause instanceof HarnessTurnFailedError)?.errorCode
+  const text = (code ? errMessage(root).replace(` (${code})`, '') : errMessage(root))
     .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z?/gu, '<time>')
     .replace(/\b(?=[\da-f-]*\d)[\da-f]{8,}(?:-[\da-f]{4,})*\b/giu, '<id>')
     .replace(/\d{6,}/gu, '<n>')
@@ -395,6 +391,9 @@ export class DriverRetryLoop {
       durationMs: failure.durationMs,
       error: errMessage(failure.error),
       classification: failure.classification,
+      ...(failure.classification === 'transient'
+        ? { failureKind: transientFailureKind(failure.error) }
+        : {}),
       madeProgress: failure.progressed,
     }
   }
@@ -569,12 +568,13 @@ export class DriverRetryLoop {
         ? undefined
         : extend(this.sameFailure, error, failedAt)
     this.sameFailure = sameFailure
-    const sameIdle =
-      classification === 'transient' && !progressed && failure.pending === undefined
-        ? extend(this.sameIdle, error, failedAt)
-        : undefined
-    // A failed reconciliation never reached the turn, so it neither repeats nor breaks the streak.
-    if (failure.pending === undefined || progressed) this.sameIdle = sameIdle
+    // One streak of alike failures with nothing gained, read through the pending wrapper. An
+    // abandonable pending invocation keeps its own bound (pending-unresolved) and leaves the streak
+    // as it was; a content-filter refusal keeps its own count.
+    const kind = classification === 'transient' ? transientFailureKind(error) : undefined
+    if (progressed || kind === undefined || isContentFilterRefusal(error)) this.sameIdle = undefined
+    else if (failure.pending === undefined) this.sameIdle = extend(this.sameIdle, error, failedAt)
+    const sameIdle = this.sameIdle
     // An aborted run failed because it was stopped, so the abort names the stop, not the failure.
     if (run.signal.aborted) return abortStop(run.signal)
     if (classification === 'terminal') return 'terminal-error'
@@ -582,16 +582,14 @@ export class DriverRetryLoop {
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
     if (this.refusals >= CONTENT_FILTER_REFUSAL_LIMIT) return 'repeated-failure'
-    // The same failed box twice with nothing gained, or a nested manager's same failure at its
-    // bound, ends inside the outage window (s14 retried 45 min); the root waits.
+    // Inside the outage window too: a deterministic failure at its limit at any depth (an opted-in
+    // root pauses on it), and a nested agent's infra failure at the repeated-failure bound, so its
+    // parent acts on it. A root waits out an outage.
     if (
       sameIdle !== undefined &&
-      (causedByPartialFailure(error)
-        ? sameIdle.count >= SAME_PARTIAL_FAILURE_LIMIT
-        : run.nested === true &&
-          (harnessFailure(error) !== undefined
-            ? sameIdle.count >= SAME_HARNESS_FAILURE_LIMIT
-            : repeatedBy(sameIdle, failedAt)))
+      (kind === 'deterministic'
+        ? sameIdle.count >= SAME_DETERMINISTIC_LIMIT
+        : run.nested === true && repeatedBy(sameIdle, failedAt))
     ) {
       return 'repeated-failure'
     }

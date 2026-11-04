@@ -49,10 +49,14 @@ export function unavailableSignalInText(text: string): string | undefined {
   for (const token of text.toLowerCase().matchAll(/[a-z_]+/gu)) {
     if (UNAVAILABLE_CODES.has(token[0])) return token[0]
   }
+  const status = printedStatus(text)
+  return status !== undefined && UNAVAILABLE_STATUSES.has(status) ? `http-${status}` : undefined
+}
+
+/** The HTTP status a harness printed in its `status code <n>` framing, if any. */
+export const printedStatus = (text: string): number | undefined => {
   const status = text.match(/\bstatus code (\d{3})\b/u)?.[1]
-  return status !== undefined && UNAVAILABLE_STATUSES.has(Number(status))
-    ? `http-${status}`
-    : undefined
+  return status === undefined ? undefined : Number(status)
 }
 
 /**
