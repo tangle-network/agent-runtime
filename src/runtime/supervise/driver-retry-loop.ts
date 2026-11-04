@@ -568,12 +568,12 @@ export class DriverRetryLoop {
         ? undefined
         : extend(this.sameFailure, error, failedAt)
     this.sameFailure = sameFailure
-    // One streak of alike failures with nothing gained, read through the pending wrapper: a re-read
-    // of the same pending invocation adds nothing. Content-filter refusals keep their own count.
+    // One streak of alike failures with nothing gained, read through the pending wrapper. An
+    // abandonable pending invocation keeps its own bound (pending-unresolved) and leaves the streak
+    // as it was; a content-filter refusal keeps its own count.
     const kind = classification === 'transient' ? transientFailureKind(error) : undefined
     if (progressed || kind === undefined || isContentFilterRefusal(error)) this.sameIdle = undefined
-    else if (failure.pending === undefined || this.pendingTries === 1)
-      this.sameIdle = extend(this.sameIdle, error, failedAt)
+    else if (failure.pending === undefined) this.sameIdle = extend(this.sameIdle, error, failedAt)
     const sameIdle = this.sameIdle
     // An aborted run failed because it was stopped, so the abort names the stop, not the failure.
     if (run.signal.aborted) return abortStop(run.signal)
