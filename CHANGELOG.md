@@ -1,3 +1,7 @@
+## 3.0.41
+
+A capacity refusal (`upstream_unavailable`, `provider_quota_exhausted` or HTTP 429) on a retained reconciliation's exact-result read pauses the driver instead of counting toward `pending-unresolved`. A retained owner's reconciliation resumes after the replay position its last `driver-attempt` record carries (new optional `DriverAttemptRecord.observed`), reading only new frames, also after a restart.
+
 ## 3.0.40
 
 JSONL appends (spawn journal, observer, coordination log, corpus, stored-graph-check) now fsync after the run fence on the thread pool, not on the event loop inside it. An append still resolves only once its bytes are durable, while a live supervisor keeps reading its root stream during the commit wait (#2362, #2378). Pair it with agent-eval 1.0.19, whose lock owner records skip their own fsync.
