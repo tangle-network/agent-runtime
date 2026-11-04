@@ -178,8 +178,8 @@ function reservationOwnerFloor(
   const ownerBudget = args.ownerBudget
   return reservationPolicy && ownerBudget
     ? {
-        tokens: Math.ceil(ownerBudget.maxTokens * reservationPolicy.ownerShare),
-        iterations: Math.ceil(ownerBudget.maxIterations * reservationPolicy.ownerShare),
+        tokens: Math.ceil((ownerBudget.maxTokens ?? 0) * reservationPolicy.ownerShare),
+        iterations: Math.ceil((ownerBudget.maxIterations ?? 0) * reservationPolicy.ownerShare),
         ...(ownerBudget.maxUsd === undefined
           ? {}
           : { usd: ownerBudget.maxUsd * reservationPolicy.ownerShare }),

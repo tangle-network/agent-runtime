@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  statuses: read
 
 jobs:
   release-source:
@@ -33,6 +34,7 @@ jobs:
     outputs:
       sha: ${{ steps.release.outputs.sha }}
       version: ${{ steps.release.outputs.version }}
+      qualified: ${{ steps.gate.outputs.qualified }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,6 +49,7 @@ jobs:
           git fetch --no-tags origin main:refs/remotes/origin/main
           mkdir -p "$RUNNER_TEMP/release-policy"
           git show origin/main:scripts/verify-release-line.mjs > "$RUNNER_TEMP/release-policy/verify-release-line.mjs"
+          git show origin/main:scripts/release-gate.mjs > "$RUNNER_TEMP/release-policy/release-gate.mjs"
 
       - name: Verify release source and version
         id: release
@@ -91,6 +94,12 @@ jobs:
           LINE="release/${VERSION%.*}.x"
           node "$RUNNER_TEMP/release-policy/verify-release-line.mjs" "$TAG_SHA" refs/remotes/origin/main "refs/remotes/origin/$LINE"
 
+      - name: Read trusted tree-bound local qualification
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/release-policy/release-gate.mjs" --github-output "$GITHUB_OUTPUT"
+
   verify:
     needs: release-source
     runs-on:
@@ -119,9 +128,14 @@ jobs:
           python-version: '3.12'
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
-      # The release PR's gate runs the same check: lint, build, test, typecheck, package, API record.
-      - name: Release check
+      - name: Qualify source without trusted matching evidence
+        if: needs.release-source.outputs.qualified != 'true'
+        env:
+          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
         run: pnpm run release:check
+      - name: Build the qualified tree for packing
+        if: needs.release-source.outputs.qualified == 'true'
+        run: pnpm run build
       - name: Check out exact Interface release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -236,56 +250,6 @@ jobs:
       - name: Admit only unpublished qualified npm archives
         id: npm
         run: node scripts/check-npm-publication.mjs "$RUNNER_TEMP/agent-runtime-package"
-
-  verify-official-optimizers:
-    needs: release-source
-    runs-on:
-      group: public-app-production
-      labels: [self-hosted, ci-deploy]
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.release-source.outputs.sha }}
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        env: { PNPM_CONFIG_STORE_DIR: "${{ runner.temp }}/pnpm-bootstrap-store" }
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-      - name: Install deps
-        run: pnpm install --frozen-lockfile && pnpm peers check
-      - name: Verify official optimizers
-        run: pnpm run verify:official-optimizers
-
-  verify-runtime-bench:
-    needs: release-source
-    runs-on:
-      group: public-app-production
-      labels: [self-hosted, ci-deploy]
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.release-source.outputs.sha }}
-          persist-credentials: false
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-        env: { PNPM_CONFIG_STORE_DIR: "${{ runner.temp }}/pnpm-bootstrap-store" }
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-      - name: Install deps
-        run: pnpm install --frozen-lockfile && pnpm peers check
-      - name: Verify agent-bench against this release
-        env:
-          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
-        run: pnpm run verify:bench
 
   verify-agent-bench:
     # Manual dispatch remains root-only; bench retries use their tag run.

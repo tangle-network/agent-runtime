@@ -14,8 +14,8 @@ export function assertValidBudget(budget: Budget, label = 'budget'): void {
     }
   }
   assertResources(budget.resources, 'limit', `${label}.resources`)
-  safeInteger(budget.maxIterations, 'maxIterations')
-  safeInteger(budget.maxTokens, 'maxTokens')
+  if (budget.maxIterations !== undefined) safeInteger(budget.maxIterations, 'maxIterations')
+  if (budget.maxTokens !== undefined) safeInteger(budget.maxTokens, 'maxTokens')
   if (budget.maxUsd !== undefined) finiteNonNegative(budget.maxUsd, 'maxUsd')
   if (budget.deadlineMs !== undefined) finiteNonNegative(budget.deadlineMs, 'deadlineMs')
 }

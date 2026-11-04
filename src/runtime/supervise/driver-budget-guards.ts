@@ -13,8 +13,10 @@ export function poolStarved(
 ): boolean {
   const b = scope.budget
   if (scope.view.inFlight > 0) return false
-  const tokenStarved = preserveOwnerTurns ? b.tokensLeft <= 0 : b.tokensLeft < perWorker.maxTokens
-  const iterationStarved = b.iterationsLeft <= 0
+  const tokenStarved =
+    b.tokensCapped !== false &&
+    (preserveOwnerTurns ? b.tokensLeft <= 0 : b.tokensLeft < (perWorker.maxTokens ?? 0))
+  const iterationStarved = b.iterationsCapped !== false && b.iterationsLeft <= 0
   const usdStarved =
     b.usdCapped &&
     (b.usdLeft <= 0 ||
@@ -50,7 +52,7 @@ export function ownTurnsUnbounded(
 ): boolean {
   const b = scope.budget
   if (maxTurns !== undefined || b.deadlineMs > 0) return false
-  if (poolTokens > 0 && b.tokensLeft < -poolTokens) return true
+  if (b.tokensCapped !== false && poolTokens > 0 && b.tokensLeft < -poolTokens) return true
   return !b.tokensKnown && !b.usdCapped && turns > UNMETERED_DRIVER_TURNS
 }
 

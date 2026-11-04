@@ -45,9 +45,8 @@ function spawnWorkerTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
       '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
       'Pass an optional `budget` (per-field) to give a sub-task more or less than the default — ' +
-      'it merges over the per-worker default; the conserved pool is still the hard fence. Each ' +
-      'worker reserves its whole budget when it starts, so the pool divided by the per-worker ' +
-      'budget is how many run at once: to run a wide team at once, give each worker less. When ' +
+      'it merges over the per-worker default; the conserved pool is still the hard fence. Each worker ' +
+      'reserves only the channels capped by the pool. workerSlots sets concurrency. When ' +
       'every worker slot is busy, or the pool cannot cover the budget until your running workers ' +
       'return what they hold, the worker is admitted with `status: "queued"` and starts on its ' +
       'own when a slot and its budget free — it is never refused for concurrency, so spawn all ' +

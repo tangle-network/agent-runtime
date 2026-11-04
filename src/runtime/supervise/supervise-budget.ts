@@ -13,7 +13,8 @@ export function exhaustedBudgetChannels(
   nowMs: number,
 ): string | undefined {
   const spent: string[] = []
-  if (budget.tokensLeft <= 0) spent.push(`tokens: ${-budget.tokensLeft} over the cap`)
+  if (budget.tokensCapped !== false && budget.tokensLeft <= 0)
+    spent.push(`tokens: ${-budget.tokensLeft} over the cap`)
   if (budget.usdCapped && budget.usdLeft <= 0)
     spent.push(`usd: ${(-budget.usdLeft).toFixed(4)} over the cap`)
   for (const [name, resource] of Object.entries(budget.resources ?? {})) {
@@ -28,8 +29,12 @@ export function exhaustedBudgetChannels(
 
 /** A per-child budget may not exceed the conserved pool it is reserved from. */
 export function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
-  const over = (child: number, total: number, field: string): string | null =>
-    child > total
+  const over = (
+    child: number | undefined,
+    total: number | undefined,
+    field: string,
+  ): string | null =>
+    child !== undefined && total !== undefined && child > total
       ? `supervise perWorker.${field} (${child}) exceeds budget.${field} (${total})`
       : null
   for (const [name, resource] of Object.entries(pool.resources ?? {})) {
@@ -75,11 +80,12 @@ export function assertPerWorkerAdmittable(
   ownerShare: number,
 ): void {
   const unreservable = (
-    child: number,
-    total: number,
+    child: number | undefined,
+    total: number | undefined,
     kept: number,
     field: string,
   ): string | null => {
+    if (child === undefined || total === undefined) return null
     if (ownerShare > 0) {
       const reservable = total - kept
       return child > reservable
@@ -96,13 +102,13 @@ export function assertPerWorkerAdmittable(
     unreservable(
       perWorker.maxTokens,
       pool.maxTokens,
-      Math.ceil(pool.maxTokens * ownerShare),
+      Math.ceil((pool.maxTokens ?? 0) * ownerShare),
       'maxTokens',
     ),
     unreservable(
       perWorker.maxIterations,
       pool.maxIterations,
-      Math.ceil(pool.maxIterations * ownerShare),
+      Math.ceil((pool.maxIterations ?? 0) * ownerShare),
       'maxIterations',
     ),
     perWorker.maxUsd !== undefined && pool.maxUsd !== undefined && ownerShare > 0
@@ -139,8 +145,12 @@ export function defaultPerWorker(
             ]),
           ),
         }),
-    maxIterations: Math.max(1, Math.floor(budget.maxIterations * share)),
-    maxTokens: Math.max(1, Math.floor(budget.maxTokens * share)),
+    ...(budget.maxIterations === undefined
+      ? {}
+      : { maxIterations: Math.max(1, Math.floor(budget.maxIterations * share)) }),
+    ...(budget.maxTokens === undefined
+      ? {}
+      : { maxTokens: Math.max(1, Math.floor(budget.maxTokens * share)) }),
     ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd * share } : {}),
   }
 }

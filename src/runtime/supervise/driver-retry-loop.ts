@@ -96,8 +96,8 @@ function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptSto
   // A dollar-capped pool that has seen an unknown-cost turn closes admission permanently: a retry
   // could only reproduce the same refusal.
   const exhausted =
-    budget.tokensLeft <= 0 ||
-    budget.iterationsLeft <= 0 ||
+    (budget.tokensCapped !== false && budget.tokensLeft <= 0) ||
+    (budget.iterationsCapped !== false && budget.iterationsLeft <= 0) ||
     (budget.usdCapped && (budget.usdLeft <= 0 || budget.usdKnown === false)) ||
     Object.values(budget.resources ?? {}).some((r) => !r.known || r.remaining <= 0)
   return exhausted ? 'budget-exhausted' : undefined

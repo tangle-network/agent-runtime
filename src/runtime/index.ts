@@ -45,7 +45,15 @@ export { assertProfileMaterializes } from '../agent/profile-materialization'
 export type { AgentCandidateWorkspaceArchiveLimits } from '../candidate-execution/workspace-archive'
 export { contentAddress } from '../durable/content-address'
 export { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
+export { type RunState, readRunState } from '../durable/run-state'
 export { FileSpawnJournal } from '../durable/spawn-journal/journal-store'
+export {
+  readSpawnJournal,
+  type SpawnJournalCursor,
+  type SpawnJournalReadOptions,
+  type SpawnJournalReadRecord,
+  type SpawnJournalReadResult,
+} from '../durable/spawn-journal/read'
 export { replaySpawnTree } from '../durable/spawn-journal/replay'
 export { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
 export {
@@ -798,12 +806,6 @@ export {
   type WorkerInteractiveBinding,
   type WorkerInteractiveProviderSource,
 } from './supervise/worker-interactive'
-// Worker-spawn persistence: the same second chance for a LEAF whose spawn a saturated executor
-// refused before it ran. Fail-closed on two proofs of zero work — a pre-spawn signature in the
-// error AND no execution event from the attempt — so a stream that may already have metered a
-// provider call stays fatal. `SuperviseOptions.workerRetry` turns it on as data;
-// `withWorkerSpawnRetry` composes it onto a caller-owned worker seam.
-export * from './supervise/worker-retry'
 export { createWorkerSlots } from './supervise/worker-slots'
 export type { WorkerTraceResolver } from './supervise/worker-trace'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)

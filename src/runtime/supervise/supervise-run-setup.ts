@@ -308,11 +308,6 @@ function assertWorkerSeams(options: SuperviseOptions): void {
       'supervise: makeWorkerAgent replaces the worker path and makeLeafAgent overrides a leaf inside it; pass one',
     )
   }
-  if (options.makeWorkerAgent && (options.workerRetry || options.onWorkerRetry)) {
-    throw new ValidationError(
-      'supervise: workerRetry applies only to backend-derived workers; compose withWorkerSpawnRetry onto a caller-owned makeWorkerAgent explicitly',
-    )
-  }
   if (options.makeWorkerAgent && options.resolveDeliverable) {
     throw new ValidationError(
       'supervise: resolveDeliverable applies only to backend-derived workers; wrap a caller-owned makeWorkerAgent with its completion checks explicitly',

@@ -25,7 +25,9 @@ requested semver level, updates the version and changelog once, regenerates deri
 and deletes the consumed note files.
 
 Run it from a clean source commit, whose packed cohort it qualifies first. Gate the release PR
-with `pnpm run release:check`; the tagged publisher runs it, then qualifies the exact archives.
+with `pnpm run release:check`; publication reuses trusted tree-equal gate proof, then qualifies
+the exact archives. Use `release:prepare --amend-unpublished` to absorb more notes into an
+existing unpublished preparation; the registry and immutable tags must permit it.
 
 The existing stack-adoption workflow runs `scripts/release-notes.mjs --adoption` through
 its post-pin step. Runtime first checks that its Eval and Interface development pins match

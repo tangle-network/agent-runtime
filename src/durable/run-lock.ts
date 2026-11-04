@@ -175,6 +175,8 @@ export async function readRunDirectoryLock(
 export interface RunDirectoryHolderLiveness {
   /** False only when the holder that took the lock is proved dead; a holder that cannot be proved dead reads as live. */
   readonly live: boolean
+  /** The holder could not be verified on this host. `live` stays conservative for exclusion. */
+  readonly unknown?: true
   /** The holder the lock file names. Absent when no lock file names one, which reads as not live. */
   readonly holder?: RunDirectoryLockHolder
 }
@@ -199,7 +201,12 @@ export async function runDirectoryHolderIsLive(
 ): Promise<RunDirectoryHolderLiveness> {
   const existing = await readLockFile(resolve(runDir, RUN_DIRECTORY_LOCK_FILE))
   if (existing.state !== 'holder') return { live: false }
-  return { live: !holderIsDead(existing), holder: existing.holder }
+  const verdict = lockHolderVerdict(existing.record, existing.current)
+  return {
+    live: verdict.liveness !== 'dead',
+    holder: existing.holder,
+    ...(verdict.liveness === 'unknown' ? { unknown: true as const } : {}),
+  }
 }
 
 type LockFileState =

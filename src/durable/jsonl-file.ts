@@ -22,63 +22,71 @@ export async function* readCommittedJsonLines<T>(
     allowMissing?: boolean
     allowWhitespaceLines?: boolean
     onBytes?: (bytes: Uint8Array) => void
+    /** Internal fixed-prefix range. The caller supplies a record boundary and owns the handle. */
+    handle?: FileHandle
+    start?: number
+    end?: number
+    strictUtf8?: boolean
+    onCommit?: (offset: number) => void
   } = {},
 ): AsyncGenerator<T> {
   const fs = await import('node:fs/promises')
   let handle: FileHandle
   try {
-    handle = await fs.open(path, 'r')
+    handle = options.handle ?? (await fs.open(path, 'r'))
   } catch (error) {
     if (options.allowMissing && isNoEntError(error)) return
     throw error
   }
   try {
-    const { size } = await handle.stat()
-    if (size === 0) return
-    const { StringDecoder } = await import('node:string_decoder')
-    const decoder = new StringDecoder('utf8')
-    const stream = handle.createReadStream({ autoClose: false, end: size - 1 })
-    const fragments: string[] = []
+    const start = options.start ?? 0
+    const end = options.end ?? (await handle.stat()).size
+    if (end <= start) return
+    const fragments: Buffer[] = []
+    let offset = start
     let lineNumber = 1
-    try {
-      for await (const chunk of stream) {
-        options.onBytes?.(chunk as Buffer)
-        const text = decoder.write(chunk as Buffer)
-        let start = 0
-        let end = text.indexOf('\n', start)
-        while (end !== -1) {
-          fragments.push(text.slice(start, end))
-          const record = parseRecord<T>(
-            fragments.join(''),
-            path,
-            lineNumber++,
-            true,
-            options.allowWhitespaceLines,
-          )
-          fragments.length = 0
-          if (record !== undefined) yield record.value
-          start = end + 1
-          end = text.indexOf('\n', start)
-        }
-        if (start < text.length) fragments.push(text.slice(start))
+    const parse = (terminated: boolean): { value: T } | undefined => {
+      const bytes = Buffer.concat(fragments)
+      let line: string
+      try {
+        line = options.strictUtf8
+          ? new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+          : bytes.toString('utf8')
+      } catch (cause) {
+        if (!terminated) return undefined
+        throw new Error(`${path}: malformed UTF-8 at line ${lineNumber}`, { cause })
       }
-      if (stream.bytesRead !== size) {
+      return parseRecord<T>(line, path, lineNumber++, terminated, options.allowWhitespaceLines)
+    }
+    let position = start
+    while (position < end) {
+      const buffer = Buffer.alloc(Math.min(65_536, end - position))
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+      if (bytesRead === 0) {
         throw new Error(`${path}: journal changed while reading its committed prefix`)
       }
-      fragments.push(decoder.end())
-      const record = parseRecord<T>(
-        fragments.join(''),
-        path,
-        lineNumber,
-        false,
-        options.allowWhitespaceLines,
-      )
-      if (record !== undefined) yield record.value
-    } finally {
-      stream.destroy()
+      position += bytesRead
+      const bytes = buffer.subarray(0, bytesRead)
+      options.onBytes?.(bytes)
+      let start = 0
+      for (let end = bytes.indexOf(10); end !== -1; end = bytes.indexOf(10, start)) {
+        fragments.push(bytes.subarray(start, end))
+        const record = parse(true)
+        offset += fragments.reduce((size, part) => size + part.length, 0) + 1
+        fragments.length = 0
+        options.onCommit?.(offset)
+        if (record !== undefined) yield record.value
+        start = end + 1
+      }
+      if (start < bytes.length) fragments.push(bytes.subarray(start))
+    }
+    const record = parse(false)
+    if (record !== undefined) {
+      options.onCommit?.(end)
+      yield record.value
     }
   } finally {
-    await handle.close()
+    if (options.handle === undefined) await handle.close()
   }
 }
 

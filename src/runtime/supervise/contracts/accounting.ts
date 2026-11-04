@@ -16,10 +16,10 @@ export interface ResourceSpend {
   readonly known: boolean
 }
 
-/** A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. */
+/** Explicit ceilings on a spawn or root. An omitted channel is uncapped and reserves nothing. */
 export interface Budget {
-  readonly maxIterations: number
-  readonly maxTokens: number
+  readonly maxIterations?: number
+  readonly maxTokens?: number
   readonly maxUsd?: number
   readonly deadlineMs?: number
   readonly resources?: Readonly<Record<string, ResourceLimit>>

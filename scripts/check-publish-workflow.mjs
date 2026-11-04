@@ -14,9 +14,8 @@ const qualification = readWorkflow(qualificationPath, 'qualification')
 const qualifierJobs = qualification.jobs
 if (!qualifierJobs || typeof qualifierJobs !== 'object') throw new Error('qualification workflow has no jobs')
 const qualifier = requireJob('qualify')
-if (!/^tangle-network\/agent-runtime\/\.github\/workflows\/qualify-release\.yml@[a-f0-9]{40}$/.test(qualifier.uses)) {
-  throw new Error('qualification workflow must use an immutable reviewed body')
-}
+assertEqual(qualifier.uses, './.github/workflows/qualify-release.yml', 'qualification body frozen with the release workflow')
+assertEqual(qualifier.permissions?.statuses, 'read', 'qualification status permission')
 assertEqual(qualifier.with?.release_tag, '${{ inputs.release_tag }}', 'qualification release tag')
 for (const [name, job] of Object.entries(qualifierJobs)) {
   assertEqual(job['runs-on']?.group, 'public-app-production', `${name} trusted runner group`)
@@ -180,30 +179,24 @@ for (const required of [
   if (!sourceCommands.includes(required))
     throw new Error(`release source validation is missing ${required}`)
 }
-const releaseChecks = {
-  verify: 'pnpm run release:check',
-  'verify-official-optimizers': 'pnpm run verify:official-optimizers',
-  'verify-runtime-bench': 'pnpm run verify:bench',
-}
-for (const [name, command] of Object.entries(releaseChecks)) {
-  const job = requireJob(name, qualifierJobs)
-  assertEqual(job.needs, 'release-source', `${name} parallel source dependency`)
-  assertEqual(job.if, undefined, `${name} must require successful source validation`)
-  assertEqual(job['continue-on-error'], undefined, `${name} cannot ignore failure`)
-  const steps = requireSteps(name, job)
-  const checkout = steps.find(
-    (step) => step.uses?.startsWith('actions/checkout@') && !step.with?.repository,
-  )
-  assertEqual(
-    checkout?.with?.ref,
-    '${{ needs.release-source.outputs.sha }}',
-    `${name} immutable checkout`,
-  )
-  const checks = steps.filter((step) => step.run === command)
-  assertEqual(checks.length, 1, `${name} required check count`)
-  assertEqual(checks[0].if, undefined, `${name} required check condition`)
-  assertEqual(checks[0]['continue-on-error'], undefined, `${name} required check failure`)
-}
+const verify = requireJob('verify', qualifierJobs)
+assertEqual(verify.needs, 'release-source', 'verification source dependency')
+const verifySteps = requireSteps('verify', verify)
+const check = verifySteps.find((step) => step.run === 'pnpm run release:check')
+assertEqual(check?.if, "needs.release-source.outputs.qualified != 'true'", 'unqualified source fallback')
+assertEqual(check?.['continue-on-error'], undefined, 'source qualification cannot ignore failures')
+const build = verifySteps.find((step) => step.run === 'pnpm run build')
+assertEqual(build?.if, "needs.release-source.outputs.qualified == 'true'", 'qualified source build')
+const proof = sourceSteps.find((step) => step.id === 'gate')
+assertEqual(proof?.run, 'node "$RUNNER_TEMP/release-policy/release-gate.mjs" --github-output "$GITHUB_OUTPUT"', 'trusted proof policy')
+assertEqual(proof?.env?.GH_TOKEN, '${{ github.token }}', 'read-only proof lookup')
+assertEqual(source.outputs?.qualified, '${{ steps.gate.outputs.qualified }}', 'qualification proof output')
+if (!sourceCommands.includes('git show origin/main:scripts/release-gate.mjs')) throw new Error('proof policy must come from reviewed main')
+for (const name of ['verify-official-optimizers', 'verify-runtime-bench'])
+  assertEqual(qualifierJobs[name], undefined, `${name} belongs to the local release gate`)
+const releaseCheck = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')).scripts['release:check']
+for (const command of ['check:publish-workflow', 'check-release-archive.mjs', 'check-version-bump.mjs --archive', 'verify:official-optimizers', 'verify:bench'])
+  if (!releaseCheck.includes(command)) throw new Error(`release:check must include ${command}`)
 assertEqual(
   requireJob('publish-npm').if,
   "(startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.qualify.outputs.runtime-publication-pending == 'true'",

@@ -21,6 +21,8 @@ interface ResourceBalance {
 }
 
 export interface BudgetLedger {
+  readonly tokensCapped: boolean
+  readonly iterationsCapped: boolean
   readonly usdCapped: boolean
   readonly absoluteDeadlineMs: number
   readonly resources: Map<string, ResourceBalance>
@@ -28,7 +30,7 @@ export interface BudgetLedger {
   reservedTokens: number
   committedTokens: number
   // Set once the pool records work with an unreported token count, never cleared. Unlike
-  // `usdTainted` it does NOT close admission (the token channel is always capped; refusing every
+  // `usdTainted` it does NOT close admission (refusing every
   // later reservation would turn one skipped usage report into a dead run): the cap is enforced on
   // what is known and `readout().tokensKnown` reports an under-count.
   tokensTainted: boolean
@@ -60,6 +62,8 @@ export interface ResourceSettlement {
 
 export function openBudgetLedger(root: Budget, runStartedAtMs: number): BudgetLedger {
   return {
+    tokensCapped: root.maxTokens !== undefined,
+    iterationsCapped: root.maxIterations !== undefined,
     usdCapped: root.maxUsd !== undefined,
     absoluteDeadlineMs: root.deadlineMs === undefined ? 0 : runStartedAtMs + root.deadlineMs,
     resources: new Map(
@@ -71,7 +75,7 @@ export function openBudgetLedger(root: Budget, runStartedAtMs: number): BudgetLe
           ] as const,
       ),
     ),
-    freeTokens: root.maxTokens,
+    freeTokens: root.maxTokens ?? 0,
     reservedTokens: 0,
     committedTokens: 0,
     tokensTainted: false,
@@ -81,7 +85,7 @@ export function openBudgetLedger(root: Budget, runStartedAtMs: number): BudgetLe
     committedUsd: 0,
     usdTainted: false,
     usdMeasured: true,
-    freeIterations: root.maxIterations,
+    freeIterations: root.maxIterations ?? 0,
     reservedIterations: 0,
     committedIterations: 0,
     ownerSpent: { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 },
@@ -157,9 +161,9 @@ export function ledgerShortfalls(
   b: Budget,
   keep: ReservationFloor | undefined,
 ): ReservationShortfall[] {
-  const wantTokens = b.maxTokens
+  const wantTokens = b.maxTokens ?? 0
   const wantUsd = b.maxUsd ?? 0
-  const wantIterations = b.maxIterations
+  const wantIterations = b.maxIterations ?? 0
   const shortfalls: ReservationShortfall[] = []
   const short = (
     channel: ReservationShortfall['channel'],
@@ -186,8 +190,9 @@ export function ledgerShortfalls(
   const kept = (share = 0, spent: number) => Math.max(0, share - spent)
   const tokensFree = l.freeTokens - kept(keep?.tokens, chargedTokens(l.ownerSpent.tokens))
   const iterationsFree = l.freeIterations - kept(keep?.iterations, l.ownerSpent.iterations)
-  if (wantTokens > tokensFree) short('tokens', wantTokens, tokensFree, l.reservedTokens)
-  if (wantIterations > iterationsFree)
+  if (l.tokensCapped && wantTokens > tokensFree)
+    short('tokens', wantTokens, tokensFree, l.reservedTokens)
+  if (l.iterationsCapped && wantIterations > iterationsFree)
     short('iterations', wantIterations, iterationsFree, l.reservedIterations)
   const usdFree = l.freeUsd - kept(keep?.usd, l.ownerSpent.usd)
   if (l.usdCapped && !l.usdTainted && wantUsd > usdFree)
@@ -202,10 +207,14 @@ export function ledgerTake(l: BudgetLedger, b: Budget): void {
     state.remaining -= amount
     state.reserved += amount
   }
-  l.freeTokens -= b.maxTokens
-  l.reservedTokens += b.maxTokens
-  l.freeIterations -= b.maxIterations
-  l.reservedIterations += b.maxIterations
+  if (l.tokensCapped) {
+    l.freeTokens -= b.maxTokens ?? 0
+    l.reservedTokens += b.maxTokens ?? 0
+  }
+  if (l.iterationsCapped) {
+    l.freeIterations -= b.maxIterations ?? 0
+    l.reservedIterations += b.maxIterations ?? 0
+  }
   l.freeUsd -= b.maxUsd ?? 0
   l.reservedUsd += b.maxUsd ?? 0
 }
@@ -222,15 +231,18 @@ export function ledgerClassifyOverspend(
   held: { tokens: number; usd: number; iterations: number },
   usdBudgeted: boolean,
   spent: Spend,
+  limits?: Pick<Budget, 'maxTokens' | 'maxIterations'>,
 ): { overspent: BudgetOverspend[]; unknownUnderCap: boolean } {
   const unknownUnderCap = l.usdCapped && spent.usdKnown === false
   const spentTokens = chargedTokens(spent.tokens)
   const overspent: BudgetOverspend[] = []
-  if (spentTokens > held.tokens) {
-    overspent.push({ channel: 'tokens', reserved: held.tokens, spent: spentTokens })
+  const tokens = limits === undefined ? held.tokens : limits.maxTokens
+  const iterations = limits === undefined ? held.iterations : limits.maxIterations
+  if (tokens !== undefined && spentTokens > tokens) {
+    overspent.push({ channel: 'tokens', reserved: tokens, spent: spentTokens })
   }
-  if (spent.iterations > held.iterations) {
-    overspent.push({ channel: 'iterations', reserved: held.iterations, spent: spent.iterations })
+  if (iterations !== undefined && spent.iterations > iterations) {
+    overspent.push({ channel: 'iterations', reserved: iterations, spent: spent.iterations })
   }
   // Unmeasured dollars may not be compared against a reservation as if billed (a catalog-priced
   // turn could exceed the ceiling and report an overspend the child never made): the known
@@ -255,13 +267,16 @@ export function ledgerSettle(
 ): ResourceSettlement {
   noteUnknowns(l, spent)
   const spentTokens = chargedTokens(spent.tokens)
-  l.reservedTokens -= held.tokens
   l.committedTokens += spentTokens
-  l.freeTokens += held.tokens - spentTokens
-
-  l.reservedIterations -= held.iterations
+  if (l.tokensCapped) {
+    l.reservedTokens -= held.tokens
+    l.freeTokens += held.tokens - spentTokens
+  }
   l.committedIterations += spent.iterations
-  l.freeIterations += held.iterations - spent.iterations
+  if (l.iterationsCapped) {
+    l.reservedIterations -= held.iterations
+    l.freeIterations += held.iterations - spent.iterations
+  }
 
   if (l.usdCapped) {
     l.reservedUsd -= held.usd
@@ -304,9 +319,9 @@ export function ledgerObserve(
 function debit(l: BudgetLedger, spend: Spend): void {
   noteUnknowns(l, spend)
   const tokens = chargedTokens(spend.tokens)
-  l.freeTokens -= tokens
+  if (l.tokensCapped) l.freeTokens -= tokens
   l.committedTokens += tokens
-  l.freeIterations -= spend.iterations
+  if (l.iterationsCapped) l.freeIterations -= spend.iterations
   l.committedIterations += spend.iterations
   l.committedUsd += spend.usd
   if (l.usdCapped) l.freeUsd -= spend.usd
@@ -345,15 +360,18 @@ export function ledgerRestore(l: BudgetLedger, root: Budget, restore: BudgetPool
     )
     l.tokensTainted = true
     l.usdMeasured = false
-    l.freeTokens -= uncertain.maxTokens
-    l.committedTokens += uncertain.maxTokens
-    l.freeIterations -= uncertain.maxIterations
-    l.committedIterations += uncertain.maxIterations
+    const tokens = uncertain.maxTokens ?? (l.tokensCapped ? Math.max(0, l.freeTokens) : 0)
+    const iterations =
+      uncertain.maxIterations ?? (l.iterationsCapped ? Math.max(0, l.freeIterations) : 0)
+    l.committedTokens += tokens
+    l.committedIterations += iterations
+    if (l.tokensCapped) l.freeTokens -= tokens
+    if (l.iterationsCapped) l.freeIterations -= iterations
     if (!l.usdCapped) continue
     if (uncertain.maxUsd === undefined) {
       // No child dollar ceiling existed, so the root's remaining dollar capacity is not safe.
       l.usdTainted = true
-      l.committedUsd += l.freeUsd > 0 ? l.freeUsd : 0
+      l.committedUsd += Math.max(0, l.freeUsd)
       l.freeUsd = 0
     } else {
       l.freeUsd -= uncertain.maxUsd

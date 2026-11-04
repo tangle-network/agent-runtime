@@ -93,8 +93,6 @@ const superviseOptionKeys = [
   'stopRule',
   'watchWorkers',
   'continuation',
-  'workerRetry',
-  'onWorkerRetry',
   'workerSlots',
   'recoverExecutor',
 ] as const
@@ -207,7 +205,6 @@ const superviseExecutableOptionKeys = [
   'onCoordinationEvent',
   'onDriverAttempt',
   'onProgressStop',
-  'onWorkerRetry',
   'recoverExecutor',
   'resolveDeliverable',
   'resolveDriveHarness',
@@ -313,7 +310,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     watchWorkers,
     analysts,
     continuation,
-    workerRetry,
     ...rest
   } = opts
   const references: Record<string, unknown> = {}
@@ -380,36 +376,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
             ? {}
             : { detectors: Object.freeze([...watchWorkers.detectors]) }),
         })
-  // A RegExp does not survive a JSON snapshot, so the policy's numbers are snapshot and its
-  // signatures are copied as the exact values the caller selected.
-  const capturedWorkerRetry =
-    workerRetry === undefined
-      ? undefined
-      : Object.freeze({
-          ...detachedSnapshot(
-            {
-              ...(workerRetry.enabled === undefined ? {} : { enabled: workerRetry.enabled }),
-              ...(workerRetry.maxTotalMs === undefined
-                ? {}
-                : { maxTotalMs: workerRetry.maxTotalMs }),
-              ...(workerRetry.initialBackoffMs === undefined
-                ? {}
-                : { initialBackoffMs: workerRetry.initialBackoffMs }),
-              ...(workerRetry.maxBackoffMs === undefined
-                ? {}
-                : { maxBackoffMs: workerRetry.maxBackoffMs }),
-            },
-            'supervise worker-retry configuration',
-          ),
-          ...(workerRetry.additionalPreSpawnSignatures === undefined
-            ? {}
-            : {
-                additionalPreSpawnSignatures: Object.freeze([
-                  ...workerRetry.additionalPreSpawnSignatures,
-                ]),
-              }),
-        })
-
   // Rebuilt field by field so a caller's mutable registry object cannot be held live. EVERY
   // callable field must be listed: an omitted one is silently dropped at intake and the capability
   // it carries disappears from every manager in the tree with no type error, because the field is
@@ -448,6 +414,5 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(capturedWatchWorkers === undefined ? {} : { watchWorkers: capturedWatchWorkers }),
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(capturedContinuation === undefined ? {} : { continuation: capturedContinuation }),
-    ...(capturedWorkerRetry === undefined ? {} : { workerRetry: capturedWorkerRetry }),
   }) as SuperviseOptions
 }

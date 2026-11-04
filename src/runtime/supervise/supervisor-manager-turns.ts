@@ -352,7 +352,10 @@ function readManagerProgress(loop: ManagerTurnLoop): DriverProgressMark {
   const submitted = Boolean(mcp.submittedResult())
   const composite = bestComposite(controls.checkReads())
   return {
-    poolTokensSpent: loop.baseTokensLeft - scope.budget.tokensLeft,
+    poolTokensSpent:
+      scope.budget.tokensCapped === false
+        ? (scope.budget.committedTokens ?? 0)
+        : loop.baseTokensLeft - scope.budget.tokensLeft,
     settledCount: settled.length,
     submitted,
     deliveredCount,

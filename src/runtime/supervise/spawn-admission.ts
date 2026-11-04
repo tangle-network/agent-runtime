@@ -29,7 +29,6 @@ export interface WorkerTreeEnv {
     validated: ReturnType<typeof validateGraphSubtask>
   }
   readonly recoveryFactories: WeakMap<MakeWorkerAgent, ExecutorFactory<unknown>>
-  readonly withRetry: (make: MakeWorkerAgent) => MakeWorkerAgent
   readonly makeLeaf: MakeWorkerAgent
   readonly securityPolicy: Parameters<typeof validateAgentProfileSecurity>[1]
 }

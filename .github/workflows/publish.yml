@@ -24,9 +24,10 @@ concurrency:
 
 jobs:
   qualify:
-    uses: tangle-network/agent-runtime/.github/workflows/qualify-release.yml@ab39a83214a90cc3265f8324421654798b218e8e
+    uses: ./.github/workflows/qualify-release.yml
     permissions:
       contents: read
+      statuses: read
     with:
       release_tag: ${{ inputs.release_tag }}
 

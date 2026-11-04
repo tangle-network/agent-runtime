@@ -107,8 +107,8 @@ export function allSpawnedChildrenDown(tree: TreeView): boolean {
 
 function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {
   const r = pool.readout()
-  if (r.iterationsLeft <= 0) return true
-  if (r.tokensLeft <= 0) return true
+  if (r.iterationsCapped !== false && r.iterationsLeft <= 0) return true
+  if (r.tokensCapped !== false && r.tokensLeft <= 0) return true
   return opts.budget.maxUsd !== undefined && r.usdLeft <= 0
 }
 
