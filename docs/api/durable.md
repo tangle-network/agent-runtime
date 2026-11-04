@@ -880,7 +880,7 @@ How many times a process resumed this attempt after a predecessor died mid-run.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Runtime-classified root failure; absent in legacy observer history.
 
@@ -1111,7 +1111,7 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ##### segments?
 
@@ -1961,6 +1961,12 @@ What [runDirectoryHolderIsLive](#rundirectoryholderislive) proved about a run di
 
 False only when the holder that took the lock is proved dead; a holder that cannot be proved dead reads as live.
 
+##### unknown?
+
+> `readonly` `optional` **unknown?**: `true`
+
+The holder could not be verified on this host. `live` stays conservative for exclusion.
+
 ##### holder?
 
 > `readonly` `optional` **holder?**: [`RunDirectoryLockHolder`](#rundirectorylockholder)
@@ -2007,6 +2013,46 @@ deadline or moves it.
 
 ***
 
+### RunState
+
+Runtime evidence only. Product-specific launch, checks and trace completeness belong to callers.
+
+#### Properties
+
+##### phase?
+
+> `readonly` `optional` **phase?**: `"running"` \| `"down"` \| `"settled"` \| `"parked"` \| `"cancelling"`
+
+Absent when a recorded holder cannot be verified on this host.
+
+##### failureCode?
+
+> `readonly` `optional` **failureCode?**: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`
+
+A persisted typed root failure; legacy failure messages do not establish a code.
+
+##### settle?
+
+> `readonly` `optional` **settle?**: [`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>
+
+##### cancelRequest?
+
+> `readonly` `optional` **cancelRequest?**: [`RunCancelRequest`](runtime.md#runcancelrequest)
+
+##### holderLive?
+
+> `readonly` `optional` **holderLive?**: `boolean`
+
+Absent when holder liveness is unknown. This is advisory, never ownership authorization.
+
+##### lastActivityAt?
+
+> `readonly` `optional` **lastActivityAt?**: `string`
+
+Latest explicit Runtime timestamp observed, as ISO UTC; never a filesystem mtime.
+
+***
+
 ### DurableFailureRecord
 
 What `failure.json` records about the most recent throw.
@@ -2045,6 +2091,77 @@ ISO instant the throw was recorded.
 
 The root's retained provider stream at the time of the throw, when the directory holds one:
  a root that died mid-turn keeps what it had streamed, and this names it.
+
+***
+
+### SpawnJournalCursor
+
+Serializable checkpoint of a committed byte boundary, bound to one file and its bytes.
+
+#### Properties
+
+##### file
+
+> `readonly` **file**: `string`
+
+##### offset
+
+> `readonly` **offset**: `number`
+
+##### boundary
+
+> `readonly` **boundary**: `string`
+
+***
+
+### SpawnJournalReadOptions
+
+#### Properties
+
+##### after?
+
+> `readonly` `optional` **after?**: [`SpawnJournalCursor`](#spawnjournalcursor)
+
+##### tailBytes?
+
+> `readonly` `optional` **tailBytes?**: `number`
+
+Initial opening-and-tail window, or an incremental page's byte budget. A crossing record
+is read whole, so one large record can exceed this budget. Omit for complete history.
+
+***
+
+### SpawnJournalReadResult
+
+#### Properties
+
+##### records
+
+> `readonly` **records**: readonly [`SpawnJournalReadRecord`](#spawnjournalreadrecord)[]
+
+##### cursor?
+
+> `readonly` `optional` **cursor?**: [`SpawnJournalCursor`](#spawnjournalcursor)
+
+Absent only when the journal does not exist. Treat as opaque and persist unchanged.
+
+##### reset
+
+> `readonly` **reset**: `boolean`
+
+The supplied cursor no longer matches; this page starts over.
+
+##### truncated
+
+> `readonly` **truncated**: `boolean`
+
+An initial opening-and-tail window omitted records between its two windows.
+
+##### remainingBytes
+
+> `readonly` **remainingBytes**: `number`
+
+Bytes after the committed cursor in this snapshot, including an incomplete final write.
 
 ***
 
@@ -2665,53 +2782,6 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
-
-##### workerRetry?
-
-> `readonly` `optional` **workerRetry?**: [`WorkerSpawnRetryPolicy`](runtime.md#workerspawnretrypolicy)
-
-How a BACKEND-DERIVED WORKER whose spawn was refused before it ran is re-entered, instead of
-settling dead with a slot free seconds later.
-
-`driverRetry` guards the root only. A worker that dies is typed into a `down` settlement,
-which is the right shape when the worker RAN — and the wrong shape for
-`host-executor: acquire timeout after 60000ms (in_flight=4/4, queued=1)`, a queue refusal the
-bridge emits before any harness child exists. Measured 2026-08-22 on discovery-lab cells
-oscnp s2/s3: ten live agents on one bridge that admits four, and every worker refused at the
-60 s acquire deadline was lost for the whole run.
-
-Fail-closed on two proofs that the attempt did no work: the error carries a pre-spawn
-signature, AND the attempt yielded no execution event. An attempt that streamed anything may
-have metered usage, so a blind re-run would double-spend and stays fatal.
-
-Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
-a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-[runtime.withWorkerSpawnRetry](runtime.md#withworkerspawnretry) itself.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerRetry`](runtime.md#workerretry-1)
-
-##### onWorkerRetry?
-
-> `readonly` `optional` **onWorkerRetry?**: (`attempt`) => `void`
-
-Per-re-entry record for every retried worker spawn — what makes a saturated executor visible
- as waiting rather than as a worker that silently took longer.
-
-###### Parameters
-
-###### attempt
-
-[`WorkerSpawnRetryAttempt`](runtime.md#workerspawnretryattempt)
-
-###### Returns
-
-`void`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`onWorkerRetry`](runtime.md#onworkerretry-1)
 
 ##### continuation?
 
@@ -3958,53 +4028,6 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
-
-##### workerRetry?
-
-> `readonly` `optional` **workerRetry?**: [`WorkerSpawnRetryPolicy`](runtime.md#workerspawnretrypolicy)
-
-How a BACKEND-DERIVED WORKER whose spawn was refused before it ran is re-entered, instead of
-settling dead with a slot free seconds later.
-
-`driverRetry` guards the root only. A worker that dies is typed into a `down` settlement,
-which is the right shape when the worker RAN — and the wrong shape for
-`host-executor: acquire timeout after 60000ms (in_flight=4/4, queued=1)`, a queue refusal the
-bridge emits before any harness child exists. Measured 2026-08-22 on discovery-lab cells
-oscnp s2/s3: ten live agents on one bridge that admits four, and every worker refused at the
-60 s acquire deadline was lost for the whole run.
-
-Fail-closed on two proofs that the attempt did no work: the error carries a pre-spawn
-signature, AND the attempt yielded no execution event. An attempt that streamed anything may
-have metered usage, so a blind re-run would double-spend and stays fatal.
-
-Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
-a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-[runtime.withWorkerSpawnRetry](runtime.md#withworkerspawnretry) itself.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`workerRetry`](runtime.md#workerretry-1)
-
-##### onWorkerRetry?
-
-> `readonly` `optional` **onWorkerRetry?**: (`attempt`) => `void`
-
-Per-re-entry record for every retried worker spawn — what makes a saturated executor visible
- as waiting rather than as a worker that silently took longer.
-
-###### Parameters
-
-###### attempt
-
-[`WorkerSpawnRetryAttempt`](runtime.md#workerspawnretryattempt)
-
-###### Returns
-
-`void`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`onWorkerRetry`](runtime.md#onworkerretry-1)
 
 ##### continuation?
 
@@ -5385,6 +5408,14 @@ Build the one change the next version applies to `best.profile`. Its `id` must b
 
 ***
 
+### SpawnJournalReadRecord
+
+> **SpawnJournalReadRecord** = \{ `kind`: `"begin"`; `root`: [`NodeId`](runtime.md#nodeid-5); `at`: `string`; \} \| \{ `kind`: `"event"`; `root`: [`NodeId`](runtime.md#nodeid-5); `event`: [`SpawnEvent`](runtime.md#spawnevent); \}
+
+Physical groups expand to event records; the owning tree is preserved for every event.
+
+***
+
 ### ContinuityMode
 
 > **ContinuityMode** = `"fresh"` \| `"resume"`
@@ -5873,6 +5904,27 @@ guard and refuses atomically.
 
 ***
 
+### readRunState()
+
+> **readRunState**(`runDir`): `Promise`\<[`RunState`](#runstate) \| `undefined`\>
+
+Compose maintained record readers. Terminal settlement outranks cancellation and parking;
+a request remains cancelling until settlement. An unheld run with evidence is down.
+No Runtime evidence (including a missing or empty directory) returns undefined. Reads are
+advisory snapshots across independently published files, not a transaction or a resume gate.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`RunState`](#runstate) \| `undefined`\>
+
+***
+
 ### durableRunToolSpans()
 
 > **durableRunToolSpans**(`runDir`): `Promise`\<readonly `ToolSpan`[]\>
@@ -5931,6 +5983,31 @@ Read the most recent failure record, or `undefined` when the directory holds non
 #### Returns
 
 `Promise`\<[`DurableFailureRecord`](#durablefailurerecord) \| `undefined`\>
+
+***
+
+### readSpawnJournal()
+
+> **readSpawnJournal**(`runDir`, `options?`): `Promise`\<[`SpawnJournalReadResult`](#spawnjournalreadresult)\>
+
+Read a fixed journal prefix, with historical envelopes and framing owned by Runtime.
+Missing journals return an empty page. Malformed committed records fail; incomplete final
+writes remain unread for the next call. Cursors detect replacement, truncation and edits at
+their sampled opening/boundary; they are not integrity proofs against arbitrary file edits.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+##### options?
+
+[`SpawnJournalReadOptions`](#spawnjournalreadoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`SpawnJournalReadResult`](#spawnjournalreadresult)\>
 
 ***
 
