@@ -63,8 +63,7 @@ export function providerSpawnPreflight(
   const validate = provider.validateProfile?.bind(provider)
   if (validate === undefined) return undefined
   return async (profile) => {
-    // Judge what create receives. Seats and coordination grants are Runtime's and never reach the
-    // provider; judging them refused every worker the Lab's own example profile describes.
+    // Judge what create receives: seats and coordination grants are Runtime's, not the provider's.
     const result = await validate(providerVisibleProfile(profile))
     const errors = result.issues.filter((issue) => issue.level === 'error')
     if (result.ok && errors.length === 0) return undefined
