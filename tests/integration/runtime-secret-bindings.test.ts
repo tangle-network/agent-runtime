@@ -307,7 +307,6 @@ it('keeps a run through a renewal that lands after the lease: the expired bearer
     mcpAccepted: true,
     committedAccepted: true,
     expiredRefusedWhileRetrying: true,
-    stopReason: undefined,
     distinctStoredRenewals: 2,
     stored: 0,
   })

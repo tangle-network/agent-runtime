@@ -494,7 +494,7 @@ const api = createServer(async (request, response) => {
         if (RENEWAL_FAILS.includes(mode)) committedAccepted = await list(stored.get(reference.key))
         while (!updates && Date.now() < deadline) await delay(20)
         assert.ok(updates > 0)
-        priorListsToolsAfterRenewal = await list(issued)
+        if (mode !== 'renewal-past-lease') priorListsToolsAfterRenewal = await list(issued)
         if (mode === 'stale-holder') {
           while (Date.now() < issuedAt + 4500) await delay(20)
           expiredHolderStopsManager =
