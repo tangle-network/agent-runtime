@@ -116,7 +116,7 @@ describe('optional budget channels through production admission and accounting',
               reservedTokens: zero ? 0 : 6,
             })
             if (!zero) {
-              expect(scope.spawn(worker, task, { budget: { maxTokens: 5 } })).toMatchObject({
+              expect(scope.spawn(worker, task, { budget: { maxTokens: 11 } })).toMatchObject({
                 ok: false,
                 reason: 'budget-exhausted',
               })
