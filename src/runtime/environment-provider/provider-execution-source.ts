@@ -194,7 +194,7 @@ async function retainedExecution(
       })
     }
     const session = exactSession(environment, handle.controlRef).session
-    const events = new RetainedObservation(handle, signal).observe(session)
+    const events = new RetainedObservation(handle, signal, retention).observe(session)
     return { environment, events, retained: true }
   } catch (error) {
     // A durable dispatch or exact reattachment proves execution admission before observation starts.

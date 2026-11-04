@@ -16,6 +16,7 @@ import type { RetainedRunHandle } from '../retained-run-types'
 import { extractTransportEventIdentity } from '../sandbox-transport-events'
 import { armDeadlineTimer } from '../supervise/deadline'
 import { causeChain } from '../supervise/error-message'
+import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
 // Silence never ends a turn. This long without evidence publishes the wait on the exact result
@@ -25,16 +26,12 @@ const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
 const RETAINED_STATUS_READ_MS = 60_000
 
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
-// Past this many frames after a settled exact result the rest are dropped and the result stands:
-// a subscription without a cursor replays the execution from its first frame.
+// Past this many frames after a settled exact result the rest are dropped and the result stands.
+// An owner's later reconciliation of the execution subscribes after the last position read.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
-/**
- * After its exact result, a stream that still owes its terminal frame keeps reading only while
- * each frame arrives within this long of the result or the last frame.
- * A provider sends a turn's last frames and its result on two connections, and a burst that
- * straddles the result is read whole.
- */
+/** After its exact result, a stream owing its terminal frame reads on while each frame comes this
+ *  soon after the result or the last frame: a provider sends the two on separate connections. */
 const RETAINED_TAIL_FLOW_MS = 100
 
 /** Runtime's own mark, beside the provider's frames, that a retained turn now waits on its exact
@@ -49,12 +46,9 @@ type FrameRead =
   | { kind: 'quiet' }
 
 /** Why the event stream stopped short, as bounded redacted text for the settlement reason. */
-function observationFailureText(failure: { readonly error: unknown }): string {
-  const error = failure.error
-  return String(defaultRedactor(error instanceof Error ? error.message : String(error))).slice(
-    0,
-    2_048,
-  )
+function observationFailureText({ error }: { readonly error: unknown }): string {
+  const text = error instanceof Error ? error.message : String(error)
+  return String(defaultRedactor(text)).slice(0, 2_048)
 }
 
 /** A result refused `provider_quota_exhausted` is the ended run's failed result, not one to reconcile. */
@@ -65,16 +59,15 @@ function exactQuotaRefusal(error: unknown) {
         Reflect.get(cause, 'name') === 'TangleCredentialCapacityError' &&
         Reflect.get(cause, 'code') === 'provider_quota_exhausted',
     )
-    const resetAt: unknown = refusal && Reflect.get(refusal, 'resetAt')
-    return refusal === undefined
-      ? undefined
-      : {
-          text: '',
-          success: false,
-          error: `Subscription account capacity is unavailable${typeof resetAt === 'string' ? ` until ${resetAt}` : ''}`,
-          errorCode: 'provider_quota_exhausted',
-          statusCode: 429,
-        }
+    if (refusal === undefined) return undefined
+    const resetAt: unknown = Reflect.get(refusal, 'resetAt')
+    return {
+      text: '',
+      success: false,
+      error: `Subscription account capacity is unavailable${typeof resetAt === 'string' ? ` until ${resetAt}` : ''}`,
+      errorCode: 'provider_quota_exhausted',
+      statusCode: 429,
+    }
   } catch {
     return undefined
   }
@@ -85,6 +78,7 @@ export class RetainedObservation {
   private failure: { error: unknown } | undefined
   // Where a reconnect resumes: the last frame that carried a replay position.
   private lastReplayPosition: string | undefined
+  private readonly resumedFrom: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
   // When the turn last acted on silence: unset until it publishes its wait (once per invocation;
@@ -96,7 +90,6 @@ export class RetainedObservation {
   private framesAfterResult = 0
   // One reaction on the run-long exact result; a reaction per read kept every drained event alive.
   private readonly exactWakers = new Set<() => void>()
-  private exactWatched = false
   private readonly seenEvents = new Map<string, string>()
   // A read that lost a race to the awaiting mark stays the stream's next read: a second
   // `next()` would queue behind it and drop the frame it delivers.
@@ -105,20 +98,28 @@ export class RetainedObservation {
   constructor(
     private readonly handle: RetainedRunHandle,
     private readonly signal: AbortSignal,
-  ) {}
+    private readonly position?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
+  ) {
+    const observed = position?.observed
+    if (observed?.executionId === handle.controlRef.executionId)
+      this.lastReplayPosition = this.resumedFrom = observed.replayPosition
+  }
 
   /** Stream the provider's frames, resume once after a break, then yield the exact result. */
   async *observe(
     session: AgentSession,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult> {
     this.lastObservedAt = Date.now()
-    const completed = yield* this.drain(session)
+    const completed = yield* this.drain(session, this.resumedFrom)
     if (!completed && !this.sawTerminal && this.lastReplayPosition !== undefined) {
       // The terminal receipt carries the turn's usage: resume once; a second failure keeps the first.
       const firstFailure = this.failure
       this.failure = undefined
       if (!(yield* this.drain(session, this.lastReplayPosition))) this.failure = firstFailure
     }
+    // An earlier attempt read the frames up to a resumed position, usage receipts among them.
+    const resumed = this.resumedFrom && `retained provider stream resumed after ${this.resumedFrom}`
+    if (resumed) this.failure ??= { error: new Error(resumed) }
     if (!this.sawTerminal && this.failure === undefined) {
       this.failure = { error: new Error('retained provider stream did not yield a terminal event') }
     }
@@ -222,6 +223,7 @@ export class RetainedObservation {
       const settle = () => {
         if (this.observedFrames === 0) this.lastObservedAt = Date.now()
         this.exactResultSettled = true
+        for (const wake of [...this.exactWakers]) wake()
       }
       void this.exactResult.then(settle, settle)
     }
@@ -234,16 +236,8 @@ export class RetainedObservation {
       return () => {}
     }
     this.exactWakers.add(waker)
-    if (!this.exactWatched) {
-      this.exactWatched = true
-      const fire = () => {
-        for (const wake of [...this.exactWakers]) wake()
-      }
-      void this.readExactResult().then(fire, fire)
-    }
-    return () => {
-      this.exactWakers.delete(waker)
-    }
+    this.readExactResult()
+    return () => this.exactWakers.delete(waker)
   }
 
   private awaitingResult(since: number): RetainedAwaitingResult {
@@ -258,19 +252,15 @@ export class RetainedObservation {
     let unwatch: (() => void) | undefined
     let clearQuiet: (() => void) | undefined
     try {
-      // Give this read one scheduler turn before an exact result closes a quiet subscription; a
-      // stream owing its terminal frame whose last frame came within RETAINED_TAIL_FLOW_MS keeps
-      // reading for the rest of that window.
+      // Give this read one scheduler turn before an exact result closes a quiet subscription; one
+      // owing its terminal frame reads on for the rest of the RETAINED_TAIL_FLOW_MS window.
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
             const flowing = this.sawTerminal
               ? 0
               : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastObservedAt)
-            if (flowing <= 0) {
-              resolve({ kind: 'exact-result' })
-              return
-            }
+            if (flowing <= 0) return resolve({ kind: 'exact-result' })
             grace = setTimeout(() => {
               wake = setImmediate(() => resolve({ kind: 'exact-result' }))
             }, flowing)
@@ -283,8 +273,7 @@ export class RetainedObservation {
         Promise.resolve().then(() => iterator.next()),
         this.signal,
       ).then((value) => ({ kind: 'event' as const, value }))
-      // No new evidence for a while publishes the wait or asks after the run; the read and the
-      // result race on.
+      // A quiet interval publishes the wait or asks after the run; the read and result race on.
       const quiet = new Promise<FrameRead>((resolve) => {
         clearQuiet = this.armQuiet(() => resolve({ kind: 'quiet' }))
       })
@@ -301,8 +290,7 @@ export class RetainedObservation {
   private acceptFrame(event: AgentEnvironmentEvent): boolean {
     this.observedFrames += 1
     if (this.exactResultSettled) this.framesAfterResult += 1
-    // An event for another execution is never evidence, and it is the PROVIDER's contract that
-    // broke, so it classifies as such (#1204).
+    // Another execution's event is never evidence: the PROVIDER's contract broke (#1204).
     try {
       assertEventBinding(event, this.handle.controlRef)
     } catch (error) {
@@ -334,8 +322,12 @@ export class RetainedObservation {
     }
     // A replayed frame is not progress: a provider repeating one cursor must not hold a finished turn open.
     this.lastObservedAt = Date.now()
-    if (identity.cursor !== undefined) this.lastReplayPosition = identity.cursor
-    else if (eventId !== undefined) this.lastReplayPosition = eventId
+    const replayPosition = identity.cursor ?? eventId
+    if (replayPosition !== undefined) {
+      this.lastReplayPosition = replayPosition
+      const { executionId } = this.handle.controlRef
+      this.position?.onObserved?.({ executionId, replayPosition })
+    }
     if (isTerminalEnvironmentEvent(event)) this.sawTerminal = true
     this.readExactResult()
     return true
@@ -372,10 +364,7 @@ export class RetainedObservation {
           }
           break
         }
-        if (
-          this.observedFrames > 0 &&
-          this.observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0
-        ) {
+        if (this.observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0 && this.observedFrames) {
           // Ready iterators would otherwise starve result transport, cancellation and deadlines.
           await awaitAbortable(new Promise<void>((resolve) => setImmediate(resolve)), this.signal)
         }

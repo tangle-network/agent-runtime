@@ -6,6 +6,7 @@ import type {
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
 import { isCredentialRefusal } from './credential-refusal'
+import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import { errorProperty } from './error-message'
 import { detachedSnapshot } from './snapshot'
 import { type TraceRootWriter, traceRootWriter } from './trace-root'
@@ -39,48 +40,45 @@ export interface RetainedExecutorContext {
   readonly priorSpent?: Spend
   /** Keep the retained provider environment alive across deliberate invocations. */
   readonly preserveEnvironment?: boolean
-  /**
-   * Asked once when a turn settles with a result: `true` keeps the environment for a keyed
-   * continuation instead of destroying it (`Executor.heldForContinuation`). The scope answers
-   * `true` for a keyed leaf whose turn ended over its budget or past its deadline.
-   */
+  /** Asked once when a turn settles with a result: `true` keeps the environment for a keyed
+   *  continuation (`Executor.heldForContinuation`), as the scope answers for a keyed leaf whose
+   *  turn ended over its budget or past its deadline. */
   readonly holdOnSettle?: (spent: Spend) => boolean
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
+  /** How far an owner's retained execution's event stream was read, and the hook that moves it;
+   *  the owner's `driver-attempt` records carry it across a restart. */
+  readonly observed?: RetainedObservedPosition
+  readonly onObserved?: (observed: RetainedObservedPosition) => void
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
   /** Retain failure evidence without accepting a result or changing recovery state. */
   readonly onEvidence?: (out: unknown) => Promise<void>
-  /**
-   * Start this node's next invocation in the environment and session its last one ran in, once
-   * that one committed its result. The scope journals `task` as the node's next
-   * `execution-input` and answers with the context the new invocation runs under. A Scope leaf
-   * has it; an owner's later invocations are its driver's re-entries, so an owner does not.
-   */
+  /** Start this node's next invocation in its last one's environment and session, once that one
+   *  committed its result: the scope journals `task` as the next `execution-input` and answers the
+   *  new invocation's context. A Scope leaf has it; an owner's driver re-enters instead. */
   readonly continueInvocation?: (task: unknown) => Promise<RetainedExecutorContext>
   /** Journal a pause of this node on an unavailable upstream: infrastructure time. */
   readonly onPause?: (pause: RetainedExecutorPause) => Promise<void>
-  /**
-   * Take over the end-of-turn workspace capture of a turn whose manager stopped, which the
-   * executor runs after it has committed the turn's result. An owner whose environment outlives
-   * its turns has it: the owner awaits the work before its next invocation starts and before it
-   * releases the environment, so the capture still precedes the destroy. Its receipt arrives
-   * through `onEvidence`. Never rejects.
-   */
+  /** Take over a stopped manager's end-of-turn workspace capture, run after the turn's result
+   *  commits. An owner whose environment outlives its turns awaits it before its next invocation
+   *  and before release, so the capture precedes the destroy; its receipt arrives through
+   *  `onEvidence`. Never rejects. */
   readonly onEndOfTurnWork?: (work: Promise<void>) => void
   /** Journal where one workspace capture's time went: queue wait, capture time, archive bytes. */
   readonly onWorkspaceCapture?: (capture: RetainedWorkspaceCapture) => Promise<void>
-  /** Journal that an end-of-turn workspace capture was requested, before it waits for anything.
-   *  An owner also cuts its checkpoint rotation's captures short here, so they never hold the
-   *  final capture up. */
+  /** Journal that an end-of-turn capture was requested, before it waits; an owner also cuts its
+   *  checkpoint rotation's captures short here, so they never hold the final capture up. */
   readonly onWorkspaceCaptureStarted?: (capture: RetainedWorkspaceCaptureStarted) => Promise<void>
   /** The checkpoint a NEW environment of this invocation starts from: set only when the provider
    *  lost the environment the previous invocation ran in, and it holds a checkpoint of it. */
   readonly restoreWorkspace?: RetainedWorkspaceRestore
-  /** Receives what a restored environment held of the checkpoint's marker, before any turn is
-   *  judged by it. */
+  /** Receives what a restored environment held of the checkpoint's marker, before turns use it. */
   readonly onWorkspaceRestored?: (receipt: RetainedWorkspaceRestoreReceipt) => Promise<void>
 }
+
+/** A retained execution's event stream, read through `replayPosition`. */
+export type RetainedObservedPosition = NonNullable<DriverAttemptRecord['observed']>
 
 /** @internal A capture may finish after cancellation; its durable citation remains appendable. */
 export function executorEvidenceWriter(args: {
