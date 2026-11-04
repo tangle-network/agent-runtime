@@ -317,11 +317,7 @@ describe('provider executable workspace retention', () => {
         expect(workerMessage).toMatchObject({
           kind: ending === 'completed' && !strictPartial ? 'done' : 'down',
           ...(strictPartial
-            ? {
-                reason: steering
-                  ? 'Sandbox evidence capture failed before teardown'
-                  : expect.stringContaining('coverage incomplete'),
-              }
+            ? { reason: expect.stringContaining('coverage incomplete') }
             : {}),
         })
       }
