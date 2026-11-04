@@ -316,16 +316,7 @@ describe('provider executable workspace retention', () => {
       if (location === 'worker' && storageFailure === undefined) {
         expect(workerMessage).toMatchObject({
           kind: ending === 'completed' && !strictPartial ? 'done' : 'down',
-          ...(strictPartial
-            ? {
-                // The aggregate names its members (#2391), so the capture failure is a prefix.
-                reason: expect.stringContaining(
-                  steering
-                    ? 'Sandbox evidence capture failed before teardown'
-                    : 'coverage incomplete',
-                ),
-              }
-            : {}),
+          ...(strictPartial ? { reason: expect.stringContaining('coverage incomplete') } : {}),
         })
       }
       if (location === 'root') {

@@ -13,7 +13,7 @@ export const coordinationControlToolNames = Object.freeze([
 type Headers = Readonly<Record<string, string>>
 export interface CoordinationCredentials {
   rotate(): void
-  /** Both bearers remain valid until the trusted holder acknowledges installation. */
+  /** Both bearers remain valid until the trusted holder acknowledges installation. A failed install may have reached its holder, so it is offered again until it lapses. */
   replace(install: (headers: Headers) => Promise<void>): Promise<void>
   setAudience(audience: string): void
   refused(supplied: Buffer): 'scope-stopped' | 'credential-refused' | undefined
@@ -99,23 +99,24 @@ export function createCoordinationCredentials(input: {
     current = next
     staged = undefined
   }
+  let installing = false
   const rotate = () => {
-    if (staged) throw new ConfigError('coordination credential replacement is pending')
+    if (installing) throw new ConfigError('coordination credential replacement is pending')
+    if (staged) revoked.set(staged.token.toString(), staged.expiresAt)
     commit(issue())
     readerToken = randomToken()
     controllerToken = randomToken()
   }
   const replace = async (install: (headers: Headers) => Promise<void>) => {
-    if (staged) throw new ConfigError('coordination credential replacement is pending')
-    const next = issue()
-    staged = next
+    if (installing) throw new ConfigError('coordination credential replacement is pending')
+    if (!staged || staged.expiresAt <= Date.now()) staged = issue()
+    const next = staged
+    installing = true
     try {
       await install(next.headers)
       commit(next, true)
-    } catch (error) {
-      staged = undefined
-      revoked.set(next.token.toString(), next.expiresAt)
-      throw error
+    } finally {
+      installing = false
     }
   }
   const matches = (supplied: Buffer, expected: Buffer) =>

@@ -1,3 +1,9 @@
+## 3.0.44
+
+A driver attempt's `error`, a settlement's reason and a give-up message now name each member of an `AggregateError` (`name: message`, one level deep). On Discovery smoke setup-smoke-b736069f a worker's record read only `coordination binding and cleanup failed`; the binding failure and the cleanup failure behind it were lost.
+
+The spawn pre-flight now judges the profile the provider will receive. With provider-tangle 5.0.10's create verdict, it refused every worker that declared `seats` or `agent_runtime_coordination_*` tools, so managers stripped their workers' tools until a spawn passed (canary-chain-20261104q through v).
+
 ## 3.0.43
 
 One attempt policy for drivers. A `transient` failure now has a kind, read from typed fields on its causes in one table (`transientFailureKind`) and recorded as `failureKind` on each failed `driver-attempt` record: `infra` when a cause carries HTTP 408 or 5xx (including a harness's printed `status code <n>`), a transport errno or undici code, or a timeout, network or abort error; `deterministic` otherwise. A deterministic failure that repeats with nothing gained (same first cause under any pending-reconciliation wrapper, ids and timestamps blanked) stops with `repeated-failure` at the second attempt, at every depth: a nested agent settles `down` with the error, and an opted-in root (`pauseRootStops`) pauses with its alarm row. A nested agent's infra failure stops at 10 alike over 5 minutes; a root waits out its outage window. Progress, a changed failure, a content-filter refusal (its own 8-in-a-row bound) or an abandonable pending invocation (its own `pending-unresolved` bound) leave the policy as before. Replaying the 4,453 failed attempts of the week to 2026-11-04, the policy cuts them by 74%.
