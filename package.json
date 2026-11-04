@@ -135,7 +135,7 @@
     "check:version-bump": "node scripts/check-version-bump.mjs",
     "check:release-notes": "node scripts/release-notes.mjs",
     "check:api-surface": "node scripts/check-api-surface.mjs",
-    "release:check": "pnpm run lint && pnpm run build && pnpm run test && pnpm run typecheck && pnpm run verify:package:static && node scripts/check-api-surface.mjs --record",
+    "release:check": "pnpm run lint && pnpm run build && pnpm run test && pnpm run typecheck && pnpm run verify:package:static && node scripts/check-api-surface.mjs --record && rm -rf .release-admission && pnpm pack --pack-destination .release-admission >/dev/null && node scripts/check-version-bump.mjs --archive .release-admission/*.tgz --consumer 'its CHANGELOG'",
     "api:surface": "node scripts/check-api-surface.mjs --write",
     "release:prepare": "node scripts/prepare-release.mjs",
     "release:cohort": "node scripts/verify-release-cohort.mjs",

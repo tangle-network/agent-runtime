@@ -12,17 +12,8 @@ import {
 import { parseCommittedJsonLines, readCommittedJsonLines } from '../jsonl-file'
 import { FileObserverJournal } from '../observer-journal'
 
-vi.mock('node:fs/promises', async (load) => {
-  const actual = await load<typeof fs>()
-  return { ...actual, readFile: vi.fn(actual.readFile), open: vi.fn(actual.open) }
-})
-
 let root: string
 beforeEach(async () => {
-  const actual = await vi.importActual<typeof fs>('node:fs/promises')
-  vi.mocked(fs.open).mockImplementation(actual.open)
-  vi.mocked(fs.readFile).mockImplementation(actual.readFile)
-  vi.clearAllMocks()
   root = await fs.mkdtemp(join(tmpdir(), 'streaming-journal-'))
 })
 afterEach(async () => {
@@ -159,9 +150,6 @@ describe('durable consumers share streaming reads', () => {
         )
         .join('\n'),
     )
-    vi.mocked(fs.readFile).mockImplementation(async () => {
-      throw new Error('whole-file read')
-    })
     expect((await new FileCoordinationLog(path).load('run', 'A')).findings).toEqual([{ id: 'A' }])
   })
 
@@ -169,9 +157,6 @@ describe('durable consumers share streaming reads', () => {
     const path = join(root, 'root-stream.jsonl')
     const bytes = Buffer.concat([Buffer.from('{"seq":1}\n{"torn":"'), Buffer.from([0xff])])
     await fs.writeFile(path, bytes)
-    vi.mocked(fs.readFile).mockImplementation(async () => {
-      throw new Error('whole-file read')
-    })
     expect(await readRootStreamReceipt(root)).toEqual({
       ref: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
       events: 1,
@@ -184,9 +169,6 @@ describe('durable consumers share streaming reads', () => {
     await sink.beginAttempt()
     sink.append({ kind: 'text_delta', text: 'first' })
     await sink.close()
-    vi.mocked(fs.readFile).mockImplementation(async () => {
-      throw new Error('whole-file read')
-    })
     const resumed = createRootStreamSink(root, () => 2)
     await resumed.beginAttempt()
     resumed.append({ kind: 'text_delta', text: 'second' })

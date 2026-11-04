@@ -22,3 +22,4 @@ test_repo/
 .gen3-runs/
 .evolution-*/
 .wt-owner
+.release-admission/
