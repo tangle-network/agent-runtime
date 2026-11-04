@@ -1,5 +1,5 @@
 import type { FileHandle } from 'node:fs/promises'
-import { commitJsonLine, prepareJsonlTail } from './jsonl-append'
+import { prepareJsonlTail } from './jsonl-append'
 import { fenceRunWrite } from './run-fence'
 
 /** Parse in-memory evidence with the same commit boundary as streamed journal reads. */
@@ -100,26 +100,7 @@ function parseRecord<T>(
   }
 }
 
-/** Append one JSONL record under the caller's existing single-writer discipline.
- * The caller creates the parent directory. Recover only an uncommitted tail, handle short
- * writes, and fsync before acknowledging.
- * An optional acknowledgement reads the same open descriptor after sync (the spawn journal
- * validates its file stamp here). Queueing, validation, and failure policy belong to the owner.
- * @internal
- */
-export function appendCommittedJsonLine(path: string, record: unknown): Promise<void>
-export function appendCommittedJsonLine<T>(
-  path: string,
-  record: unknown,
-  acknowledge: (fd: number) => T,
-): Promise<T>
-export async function appendCommittedJsonLine<T>(
-  path: string,
-  record: unknown,
-  acknowledge?: (fd: number) => T,
-): Promise<T | undefined> {
-  return commitJsonLine(path, record, acknowledge)
-}
+export { appendCommittedJsonLine } from './jsonl-append'
 
 /** Serialize JSONL file updates across processes and aliases using Eval's existing file lock.
  * The caller owns validation and the record format. The lock path names the canonical file,
