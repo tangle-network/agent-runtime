@@ -21035,6 +21035,13 @@ Absent when the attempt completed.
 
 > `readonly` `optional` **classification?**: [`DriverFailureClass`](#driverfailureclass)
 
+##### failureKind?
+
+> `readonly` `optional` **failureKind?**: `"deterministic"` \| `"infra"`
+
+For a `transient` failure: `infra` (bounded as an outage) or `deterministic` (stops at the
+ second invocation that fails alike with no progress).
+
 ##### madeProgress
 
 > `readonly` **madeProgress**: `boolean`

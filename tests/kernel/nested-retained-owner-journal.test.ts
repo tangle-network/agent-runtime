@@ -133,9 +133,7 @@ describe('nested retained owner journal isolation', () => {
     const retry = mode === 'retry' || mode === 'pending' || mode === 'unreconciled-restart'
     // The manager's turns: refused until the refusal streak stops it, or passing on the 7th.
     const sends =
-      { 'content-filtered': 8, 'content-filter-recovers': 7 }[
-        mode as string
-      ] ??
+      { 'content-filtered': 8, 'content-filter-recovers': 7 }[mode as string] ??
       EFFORT_TURNS[mode]?.length ??
       1
     const refusing = sends > 1
