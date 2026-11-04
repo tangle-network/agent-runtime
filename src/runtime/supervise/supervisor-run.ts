@@ -330,9 +330,17 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
   let executionAborted = controller.signal.aborted
   let allChildrenDownAtSettle = false
   let parked = false
+  let rootStarted = false
   try {
     await startScopeRecoveries(scope)
-    const out = (await runAbortable(root.run, controller.signal, 'supervisor aborted')) as Out
+    const out = (await runAbortable(
+      () => {
+        rootStarted = true
+        return root.run()
+      },
+      controller.signal,
+      'supervisor aborted',
+    )) as Out
     actOutcome = { ok: true, out }
   } catch (error) {
     if (error instanceof RunParkedError && error.runId === opts.runId) {
@@ -369,7 +377,7 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
       } catch (error) {
         if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
       }
-      if (!persistence.failed) {
+      if (rootStarted && !persistence.failed) {
         try {
           await finalizeScopeOwnerMaterialization(scope)
         } catch (error) {

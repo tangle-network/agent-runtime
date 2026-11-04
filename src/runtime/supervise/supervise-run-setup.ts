@@ -83,37 +83,63 @@ import {
   type SupervisorProfile,
 } from './supervisor-agent'
 
-export function prepareSuperviseRun(
+/** Canonical root identity is needed for control operations before executable admission. */
+export function prepareSuperviseIdentity(
   profile: SupervisorProfile,
   task: unknown,
   opts: SuperviseOptions,
-  testBrain?: ToolLoopChat,
 ) {
   const options = captureSuperviseOptions(opts)
-  assertSqlRunOptions(options)
-  assertValidBudget(options.budget, 'supervise budget')
-  // Fail loud before any compute: every configured model must be in `allowedModels` (when set).
   const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
   const { applyTraceTools, composeSpawnProfile } = traceToolPolicy(options, guidanceComposer)
-  const peerAuditFor = peerAuditRegistry(options)
-  // The recorded root profile fixes the run's identity; a segment only alters what it executes.
   const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))
   if (options.segment !== undefined) admitSegment(options.segment)
   const canonicalProfile =
     options.segment === undefined
       ? registeredProfile
       : withRootSegment(registeredProfile, options.segment)
-  if (!testBrain || !isRuntimeFlowBrain(testBrain))
-    assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   const canonicalTask = freezeDetached(task)
-  assertWorkerSeams(options)
-  const authorizeDownFor = downMessageAuthorizer(options)
   const rootExecution = canonicalExecution(
     registeredProfile,
     canonicalTask,
     options.execution,
     'supervise root',
   )
+  return {
+    options,
+    guidanceComposer,
+    applyTraceTools,
+    composeSpawnProfile,
+    registeredProfile,
+    canonicalProfile,
+    canonicalTask,
+    rootExecution,
+  }
+}
+
+export function prepareSuperviseRun(
+  profile: SupervisorProfile,
+  task: unknown,
+  opts: SuperviseOptions,
+  testBrain?: ToolLoopChat,
+) {
+  const {
+    options,
+    guidanceComposer,
+    applyTraceTools,
+    composeSpawnProfile,
+    registeredProfile,
+    canonicalProfile,
+    canonicalTask,
+    rootExecution,
+  } = prepareSuperviseIdentity(profile, task, opts)
+  assertSqlRunOptions(options)
+  assertValidBudget(options.budget, 'supervise budget')
+  const peerAuditFor = peerAuditRegistry(options)
+  if (!testBrain || !isRuntimeFlowBrain(testBrain))
+    assertExecutableAgentProfile(canonicalProfile, 'supervise root')
+  assertWorkerSeams(options)
+  const authorizeDownFor = downMessageAuthorizer(options)
   assertRunModelsAllowed(canonicalProfile, options)
   const { deliverable, finalizer, analysts, profileTable } = resolveRunRegistry(options)
   assertCoordinationBinding(options.coordination)

@@ -11,8 +11,15 @@ import { authoredAgentIdentity, runtimeOwnedDriveHarnessProviderEvidence } from 
 import { createSupervisorSpanRecorder, type SupervisorSpanRecorder } from './otel-spans'
 import { ROOT_STREAM_FILE } from './root-stream'
 import type { RunCancelRequest } from './run-cancellation'
-import { watchRunCancellation } from './run-cancellation'
+import {
+  applyRunCancellation,
+  readRunCancellation,
+  readRunCancelRequest,
+  watchRunCancellation,
+} from './run-cancellation'
+import { createFileRunContext } from './run-context'
 import { withRunParking } from './run-parking'
+import { assertValidBudget } from './spend-validation'
 import { supervisorTurnOptions } from './supervise-agent-options'
 import type { SuperviseOptions } from './supervise-options'
 import { createSuperviseWorkers } from './supervise-recursive-workers'
@@ -23,7 +30,7 @@ import {
   rootProviderModelEvidenceFromExecution,
 } from './supervise-root-evidence'
 import { rootSegmentOf } from './supervise-root-profile'
-import { prepareSuperviseRun } from './supervise-run-setup'
+import { prepareSuperviseIdentity, prepareSuperviseRun } from './supervise-run-setup'
 import { assertSqlRunProvider } from './supervise-sql-admission'
 import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
 import {
@@ -59,6 +66,8 @@ export function superviseInternal(
   opts: SuperviseOptions,
   testBrain?: ToolLoopChat,
 ) {
+  const cancelled = pendingCancellationRun(profile, task, opts)
+  if (cancelled !== undefined) return cancelled
   const setup = prepareSuperviseRun(profile, task, opts, testBrain)
   const { options } = setup
   const workers = createSuperviseWorkers(setup, (reason, request) =>
@@ -85,6 +94,117 @@ export function superviseInternal(
     cancelDurableRun,
     rootContinuation: undefined,
   })
+}
+
+/** A durable control request needs no executable transport or credentials. The kernel's aborted
+ * entry still owns journal replay, accounting, the join barrier and unconfirmed resource custody. */
+function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
+  const runDir = opts.runDir
+  if (runDir === undefined || opts.runContext?.durability === 'sql') return undefined
+  const request = readRunCancelRequest(runDir)
+  if (request === undefined) return undefined
+  const acknowledged = readRunCancellation(runDir, request.operationId)
+  if (acknowledged !== undefined && acknowledged.effect !== 'cancel_requested') return undefined
+  const { options, registeredProfile, canonicalProfile, canonicalTask, rootExecution } =
+    prepareSuperviseIdentity(profile, task, opts)
+  const now = options.now ?? Date.now
+  const controller = new AbortController()
+  applyRunCancellation(
+    runDir,
+    (reason, request) => {
+      controller.abort(
+        request === undefined
+          ? new Error(reason)
+          : new RunCancellationReason(
+              request.source,
+              reason,
+              request.operationId,
+              request.operator,
+            ),
+      )
+    },
+    () => new Date(now()).toISOString(),
+    'observer',
+  )
+  const context = options.runContext ?? createFileRunContext(runDir, { withDriver: true })
+  return (async () => {
+    if (!controller.signal.aborted) throw new Error('run cancellation changed before control entry')
+    const runId = options.runId ?? context.runId ?? 'supervise'
+    const journal = options.journal ?? context.journal
+    const prior = await journal.loadTree(runId)
+    const root = prior?.find((event) => event.kind === 'spawned' && event.id === runId)
+    const reopened = [...(prior ?? [])]
+      .reverse()
+      .find(
+        (event) => event.kind === 'reopened' && event.id === runId && event.budget !== undefined,
+      )
+    const budget =
+      options.budget ??
+      (reopened?.kind === 'reopened' ? reopened.budget : undefined) ??
+      (root?.kind === 'spawned' ? root.budget : undefined)
+    if (budget === undefined) throw new Error('cancelled run has no declared or recorded budget')
+    assertValidBudget(budget, 'supervise budget')
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: canonicalProfile.name ?? 'supervise',
+        async act() {
+          throw new Error('cancelled run cannot enter execution')
+        },
+      },
+      canonicalTask,
+      {
+        budget,
+        runId,
+        journal,
+        blobs: options.blobs ?? context.blobs,
+        executors: context.executors,
+        rootIdentity: rootExecution.identity,
+        rootMaterialization: {
+          runtime: root?.kind === 'spawned' ? root.runtime : 'inline',
+          declaration: 'deferred',
+          authoredProfile: registeredProfile,
+        },
+        ...(options.segment === undefined
+          ? {}
+          : {
+              rootSegment: {
+                registered: rootSegmentOf(registeredProfile),
+                current: {
+                  ...rootSegmentOf(canonicalProfile),
+                  ...(options.segment.stack === undefined
+                    ? {}
+                    : { stack: { ...options.segment.stack } }),
+                },
+                reason: options.segment.reason,
+              },
+            }),
+        ...(options.recoverExecutor === undefined
+          ? {}
+          : { recoverExecutor: options.recoverExecutor }),
+        ...(options.reservationPolicy === undefined
+          ? {}
+          : { reservationPolicy: options.reservationPolicy }),
+        ...(options.workerSlots === undefined ? {} : { workerSlots: options.workerSlots }),
+        ...(options.teardownConfirmMs === undefined
+          ? {}
+          : { teardownConfirmMs: options.teardownConfirmMs }),
+        ...(context.resume === true || options.resume === true ? { resume: true } : {}),
+        retainedAtSettlement: options.retainedAtSettlement ?? 'release',
+        hooks: options.hooks,
+        now,
+        signal:
+          options.signal === undefined
+            ? controller.signal
+            : AbortSignal.any([controller.signal, options.signal]),
+        interactiveBindingDir: runDir,
+      },
+    )
+    recordRunCancellationOutcome(runDir, result, now)
+    return {
+      ...result,
+      ...(rootExecution.ref === undefined ? {} : { execution: rootExecution.ref }),
+    }
+  })()
 }
 
 async function startSupervisedRun(run: SupervisedRun) {
