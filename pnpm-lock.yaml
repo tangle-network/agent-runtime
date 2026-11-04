@@ -195,9 +195,21 @@ catalogs:
     '@modelcontextprotocol/sdk':
       specifier: 1.32.2
       version: 1.32.2
+    '@tangle-network/agent-eval':
+      specifier: ^1.0.0
+      version: 1.0.0
+    '@tangle-network/agent-interface':
+      specifier: ^5.10.16
+      version: 5.10.16
+    '@tangle-network/agent-knowledge':
+      specifier: ^23.0.0
+      version: 23.0.0
     '@tangle-network/agent-trace-contract':
       specifier: ^2.2.0
       version: 2.2.0
+    '@tangle-network/sandbox':
+      specifier: ^1.0.190
+      version: 1.0.190
     '@types/node':
       specifier: 26.6.5
       version: 26.6.5
@@ -328,6 +340,43 @@ importers:
       wrangler:
         specifier: 4.152.0
         version: 4.152.0(@types/node@26.6.5)
+
+  bench:
+    dependencies:
+      '@tangle-network/agent-eval':
+        specifier: 'catalog:'
+        version: 1.0.0(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))
+      '@tangle-network/agent-interface':
+        specifier: 'catalog:'
+        version: 5.10.16
+      '@tangle-network/agent-knowledge':
+        specifier: 'catalog:'
+        version: 23.0.0(@tangle-network/agent-eval@1.0.0(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7)))(@tangle-network/agent-interface@5.10.16)
+      '@tangle-network/agent-runtime':
+        specifier: workspace:^
+        version: link:..
+      '@tangle-network/sandbox':
+        specifier: 'catalog:'
+        version: 1.0.190(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
+    devDependencies:
+      '@arethetypeswrong/cli':
+        specifier: 'catalog:'
+        version: 0.18.5
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      publint:
+        specifier: 'catalog:'
+        version: 0.3.25
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.23.2(@arethetypeswrong/core@0.18.5)(publint@0.3.25)(tsx@4.23.15)(typescript@6.0.3)
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.15
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
 
 packages:
 
