@@ -1,7 +1,8 @@
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
+import { ConfigError } from '../../errors'
 import type { SpawnPreflight } from '../../mcp/tools/coordination-contracts'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
-import { profileBridgeWireModel } from './model-policy'
+import { profileBridgeWireModel, profileModelExecutionSettings } from './model-policy'
 import {
   type BridgeSeam,
   bridgeAdmissionRefusal,
@@ -72,6 +73,24 @@ export function providerSpawnPreflight(
     return {
       cause: 'unprovisionable-profile',
       detail: `provider ${provider.name} cannot provision this profile: ${named.length > 0 ? named.join('; ') : 'validation failed without a named error'}`,
+    }
+  }
+}
+
+/** Refuse a Runtime-managed child whose model controls its executor would refuse at its first
+ *  attempt (an unknown `model.metadata` key, an ambiguous `maxTokens`): the same check, at the call. */
+export function modelSettingsSpawnPreflight(
+  runtimeOwnsManager: boolean,
+  path: 'router' | 'provider',
+): SpawnPreflight | undefined {
+  if (!runtimeOwnsManager) return undefined
+  return async (profile) => {
+    try {
+      profileModelExecutionSettings(profile, 'spawn_worker', path)
+      return undefined
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error
+      return { cause: 'unprovisionable-profile', detail: error.message }
     }
   }
 }

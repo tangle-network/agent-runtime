@@ -69,6 +69,7 @@ import {
   bridgeSpawnPreflight,
   composeSpawnPreflights,
   coordinationChannelSpawnPreflight,
+  modelSettingsSpawnPreflight,
   profileToolSpawnPreflight,
   providerSpawnPreflight,
 } from './supervise-spawn-preflight'
@@ -487,6 +488,10 @@ function managerDriverPlan(
   // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
   // its mount and receives the profile unchanged.
   const spawnPreflight = composeSpawnPreflights(
+    modelSettingsSpawnPreflight(
+      options.makeWorkerAgent === undefined,
+      options.backend?.backend === 'provider' ? 'provider' : 'router',
+    ),
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
       options.resolveSupervisorTools !== undefined,
