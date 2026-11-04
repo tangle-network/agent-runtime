@@ -147,10 +147,10 @@ export function defaultPerWorker(
         }),
     ...(budget.maxIterations === undefined
       ? {}
-      : { maxIterations: Math.max(1, Math.floor(budget.maxIterations * share)) }),
+      : { maxIterations: Math.max(0, Math.floor(budget.maxIterations * share)) }),
     ...(budget.maxTokens === undefined
       ? {}
-      : { maxTokens: Math.max(1, Math.floor(budget.maxTokens * share)) }),
+      : { maxTokens: Math.max(0, Math.floor(budget.maxTokens * share)) }),
     ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd * share } : {}),
   }
 }

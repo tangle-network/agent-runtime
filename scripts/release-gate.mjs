@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 const repository = 'tangle-network/agent-runtime'
 const repoUrl = `https://github.com/${repository}.git`
 const context = 'gate/release-check'
+const gateId = 'beelink[12]-[a-f0-9]{32}'
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim()
 const description = (tree, gate) => `release-check-v1 tree=${tree} gate=${gate}`
 
@@ -21,10 +22,13 @@ export function attestReleaseGate(commit, gated) {
     row.mode === 'install' && row.class === 'normal' && row.command === 'pnpm run release:check')
     .sort((a, b) => String(b.at).localeCompare(String(a.at)))
   const receipt = applicable[0]
-  if (!receipt || receipt.exit !== 0 || receipt.timed_out === true || receipt.watchdog === true ||
-    receipt.checkout !== 'detached' || !Number.isFinite(Date.parse(receipt.at)) ||
+  if (!receipt || receipt.exit !== 0 || receipt.timed_out !== false || receipt.watchdog !== false ||
+    receipt.checkout !== 'detached' || typeof receipt.at !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(receipt.at) ||
+    !Number.isFinite(Date.parse(receipt.at)) ||
     applicable.some((row) => row.at === receipt.at && row.gate_id !== receipt.gate_id) ||
-    !/^[a-f0-9-]{8,36}$/.test(receipt.gate_id ?? '')) throw new Error('no successful detached normal/install release:check receipt for the gated commit')
+    !/^beelink[12]$/.test(receipt.host ?? '') ||
+    !new RegExp(`^${receipt.host}-[a-f0-9]{32}$`).test(receipt.gate_id ?? '')) throw new Error('no successful detached normal/install release:check receipt for the gated commit')
   const tree = git('rev-parse', `${commit}^{tree}`)
   for (const sha of new Set([gated, commit])) {
     const status = JSON.parse(execFileSync('gh-drew', ['api', '--method', 'POST', `repos/${repository}/statuses/${sha}`,
@@ -49,7 +53,7 @@ export async function hasReleaseGate() {
     const statuses = await response.json()
     const status = statuses.find((entry) => entry.context === context)
     if (status) return status.state === 'success' && status.creator?.login === 'drewstone' &&
-      new RegExp(`^release-check-v1 tree=${tree} gate=[a-f0-9-]{8,36}$`).test(status.description ?? '') &&
+      new RegExp(`^release-check-v1 tree=${tree} gate=${gateId}$`).test(status.description ?? '') &&
       new RegExp(`^https://github.com/${repository}/commit/[a-f0-9]{40}$`).test(status.target_url ?? '')
     if (statuses.length < 100) return false
     if (page >= 10) throw new Error('release proof status history exceeded bounded lookup')

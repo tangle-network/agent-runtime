@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scripts = dirname(fileURLToPath(import.meta.url))
-const run = (command, args, cwd) => execFileSync(command, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+const fixtureEnv = { ...process.env, GIT_AUTHOR_NAME: 'Release fixture', GIT_AUTHOR_EMAIL: 'release-fixture@example.invalid', GIT_COMMITTER_NAME: 'Release fixture', GIT_COMMITTER_EMAIL: 'release-fixture@example.invalid' }
+const run = (command, args, cwd) => execFileSync(command, args, { cwd, env: fixtureEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 const fixture = (t) => {
   const root = mkdtempSync(join(tmpdir(), 'runtime-publication-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
@@ -29,7 +30,7 @@ test('real npm archives require matching release prose and fully consumed notes'
     if (changelog === null) rmSync(join(root, 'package/CHANGELOG.md'), { force: true })
     else writeFileSync(join(root, 'package/CHANGELOG.md'), changelog)
     run('npm', ['pack', '--ignore-scripts', '--pack-destination', join(root, 'archives')], join(root, 'package'))
-    const result = spawnSync(process.execPath, ['scripts/check-release-archive.mjs', 'archives'], { cwd: root, encoding: 'utf8', env: { ...process.env, PACKAGE_VERSION_BUMP_BASE: base } })
+    const result = spawnSync(process.execPath, ['scripts/check-release-archive.mjs', 'archives'], { cwd: root, encoding: 'utf8', env: { ...fixtureEnv, PACKAGE_VERSION_BUMP_BASE: base } })
     assert.equal(result.status === 0, expected, result.stderr)
   }
   check(null, false)
@@ -63,7 +64,7 @@ test('tag CLI freezes a merged commit, refuses unmerged sources and never replac
   run('git', ['add', 'change'], repo)
   run('git', ['commit', '-m', 'unmerged fixture'], repo)
   const unmerged = run('git', ['rev-parse', 'HEAD'], repo)
-  const tag = (sha, ...extra) => spawnSync(process.execPath, [join(scripts, 'tag-release.mjs'), '4.0.0', '--commit', sha, ...extra], { cwd: repo, encoding: 'utf8' })
+  const tag = (sha, ...extra) => spawnSync(process.execPath, [join(scripts, 'tag-release.mjs'), '4.0.0', '--commit', sha, ...extra], { cwd: repo, env: fixtureEnv, encoding: 'utf8' })
   assert.notEqual(tag(unmerged).status, 0)
   assert.notEqual(tag(merged, '--gate', unmerged).status, 0, 'changed tree must refuse before receipt lookup')
   assert.equal(tag(merged).status, 0)

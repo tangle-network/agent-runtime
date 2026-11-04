@@ -75,6 +75,8 @@ export async function serveTopWeb(options: TopWebOptions) {
   const read = async () => {
     reading = true
     dirty = false
+    const refreshing = new Set(touched)
+    touched.clear()
     try {
       const changed: TopSnapshot[] = []
       for (const root of roots) {
@@ -82,7 +84,7 @@ export async function serveTopWeb(options: TopWebOptions) {
         // reconcile pass degrades to stat calls instead of re-parsing every journal on the host.
         const marker = JOURNALS.map((name) => resolve(root, name)).find((path) => existsSync(path))
         const stamp = marker ? await stat(marker).then(stampOf, () => 'none') : 'runs-root'
-        if (!touched.has(root) && snapshots.has(root) && lastStamps.get(root) === stamp) continue
+        if (!refreshing.has(root) && snapshots.has(root) && lastStamps.get(root) === stamp) continue
         lastStamps.set(root, stamp)
         const snapshot = marker?.endsWith('observer.jsonl')
           ? await loadTopSnapshot(root, { runDir: root })
@@ -113,8 +115,7 @@ export async function serveTopWeb(options: TopWebOptions) {
         }
         for (const client of clients) send(client, frame)
       }
-      const changedRoots = new Set([...changed.map((snapshot) => snapshot.root), ...touched])
-      touched.clear()
+      const changedRoots = new Set([...changed.map((snapshot) => snapshot.root), ...refreshing])
       for (const update of transcripts) update(changedRoots)
     } finally {
       reading = false
