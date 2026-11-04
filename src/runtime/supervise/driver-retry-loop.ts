@@ -459,6 +459,8 @@ export class DriverRetryLoop {
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure
+    const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
+    const rotatingSeat = run.seatChain === true && unavailableSignal === 'subscription-usage-limit'
     if (progressed) this.barrenReentries = 0
     const stop = ((): DriverAttemptStop | undefined => {
       if (run.signal.aborted) return abortStop(run.signal)
@@ -468,11 +470,12 @@ export class DriverRetryLoop {
       // A reset after the deadline is a refusal now, so the parent acts instead of a child that
       // holds its slot for days (zro-w4a16-hopper-20261104b s4 paused toward 2026-11-10).
       const deadline = run.budget().deadlineMs
-      return deadline > 0 && (reportedResetAt(error, limits.now()) ?? 0) >= deadline
+      return !rotatingSeat &&
+        deadline > 0 &&
+        (reportedResetAt(error, limits.now()) ?? 0) >= deadline
         ? 'deadline'
         : undefined
     })()
-    const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
     if (stop !== undefined) {
       await this.stopOrPause(error, stop, { ...this.failureRecord(failure), unavailableSignal })
       return
@@ -482,10 +485,13 @@ export class DriverRetryLoop {
     // A refusal that names its reset holds until then, never past the run's deadline: probing a
     // 5-hour plan window every 300 s spent 219 of magnetar-rust-20261018b's 324 attempts.
     const pausedAt = limits.now()
-    const resetAt = unavailableResumeAt(reportedResetAt(error, limits.now()), pausedAt)
+    const resetAt = rotatingSeat
+      ? undefined
+      : unavailableResumeAt(reportedResetAt(error, limits.now()), pausedAt)
     const deadlineMs = run.budget().deadlineMs
-    const pause =
-      resetAt === undefined
+    const pause = rotatingSeat
+      ? 0
+      : resetAt === undefined
         ? jitteredMs(unavailablePauseMs(this.consecutivePauses, limits.policy), limits.random)
         : Math.max(1_000, Math.min(resetAt, deadlineMs > 0 ? deadlineMs : resetAt) - pausedAt)
     const exitCode = undispatchedCredentialExit(error)

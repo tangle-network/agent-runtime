@@ -483,10 +483,20 @@ function managerDriverPlan(
   // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
   // its mount and receives the profile unchanged.
   const spawnPreflight = composeSpawnPreflights(
-    modelSettingsSpawnPreflight(
-      options.makeWorkerAgent === undefined,
-      options.backend?.backend === 'provider' ? 'provider' : 'router',
-    ),
+    (profile, context) => {
+      const external = isExternalSupervisor(profile)
+      const manager =
+        declaredRuntimeToolNames(profile).length > 0 ||
+        (external && authoredSeatStages(profile) !== undefined)
+      const custom = manager
+        ? external && hasCustomDriveHarness
+        : options.makeLeafAgent !== undefined
+      const backend = manager ? (external ? managerBackend : undefined) : options.backend
+      return modelSettingsSpawnPreflight(
+        options.makeWorkerAgent === undefined && !custom,
+        backend?.backend === 'provider' ? 'provider' : 'router',
+      )?.(profile, context)
+    },
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
       options.resolveSupervisorTools !== undefined,

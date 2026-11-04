@@ -203,6 +203,8 @@ export interface DriveHarness {
   harnessTranscript?(): HarnessTranscriptCapture | undefined
   /** Resolves once {@link harnessTranscript} is final (`Executor.harnessTranscriptSettled`). */
   harnessTranscriptSettled?(): Promise<void>
+  /** This harness owns the maintained seat chain's rotation and reset wait. */
+  readonly seatChain?: true
   /** Close the last subscription segment at this logical manager's settlement. */
   closeSeatSegment?(reason: 'completed' | 'failed' | 'cancelled' | 'paused'): Promise<void>
 }

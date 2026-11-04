@@ -131,7 +131,10 @@ export function driveHarnessFromBackend(
     )
     if (failures.length) throw new AggregateError(failures, 'manager settlement cleanup failed')
   }
-  return attestRuntimeOwnedScopeOwner(drive, manager.ownerRuntime)
+  return attestRuntimeOwnedScopeOwner(
+    Object.assign(drive, seatSelection ? { seatChain: true as const } : {}),
+    manager.ownerRuntime,
+  )
 }
 
 async function bindDriveRetainedOwner(

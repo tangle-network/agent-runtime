@@ -227,7 +227,9 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (error instanceof CoordinationUnreachableError) return 'coordination-unreachable'
   const typed = turnFailureOf(error)
   if (typed)
-    return turnFailurePolicy(typed).classification === 'unavailable' ? typed.code : undefined
+    return turnFailurePolicy(typed).classification === 'unavailable'
+      ? (subscriptionUsageLimitSignal({ error: '', errorCode: typed.code }) ?? typed.code)
+      : undefined
   const refusal = retainedAdmissionCause(error) ?? reconciliationCapacityRefusal(error)
   if (refusal !== undefined) return upstreamUnavailableSignal(refusal)
   if (!(error instanceof Error)) return undefined

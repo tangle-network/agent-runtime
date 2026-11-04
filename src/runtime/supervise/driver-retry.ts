@@ -1,94 +1,22 @@
 /**
- * Root-driver retry — the root gets the same second chance a worker's transport already has.
+ * Re-enter a driver on the same scope, coordination server and live children. The harness owns
+ * session/environment reuse; this loop owns retry, continuation, budget and deadline decisions.
  *
- * One dropped connection, one SIGKILLed harness process or one upstream 5xx used to end a run of
- * arbitrary length with `reason: 'driver-failed'` and tear down every live child (#741). This
- * module runs the driver again on the SAME scope, coordination server and live children until the
- * budget or the deadline says stop. It restarts no children and replays no work: the bridge
- * backend reattaches the harness session because the execution id is bound durably per node.
+ * Runtime refusals and cancellation stay terminal. Canonical producer failures distinguish caller,
+ * capacity, infrastructure and work; legacy transport/harness evidence remains a fallback.
+ * Capacity pauses do not consume failure allowances. A seat-bearing drive first lets its existing
+ * chain rotate; the chain owns its exhausted-seat wait, while the run's bounds still apply.
  *
- * Failure classes (all conservative):
- *  - TERMINAL: Runtime's own refusals (`ValidationError`/`ConfigError`, exhausted budget, the run's
- *    own abort, a client-side transport status such as 401/404/422). Retrying re-runs a decision.
- *    Fails at once.
- *  - TRANSIENT: everything foreign (harness exit without a reason, a stream cut mid-turn, a 5xx, a
- *    socket reset, an `AbortError` that neither the run's signal nor the manager's own stop
- *    issued). A harness turn that RETURNED a failed outcome is the same accident reported as
- *    a value, so the drive raises {@link HarnessTurnFailedError} and it is classified like any other.
- *  - UNAVAILABLE: the upstream said "not now" (429, 503, 529, or the router's own codes: quota,
- *    rate limit, overload). The driver PAUSES and re-enters; a pause consumes neither `maxAttempts`
- *    nor the barren streak, so only the deadline, the budget and cancellation bound it. Measured
- *    2026-09-24 on play anomaly-referee-v3d: during the router's flash quota outage four of five
- *    lead lanes ended `driver-failed` after 12 to 13 attempts with budget and an 8-hour deadline
- *    almost untouched.
+ * Only idle infrastructure failures earn an outage window. Repeated deterministic failures with
+ * no progress stop inside that window; work failures consume the normal attempt/barren bounds.
+ * With a declared check, progress means delivery or an improved verdict, not spend alone.
  *
- * A driver that dies INSTANTLY and repeatedly spends nothing, so the budget alone cannot bound it.
- * Progress is measured between attempts; a run of attempts that changes nothing stops at
- * `maxConsecutiveFailures` once it has outlasted the outage window below. A failure that made
- * progress resets that counter.
+ * Completed drives with an unmet contract continue with Runtime's note. Barren continuations
+ * wait with increasing backoff; progress resets their streak. A resumed run first receives its
+ * open workers, and counts barren drives only after a model event in this process.
  *
- * WHAT COUNTS AS PROGRESS was got wrong first. Reading metered spend, settled children and an
- * accepted submission measured the filesystem and the meter, never the goal: across 1,422 settled
- * discovery-lab runs it retried the runs that produced NOTHING 629 of 827 times
- * (76.1%) and the runs that HAD left an artifact 21 of 399 times (5.3%). So when the caller
- * declares a completion check, spend and settlements alone are NOT progress while it is unmet; only
- * a delivery (an accepted submission, a child that passed the check, the contract turning met, or a
- * rise in the check's best composite) resets the barren counter. A caller that declares no check
- * reports `contract: 'none'` and keeps the historical reading.
- *
- * CONTINUATION. `budgetStop` used to be consulted only after a failure, so a driver that RETURNED
- * with the contract unmet ended the run silently (376 of 376 winning lab runs ended on this loop's
- * own `stop: 'completed'`). A completed drive whose contract is unmet is now a first-class moment:
- * the manager's `continuation` policy (`./continuation.ts`) re-enters the driver with Runtime's
- * continuation note, crossing the same budget, deadline and abort bounds. Successful
- * continuations do not consume the failure allowance. Progress paces the continuations: once
- * `continuation.maxBarren` re-entered drives in a row complete without progress, the loop PAUSES
- * before each further continuation, 5 minutes and doubling per barren drive up to 60, journals one
- * `barren-pause` row per pause for an operator alarm, and re-enters. A barren streak never ends the
- * run: the check, the deadline, the budget and cancellation do. Progress resets the streak and the
- * backoff. There is no count cap and no caller veto (the old prompt-owned loop logged 896 of 1,011
- * rounds with no progress). The barren bound
- * settled a 48-hour run `no-winner` after 14.3 hours, while its last two turns updated its pages
- * and waited on its own 2^20 prove.
- *
- * This loop decides WHETHER to re-enter, not WHERE the next drive runs: the drive harness owns
- * whether it continues the same session, environment or a replacement, and the caller composes the
- * re-entry task from it (`./reentry.ts`).
- *
- * A RE-ENTERED run is one this process resumed after an earlier process drove it. Its first drive
- * is entered as `run-reentered` with the workers that were open, and a drive counts toward
- * `maxBarren` only if it began after the root streamed a model event in this process; a root that
- * speaks and then stays barren is paced as any other. Measured 2026-10-19 on
- * magnetar-rust-20261019f: after a host reboot the root was driven with the bare original task and
- * no word of its three open workers, two barren continuations followed, and the barren bound of the
- * time settled the run `no-result-selected`.
- *
- * A TRANSIENT failure that spent nothing, settled nothing and made no progress is an outage until
- * its streak has lasted `transientOutageMs`: it consumes neither `maxAttempts` nor the barren
- * streak, like a pause; after it the failure bounds apply. Failures met alike (ids and times
- * blanked) on every re-entry with no progress stop with `repeated-failure` inside the window: a
- * `PartialFailureError` box at the second, a `nested` manager's failed harness turn at the third,
- * and its other failures at the repeated-failure count and window.
- * A Platform restart answered
- * `HTTP 502 ... Platform key verification unavailable` from 03:04:34 to 03:09:41Z, and the
- * coordinator's twelve attempts ran out at 03:07:12Z with no token spent.
- *
- * Every wait, a failure backoff or a pause, is jittered over its upper half so drivers that one
- * outage cut off together do not re-enter together.
- *
- * STOP-PAUSE. A run started with `driverRetry.pauseRootStops` hands its ROOT a `stopPause`;
- * no other manager gets one. Terminal refusals end the run immediately; the remaining stops wait and alarm:
- * `no-progress`, `max-attempts`, `repeated-failure`, `pending-unresolved` and
- * `budget-exhausted` each emit one record with `replacesStop` and pause 5 minutes, doubling per
- * stop-pause in a row up to 60, never past a declared deadline and not jittered. An attempt that
- * made progress resets the streak. A cancel ends the pause and settles the run; a root steer ends
- * any pause at once, a budget pause included, because a steer is how an operator changes a live
- * run. Ending a pause admits nothing by itself: the next admission reads the pool again, a pool
- * still spent pauses again with its own row, and the steer stays queued until a turn reads it.
- * After the pause the per-window counters start over and the driver is re-entered: after
- * a failure as `driver-failure` with `pausedMs`, after an admission or continuation refusal as the
- * re-entry it was about to use. Runs must not fail early: over 259 runs, 8 of the 10 stops settled runs that
- * nobody solved or stopped, including 17 roots whose harness never streamed.
+ * Opted-in root stop-pauses alarm and wait instead of settling recoverable stops. Cancellation
+ * ends the wait; a steer wakes it but grants no admission. The next attempt rechecks the budget.
  */
 
 import { ValidationError } from '../../errors'
@@ -270,6 +198,8 @@ export interface DriverRetryRun {
   readonly stopPause?: DriverStopPause
   /** A nested manager: a same-failure streak ends it inside the outage window too. */
   readonly nested?: boolean
+  /** The drive's existing seat chain owns rotation and its exhausted-chain wait. */
+  readonly seatChain?: boolean
   readonly policy?: DriverRetryPolicy
   /** How a COMPLETED drive with its check unmet is re-entered. Omit = never, which is correct
    *  only for a manager with no check. */

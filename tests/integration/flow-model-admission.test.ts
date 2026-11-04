@@ -22,7 +22,7 @@ import { expect, it } from 'vitest'
 const exec = promisify(execFile)
 const allowed = 'gpt-6.1-sol'
 
-it('admits a model-free coordinator while enforcing its actual leaf model allowlist', async () => {
+it('admits a custom native leaf with canonical credential intent while enforcing its model allowlist', async () => {
   const root = await mkdtemp(join(tmpdir(), 'flow-model-admission-'))
   try {
     const output = join(root, 'digest.txt'),
@@ -30,6 +30,7 @@ it('admits a model-free coordinator while enforcing its actual leaf model allowl
     const digest = createHash('sha256').update(input).digest('hex')
     let processes = 0
     const makeLeafAgent: MakeWorkerAgent = (profile) => {
+      expect(profile.model?.metadata?.credentialSource).toBe('subscription')
       let artifact: ExecutorResult<unknown> | undefined
       const executor: Executor<unknown> = {
         runtime: 'inline',
@@ -77,7 +78,11 @@ it('admits a model-free coordinator while enforcing its actual leaf model allowl
           profile: {
             name: 'digest',
             harness: 'cli-base',
-            model: { provider: 'openai', default: model },
+            model: {
+              provider: 'openai',
+              default: model,
+              metadata: { credentialSource: 'subscription' },
+            },
           },
         },
       ],
