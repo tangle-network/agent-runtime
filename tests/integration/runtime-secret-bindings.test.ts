@@ -287,6 +287,29 @@ it('stops the manager with the cause when its holder presents a signed bearer pa
     deleteCalls: 1,
   })
 })
+it('retries an unacknowledged renewal with the same token, while the old and the stored token both work', async () => {
+  // zro-game-20261104a and zro-matmul-machine-20261104a died at 6 h on the first failed renewal.
+  expect(await run('renewal-unacknowledged')).toMatchObject({
+    settled: true,
+    mcpAccepted: true,
+    committedAccepted: true,
+    priorListsToolsAfterRenewal: true,
+    renewalMisses: 1,
+    distinctStoredRenewals: 2,
+    updates: 1,
+    stored: 0,
+    deleteCalls: 1,
+  })
+})
+it('keeps a run through a renewal that lands after the lease: the expired bearer is refused, not fatal', async () => {
+  expect(await run('renewal-past-lease')).toMatchObject({
+    settled: true,
+    mcpAccepted: true,
+    committedAccepted: true,
+    expiredRefusedWhileRetrying: true,
+    stored: 0,
+  })
+})
 it('rebinds an existing quiescent host secret through acknowledged update before dispatch', async () => {
   expect(await run('quiescent-rebind')).toMatchObject({
     settled: true,

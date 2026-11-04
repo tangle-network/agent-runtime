@@ -41,6 +41,7 @@ import {
 import { bindServedTools, coordinationToolOptions } from './coordination-mcp-tools'
 import { preflightPublicCoordination } from './coordination-preflight'
 import { armDeadlineTimer } from './deadline'
+import { errMessage } from './error-message'
 import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 
 export type {
@@ -199,6 +200,7 @@ export function assertCoordinationTransport(options: CoordinationTransportOption
 
 /** Response hold cap, under the 60 s MCP tool-call timeout Claude Code and Codex apply. */
 const RESPONSE_FENCE_CAP_MS = 45_000
+const RENEWAL_RETRY_MAX_MS = 60_000
 
 /** The longest a fenced call (`submit_result`, node tools) holds its response before answering with
  *  a receipt: half of `requestTimeoutMs` (beating the transport's 504), at most {@link RESPONSE_FENCE_CAP_MS}. */
@@ -353,6 +355,8 @@ export async function serveCoordinationMcpForManager(
     throw new ConfigError('authenticated coordination requires a trusted run and actor identity')
   }
   const state = openCoordinationListenerState()
+  // While a renewal is open, a bearer that outlived its lease is refused and the re-key can still land.
+  let renewing = false
   const stopUnreachable = (reason: string) => {
     state.closed = true
     try {
@@ -367,8 +371,10 @@ export async function serveCoordinationMcpForManager(
     lifetimeSignal: lifetime,
     lifetimeExpiresAt: opts.scope.rootDeadlineAtMs,
     isClosed: () => state.closed,
-    onExpiredBearer: () =>
-      stopUnreachable('coordination credential expired in its holder: no renewal reached it'),
+    onExpiredBearer: () => {
+      if (!renewing)
+        stopUnreachable('coordination credential expired in its holder: no renewal reached it')
+    },
   })
   const ctx: CoordinationListenerContext = {
     opts,
@@ -453,7 +459,10 @@ export async function serveCoordinationMcpForManager(
       await pending
     }
     stopCredentialBinding = stop
+    let failures = 0
     const schedule = () => {
+      failures = 0
+      renewing = false
       const expiry = credentials.expiresAt!
       if (
         !active ||
@@ -465,10 +474,18 @@ export async function serveCoordinationMcpForManager(
         return
       cancelTimer = armDeadlineTimer(Math.max(1, Math.floor((expiry - Date.now()) / 2)), renew)
     }
+    const stopped = () => !active || state.closed || opts.scope.signal.aborted || lifetime?.aborted
+    // The token in force stays valid to its expiry, and a re-key can land after it, so a failed renewal never stops the run.
+    const retry = (error: unknown) => {
+      if (stopped()) return
+      const paced = (error as { retryAfterMs?: number }).retryAfterMs ?? 1000 * 2 ** failures++
+      console.warn(`[coordination] credential renewal retries: ${errMessage(error)}`)
+      cancelTimer = armDeadlineTimer(Math.min(paced, RENEWAL_RETRY_MAX_MS), renew)
+    }
     const renew = () => {
-      if (!active || state.closed || opts.scope.signal.aborted || lifetime?.aborted) return
-      pending = credentials.replace(install)
-      void pending.then(schedule, () => stopUnreachable('coordination credential renewal failed'))
+      if (stopped()) return
+      renewing = true
+      pending = credentials.replace(install).then(schedule, retry)
     }
     refreshBoundCredential = () => {
       cancelTimer?.()

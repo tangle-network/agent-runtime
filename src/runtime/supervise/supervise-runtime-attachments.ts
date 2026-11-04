@@ -51,7 +51,7 @@ export async function storeCoordinationSecret(
       throw new ValidationError('provider secret receipt has no valid updatedAt')
     return date.toISOString()
   }
-  let revision: string | undefined
+  let revision: string | undefined, adopted = false
   const prior = secrets.get(name)
   if (prior?.binding === bind && prior.ready) return prior.policy
   if (prior?.binding === bind) throw new ValidationError('coordination binding is not ready')
@@ -94,14 +94,30 @@ export async function storeCoordinationSecret(
             if (stored.exposeInBox || authority(recovered) !== authority(policy.proxySecrets))
               throw new ValidationError('stored coordination policy has different authority')
             entry.policy = { proxySecrets: recovered }
+            adopted = true
           }
         }
       }
-      revision = stamp(await store.update!(name, value, { ...entry.policy, expectedUpdatedAt }))
+      try {
+        revision = stamp(await store.update!(name, value, { ...entry.policy, expectedUpdatedAt }))
+      } catch (error) {
+        // Sandbox stores before it re-keys, so a failed PUT can have moved the fence; this name is ours alone.
+        if (entry.ready)
+          revision = await store.list!().then(
+            (rows) => stamp(rows.find((row) => row.name === name)),
+            () => revision,
+          )
+        throw error
+      }
     })
     entry.ready = true
     return entry.policy
   } catch (cause) {
+    // A retained row stays for the next attempt: its boxes hold it.
+    if (adopted) {
+      secrets.delete(name)
+      throw cause
+    }
     await entry.release().catch((cleanup) => {
       throw new AggregateError([cause, cleanup], 'coordination binding and cleanup failed')
     })
