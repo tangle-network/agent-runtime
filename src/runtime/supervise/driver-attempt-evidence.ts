@@ -16,6 +16,7 @@ import {
 } from './retained-executor'
 import { subscriptionUsageLimitSignal } from './seat-chain'
 import {
+  printedStatus,
   UNAVAILABLE_CODES,
   UNAVAILABLE_STATUSES,
   unavailableSignalOfFailure,
@@ -93,6 +94,13 @@ export interface DriverAttemptRecord {
    *  the manager has no continuation policy, or when the continuation was sent. */
   readonly repromptRefusedBy?: DriverRepromptRefusal
 }
+
+/** Sandbox's `PartialFailureError` on `error` or a cause, read by name: packages that hold their own
+ *  copy of the class would miss an `instanceof`. */
+export const causedByPartialFailure = (error: unknown): boolean =>
+  causeChain(error).some(
+    (cause) => cause instanceof Error && errorProperty(cause, 'name') === 'PartialFailureError',
+  )
 
 /** Why a completed drive with an unmet contract was not re-entered. `closed` means the run was
  *  already closed: the manager's own `stop` or a progress stop rule. A barren streak is never a
@@ -450,14 +458,15 @@ const TRANSPORT_NAMES = new Set(['TimeoutError', 'NetworkError', 'AbortError'])
  * (a failed box's 409, a play repository's exit 128, an expired key's 401, a harness refusal).
  */
 export function transientFailureKind(error: unknown): 'infra' | 'deterministic' {
-  const chain = causeChain(error)
-  // Sandbox's `PartialFailureError` (read by name: packages hold their own copies) is a created box
-  // whose setup failed, met again on each re-entry whatever cut it.
-  if (chain.some((cause) => cause instanceof Error && cause.name === 'PartialFailureError'))
-    return 'deterministic'
-  return chain.some((cause) => {
+  // A created box whose setup failed is met again on each re-entry, whatever cut it.
+  if (causedByPartialFailure(error)) return 'deterministic'
+  return causeChain(error).some((cause) => {
     if (!(cause instanceof Error)) return false
-    const status = errorHttpStatus(cause)
+    // A harness CLI prints a gateway's status (`status code 524`) into its failure text.
+    const status =
+      cause instanceof HarnessTurnFailedError
+        ? (cause.statusCode ?? printedStatus(cause.message))
+        : errorHttpStatus(cause)
     const code = ownCode(cause) ?? ''
     return (
       (status !== undefined && (status === 408 || status >= 500)) ||
