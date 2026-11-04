@@ -10,7 +10,16 @@ test('the default viewer serves the complete owner-built asset closure from Runt
   const root = await mkdtemp(join(tmpdir(), 'runtime-packaged-viewer-'))
   const installed = createRequire(import.meta.url)
   const ui = dirname(installed.resolve('@tangle-network/sandbox-ui/workspace-viewer.js'))
-  const assets = resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
+  // The packaged viewer (dist/viewer, copied from sandbox-ui by the build) when this checkout was built — the
+  // release qualification builds first — and sandbox-ui's own dist otherwise (an unbuilt source checkout has no
+  // dist for the self-resolve to reach; #2368). Either way serveTopWeb must serve the complete closure.
+  const assets = (() => {
+    try {
+      return resolve(installed.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
+    } catch {
+      return ui
+    }
+  })()
   const files = [
     'workspace-viewer.js',
     'styles.css',
@@ -21,7 +30,9 @@ test('the default viewer serves the complete owner-built asset closure from Runt
   await writeFile(join(root, 'journal.jsonl'), '{"type":"launched"}\n')
   const web = await serveTopWeb({ roots: [root] })
   try {
-    expect(await readFile(join(assets, 'LICENSE'))).toEqual(await readFile(join(ui, '../LICENSE')))
+    // The LICENSE ships beside the assets only in the packaged copy (the build copies it into dist/viewer);
+    // sandbox-ui's own dist does not carry it, so the unbuilt fallback asserts the served closure only.
+    if (assets !== ui) expect(await readFile(join(assets, 'LICENSE'))).toEqual(await readFile(join(ui, '../LICENSE')))
     for (const file of files) {
       const expected = digest(await readFile(join(ui, file)))
       expect(digest(await readFile(join(assets, file))), file).toBe(expected)
