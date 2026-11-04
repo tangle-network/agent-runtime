@@ -448,7 +448,12 @@ const TRANSPORT_CODES = new Set([
   'ENETUNREACH',
   'EHOSTUNREACH',
 ])
-const TRANSPORT_NAMES = new Set(['TimeoutError', 'NetworkError', 'AbortError'])
+const TRANSPORT_NAMES = new Set([
+  'TimeoutError',
+  'NetworkError',
+  'AbortError',
+  'RetainedStreamError',
+])
 
 /**
  * A transient failure's kind, read from typed fields on any cause, never its text. `infra` is a

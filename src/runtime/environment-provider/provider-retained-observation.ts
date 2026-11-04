@@ -45,6 +45,10 @@ type FrameRead =
   | { kind: 'exact-result' }
   | { kind: 'quiet' }
 
+/** The event stream stopped short: a transport fact the retry policy reads by this name. */
+const streamFailure = (message: string) =>
+  Object.assign(new Error(message), { name: 'RetainedStreamError' })
+
 /** Why the event stream stopped short, as bounded redacted text for the settlement reason. */
 function observationFailureText({ error }: { readonly error: unknown }): string {
   const text = error instanceof Error ? error.message : String(error)
@@ -119,9 +123,11 @@ export class RetainedObservation {
     }
     // An earlier attempt read the frames up to a resumed position, usage receipts among them.
     const resumed = this.resumedFrom && `retained provider stream resumed after ${this.resumedFrom}`
-    if (resumed) this.failure ??= { error: new Error(resumed) }
+    if (resumed) this.failure ??= { error: streamFailure(resumed) }
     if (!this.sawTerminal && this.failure === undefined) {
-      this.failure = { error: new Error('retained provider stream did not yield a terminal event') }
+      this.failure = {
+        error: streamFailure('retained provider stream did not yield a terminal event'),
+      }
     }
     // A short stream is not an end: only the exact result settles the invocation.
     if (!this.sawTerminal && !this.exactResultSettled && this.silenceHandledAt === undefined) {
@@ -358,7 +364,7 @@ export class RetainedObservation {
       while (true) {
         if (this.framesAfterResult >= RETAINED_OBSERVATION_BATCH_EVENTS) {
           this.failure ??= {
-            error: new Error(
+            error: streamFailure(
               `retained provider stream sent ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result; the rest were not read`,
             ),
           }
@@ -384,7 +390,7 @@ export class RetainedObservation {
         }
         if (observed.kind === 'exact-result') {
           this.failure ??= {
-            error: new Error('retained provider stream remained open after its exact result'),
+            error: streamFailure('retained provider stream remained open after its exact result'),
           }
           break
         }
