@@ -28,7 +28,7 @@ const EFFORT_REFUSED =
   'opencode execution failed: reasoning_effort "medium" is not supported for model ' +
   '"deepseek-v4.1-flash". Use one of: none, low, high, max. (exit code 1)'
 const EFFORT_TURNS: Partial<Record<string, string>> = {
-  'effort-refused': 'ABRA',
+  'effort-refused': 'AB',
   'effort-changes': 'ACACA.',
 }
 // Setup smoke 403b5c4c's second worker turn: its subscription re-read the execution from the first
@@ -53,7 +53,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
   ],
-  'effort-refused': ['after 4 attempt(s) — stopped by repeated-failure', EFFORT_REFUSED],
+  'effort-refused': ['after 2 attempt(s) — stopped by repeated-failure', EFFORT_REFUSED],
 }
 // What the Sandbox answered managers s0 and s1 of magnetar-rust-sandbox-20261031g on every turn
 // after their first, from the SDK's in-box profile file apply.
@@ -133,7 +133,7 @@ describe('nested retained owner journal isolation', () => {
     const retry = mode === 'retry' || mode === 'pending' || mode === 'unreconciled-restart'
     // The manager's turns: refused until the refusal streak stops it, or passing on the 7th.
     const sends =
-      { 'content-filtered': 8, 'content-filter-recovers': 7, 'effort-refused': 3 }[
+      { 'content-filtered': 8, 'content-filter-recovers': 7 }[
         mode as string
       ] ??
       EFFORT_TURNS[mode]?.length ??
