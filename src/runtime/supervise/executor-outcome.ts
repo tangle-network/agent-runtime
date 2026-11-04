@@ -54,6 +54,7 @@ export const PLATFORM_FAILURE_CODES: ReadonlySet<string> = new Set(
     'provider_quota_exceeded', // No provider served model "kimi-k2" (provider_quota_exceeded): 7
     'provider_quota_exhausted', // the router's current code for the same refusal
     'buffer.overflow', // agent-container#7730: the 10,000-event buffer dropped the stream
+    'EXECUTION_INTERRUPTED', // agent-container#16844: the sidecar stalled and aborted the turn
     'TIMEOUT',
     'ECONNRESET',
     'ECONNREFUSED',
@@ -66,7 +67,6 @@ export const PLATFORM_FAILURE_CODES: ReadonlySet<string> = new Set(
 const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
   /^terminated$/u, // the box was terminated under the execution: 25
   /Execution exceeded its time limit/u, // the platform's execution TTL: 4
-  /Execution interrupted: the agent runtime restarted/u, // buffer.overflow misreported: 3
   /Platform key[- ]verification/u, // key-verification brownout: 9
   /Platform key delegation failed/u,
   /Bad Gateway/iu, // egress proxy header timeout, router 502: 4
