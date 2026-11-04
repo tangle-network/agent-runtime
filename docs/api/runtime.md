@@ -21011,8 +21011,7 @@ The highest simultaneous live count actually reached — the number to compare a
 
 ### DriverAttemptRecord
 
-One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so
- an operator sees `driver failed after N attempts` instead of one opaque `pi exit unknown`.
+One attempt's record, emitted per attempt so an operator sees each legible failure.
 
 #### Properties
 
@@ -21053,9 +21052,8 @@ Set when this attempt ended the loop.
 > `readonly` `optional` **replacesStop?**: [`DriverAttemptStop`](#driverattemptstop)
 
 Set when this stop would have ended the loop and an opted-in root paused instead
- (`driverRetry.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end. The
- run's journal holds one `paused` row for it. An admission or continuation refusal has no
- failure, so its record carries no `error`.
+ (`driverRetry.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end, with one
+ `paused` row. An admission or continuation refusal carries no `error`.
 
 ##### stopPauseStreak?
 
@@ -21122,6 +21120,20 @@ For an `unavailable` attempt whose refusal named its reset time, a
 > `readonly` `optional` **contract?**: [`DriverContractState`](#drivercontractstate)
 
 The completion check's verdict after this attempt. Absent when the caller declares none.
+
+##### observed?
+
+> `readonly` `optional` **observed?**: `object`
+
+How far its retained execution's events were read; a later reconcile subscribes after it.
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+###### replayPosition
+
+> `readonly` **replayPosition**: `string`
 
 ##### reprompted?
 
