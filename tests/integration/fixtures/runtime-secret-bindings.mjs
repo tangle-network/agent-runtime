@@ -17,6 +17,7 @@ import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 
 const [mode, certificate, key] = process.argv.slice(2)
+const RENEWAL_FAILS = ['renewal-unacknowledged', 'renewal-past-lease']
 const priorDelivery = ['legacy-store', 'local-claude', 'local-pi', 'trailing-dot'].includes(mode)
 const safeFailure = (text) =>
   String(text ?? '')
@@ -72,6 +73,9 @@ let prepared = false,
   deleteCalls = 0,
   metadataGets = 0,
   updates = 0,
+  renewalMisses = 0,
+  committedAccepted = false,
+  expiredRefusedWhileRetrying = false,
   handoverOverlap = false,
   priorListsToolsAfterRenewal = false,
   expiredHolderStopsManager = false,
@@ -260,6 +264,19 @@ const api = createServer(async (request, response) => {
         return answer(response, 409, { code: 'CONFLICT', message: 'revision changed' })
       const prior = stored.get(name)
       secretValues.add(body.value)
+      // Sandbox stores, then re-keys holders: a miss leaves the value stored and the fence moved.
+      if (
+        (mode === 'renewal-unacknowledged' && !renewalMisses) ||
+        (mode === 'renewal-past-lease' && Date.now() < issuedAt + 2600)
+      ) {
+        renewalMisses++
+        stored.set(name, body.value)
+        revisions.set(name, nextRevision())
+        return answer(response, 503, {
+          code: 'UNAVAILABLE',
+          message: `Secret ${name} is stored but live re-key was not acknowledged by sandbox-fixture`,
+        })
+      }
       if (['renewal', 'stale-holder'].includes(mode)) {
         const accepted = async (value) => {
           const response = await fetch(publicUrl, {
@@ -456,7 +473,7 @@ const api = createServer(async (request, response) => {
         response.end(frames)
         return
       }
-      if (['renewal', 'stale-holder'].includes(mode)) {
+      if (['renewal', 'stale-holder', ...RENEWAL_FAILS].includes(mode)) {
         // The holder keeps the bearer it started with, as a box whose acknowledged rekey never
         // reached its MCP client does (institutional-compiler-20261031f).
         const list = async (value) => {
@@ -468,7 +485,13 @@ const api = createServer(async (request, response) => {
           const tools = (await listed.json().catch(() => null))?.result?.tools ?? []
           return listed.status === 200 && tools.some((tool) => tool.name === 'stop')
         }
-        const deadline = Date.now() + 6000
+        const deadline = Date.now() + 20_000
+        if (mode === 'renewal-past-lease') {
+          while (Date.now() < issuedAt + 1700) await delay(20)
+          expiredRefusedWhileRetrying = !(await list(issued))
+        }
+        while (!renewalMisses && RENEWAL_FAILS.includes(mode) && Date.now() < deadline) await delay(20)
+        if (RENEWAL_FAILS.includes(mode)) committedAccepted = await list(stored.get(reference.key))
         while (!updates && Date.now() < deadline) await delay(20)
         assert.ok(updates > 0)
         priorListsToolsAfterRenewal = await list(issued)
@@ -646,6 +669,13 @@ try {
                     ? { ttlMs: 10000 }
                     : mode === 'renewal'
                       ? { ttlMs: 4000 }
+                      : mode === 'renewal-unacknowledged'
+                        ? { ttlMs: 6000 }
+                      : mode === 'renewal-past-lease'
+                        ? {
+                            ttlMs: 1500,
+                            signingKeys: { activeKeyId: 'k', keys: { k: 'k'.repeat(48) } },
+                          }
                       : mode === 'stale-holder'
                         ? {
                             ttlMs: 4000,
@@ -751,6 +781,10 @@ try {
         handoverOverlap,
         priorListsToolsAfterRenewal,
         expiredHolderStopsManager,
+        renewalMisses,
+        committedAccepted,
+        expiredRefusedWhileRetrying,
+        distinctStoredRenewals: secretValues.size,
         secretPosts: requests.filter((request) => request === 'POST /v1/secrets').length,
         legacyStorePortAbsent: provider.secrets === undefined,
         foreignRawRowPreserved:
