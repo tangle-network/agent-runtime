@@ -181,7 +181,7 @@ for (const required of [
     throw new Error(`release source validation is missing ${required}`)
 }
 const releaseChecks = {
-  verify: 'pnpm run verify:package:static',
+  verify: 'pnpm run release:check',
   'verify-official-optimizers': 'pnpm run verify:official-optimizers',
   'verify-runtime-bench': 'pnpm run verify:bench',
 }
