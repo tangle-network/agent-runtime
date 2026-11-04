@@ -1,27 +1,41 @@
 import {
   closeSync,
   fstatSync,
+  fsync,
   fsyncSync,
   ftruncateSync,
   openSync,
   readSync,
   writeSync,
 } from 'node:fs'
+import { promisify } from 'node:util'
 import { fenceRunWrite } from './run-fence'
 
-/** Commit JSONL bytes and validate their descriptor under one generation fence. @internal */
-export function commitJsonLine<T>(
+/** Append one JSONL record under the caller's existing single-writer discipline.
+ * The caller creates the parent directory. Recover only an uncommitted tail and handle short
+ * writes under one generation fence; fsync after the fence, off the event loop (#2362), and
+ * resolve only once the bytes are durable. An optional acknowledgement reads the same open
+ * descriptor inside the fence (the spawn journal validates its file stamp here).
+ * @internal
+ */
+export function appendCommittedJsonLine(path: string, record: unknown): Promise<void>
+export function appendCommittedJsonLine<T>(
+  path: string,
+  record: unknown,
+  acknowledge: (fd: number) => T,
+): Promise<T>
+export async function appendCommittedJsonLine<T>(
   path: string,
   record: unknown,
   acknowledge?: (fd: number) => T,
-): T | undefined {
+): Promise<T | undefined> {
   const encoded = JSON.stringify(record)
   if (encoded === undefined) throw new TypeError('JSONL records must be JSON serializable')
-  return fenceRunWrite(() => {
-    const separator = prepareJsonlTail(path)
-    const fd = openSync(path, 'a')
-    try {
-      const bytes = Buffer.from(`${separator ? '\n' : ''}${encoded}\n`)
+  let fd: number | undefined
+  try {
+    const acknowledged = fenceRunWrite(() => {
+      const bytes = Buffer.from(`${prepareJsonlTail(path) ? '\n' : ''}${encoded}\n`)
+      fd = openSync(path, 'a')
       let offset = 0
       while (offset < bytes.length) {
         const written = writeSync(fd, bytes, offset, bytes.length - offset)
@@ -29,12 +43,13 @@ export function commitJsonLine<T>(
           throw new Error(`append-only file write made no progress at byte ${offset}`)
         offset += written
       }
-      fsyncSync(fd)
       return acknowledge?.(fd)
-    } finally {
-      closeSync(fd)
-    }
-  })
+    })
+    await promisify(fsync)(fd as number)
+    return acknowledged
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
 }
 
 /** Recover only an uncommitted tail. Caller holds the generation fence. @internal */
