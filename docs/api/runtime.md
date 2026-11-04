@@ -38413,7 +38413,7 @@ Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the or
 
 ### DriverAttemptStop
 
-> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"` \| `"pending-unresolved"` \| `"repeated-failure"` \| `"quota-unavailable"`
+> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"` \| `"pending-unresolved"` \| `"repeated-failure"`
 
 Why the retry loop stopped. `completed` is the only non-failure.
 
