@@ -490,7 +490,8 @@ const api = createServer(async (request, response) => {
           while (Date.now() < issuedAt + 1700) await delay(20)
           expiredRefusedWhileRetrying = !(await list(issued))
         }
-        while (!renewalMisses && RENEWAL_FAILS.includes(mode) && Date.now() < deadline) await delay(20)
+        while (!renewalMisses && RENEWAL_FAILS.includes(mode) && Date.now() < deadline)
+          await delay(20)
         if (RENEWAL_FAILS.includes(mode)) committedAccepted = await list(stored.get(reference.key))
         while (!updates && Date.now() < deadline) await delay(20)
         assert.ok(updates > 0)
@@ -671,17 +672,17 @@ try {
                       ? { ttlMs: 4000 }
                       : mode === 'renewal-unacknowledged'
                         ? { ttlMs: 6000 }
-                      : mode === 'renewal-past-lease'
-                        ? {
-                            ttlMs: 1500,
-                            signingKeys: { activeKeyId: 'k', keys: { k: 'k'.repeat(48) } },
-                          }
-                      : mode === 'stale-holder'
-                        ? {
-                            ttlMs: 4000,
-                            signingKeys: { activeKeyId: 'k', keys: { k: 'k'.repeat(48) } },
-                          }
-                        : true,
+                        : mode === 'renewal-past-lease'
+                          ? {
+                              ttlMs: 1500,
+                              signingKeys: { activeKeyId: 'k', keys: { k: 'k'.repeat(48) } },
+                            }
+                          : mode === 'stale-holder'
+                            ? {
+                                ttlMs: 4000,
+                                signingKeys: { activeKeyId: 'k', keys: { k: 'k'.repeat(48) } },
+                              }
+                            : true,
               publicUrl: ({ port }) => {
                 upstream = `http://127.0.0.1:${port}/coordination`
                 return mode === 'http-remote'
