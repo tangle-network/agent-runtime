@@ -316,9 +316,7 @@ describe('provider executable workspace retention', () => {
       if (location === 'worker' && storageFailure === undefined) {
         expect(workerMessage).toMatchObject({
           kind: ending === 'completed' && !strictPartial ? 'done' : 'down',
-          ...(strictPartial
-            ? { reason: expect.stringContaining('coverage incomplete') }
-            : {}),
+          ...(strictPartial ? { reason: expect.stringContaining('coverage incomplete') } : {}),
         })
       }
       if (location === 'root') {
