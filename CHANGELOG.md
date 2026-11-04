@@ -1,3 +1,9 @@
+## 3.0.45
+
+A failed coordination credential renewal no longer stops the run. It retries with the same token, paced by the platform's `Retry-After` or a backoff capped at 60 s, re-reading the secret's revision because Sandbox stores a value before it re-keys holders. The old bearer stays valid to its own expiry and the token a failed attempt stored stays valid for any holder that applied it; a bearer that outlives its lease while a renewal is open is refused instead of ending the run. A retained row that a resume cannot re-key yet stays for the next attempt.
+
+Worker admission decides more at spawn. An in-box runtime restart (`EXECUTION_INTERRUPTED`, or the sidecar's restart text) is an infra failure in the one platform-failure table, so it no longer counts toward the 2-attempt deterministic stop. A capacity pause reads the provider error's structured `resetAt` instead of message text, and a reset after the run's deadline stops the driver with the new typed stop `quota-unavailable` (an opted-in root pauses on it); `DriverAttemptStop` gains that member. The default per-worker share divides the reservable pool by `workerSlots` when slots are set (a quarter only without them), so slots, not the budget ledger, set how many children run at once. A live child's own `deadlineMs` counts from its budget and slot grant, not its spawn. Runtime's model-control check (unknown `model.metadata` keys, an ambiguous `maxTokens`) runs in the spawn preflight, so `spawn_worker` refuses such a profile as `unprovisionable-profile` before any reservation or box.
+
 ## 3.0.44
 
 A driver attempt's `error`, a settlement's reason and a give-up message now name each member of an `AggregateError` (`name: message`, one level deep). On Discovery smoke setup-smoke-b736069f a worker's record read only `coordination binding and cleanup failed`; the binding failure and the cleanup failure behind it were lost.
