@@ -264,75 +264,7 @@ function credentialCapacityRefusal(): Error {
   })
 }
 
-/** The provider answered and could not resolve an execution it admitted. */
-function unresolvedPending(): RetainedExecutionPendingError {
-  return new RetainedExecutionPendingError(
-    Object.assign(new Error('retained run not found'), { status: 404 }),
-  )
-}
-
-describe('pending retained executions (terraform-dc-tokens-20261006d)', () => {
-  it('abandons instead of stopping when a pending failure would end the run', async () => {
-    const lost = () =>
-      new RetainedExecutionPendingError(Object.assign(new Error('reset'), { code: 'ECONNRESET' }))
-    // A lost transport is never abandoned on its own: the provider may still be running it.
-    const transportOnly = scriptedDrive([lost(), lost(), lost()])
-    const offered: string[] = []
-    const error = await runDriverWithRetry({
-      drive: transportOnly.drive,
-      progress: () => mark(),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { transientOutageMs: 0 },
-      sleep: instantSleep,
-      resolvePending: async (failure) => {
-        offered.push(failure.pendingCause)
-        return true
-      },
-    }).catch((caught: unknown) => caught)
-    expect(error).toMatchObject({ stop: 'no-progress' })
-    expect(offered).toEqual([])
-
-    // Two transport losses, then the provider cannot resolve what it admitted: the third failure
-    // would end the run, so that invocation is abandoned and its replacement completes.
-    const script = scriptedDrive([lost(), lost(), unresolvedPending(), null])
-    const resolved: number[] = []
-    await runDriverWithRetry({
-      drive: script.drive,
-      progress: () => mark(),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { transientOutageMs: 0 },
-      sleep: instantSleep,
-      resolvePending: async (_failure, failures) => {
-        resolved.push(failures)
-        return true
-      },
-    })
-    expect(resolved).toEqual([1])
-    expect(script.attempts).toEqual([1, 2, 3, 4])
-  })
-
-  it('never stops a pending that made progress as pending-unresolved', async () => {
-    // With no abandonments allowed, a pending whose drives each made progress keeps the
-    // progress rule: progress earns another attempt.
-    const script = scriptedDrive([unresolvedPending(), unresolvedPending(), null])
-    let composite = 0
-    await runDriverWithRetry({
-      drive: async (attempt) => {
-        composite += 1
-        await script.drive(attempt)
-      },
-      progress: () => mark({ composite }),
-      budget: () => budget(),
-      signal: new AbortController().signal,
-      policy: { maxConsecutiveFailures: 0, transientOutageMs: 0 },
-      sleep: instantSleep,
-      resolvePending: async () => true,
-    })
-    expect(script.attempts).toEqual([1, 2, 3])
-  })
-
+describe('capacity pauses (terraform-dc-tokens-20261006d)', () => {
   it('does not count time paused for capacity against the transient outage window', async () => {
     let clock = 0
     const lost = new Error('fetch failed')

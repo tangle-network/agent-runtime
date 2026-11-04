@@ -24,7 +24,7 @@ import type {
   DriverRetryPolicy,
   DriverRetryRun,
 } from './driver-retry'
-import { errMessage } from './error-message'
+import { causeChain, errMessage } from './error-message'
 import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
@@ -81,6 +81,9 @@ const SAME_PENDING_LIMIT = 2
  * queens21-h22-capture-root-1-20261019c re-entered four such boxes 154 times in 37 minutes.
  */
 const SAME_PARTIAL_FAILURE_LIMIT = 2
+/** A nested manager's harness turns that ended failed alike, gaining nothing, stop it here with
+ *  no window, so its parent acts at once (us-legal-exploits-20261103b:s1 retried one 2 hours). */
+const SAME_HARNESS_FAILURE_LIMIT = 3
 
 /** `deadline` when a deadline cut the run, else `aborted`. Read before classification, which calls
  *  every failure after an abort terminal: 61 of 62 `terminal-error` runs were a cut deadline. */
@@ -158,8 +161,25 @@ export function driverRetryLimits(run: DriverRetryRun): DriverRetryLimits {
   }
 }
 
-/** A run of identical failures and when its first one failed. */
-type Streak = { readonly error: string; readonly count: number; readonly since: number }
+/** A run of alike failures (text with ids and times blanked, code when one carried it). */
+type Streak = { error: string; code: string | undefined; count: number; since: number }
+
+const harnessFailure = (error: unknown) =>
+  causeChain(error).find(
+    (cause): cause is HarnessTurnFailedError => cause instanceof HarnessTurnFailedError,
+  )
+
+/** The stream codes a refusal and the exact result does not, so an absent code matches any. */
+function extend(streak: Streak | undefined, error: unknown, at: number): Streak {
+  const code = harnessFailure(error)?.errorCode
+  const text = (code ? errMessage(error).replace(` (${code})`, '') : errMessage(error))
+    .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z?/gu, '<time>')
+    .replace(/\b(?=[\da-f-]*\d)[\da-f]{8,}(?:-[\da-f]{4,})*\b/giu, '<id>')
+    .replace(/\d{6,}/gu, '<n>')
+  if (streak?.error !== text || (streak.code ?? code) !== (code ?? streak.code))
+    return { error: text, code, count: 1, since: at }
+  return { ...streak, code: code ?? streak.code, count: streak.count + 1 }
+}
 
 /** True once a streak has run {@link REPEATED_FAILURE_LIMIT} alike over the window by `at`. */
 const repeatedBy = (streak: Streak | undefined, at: number): boolean =>
@@ -544,24 +564,14 @@ export class DriverRetryLoop {
     // a pause, and the failure bounds apply only once it outlasts `transientOutageMs`.
     const inOutage = idle && failedAt - (this.outageSince ?? failedAt) < limits.transientOutage
     if (!inOutage) this.chargedFailures += 1
-    // A refusal compares by its text: the stream codes it and the exact result does not, so
-    // us-legal-exploits-20261103b:s1 met one 26 times in a row without 10 alike.
-    const message =
-      error instanceof HarnessTurnFailedError && error.errorCode !== undefined
-        ? errMessage(error).replace(` (${error.errorCode})`, '')
-        : errMessage(error)
     const sameFailure =
       failure.durationMs >= INSTANT_FAILURE_MS
         ? undefined
-        : this.sameFailure?.error === message
-          ? { error: message, count: this.sameFailure.count + 1, since: this.sameFailure.since }
-          : { error: message, count: 1, since: failedAt }
+        : extend(this.sameFailure, error, failedAt)
     this.sameFailure = sameFailure
     const sameIdle =
       classification === 'transient' && !progressed && failure.pending === undefined
-        ? this.sameIdle?.error === message
-          ? { ...this.sameIdle, count: this.sameIdle.count + 1 }
-          : { error: message, count: 1, since: failedAt }
+        ? extend(this.sameIdle, error, failedAt)
         : undefined
     // A failed reconciliation never reached the turn, so it neither repeats nor breaks the streak.
     if (failure.pending === undefined || progressed) this.sameIdle = sameIdle
@@ -572,13 +582,16 @@ export class DriverRetryLoop {
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
     if (this.refusals >= CONTENT_FILTER_REFUSAL_LIMIT) return 'repeated-failure'
-    // The same failed box twice with nothing gained, or a nested manager's same failure at the
-    // repeated-failure bound, ends inside the outage window (s14 retried 45 min); the root waits.
+    // The same failed box twice with nothing gained, or a nested manager's same failure at its
+    // bound, ends inside the outage window (s14 retried 45 min); the root waits.
     if (
       sameIdle !== undefined &&
       (causedByPartialFailure(error)
         ? sameIdle.count >= SAME_PARTIAL_FAILURE_LIMIT
-        : run.nested === true && repeatedBy(sameIdle, failedAt))
+        : run.nested === true &&
+          (harnessFailure(error) !== undefined
+            ? sameIdle.count >= SAME_HARNESS_FAILURE_LIMIT
+            : repeatedBy(sameIdle, failedAt)))
     ) {
       return 'repeated-failure'
     }
