@@ -3,7 +3,7 @@ import { existsSync, type FSWatcher, readdirSync, watch } from 'node:fs'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
-import { extname, resolve, sep } from 'node:path'
+import { dirname, extname, resolve, sep } from 'node:path'
 import { loadTopSnapshot, type TopSnapshot } from './top-snapshot'
 import type { TopSessionReader } from './top-transcript'
 import { serveTopAgent, type TopInspectionSource } from './top-web-agent'
@@ -40,9 +40,17 @@ export async function serveTopWeb(options: TopWebOptions) {
   if (!options.roots.length) throw new Error('At least one --root is required')
   const roots = [...new Set(await Promise.all(options.roots.map((root) => realpath(root))))]
   const require = createRequire(import.meta.url)
-  const assets = await realpath(
-    options.assets ?? resolve(require.resolve('@tangle-network/agent-runtime/tui'), '../../viewer'),
-  )
+  // The packaged viewer ships inside this package (dist/viewer, copied from sandbox-ui by the build). An unbuilt
+  // source checkout has no dist yet — gates install and test without building — so the self-resolve fails there;
+  // fall back to the installed sandbox-ui's own dist, the exact bytes the build copies (#2368).
+  const packagedViewer = () => {
+    try {
+      return resolve(require.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
+    } catch {
+      return dirname(require.resolve('@tangle-network/sandbox-ui/workspace-viewer.js'))
+    }
+  }
+  const assets = await realpath(options.assets ?? packagedViewer())
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
   const host = options.host ?? '127.0.0.1'
   const clients = new Set<ServerResponse>()
