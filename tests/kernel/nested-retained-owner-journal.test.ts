@@ -53,8 +53,6 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
   'shape-refused': ['stopped by terminal-error', '32000m > 16000m'],
   'preflight-refused': ['stopped by terminal-error', 'preflight failed: HTTP 404'],
-  // zro-w4a16-hopper-20261104b s4: every eligible seat resets after the run's deadline.
-  'quota-past-deadline': ['stopped by quota-unavailable', 'Subscription account capacity'],
   'content-filtered': [
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
@@ -410,6 +408,13 @@ describe('nested retained owner journal isolation', () => {
           }),
         )
         return
+      }
+      if (mode === 'quota-past-deadline') {
+        // zro-w4a16-hopper-20261104b s4: the first refusal whose reset is past the run's deadline
+        // stops the manager, with no pause and no second attempt.
+        return expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
+          { record: { attempt: 1, classification: 'unavailable', stop: 'quota-unavailable' } },
+        ])
       }
       // A refused route ends the drive before the harness is admitted.
       const admitted = mode !== 'preflight-refused'
