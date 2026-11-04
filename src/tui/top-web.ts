@@ -40,9 +40,8 @@ export async function serveTopWeb(options: TopWebOptions) {
   if (!options.roots.length) throw new Error('At least one --root is required')
   const roots = [...new Set(await Promise.all(options.roots.map((root) => realpath(root))))]
   const require = createRequire(import.meta.url)
-  // The packaged viewer ships inside this package (dist/viewer, copied from sandbox-ui by the build). An unbuilt
-  // source checkout has no dist yet — gates install and test without building — so the self-resolve fails there;
-  // fall back to the installed sandbox-ui's own dist, the exact bytes the build copies (#2368).
+  // The build copies sandbox-ui's viewer into dist/viewer. An unbuilt checkout (gates test without building) has no
+  // dist, so it falls back to the installed sandbox-ui's own dist: the same bytes (#2368).
   const packagedViewer = () => {
     try {
       return resolve(require.resolve('@tangle-network/agent-runtime/tui'), '../../viewer')
@@ -54,8 +53,7 @@ export async function serveTopWeb(options: TopWebOptions) {
   for (const file of ['workspace-viewer.js', 'styles.css']) await stat(resolve(assets, file))
   const host = options.host ?? '127.0.0.1'
   const clients = new Set<ServerResponse>()
-  // Each per-agent stream registers with the root it serves; a read that changed only some roots wakes only those
-  // streams (#2355): an event in run A no longer re-reads the inspections of run B's open viewers.
+  // Each agent stream registers with its root, so a read wakes only the streams of the roots it changed (#2355).
   const transcripts = new Set<(changedRoots: ReadonlySet<string>) => void>()
   const snapshots = new Map<string, TopSnapshot>()
   const digests = new Map<string, string>()
@@ -75,14 +73,17 @@ export async function serveTopWeb(options: TopWebOptions) {
   const read = async () => {
     reading = true
     dirty = false
+    // Take the marks before reading: a worker-stream append never moves the journal stamp, so a mark cleared after a
+    // slow read would drop an event that landed during it, and every reconcile would then skip that root.
+    const marked = new Set(touched)
+    touched.clear()
     try {
       const changed: TopSnapshot[] = []
       for (const root of roots) {
-        // A root untouched since its last parse, whose journal file did not move, keeps its snapshot (#2355): the
-        // reconcile pass degrades to stat calls instead of re-parsing every journal on the host.
+        // A root unmarked since its last parse, whose journal file did not move, keeps its snapshot (#2355).
         const marker = JOURNALS.map((name) => resolve(root, name)).find((path) => existsSync(path))
         const stamp = marker ? await stat(marker).then(stampOf, () => 'none') : 'runs-root'
-        if (!touched.has(root) && snapshots.has(root) && lastStamps.get(root) === stamp) continue
+        if (!marked.has(root) && snapshots.has(root) && lastStamps.get(root) === stamp) continue
         lastStamps.set(root, stamp)
         const snapshot = marker?.endsWith('observer.jsonl')
           ? await loadTopSnapshot(root, { runDir: root })
@@ -113,9 +114,10 @@ export async function serveTopWeb(options: TopWebOptions) {
         }
         for (const client of clients) send(client, frame)
       }
-      const changedRoots = new Set([...changed.map((snapshot) => snapshot.root), ...touched])
-      touched.clear()
-      for (const update of transcripts) update(changedRoots)
+      for (const update of transcripts) update(new Set([...changed.map((s) => s.root), ...marked]))
+    } catch (error) {
+      for (const root of marked) touched.add(root)
+      throw error
     } finally {
       reading = false
       if (dirty && !closed) schedule()
@@ -140,8 +142,7 @@ export async function serveTopWeb(options: TopWebOptions) {
       }, 16)
   }
   await refresh()
-  // Each root's watcher marks its own root: a transcript write (which no snapshot digest covers) still wakes that
-  // root's agent streams, and only those (#2355).
+  // A root's watcher marks only that root, so a transcript write (no digest covers it) wakes its streams (#2355).
   const mark = (root: string) => () => {
     touched.add(root)
     schedule()
@@ -240,8 +241,7 @@ export async function serveTopWeb(options: TopWebOptions) {
       clearInterval(reconcile)
       clearInterval(heartbeat)
       for (const watcher of watchers) watcher.close()
-      // A caller closes right after its run settles: let a read in flight finish, then read once
-      // more, so a terminal record appended just before close reaches connected clients.
+      // On close, finish a read in flight and read once more, so a record appended at settle reaches clients.
       await inFlight.catch(() => undefined)
       await refresh().catch(() => undefined)
       closed = true
@@ -300,8 +300,7 @@ export async function runTopWeb(argv: readonly string[]) {
 /** A journal root holds one `<runId>/observer.jsonl` per retained run beside any workspace runs. */
 async function loadRunsRoot(root: string): Promise<TopSnapshot> {
   const workspace = loadTopSnapshot(root)
-  // A supervised run writes its spawn journal at begin and its observer journal after the first
-  // turn; either one makes the run a card, so it appears as soon as supervision starts.
+  // A run writes its spawn journal at begin and its observer journal after turn one; either makes it a card.
   const has = (runId: string, file: string) => existsSync(resolve(root, runId, file))
   const runIds = readdirSync(root, { withFileTypes: true })
     .filter(
