@@ -1,10 +1,15 @@
 import { AgentTurnResultSchema } from '@tangle-network/agent-interface'
+import {
+  type AgentTurnFailure,
+  AgentTurnFailureSchema,
+} from '@tangle-network/agent-interface/environment-provider'
 import { z } from 'zod'
 import { jsonContentText } from '../json-content-hash'
 import { fnv1a32Hex } from '../util'
+import { causeChain } from './error-message'
 import type { ExecutorResult } from './types'
 
-const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true })
+const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true, failure: true })
   .extend({
     errorCode: AgentTurnResultSchema.shape.error,
     statusCode: z.number().int().min(400).max(599).optional(),
@@ -13,7 +18,8 @@ const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true })
 
 /** Why an executor's own envelope says the execution failed, with the provider's machine code
  *  when it reported one. */
-interface ExecutorFailure {
+export interface ExecutorFailure {
+  readonly failure?: AgentTurnFailure
   readonly error: string
   readonly errorCode?: string
   readonly statusCode?: number
@@ -28,6 +34,7 @@ export function executorFailure(
   if (outcome.success) return undefined
   return {
     error: outcome.error ?? 'Agent execution failed',
+    ...(outcome.failure === undefined ? {} : { failure: outcome.failure }),
     ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
     ...(outcome.statusCode === undefined ? {} : { statusCode: outcome.statusCode }),
   }
@@ -40,14 +47,53 @@ export function executorFailureReason(
   return executorFailure(result)?.error
 }
 
-/**
- * The platform's own failure vocabulary: machine codes and lifecycle messages that the sandbox
- * runtime, the router, or the egress path put in an executor envelope when the platform, not
- * the agent's work, ended the execution. Each entry names its evidence: the count is how many
- * down children carried it on the 2026-09-20 fleet corpus (277 down settlements across 691
- * runs), every one of them stamped `infra: false` by the hard-coded call site this table
- * replaced. The table is deliberately the platform's fixed strings, not the agent's prose.
- */
+/** Canonical producer classifications take precedence over the legacy code/message vocabulary. */
+const TURN_FAILURE_POLICY = {
+  capacity: {
+    classification: 'unavailable',
+    failureKind: 'infra',
+    infra: true,
+    code: 'upstream-unavailable',
+    owner: 'platform',
+  },
+  caller: {
+    classification: 'terminal',
+    failureKind: 'deterministic',
+    infra: undefined,
+    code: 'request-rejected',
+    owner: 'caller',
+  },
+  infra: {
+    classification: 'transient',
+    failureKind: 'infra',
+    infra: true,
+    code: 'transport',
+    owner: 'platform',
+  },
+  work: {
+    classification: 'transient',
+    failureKind: 'deterministic',
+    infra: undefined,
+    code: 'work-failed',
+    owner: 'work',
+  },
+} as const
+
+export const turnFailurePolicy = (failure: AgentTurnFailure) => TURN_FAILURE_POLICY[failure.kind]
+
+/** Validate the shared contract on an envelope or any wrapped cause; malformed legacy data falls back. */
+export function turnFailureOf(value: unknown): AgentTurnFailure | undefined {
+  for (const link of causeChain(value)) {
+    try {
+      const parsed = AgentTurnFailureSchema.safeParse(Reflect.get(link, 'failure'))
+      if (parsed.success) return parsed.data
+    } catch {
+      /* A foreign getter cannot replace the original failure. */
+    }
+  }
+  return undefined
+}
+
 export const PLATFORM_FAILURE_CODES: ReadonlySet<string> = new Set(
   [
     'QUOTA_EXCEEDED', // the Sandbox interactive status failed (HTTP 429; code QUOTA_EXCEEDED): 3
@@ -85,18 +131,9 @@ const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
   /the agent runtime restarted/u,
 ]
 
-/**
- * Whether an executor envelope's failure was the platform's, as far as the envelope can say.
- *
- * `true` when the code or the message is in the platform's own vocabulary above. `undefined`
- * otherwise: the harness reported a failure and nothing in the envelope attributes it, so the
- * settlement carries no `infra` claim at all rather than a false one. This path never answers
- * `false`, because an executor envelope cannot prove the agent's work was at fault; the throw
- * path in `scope.ts` still answers `false` for an ordinary thrown result, where the runtime does
- * know. Until this function existed both envelope sites stamped `infra: false` unconditionally,
- * and the flag caught 1 of the 78 platform losses it was checked against on the fleet corpus.
- */
+/** Producer-owned classification first; legacy platform codes/messages otherwise leave attribution unknown. */
 export function executorFailureInfra(failure: ExecutorFailure): true | undefined {
+  if (failure.failure) return turnFailurePolicy(failure.failure).infra
   const code = failure.errorCode?.toLowerCase()
   if (code !== undefined && PLATFORM_FAILURE_CODES.has(code)) return true
   return PLATFORM_FAILURE_MESSAGES.some((pattern) => pattern.test(failure.error)) ? true : undefined

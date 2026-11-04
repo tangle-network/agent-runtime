@@ -304,7 +304,7 @@ export interface ExecutorResult<Out> {
   /** Explicit execution outcome; application output and scoring verdicts do not determine failure.
    *  `errorCode` is the provider's machine code for a failure when it reported one. A retry policy
    *  reads the code, never the human `error` text. */
-  outcome?: Pick<AgentTurnResult, 'success' | 'error'> & {
+  outcome?: Pick<AgentTurnResult, 'success' | 'error' | 'failure'> & {
     errorCode?: string
     /** Native HTTP failure status, when reported, in the range 400–599. */
     statusCode?: number

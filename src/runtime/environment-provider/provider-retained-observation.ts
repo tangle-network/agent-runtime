@@ -16,6 +16,7 @@ import type { RetainedRunHandle } from '../retained-run-types'
 import { extractTransportEventIdentity } from '../sandbox-transport-events'
 import { armDeadlineTimer } from '../supervise/deadline'
 import { causeChain } from '../supervise/error-message'
+import { turnFailureOf } from '../supervise/executor-outcome'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
@@ -64,6 +65,7 @@ function exactQuotaRefusal(error: unknown) {
         Reflect.get(cause, 'code') === 'provider_quota_exhausted',
     )
     if (refusal === undefined) return undefined
+    const failure = turnFailureOf(refusal)
     const resetAt: unknown = Reflect.get(refusal, 'resetAt')
     return {
       text: '',
@@ -71,6 +73,13 @@ function exactQuotaRefusal(error: unknown) {
       error: `Subscription account capacity is unavailable${typeof resetAt === 'string' ? ` until ${resetAt}` : ''}`,
       errorCode: 'provider_quota_exhausted',
       statusCode: 429,
+      failure: failure ?? {
+        kind: 'capacity' as const,
+        code: 'provider_quota_exhausted',
+        ...(typeof resetAt === 'string' && Number.isFinite(Date.parse(resetAt))
+          ? { resetAt: new Date(resetAt).toISOString() }
+          : {}),
+      },
     }
   } catch {
     return undefined
@@ -203,6 +212,7 @@ export class RetainedObservation {
         finalText: result.text,
         success: result.success,
         ...(result.error ? { error: result.error } : {}),
+        ...(result.failure === undefined ? {} : { failure: result.failure }),
         ...(result.errorCode ? { errorCode: result.errorCode, statusCode: result.statusCode } : {}),
         usageMode: 'cumulative',
         ...(this.failure === undefined

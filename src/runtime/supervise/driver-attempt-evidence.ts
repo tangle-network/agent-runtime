@@ -6,7 +6,12 @@ import { CoordinationUnreachableError } from './coordination-preflight'
 import { credentialCommandExit, isCredentialRefusal } from './credential-refusal'
 import type { DriverContractState, DriverReentry } from './driver-retry'
 import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
-import { executorFailureInfra } from './executor-outcome'
+import {
+  type ExecutorFailure,
+  executorFailureInfra,
+  turnFailureOf,
+  turnFailurePolicy,
+} from './executor-outcome'
 import {
   DISPATCH_EXECUTION_CHANGED_CODE,
   DISPATCH_NOT_ADMITTED_CODE,
@@ -124,13 +129,7 @@ export function abandonablePending(error: unknown): RetainedExecutionPendingErro
     : undefined
 }
 
-/**
- * Bridge error classes the bridge itself never retries: a request that fails identically on
- * every attempt, mapped below 5xx on its HTTP path (`parse_error` 400, the other two 501). On the
- * stream path the same failure arrives with no status at all — a profile that cannot materialize
- * is a `parse_error` — and the status split alone read it as a bad moment and re-drove it to the
- * attempt ceiling.
- */
+/** Deterministic bridge refusals remain terminal even when transport omits HTTP status. */
 const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
   'parse_error',
   'not_configured',
@@ -152,15 +151,7 @@ export const isContentFilterRefusal = (error: unknown): boolean =>
       /\bcontent was flagged for possible\b/iu.test(errorProperty(cause, 'message') ?? ''),
   )
 
-/**
- * A driver's harness turn ran to its terminal result, and that result reported failure.
- *
- * A provider executor returns a failed turn as an outcome; without this error it reads as a
- * completed drive and never reaches the retry decision (a turn ended `status code 524`).
- *
- * `errorCode` is the provider's machine code when it reported one. The classifier reads the code;
- * text decides only a printed capacity code and a content-filter refusal, which have none.
- */
+/** A completed failed turn enters retry with its producer classification and legacy metadata intact. */
 export class HarnessTurnFailedError extends Error {
   readonly runtime: string
   /** The failure as the harness reported it, before this error's framing. */
@@ -169,11 +160,9 @@ export class HarnessTurnFailedError extends Error {
   readonly statusCode?: number
   /** The shared HTTP error reader also uses this status for persisted diagnostics. */
   readonly status?: number
+  readonly failure?: ExecutorFailure['failure']
 
-  constructor(
-    runtime: string,
-    failure: { readonly error: string; readonly errorCode?: string; readonly statusCode?: number },
-  ) {
+  constructor(runtime: string, failure: ExecutorFailure) {
     super(
       `${runtime} harness turn ended with a failed outcome` +
         (failure.errorCode === undefined ? '' : ` (${failure.errorCode})`) +
@@ -182,6 +171,7 @@ export class HarnessTurnFailedError extends Error {
     this.name = 'HarnessTurnFailedError'
     this.runtime = runtime
     this.reported = failure.error
+    if (failure.failure !== undefined) this.failure = failure.failure
     if (failure.errorCode !== undefined) this.errorCode = failure.errorCode
     if (failure.statusCode !== undefined) {
       this.statusCode = failure.statusCode
@@ -230,15 +220,11 @@ function isDispatchExecutionChanged(value: object): boolean {
   }
 }
 
-/**
- * The code or status that marks `error` as an upstream capacity refusal, or `undefined`.
- *
- * A structured field is read first: a turn outcome's `errorCode`, a transport error's
- * `upstreamCode` and `status`, a provider SDK error's `code` and `status`. The failure text is read
- * only as {@link unavailableSignalOfFailure} says, because a harness CLI reports the router's
- * refusal as text and Sandbox's held-room refusal shares its code with a shape that never fits.
- */
+/** Read producer capacity first, then retained admission and legacy transport/harness metadata. */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
+  const typed = turnFailureOf(error)
+  if (typed)
+    return turnFailurePolicy(typed).classification === 'unavailable' ? typed.code : undefined
   if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
   const refusal = retainedAdmissionCause(error) ?? reconciliationCapacityRefusal(error)
   if (refusal !== undefined) return upstreamUnavailableSignal(refusal)
@@ -263,13 +249,7 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   )
 }
 
-/**
- * The capacity refusal an admitted execution's reconciliation met: a cause with an upstream
- * capacity code or HTTP 429. The execution is unresolved, not failed, so the driver pauses and
- * reconciles it again, never abandoning it; a contract violation stays terminal (#1204).
- * magnetar-rust-sandbox-20261102a's managers met `TangleCredentialCapacityError: HTTP 429` on
- * 1,407 reconciliations, each classed transient.
- */
+/** Capacity encountered while reconciling an admitted execution pauses that same execution. */
 function reconciliationCapacityRefusal(error: unknown): Error | undefined {
   if (!(error instanceof RetainedExecutionPendingError) || error.phase !== 'execution')
     return undefined
@@ -293,19 +273,7 @@ function ownCode(error: Error): string | undefined {
   }
 }
 
-/**
- * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; an
- * upstream capacity refusal is `unavailable`; anything else foreign is an accident and is
- * retryable. A `BackendTransportError` is split by status because the taxonomy already promises
- * consumers may branch on it: a 5xx/408 is the upstream having a bad moment, a 429/503/529 is the
- * upstream out of capacity, and a 401/404/422 is a request that will fail identically forever. The
- * bridge's own never-retry classes are terminal whether or not a status rides with them.
- *
- * An `AbortError` is the run's own only when `signal` (the run) or `stopSignal` (the manager's own
- * stop: an accepted result, `stop`, a stop rule) has fired. Any other is a lost stream and is
- * retried: on magnetar-rust-20261019b a 4.0 h root turn ended "bridgeExecutor: turn aborted" and,
- * classed terminal, settled the run after one attempt.
- */
+/** Runtime cancellation/contracts dominate producer policy; untyped foreign failures retain legacy rules. */
 export function classifyDriverFailure(
   error: unknown,
   signal?: AbortSignal,
@@ -334,6 +302,8 @@ export function classifyDriverFailure(
   if (isCredentialRefusal(error)) return 'terminal'
   // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
   if (causeChain(error).some(isProvisioningRefusal)) return 'terminal'
+  const typed = turnFailureOf(error)
+  if (typed) return turnFailurePolicy(typed).classification
   if (error instanceof HarnessTurnFailedError) {
     // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
     // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
@@ -459,14 +429,10 @@ const TRANSPORT_NAMES = new Set([
   'RetainedStreamError',
 ])
 
-/**
- * A transient failure's kind, read from typed fields on any cause, never its text. `infra` is a
- * transport that dropped, timed out or answered 408 or 5xx, and earns the outage bound; anything
- * else foreign is `deterministic`, an answer that repeats, and earns no window. Of 4,449 failed
- * attempts over the week to 2026-11-04, 2,019 were deterministic answers retried as transient
- * (a failed box's 409, a play repository's exit 128, an expired key's 401, a harness refusal).
- */
+/** Producer infra earns the outage window; producer work earns only the bounded deterministic streak. */
 export function transientFailureKind(error: unknown): 'infra' | 'deterministic' {
+  const typed = turnFailureOf(error)
+  if (typed) return turnFailurePolicy(typed).failureKind
   // A created box whose setup failed is met again on each re-entry, whatever cut it.
   if (causedByPartialFailure(error)) return 'deterministic'
   return causeChain(error).some((cause) => {

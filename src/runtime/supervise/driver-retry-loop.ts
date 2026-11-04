@@ -468,7 +468,9 @@ export class DriverRetryLoop {
       // A reset after the deadline is a refusal now, so the parent acts instead of a child that
       // holds its slot for days (zro-w4a16-hopper-20261104b s4 paused toward 2026-11-10).
       const deadline = run.budget().deadlineMs
-      return deadline > 0 && (reportedResetAt(error) ?? 0) >= deadline ? 'deadline' : undefined
+      return deadline > 0 && (reportedResetAt(error, limits.now()) ?? 0) >= deadline
+        ? 'deadline'
+        : undefined
     })()
     const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
     if (stop !== undefined) {
@@ -480,7 +482,7 @@ export class DriverRetryLoop {
     // A refusal that names its reset holds until then, never past the run's deadline: probing a
     // 5-hour plan window every 300 s spent 219 of magnetar-rust-20261018b's 324 attempts.
     const pausedAt = limits.now()
-    const resetAt = unavailableResumeAt(reportedResetAt(error), pausedAt)
+    const resetAt = unavailableResumeAt(reportedResetAt(error, limits.now()), pausedAt)
     const deadlineMs = run.budget().deadlineMs
     const pause =
       resetAt === undefined
@@ -558,8 +560,9 @@ export class DriverRetryLoop {
   private failureStop(failure: DriverFailure, failedAt: number): DriverAttemptStop | undefined {
     const { run, limits } = this
     const { error, classification, progressed, before, after } = failure
+    const kind = classification === 'transient' ? transientFailureKind(error) : undefined
     const idle =
-      classification === 'transient' &&
+      kind === 'infra' &&
       !progressed &&
       after.poolTokensSpent === before.poolTokensSpent &&
       after.settledCount === before.settledCount
@@ -577,7 +580,6 @@ export class DriverRetryLoop {
     // One streak of alike failures with nothing gained, read through the pending wrapper. An
     // abandonable pending invocation keeps its own bound (pending-unresolved) and leaves the streak
     // as it was; a content-filter refusal keeps its own count.
-    const kind = classification === 'transient' ? transientFailureKind(error) : undefined
     if (progressed || kind === undefined || isContentFilterRefusal(error)) this.sameIdle = undefined
     else if (failure.pending === undefined) this.sameIdle = extend(this.sameIdle, error, failedAt)
     const sameIdle = this.sameIdle

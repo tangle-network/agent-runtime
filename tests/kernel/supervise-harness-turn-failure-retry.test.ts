@@ -5,8 +5,12 @@ import type {
   AgentEnvironment,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
+  AgentTurnFailure,
 } from '@tangle-network/agent-interface/environment-provider'
-import { createCommandModelCredentialResolver } from '@tangle-network/agent-provider-tangle/node'
+import {
+  createCommandModelCredentialResolver,
+  TangleCredentialCapacityError,
+} from '@tangle-network/agent-provider-tangle/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
@@ -41,6 +45,8 @@ afterEach(async () => {
 })
 
 interface TurnFailure {
+  readonly failure?: AgentTurnFailure
+  readonly throwResult?: boolean
   readonly error: string
   /** A machine code the provider reports on its own error frame, before the terminal result. */
   readonly code?: string
@@ -129,10 +135,23 @@ async function harnessFailureFixture(options: {
         },
         result: async () => {
           if (failure?.streamFailure) throw new Error(failure.error)
+          if (failure?.throwResult)
+            throw new TangleCredentialCapacityError(
+              'provider_quota_exhausted',
+              'exhausted',
+              failure.failure?.resetAt,
+              429,
+            )
           return {
             ...(await session.result()),
             usage: { inputTokens: 3, outputTokens: 2 },
-            ...(failure === undefined ? {} : { success: false, error: failure.error }),
+            ...(failure === undefined
+              ? {}
+              : {
+                  success: false,
+                  error: failure.error,
+                  ...(failure.failure ? { failure: failure.failure } : {}),
+                }),
           }
         },
       }
@@ -481,6 +500,56 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(fixture.creates()).toBe(1)
     expect(fixture.destroys()).toBe(1)
   })
+
+  it.each([
+    ['capacity', false, 'unavailable', 'infra'],
+    ['capacity', true, 'unavailable', 'infra'],
+    ['caller', false, 'terminal', 'deterministic'],
+    ['infra', false, 'transient', 'infra'],
+    ['work', false, 'transient', 'deterministic'],
+  ] as const)(
+    'preserves typed %s failure (thrown=%s) through retained execution and retry',
+    async (kind, throwResult, classification, failureKind) => {
+      const failure: AgentTurnFailure = {
+        kind,
+        code: throwResult ? 'provider_quota_exhausted' : 'opaque_producer_code',
+        ...(kind === 'capacity' && throwResult
+          ? { resetAt: new Date(Date.now() + 3_600_000).toISOString() }
+          : {}),
+      }
+      const fixture = await harnessFailureFixture({
+        runId: `typed-${kind}-${throwResult}`,
+        failures: (dispatch) =>
+          dispatch === 1 || kind === 'work' || kind === 'caller'
+            ? { error: `Opaque producer result ${dispatch}`, failure, throwResult }
+            : undefined,
+      })
+      const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 4 })
+      const events = await fixture.events()
+      expect(ofKind(events, 'execution-result')[0]?.outcome).toMatchObject({
+        success: false,
+        failure,
+      })
+      expect(attempts[0]).toMatchObject({ classification })
+      if (kind === 'capacity' && throwResult) {
+        expect(fixture.dispatches()).toBe(1)
+        expect(attempts[0]?.stop).toBe('deadline')
+      } else if (kind === 'caller') {
+        expect(fixture.dispatches()).toBe(1)
+        expect(attempts[0]?.stop).toBe('terminal-error')
+      } else if (kind === 'work') {
+        expect(fixture.dispatches()).toBe(2)
+        expect(attempts[0]?.failureKind).toBe(failureKind)
+        expect(attempts[1]?.stop).toBeDefined()
+      } else {
+        expect(result.kind).toBe('winner')
+        expect(fixture.dispatches()).toBe(2)
+        if (kind === 'capacity') {
+          expect(ofKind(events, 'paused')[0]?.signal).toBe(failure.code)
+        } else expect(attempts[0]?.failureKind).toBe(failureKind)
+      }
+    },
+  )
 
   it('preserves an unreceipted failed owner source through terminal release', async () => {
     const fixture = await harnessFailureFixture({
