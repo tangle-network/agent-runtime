@@ -30,9 +30,9 @@ test('the default viewer serves the complete owner-built asset closure from Runt
   await writeFile(join(root, 'journal.jsonl'), '{"type":"launched"}\n')
   const web = await serveTopWeb({ roots: [root] })
   try {
-    // The LICENSE ships beside the assets only in the packaged copy (the build copies it into dist/viewer);
-    // sandbox-ui's own dist does not carry it, so the unbuilt fallback asserts the served closure only.
-    if (assets !== ui) expect(await readFile(join(assets, 'LICENSE'))).toEqual(await readFile(join(ui, '../LICENSE')))
+    // Only the packaged copy (dist/viewer) ships the LICENSE beside the assets, not sandbox-ui's.
+    const license = (dir: string) => readFile(join(dir, 'LICENSE'))
+    if (assets !== ui) expect(await license(assets)).toEqual(await license(join(ui, '..')))
     for (const file of files) {
       const expected = digest(await readFile(join(ui, file)))
       expect(digest(await readFile(join(assets, file))), file).toBe(expected)
