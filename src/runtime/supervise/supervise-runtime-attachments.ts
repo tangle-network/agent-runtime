@@ -51,7 +51,8 @@ export async function storeCoordinationSecret(
       throw new ValidationError('provider secret receipt has no valid updatedAt')
     return date.toISOString()
   }
-  let revision: string | undefined, adopted = false
+  let revision: string | undefined,
+    adopted = false
   const prior = secrets.get(name)
   if (prior?.binding === bind && prior.ready) return prior.policy
   if (prior?.binding === bind) throw new ValidationError('coordination binding is not ready')
