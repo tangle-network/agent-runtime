@@ -194,7 +194,7 @@ function bindOwnerJournalRecorders(scope: Scope<unknown>, args: ScopeArgs, now: 
     if (driverAttemptSeq === undefined) {
       const events = (await args.journal.loadTree(args.root)) ?? []
       const prior = events.filter((e) => e.kind === 'driver-attempt' && e.id === args.parentId)
-      driverAttemptSeq = Math.max(0, ...prior.map((event) => event.seq + 1))
+      driverAttemptSeq = prior.reduce((next, event) => Math.max(next, event.seq + 1), 0)
     }
     const attemptId = ownerMaterializationStates.get(scope)?.attemptId
     // A retained owner's read position rides on its record, where a restarted owner finds it.
