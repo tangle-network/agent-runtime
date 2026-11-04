@@ -30,7 +30,11 @@ const EFFORT_REFUSED =
 const EFFORT_TURNS: Partial<Record<string, string>> = {
   'effort-refused': 'AB',
   'effort-changes': 'ACACA.',
+  // us-legal-exploits-20261104a: an in-box runtime restart (I) is the platform's, not the turn's.
+  'restart-recovers': 'II.',
 }
+const RESTARTED =
+  'Execution interrupted: the agent runtime restarted before the run produced a terminal event.'
 // Setup smoke 403b5c4c's second worker turn: its subscription re-read the execution from the first
 // frame, 5,470 reasoning deltas in 12 s, and the exact result settled inside that burst.
 const REPLAYED = 5_470
@@ -118,6 +122,7 @@ describe('nested retained owner journal isolation', () => {
     'content-filter-recovers',
     'effort-refused',
     'effort-changes',
+    'restart-recovers',
     'file-conflict',
     'file-conflict-409',
     'file-duplicate',
@@ -168,7 +173,10 @@ describe('nested retained owner journal isolation', () => {
           dispatches += 1
           const executionId = dispatched.controlRef?.executionId ?? ''
           // Each copy names its own request and time, which never make a failure different.
-          const error = `${effort === 'C' ? EFFORT_REFUSED.replace('medium', 'high') : EFFORT_REFUSED} [request ${randomUUID()} at ${new Date(Date.now()).toISOString()}]`
+          const error =
+            effort === 'I'
+              ? RESTARTED
+              : `${effort === 'C' ? EFFORT_REFUSED.replace('medium', 'high') : EFFORT_REFUSED} [request ${randomUUID()} at ${new Date(Date.now()).toISOString()}]`
           if (effort !== undefined && effort !== '.')
             refused.set(executionId, { error, streamed: effort === 'A' })
           else if (refusing && (mode === 'content-filtered' || dispatches < sends))
@@ -213,7 +221,7 @@ describe('nested retained owner journal isolation', () => {
               ...(await exact()),
               // s1's refused turns metered no tokens.
               usage:
-                mode.startsWith('effort-') && refusal
+                EFFORT_TURNS[mode] !== undefined && refusal
                   ? { inputTokens: 0, outputTokens: 0 }
                   : { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
@@ -525,10 +533,17 @@ describe('nested retained owner journal isolation', () => {
         )
       }
       // A refusal that changes is retried past the identical-failure bound until a turn passes.
-      const passed = mode === 'effort-changes' ? 1 : sends
-      if (mode === 'effort-changes')
+      const failedTurns = (EFFORT_TURNS[mode] ?? '').replace('.', '').length
+      const passed = failedTurns > 0 ? 1 : sends
+      if (failedTurns > 0)
         expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
-          ...Array(5).fill({ record: { classification: 'transient', madeProgress: false } }),
+          ...Array(failedTurns).fill({
+            record: {
+              classification: 'transient',
+              failureKind: mode === 'restart-recovers' ? 'infra' : 'deterministic',
+              madeProgress: false,
+            },
+          }),
           { record: { stop: 'completed', reentry: 'driver-failure' } },
         ])
       expect(tokens(nested)).toBe(5 * passed)
