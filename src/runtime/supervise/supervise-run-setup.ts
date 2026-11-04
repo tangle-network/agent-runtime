@@ -418,7 +418,8 @@ function resolveRunRegistry(options: SuperviseOptions) {
 function admitPerWorker(options: SuperviseOptions) {
   assertRecursiveReservationPolicy(options.reservationPolicy)
   const ownerShare = options.reservationPolicy?.ownerShare ?? 0
-  const perWorker = options.perWorker ?? defaultPerWorker(options.budget, ownerShare)
+  const perWorker =
+    options.perWorker ?? defaultPerWorker(options.budget, ownerShare, options.workerSlots)
   assertValidBudget(perWorker, 'supervise perWorker')
   // A per-child ceiling larger than its pool cannot be honored: accepting it silently reads as a
   // budget outcome (children clamped at 700_000 under perWorker.maxTokens = 3_200_000_000 against
