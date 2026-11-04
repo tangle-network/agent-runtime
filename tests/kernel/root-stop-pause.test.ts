@@ -527,15 +527,46 @@ describe('an opted-in root pauses where it used to stop', () => {
     expect(settled).toEqual([expect.objectContaining({ status: 'down' })])
   }, 30_000)
 
-  it('refuses pauseRootStops with enabled: false before any compute', () => {
-    expect(() =>
-      supervise(testAgentProfile('root', { harness: 'codex' }), 'task', {
-        budget: { maxIterations: 1, maxTokens: 10 },
-        driveHarness: async () => undefined,
-        driverRetry: { pauseRootStops: true, enabled: false },
-      }),
-    ).toThrow(/pauseRootStops/u)
-  })
+  it('settles capacity whose reset cannot fit the deadline even with root pauses enabled', async () => {
+    const dir = await runDirectory()
+    const runId = 'quota-deadline'
+    const rows: Paused[] = []
+    const journal = pacedJournal(dir, (row) => {
+      rows.push(row)
+      cancelRun(dir, 'unexpected-pause', { operator: 'test', reason: 'reset cannot fit' })
+    })
+    const refusal = Object.assign(new Error('Subscription account capacity is unavailable'), {
+      code: 'upstream_unavailable',
+      status: 429,
+      resetAt: new Date(Date.now() + 7_200_000).toISOString(),
+    })
+    const result = await supervise(testAgentProfile('root', { harness: 'codex' }), 'task', {
+      runDir: dir,
+      runId,
+      journal,
+      budget: { maxIterations: 10, maxTokens: 100, deadlineMs: 3_600_000 },
+      driveHarness: async () => {
+        throw refusal
+      },
+      driverRetry: { pauseRootStops: true },
+      makeWorkerAgent: noWorkers,
+    })
+    const events = (await journal.loadTree(runId)) ?? []
+    expect(events.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
+      {
+        record: {
+          attempt: 1,
+          classification: 'unavailable',
+          stop: 'deadline',
+          unavailableSignal: 'upstream_unavailable',
+          error: expect.stringContaining(refusal.message),
+        },
+      },
+    ])
+    expect(rows).toEqual([])
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(result.continuation).toMatchObject({ attempts: 1, ended: 'deadline', stopPauses: 0 })
+  }, 30_000)
 
   it('keeps today’s stop for a root that does not opt in', async () => {
     const dir = await runDirectory()

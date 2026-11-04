@@ -50,7 +50,6 @@ const PAUSED_STOPS: ReadonlySet<DriverAttemptStop> = new Set<DriverAttemptStop>(
   'repeated-failure',
   'pending-unresolved',
   'budget-exhausted',
-  'quota-unavailable',
 ])
 
 /** The pause before a continuation after `streak` barren re-entries: 5 minutes at `maxBarren`,
@@ -469,9 +468,7 @@ export class DriverRetryLoop {
       // A reset after the deadline is a refusal now, so the parent acts instead of a child that
       // holds its slot for days (zro-w4a16-hopper-20261104b s4 paused toward 2026-11-10).
       const deadline = run.budget().deadlineMs
-      return deadline > 0 && (reportedResetAt(error) ?? 0) >= deadline
-        ? 'quota-unavailable'
-        : undefined
+      return deadline > 0 && (reportedResetAt(error) ?? 0) >= deadline ? 'deadline' : undefined
     })()
     const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
     if (stop !== undefined) {
