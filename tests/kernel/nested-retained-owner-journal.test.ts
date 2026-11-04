@@ -190,8 +190,6 @@ describe('nested retained owner journal isolation', () => {
           const session = environment.session!(id, options)
           const refusal = refused.get(options?.controlRef?.executionId ?? '')
           const exact = async () => {
-            if (mode === 'quota-past-deadline')
-              throw Object.assign(capacityRefusal(0), { resetAt: '2099-01-01T00:00:00.000Z' })
             // The restarted process's read answers.
             if (mode === 'unreconciled-restart' ? injected : mode !== 'unreconciled' || reads >= 12)
               return session.result()
@@ -244,6 +242,9 @@ describe('nested retained owner journal isolation', () => {
         }),
         create: async (input) => {
           creates++
+          // zro-w4a16-hopper-20261104b s4: refused before anything ran, its reset past the deadline.
+          if (mode === 'quota-past-deadline')
+            throw Object.assign(capacityRefusal(0), { resetAt: '2099-01-01T00:00:00.000Z' })
           if (mode === 'capability-refused') {
             throw new ServerError(
               "Capability discovery returned a malformed 'nativeSessionCaptureHarnesses' group",
@@ -449,7 +450,7 @@ describe('nested retained owner journal isolation', () => {
         expect(down, JSON.stringify(parent)).toMatchObject({ status: 'down' })
         for (const reason of downReasons)
           expect(down?.kind === 'settled' ? down.reason : '').toContain(reason)
-        if (mode !== 'quota-past-deadline') expect(down).not.toHaveProperty('retainedExecution')
+        expect(down).not.toHaveProperty('retainedExecution')
         // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
         expect(creates).toBe(mode === 'same-failure' ? 10 : admitted ? 1 : 0)
         // The lead is woken with the reason, so it can reword or re-scope the refused task.

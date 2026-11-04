@@ -318,9 +318,12 @@ describe('provider executable workspace retention', () => {
           kind: ending === 'completed' && !strictPartial ? 'done' : 'down',
           ...(strictPartial
             ? {
-                reason: steering
-                  ? 'Sandbox evidence capture failed before teardown'
-                  : expect.stringContaining('coverage incomplete'),
+                // The aggregate names its members (#2391), so the capture failure is a prefix.
+                reason: expect.stringContaining(
+                  steering
+                    ? 'Sandbox evidence capture failed before teardown'
+                    : 'coverage incomplete',
+                ),
               }
             : {}),
         })
