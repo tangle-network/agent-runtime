@@ -1,3 +1,7 @@
+## 3.0.40
+
+JSONL appends (spawn journal, observer, coordination log, corpus, stored-graph-check) now fsync after the run fence on the thread pool, not on the event loop inside it. An append still resolves only once its bytes are durable, while a live supervisor keeps reading its root stream during the commit wait (#2362, #2378). Pair it with agent-eval 1.0.19, whose lock owner records skip their own fsync.
+
 ## 3.0.39
 
 No consumer change. 3.0.38 was tagged but never published: five release tests still required 3.0.37's retired failure past 1,024 frames after an exact result. This release carries the changes of 3.0.37 and 3.0.38.
