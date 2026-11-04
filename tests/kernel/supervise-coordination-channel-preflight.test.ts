@@ -299,7 +299,7 @@ it('judges the profile create receives, not Runtime-only seats and coordination 
   // canary-chain-20261104q: the Sandbox verdict refused the Lab's worker profile on `seats` and on
   // `agent_runtime_coordination_*`, and roots stripped their workers' tools until a spawn passed.
   const judged: AgentProfile[] = []
-  const { provider: base, creates } = neverCreatingProvider()
+  const { provider: base } = neverCreatingProvider()
   const provider: AgentEnvironmentProvider = {
     ...base,
     capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
@@ -308,8 +308,8 @@ it('judges the profile create receives, not Runtime-only seats and coordination 
       return { ok: true, issues: [] }
     },
   }
-  const seat = { harness: 'codex', provider: 'openai', model: 'test' }
-  await spawnLeadFromRoot(
+  const seat = { harness: 'codex', provider: 'openai', model: 'test', selector: { kind: 'all-eligible' } }
+  const { events } = await spawnLeadFromRoot(
     {
       backend: { backend: 'provider', provider },
       coordination: {
@@ -323,7 +323,7 @@ it('judges the profile create receives, not Runtime-only seats and coordination 
   )
   expect(judged[0]?.tools).toEqual({ read: true })
   expect(judged[0]).not.toHaveProperty('seats')
-  expect(creates()).toBe(1)
+  expect(events.some((event) => event.kind === 'spawned' && event.key === 'lead')).toBe(true)
 })
 
 it('never admits a provider manager when asynchronous endpoint provisioning fails', async () => {
