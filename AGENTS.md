@@ -31,7 +31,7 @@ Work on a feature branch and run relevant checks while developing. Land authoriz
 
 A PR that changes Runtime source or its published manifest adds one `.release-notes/<slug>.md` ([format](.release-notes/README.md)); `release:prepare` builds the version and changelog only from those notes, so a merged change without one is never released.
 
-Before merge, run the local gate; repositories carry no PR or push CI. Versioning and package publication remain separate operations. Release PRs and external contributions retain their qualification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
+Before merge, run the local gate; repositories carry no PR or push CI. Versioning and package publication remain separate operations. A release PR's gate command is `pnpm run release:check`, the check the publisher runs; external contributions retain their qualification. Drafts, explicit holds, conflicts and native repository restrictions still apply; do not use an administrator bypass or fabricate passing checks. A skipped job is not test evidence.
 
 Local gate (set `TOUCHED_INTEGRATION_TEST` to the affected integration file; the gate installs from the frozen pnpm lockfile, examples resolve against the built package, a gate no Beelink admits within 5 minutes runs on drew-gtr-pro, and `--merge <pr>` merges on that gate's receipt): `beelink-gate --merge <pr> auto https://github.com/tangle-network/agent-runtime.git "$(git rev-parse HEAD)" -- sh -c 'pnpm lint && pnpm build && pnpm typecheck && pnpm exec vitest run "$1"' _ "${TOUCHED_INTEGRATION_TEST:?set touched integration test path}"`.
 

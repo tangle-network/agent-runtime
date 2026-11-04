@@ -24,8 +24,8 @@ At release time, `pnpm run release:prepare` consumes every pending note, chooses
 requested semver level, updates the version and changelog once, regenerates derived artifacts,
 and deletes the consumed note files.
 
-Run it from a clean source commit. It qualifies that commit's packed cohort before writing
-release files; the tagged publisher then qualifies the exact prepared release archives.
+Run it from a clean source commit, whose packed cohort it qualifies first. Gate the release PR
+with `pnpm run release:check`; the tagged publisher runs it, then qualifies the exact archives.
 
 The existing stack-adoption workflow runs `scripts/release-notes.mjs --adoption` through
 its post-pin step. Runtime first checks that its Eval and Interface development pins match
