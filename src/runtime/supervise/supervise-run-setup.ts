@@ -483,7 +483,7 @@ function managerDriverPlan(
   // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
   // its mount and receives the profile unchanged.
   const spawnPreflight = composeSpawnPreflights(
-    (profile, context) => {
+    async (profile, context) => {
       const external = isExternalSupervisor(profile)
       const manager =
         declaredRuntimeToolNames(profile).length > 0 ||
