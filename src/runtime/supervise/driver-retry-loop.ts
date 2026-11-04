@@ -29,6 +29,7 @@ import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
   jitteredMs,
+  reportedResetAt,
   unavailablePauseMs,
   unavailableResumeAt,
 } from './upstream-unavailable'
@@ -49,6 +50,7 @@ const PAUSED_STOPS: ReadonlySet<DriverAttemptStop> = new Set<DriverAttemptStop>(
   'repeated-failure',
   'pending-unresolved',
   'budget-exhausted',
+  'quota-unavailable',
 ])
 
 /** The pause before a continuation after `streak` barren re-entries: 5 minutes at `maxBarren`,
@@ -462,7 +464,14 @@ export class DriverRetryLoop {
     const stop = ((): DriverAttemptStop | undefined => {
       if (run.signal.aborted) return abortStop(run.signal)
       if (!limits.retryEnabled) return 'retry-disabled'
-      return budgetStop(run.budget(), limits.now())
+      const byBudget = budgetStop(run.budget(), limits.now())
+      if (byBudget) return byBudget
+      // A reset after the deadline is a refusal now, so the parent acts instead of a child that
+      // holds its slot for days (zro-w4a16-hopper-20261104b s4 paused toward 2026-11-10).
+      const deadline = run.budget().deadlineMs
+      return deadline > 0 && (reportedResetAt(error) ?? 0) >= deadline
+        ? 'quota-unavailable'
+        : undefined
     })()
     const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
     if (stop !== undefined) {
@@ -474,7 +483,7 @@ export class DriverRetryLoop {
     // A refusal that names its reset holds until then, never past the run's deadline: probing a
     // 5-hour plan window every 300 s spent 219 of magnetar-rust-20261018b's 324 attempts.
     const pausedAt = limits.now()
-    const resetAt = unavailableResumeAt(errMessage(error), pausedAt)
+    const resetAt = unavailableResumeAt(reportedResetAt(error), pausedAt)
     const deadlineMs = run.budget().deadlineMs
     const pause =
       resetAt === undefined

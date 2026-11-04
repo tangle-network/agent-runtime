@@ -53,6 +53,8 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
   'same-failure': ['stopped by repeated-failure', 'Bad Gateway'],
   'shape-refused': ['stopped by terminal-error', '32000m > 16000m'],
   'preflight-refused': ['stopped by terminal-error', 'preflight failed: HTTP 404'],
+  // zro-w4a16-hopper-20261104b s4: every eligible seat resets after the run's deadline.
+  'quota-past-deadline': ['stopped by quota-unavailable', 'Subscription account capacity'],
   'content-filtered': [
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
@@ -133,6 +135,7 @@ describe('nested retained owner journal isolation', () => {
     'preflight-refused',
     'replayed',
     'unreconciled',
+    'quota-past-deadline',
     'unreconciled-restart',
   ] as const) {
     const retry = mode === 'retry' || mode === 'pending' || mode === 'unreconciled-restart'
@@ -187,6 +190,8 @@ describe('nested retained owner journal isolation', () => {
           const session = environment.session!(id, options)
           const refusal = refused.get(options?.controlRef?.executionId ?? '')
           const exact = async () => {
+            if (mode === 'quota-past-deadline')
+              throw Object.assign(capacityRefusal(0), { resetAt: '2099-01-01T00:00:00.000Z' })
             // The restarted process's read answers.
             if (mode === 'unreconciled-restart' ? injected : mode !== 'unreconciled' || reads >= 12)
               return session.result()
@@ -330,7 +335,11 @@ describe('nested retained owner journal isolation', () => {
         // Room for 20 refused turns: only the refusal streak's own bound may stop the manager.
         budget: refusing
           ? { maxIterations: 40, maxTokens: 400 }
-          : { maxIterations: 8, maxTokens: 100 },
+          : {
+              maxIterations: 8,
+              maxTokens: 100,
+              ...(mode === 'quota-past-deadline' ? { deadlineMs: 3_600_000 } : {}),
+            },
         perWorker: refusing
           ? { maxIterations: 20, maxTokens: 200 }
           : { maxIterations: 3, maxTokens: 20 },
@@ -343,7 +352,9 @@ describe('nested retained owner journal isolation', () => {
                 : 2,
           ...(refusing ? { maxConsecutiveFailures: 20 } : {}),
           // A capacity wait spends no attempt, so the refusals fit in one.
-          ...(mode in WAITS || mode.startsWith('unreconciled') ? { unavailablePauseMs: 0 } : {}),
+          ...(mode in WAITS || mode.startsWith('unreconciled') || mode.startsWith('quota-')
+            ? { unavailablePauseMs: 0 }
+            : {}),
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -438,7 +449,7 @@ describe('nested retained owner journal isolation', () => {
         expect(down, JSON.stringify(parent)).toMatchObject({ status: 'down' })
         for (const reason of downReasons)
           expect(down?.kind === 'settled' ? down.reason : '').toContain(reason)
-        expect(down).not.toHaveProperty('retainedExecution')
+        if (mode !== 'quota-past-deadline') expect(down).not.toHaveProperty('retainedExecution')
         // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
         expect(creates).toBe(mode === 'same-failure' ? 10 : admitted ? 1 : 0)
         // The lead is woken with the reason, so it can reword or re-scope the refused task.
