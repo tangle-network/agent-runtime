@@ -220,12 +220,12 @@ function isDispatchExecutionChanged(value: object): boolean {
   }
 }
 
-/** Read producer capacity first, then retained admission and legacy transport/harness metadata. */
+/** Read Runtime admission evidence before producer hints and legacy transport metadata. */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
+  if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
   const typed = turnFailureOf(error)
   if (typed)
     return turnFailurePolicy(typed).classification === 'unavailable' ? typed.code : undefined
-  if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
   const refusal = retainedAdmissionCause(error) ?? reconciliationCapacityRefusal(error)
   if (refusal !== undefined) return upstreamUnavailableSignal(refusal)
   if (!(error instanceof Error)) return undefined
