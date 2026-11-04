@@ -300,13 +300,12 @@ export function classifyDriverFailure(
   }
   if (error instanceof Error && isProviderSchemaRejection(error)) return 'terminal'
   if (isCredentialRefusal(error)) return 'terminal'
-  // A profile the box cannot be provisioned for fails the same way on every attempt and every box.
   if (causeChain(error).some(isProvisioningRefusal)) return 'terminal'
+  if (error instanceof AgentEvalError && !(error instanceof BackendTransportError))
+    return 'terminal'
   const typed = turnFailureOf(error)
   if (typed) return turnFailurePolicy(typed).classification
   if (error instanceof HarnessTurnFailedError) {
-    // The same never-retry classes a bridge refusal carries, now arriving as a turn's outcome.
-    // Without a code the failure is foreign: an upstream timeout, a cut stream, an expired key.
     if (error.errorCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.errorCode)) {
       return 'terminal'
     }
@@ -320,9 +319,6 @@ export function classifyDriverFailure(
     const status = error.status
     return status === undefined || status === 408 || status >= 500 ? 'transient' : 'terminal'
   }
-  // Every AgentEvalError (validation, config, run state, session mismatch, not-found) is a
-  // structural refusal. Kept after the transport check, which is itself an AgentEvalError subclass.
-  if (error instanceof AgentEvalError) return 'terminal'
   if (upstreamUnavailableSignal(error) !== undefined) return 'unavailable'
   return foreignHttpStatusVerdict(error) ?? 'transient'
 }

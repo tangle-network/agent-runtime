@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { BackendTransportError } from '../errors'
+import { AgentEvalError, BackendTransportError } from '../errors'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
 import { causeChain, errMessage } from './supervise/error-message'
@@ -238,7 +238,10 @@ export function runtimeFailureCause(
       if (read(link, 'name') === 'RetainedRunProviderContractError')
         return failure(retainedFailures[classifyRetainedPendingCause(link)])
     }
-    const typed = turnFailureOf(error)
+    const typed =
+      error instanceof AgentEvalError && !(error instanceof BackendTransportError)
+        ? undefined
+        : turnFailureOf(error)
     if (typed) return failure(turnFailurePolicy(typed))
     // Without the caller's signal, an AbortError is the only evidence of a cancellation. With it,
     // an AbortError the caller did not ask for is some other party's abort, classified below.
