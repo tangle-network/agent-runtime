@@ -69,6 +69,7 @@ import {
   bridgeSpawnPreflight,
   composeSpawnPreflights,
   coordinationChannelSpawnPreflight,
+  modelSettingsSpawnPreflight,
   profileToolSpawnPreflight,
   providerSpawnPreflight,
 } from './supervise-spawn-preflight'
@@ -418,7 +419,8 @@ function resolveRunRegistry(options: SuperviseOptions) {
 function admitPerWorker(options: SuperviseOptions) {
   assertRecursiveReservationPolicy(options.reservationPolicy)
   const ownerShare = options.reservationPolicy?.ownerShare ?? 0
-  const perWorker = options.perWorker ?? defaultPerWorker(options.budget, ownerShare)
+  const perWorker =
+    options.perWorker ?? defaultPerWorker(options.budget, ownerShare, options.workerSlots)
   assertValidBudget(perWorker, 'supervise perWorker')
   // A per-child ceiling larger than its pool cannot be honored: accepting it silently reads as a
   // budget outcome (children clamped at 700_000 under perWorker.maxTokens = 3_200_000_000 against
@@ -486,6 +488,10 @@ function managerDriverPlan(
   // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
   // its mount and receives the profile unchanged.
   const spawnPreflight = composeSpawnPreflights(
+    modelSettingsSpawnPreflight(
+      options.makeWorkerAgent === undefined,
+      options.backend?.backend === 'provider' ? 'provider' : 'router',
+    ),
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
       options.resolveSupervisorTools !== undefined,

@@ -1,5 +1,6 @@
 import { ValidationError } from '../../errors'
 
+import type { SuperviseOptions } from './supervise-options'
 import type { Budget, Scope, Spend } from './types'
 
 /**
@@ -116,11 +117,17 @@ export function assertPerWorkerAdmittable(
   }
 }
 
-/** The slice a child gets when its manager names none: a quarter of the part of the manager's
- *  budget its children may reserve, so four default children fill that part and the manager's
- *  own share stays free for its turns. Each nested manager divides its own slice the same way. */
-export function defaultPerWorker(budget: Budget, ownerShare: number): Budget {
-  const share = (1 - ownerShare) / 4
+/** The slice a child gets when its manager names none: the part of the manager's budget its
+ *  children may reserve, divided by the run's worker slots (four with none), so the slots, not the
+ *  budget, set how many run at once. A quarter share capped managers with 8-15 slots at 2-4
+ *  children (zro-w4a16-hopper-20261104b held 4 of 8; canary-soak-20261104a queued s5-s7 163-176 s). */
+export function defaultPerWorker(
+  budget: Budget,
+  ownerShare: number,
+  workerSlots: SuperviseOptions['workerSlots'],
+): Budget {
+  const slots = typeof workerSlots === 'number' ? workerSlots : workerSlots?.max
+  const share = (1 - ownerShare) / (slots !== undefined && slots > 0 ? slots : 4)
   return {
     ...(budget.resources === undefined
       ? {}

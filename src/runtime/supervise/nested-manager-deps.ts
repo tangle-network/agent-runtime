@@ -40,7 +40,7 @@ export interface ManagedChild {
 export function buildNestedManagerDeps(child: ManagedChild): SupervisorAgentDeps {
   const { env, seat, admitted, spawnContext } = child
   const { options, ownerShare, authorizeDownFor, peerAuditFor } = env.setup
-  const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare)
+  const nestedPerWorker = defaultPerWorker(spawnContext.budget, ownerShare, options.workerSlots)
   const runMessageAuthority = authorizeDownFor(admitted.authorized, seat.depth + 1)
   // A graph observes what the run's authority changes: a narrowed steer ledgers `stripped`.
   const authorizeNestedMessage =

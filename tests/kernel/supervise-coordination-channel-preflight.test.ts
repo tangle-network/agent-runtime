@@ -215,6 +215,45 @@ describe('supervise coordination-channel pre-flight', () => {
     expect(refusal).toContain('workspace-relative')
   })
 
+  it('refuses a model control its executor would refuse, inside the spawn_worker call', async () => {
+    // saas-cac-payback-20261104c: children carrying model.metadata keys no executor reads settled
+    // down {unknown, unknown} at their first attempt, after reservation.
+    const { provider, creates } = neverCreatingProvider()
+    const events: SpawnEvent[] = []
+    const toolResults: string[] = []
+    let turn = 0
+    const reader = {
+      name: 'reader',
+      harness: 'codex',
+      model: { provider: 'openai', default: 'test', metadata: { seat: 'claude-a' } },
+    }
+    await superviseForTest(
+      { ...routerRoot, tools: runtimeToolDeclarations('spawn_worker') },
+      'Delegate.',
+      {
+        backend: { backend: 'provider', provider },
+        budget: { maxIterations: 4, maxTokens: 8_000 },
+        perWorker: { maxIterations: 2, maxTokens: 1_000 },
+        journal: recordingJournal(events),
+        runId: 'model-settings-preflight',
+        brain: async (messages) => {
+          turn += 1
+          if (turn === 1) {
+            const args = JSON.stringify({ profile: reader, task: 'read', key: 'reader' })
+            return { toolCalls: [{ id: 'spawn', name: 'spawn_worker', arguments: args }] }
+          }
+          for (const message of messages)
+            if (typeof message.content === 'string') toolResults.push(message.content)
+          return { content: 'done', toolCalls: [] }
+        },
+      },
+    )
+    expect(creates()).toBe(0)
+    expect(events.filter((event) => event.kind === 'spawned' && event.key === 'reader')).toEqual([])
+    const refusal = toolResults.find((text) => text.includes('unprovisionable-profile'))
+    expect(refusal).toContain('unsupported AgentProfile.model.metadata fields: seat')
+  })
+
   it('admits the same child once the caller supplies the driveHarness relay', async () => {
     const { provider } = neverCreatingProvider()
     const driveHarness: DriveHarness = async () => {}

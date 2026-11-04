@@ -6,6 +6,7 @@ import { CoordinationUnreachableError } from './coordination-preflight'
 import { credentialCommandExit, isCredentialRefusal } from './credential-refusal'
 import type { DriverContractState, DriverReentry } from './driver-retry'
 import { causeChain, errMessage, errorHttpStatus, errorProperty, errorText } from './error-message'
+import { executorFailureInfra } from './executor-outcome'
 import {
   DISPATCH_EXECUTION_CHANGED_CODE,
   DISPATCH_NOT_ADMITTED_CODE,
@@ -34,6 +35,8 @@ export type DriverAttemptStop =
   | 'max-attempts'
   | 'pending-unresolved'
   | 'repeated-failure'
+  /** A capacity refusal whose reported reset falls after the run's deadline: no wait can serve it. */
+  | 'quota-unavailable'
 
 /** One attempt's record, emitted per attempt so an operator sees each legible failure. */
 export interface DriverAttemptRecord {
@@ -162,6 +165,8 @@ export const isContentFilterRefusal = (error: unknown): boolean =>
  */
 export class HarnessTurnFailedError extends Error {
   readonly runtime: string
+  /** The failure as the harness reported it, before this error's framing. */
+  readonly reported: string
   readonly errorCode?: string
   readonly statusCode?: number
   /** The shared HTTP error reader also uses this status for persisted diagnostics. */
@@ -178,6 +183,7 @@ export class HarnessTurnFailedError extends Error {
     )
     this.name = 'HarnessTurnFailedError'
     this.runtime = runtime
+    this.reported = failure.error
     if (failure.errorCode !== undefined) this.errorCode = failure.errorCode
     if (failure.statusCode !== undefined) {
       this.statusCode = failure.statusCode
@@ -467,6 +473,16 @@ export function transientFailureKind(error: unknown): 'infra' | 'deterministic' 
   if (causedByPartialFailure(error)) return 'deterministic'
   return causeChain(error).some((cause) => {
     if (!(cause instanceof Error)) return false
+    // The settlement's platform vocabulary (an in-box runtime restart, a terminated box) is the
+    // same verdict here: one table answers whether the platform ended a harness turn.
+    if (
+      cause instanceof HarnessTurnFailedError &&
+      executorFailureInfra({
+        error: cause.reported,
+        ...(cause.errorCode === undefined ? {} : { errorCode: cause.errorCode }),
+      })
+    )
+      return true
     // A harness CLI prints a gateway's status (`status code 524`) into its failure text.
     const status =
       cause instanceof HarnessTurnFailedError
