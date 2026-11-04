@@ -35,8 +35,6 @@ export type DriverAttemptStop =
   | 'max-attempts'
   | 'pending-unresolved'
   | 'repeated-failure'
-  /** A capacity refusal whose reported reset falls after the run's deadline: no wait can serve it. */
-  | 'quota-unavailable'
 
 /** One attempt's record, emitted per attempt so an operator sees each legible failure. */
 export interface DriverAttemptRecord {

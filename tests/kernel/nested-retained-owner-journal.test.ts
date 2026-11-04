@@ -410,11 +410,17 @@ describe('nested retained owner journal isolation', () => {
         return
       }
       if (mode === 'quota-past-deadline') {
-        // zro-w4a16-hopper-20261104b s4: the first refusal whose reset is past the run's deadline
-        // stops the manager, with no pause and no second attempt.
-        return expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
-          { record: { attempt: 1, classification: 'unavailable', stop: 'quota-unavailable' } },
+        expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
+          { record: { attempt: 1, classification: 'unavailable', stop: 'deadline' } },
         ])
+        expect(rootSaw.flatMap(driverWakeEvents)).toContainEqual(
+          expect.objectContaining({
+            settled: spawn.id,
+            status: 'down',
+            reason: expect.stringContaining('stopped by deadline'),
+          }),
+        )
+        return
       }
       // A refused route ends the drive before the harness is admitted.
       const admitted = mode !== 'preflight-refused'
