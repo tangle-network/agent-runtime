@@ -102,8 +102,8 @@ export function scopeRetainedOwnerJournalRoot(scope: Scope<unknown>): NodeId | u
 
 /**
  * Bind cleanup before replay can return an already accepted owner result. `checkpointCapture` is
- * where each checkpoint's files are stored before the checkpoint is deleted; without it, no
- * checkpoint of this owner is deleted.
+ * where each checkpoint's files are stored before the checkpoint is deleted; without it, a
+ * checkpoint of this owner is deleted only when a provider refuses a newer one.
  */
 export function bindScopeRetainedOwnerProvider(
   scope: Scope<unknown>,

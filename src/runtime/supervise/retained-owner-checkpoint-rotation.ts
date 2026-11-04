@@ -1,8 +1,12 @@
 import {
+  type AgentWorkspaceBranching,
+  type WorkspaceCheckpointRequest,
   workspaceCheckpointRequestDigest,
   workspaceCheckpointResultMatchesRequest,
 } from '@tangle-network/agent-interface'
+import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import { runAbortable } from './abortable'
+import { errorText } from './error-message'
 import { cleanCheckpoints } from './retained-owner-checkpoint-capture'
 import { type CheckpointEvent, pendingCheckpoints } from './retained-owner-checkpoint-requests'
 import { type OwnerState, owners } from './retained-owner-state'
@@ -91,50 +95,16 @@ export async function checkpointOwnerWorkspace(
     state.checkpointsUnavailable = `environment ${environment.id} offers no durable checkpoint`
     return
   }
-  const seq = state.nextSequence()
-  const at = new Date(args.now()).toISOString()
-  const name = `owner-checkpoint-${seq}`
-  const marker: WorkspaceCheckpointMarker = {
-    path: WORKSPACE_CHECKPOINT_MARKER_PATH,
-    content: `${JSON.stringify({ node: args.nodeId, checkpoint: name, at })}\n`,
-  }
-  const marked = await writeWorkspaceMarker(environment, marker, signal)
-  const material = { source, name }
-  const request = {
-    ...material,
-    idempotencyKey: `${args.nodeId}:workspace-checkpoint:${seq}`,
-    requestDigest: workspaceCheckpointRequestDigest(material),
-  }
-  state.checkpointHandles ??= new Map()
-  state.checkpointHandles.set(environment.id, branching)
-  await args.journal.appendEvent(args.rootId, {
-    kind: 'workspace-checkpoint-requested',
-    id: args.nodeId,
-    provider: provider.name,
-    environmentId: environment.id,
-    request,
-    ...(marked ? { marker } : {}),
-    seq,
-    at,
-  })
-  const result = await runAbortable(
-    () => branching.checkpoint(request, { signal }),
-    signal,
-    'retained owner checkpoint timed out',
+  const requestOne = () =>
+    requestCheckpoint(scope, state, provider.name, environment, branching, source, signal)
+  // A refusal, usually a plan's snapshot limit, gets one more try once a superseded checkpoint is
+  // out of its way, so the restore point keeps moving.
+  if (
+    !(await requestOne()) &&
+    (!(await deleteOldestUncapturable(state, branching, environment.id, signal)) ||
+      !(await requestOne()))
   )
-  if (result.status !== 'created' && result.status !== 'replayed') return
-  if (!workspaceCheckpointResultMatchesRequest(request, result)) return
-  scope.signal.throwIfAborted()
-  await args.journal.appendEvent(args.rootId, {
-    kind: 'workspace-checkpoint',
-    id: args.nodeId,
-    provider: provider.name,
-    environmentId: environment.id,
-    checkpoint: result.checkpoint,
-    ...(marked ? { marker } : {}),
-    seq: state.nextSequence(),
-    at,
-  })
+    return
   const events = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = pendingCheckpoints(events, state).filter(
     (event): event is CheckpointEvent =>
@@ -167,6 +137,99 @@ export async function checkpointOwnerWorkspace(
     clearTimeout(timer)
     if (state.rotationCaptures === rotation) delete state.rotationCaptures
   }
+}
+
+/** Ask for one checkpoint and journal the answer. True when the journal holds the checkpoint. */
+async function requestCheckpoint(
+  scope: Scope<unknown>,
+  state: OwnerState,
+  providerName: string,
+  environment: AgentEnvironment,
+  branching: AgentWorkspaceBranching,
+  source: WorkspaceCheckpointRequest['source'],
+  signal: AbortSignal,
+): Promise<boolean> {
+  const { args } = state
+  const seq = state.nextSequence()
+  const at = new Date(args.now()).toISOString()
+  const name = `owner-checkpoint-${seq}`
+  const marker: WorkspaceCheckpointMarker = {
+    path: WORKSPACE_CHECKPOINT_MARKER_PATH,
+    content: `${JSON.stringify({ node: args.nodeId, checkpoint: name, at })}\n`,
+  }
+  const marked = await writeWorkspaceMarker(environment, marker, signal)
+  const material = { source, name }
+  const request = {
+    ...material,
+    idempotencyKey: `${args.nodeId}:workspace-checkpoint:${seq}`,
+    requestDigest: workspaceCheckpointRequestDigest(material),
+  }
+  state.checkpointHandles ??= new Map()
+  state.checkpointHandles.set(environment.id, branching)
+  await args.journal.appendEvent(args.rootId, {
+    kind: 'workspace-checkpoint-requested',
+    id: args.nodeId,
+    provider: providerName,
+    environmentId: environment.id,
+    request,
+    ...(marked ? { marker } : {}),
+    seq,
+    at,
+  })
+  const result = await runAbortable(
+    () => branching.checkpoint(request, { signal }),
+    signal,
+    'retained owner checkpoint timed out',
+  )
+  if (result.status !== 'created' && result.status !== 'replayed') {
+    await args.journal.appendEvent(args.rootId, {
+      kind: 'workspace-checkpoint-refused',
+      id: args.nodeId,
+      provider: providerName,
+      environmentId: environment.id,
+      idempotencyKey: request.idempotencyKey,
+      message: errorText('message' in result ? result.message : result.status),
+      seq: state.nextSequence(),
+      at,
+    })
+    return false
+  }
+  if (!workspaceCheckpointResultMatchesRequest(request, result)) return false
+  scope.signal.throwIfAborted()
+  await args.journal.appendEvent(args.rootId, {
+    kind: 'workspace-checkpoint',
+    id: args.nodeId,
+    provider: providerName,
+    environmentId: environment.id,
+    checkpoint: result.checkpoint,
+    ...(marked ? { marker } : {}),
+    seq: state.nextSequence(),
+    at,
+  })
+  return true
+}
+
+/**
+ * Delete this environment's oldest checkpoint beyond {@link WORKSPACE_CHECKPOINTS_KEPT} when no
+ * capture could ever hold its files, to make room for a newer one. Keeping them all stopped the
+ * restore point instead: zro-game-20261104b's box stored 25 of its 61 requests, its plan's limit,
+ * and its last restore point was 7 h old. A backend that captures deletes through its rotation.
+ */
+async function deleteOldestUncapturable(
+  state: OwnerState,
+  branching: AgentWorkspaceBranching,
+  environmentId: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (state.checkpointCapture?.port.captureCheckpoint !== undefined) return false
+  const events = (await state.args.journal.loadTree(state.args.rootId)) ?? []
+  const oldest = pendingCheckpoints(events, state)
+    .filter((event) => event.environmentId === environmentId)
+    .slice(0, -WORKSPACE_CHECKPOINTS_KEPT)
+    .slice(0, 1)
+  if (oldest.length === 0) return false
+  const { unconfirmed } = await cleanCheckpoints(state, branching, oldest, events, signal, true)
+  return unconfirmed.length === 0
 }
 
 /**

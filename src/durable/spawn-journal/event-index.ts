@@ -307,6 +307,7 @@ const outsideCursorNamespaceKinds = [
   'environment-teardown',
   'environment-terminal',
   'workspace-checkpoint-requested',
+  'workspace-checkpoint-refused',
   'workspace-checkpoint',
   'workspace-checkpoint-fork-requested',
   'workspace-checkpoint-fork-ready',

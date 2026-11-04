@@ -44,12 +44,18 @@ export type SeatSelection =
 /** The caller owns account eligibility and credential resolution; Runtime owns the chain order. */
 export type SelectSeat = (input: SeatSelectionInput) => Promise<SeatSelection>
 
-export class SeatChainExhaustedError extends Error {
+/** How often a pause with no known reset asks again, the account cache's cadence. */
+export const SEAT_RECHECK_MS = 120_000
+
+/** No seat can start before `resumeAt`: the chain is exhausted, or `detail` says why not. */
+export class SeatPauseError extends Error {
   readonly resumeAt: string
-  constructor(resumeAt: string) {
-    super(`authored subscription seat chain exhausted; resume at ${resumeAt}`)
-    this.name = 'SeatChainExhaustedError'
+  readonly detail: string | undefined
+  constructor(resumeAt: string, detail?: string) {
+    super(`${detail ?? 'authored subscription seat chain exhausted'}; resume at ${resumeAt}`)
+    this.name = 'SeatPauseError'
     this.resumeAt = resumeAt
+    this.detail = detail
   }
 }
 
@@ -234,10 +240,10 @@ export class SeatChain {
       }
       return active
     }
-    // A provider may know that quota is exhausted without publishing its reset. Recheck the
-    // authored chain at the account cache's two-minute cadence; this is not a claimed reset time.
-    const recheckAt = Math.max(earliestReset ?? 0, this.now() + 120_000)
-    throw new SeatChainExhaustedError(new Date(recheckAt).toISOString())
+    // A provider may know that quota is exhausted without publishing its reset, so this is not a
+    // claimed reset time.
+    const recheckAt = Math.max(earliestReset ?? 0, this.now() + SEAT_RECHECK_MS)
+    throw new SeatPauseError(new Date(recheckAt).toISOString())
   }
 
   async close(reason: 'completed' | 'failed' | 'cancelled' | 'paused'): Promise<void> {

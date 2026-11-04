@@ -487,6 +487,19 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** The provider answered a `workspace-checkpoint-requested` without a checkpoint; `message`
+       *  is its answer. The previous checkpoint stays the restore point. Informational, like
+       *  `workspace-checkpoint`. */
+      kind: 'workspace-checkpoint-refused'
+      id: NodeId
+      provider: string
+      environmentId: string
+      idempotencyKey: string
+      message: string
+      seq: number
+      at: string
+    }
+  | {
       /** A durable checkpoint of a retained owner's workspace, taken while its manager coordinated.
        *  When the provider later loses the owner's environment, the next invocation is created from
        *  the latest of these, so a re-entered director keeps the files it wrote. `marker` is the
@@ -576,8 +589,9 @@ export type SpawnEvent =
   | {
       /** Exact checkpoint cleanup outcome; unconfirmed resources remain pending across resume.
        *  `capturedDigest` is the tree of the checkpoint's files that a `workspace-checkpoint-capture`
-       *  stored before the delete was asked for. `refused` says why the checkpoint was kept
-       *  without a delete: its files are in no capture, so deleting it would lose them.
+       *  stored before the delete was asked for; a confirmed delete without one made room under a
+       *  provider's limit on an owner that has no capture. `refused` says why the checkpoint was
+       *  kept without a delete: its files are in no capture, so deleting it would lose them.
        *  Informational, like `workspace-checkpoint`. */
       kind: 'workspace-checkpoint-cleanup'
       id: NodeId
@@ -747,6 +761,8 @@ export type SpawnEvent =
       kind: 'seat-paused'
       id: NodeId
       resumeAt: string
+      /** Why no seat can start, when the chain is not simply exhausted. */
+      detail?: string
       seq: number
       at: string
     }
