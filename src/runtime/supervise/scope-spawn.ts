@@ -327,7 +327,7 @@ class ScopeSpawner<Out> {
     const { recovery, opts } = request
     const child = this.admit(request, reuse, ticket)
     const { id, continuing } = child
-    const controller = this.armChildAbort(child, cleanup)
+    const controller = this.armChildAbort(child, cleanup, permit)
     const deferredOwner: DeferredOwnerSlot = {}
     // Resolved per spawn: the spawning node's span is opened by the `agent.spawn` hook, so lazy
     // reading assumes no hook ordering. No resolver (untraced) means no seam.
@@ -547,22 +547,30 @@ class ScopeSpawner<Out> {
 
   /**
    * The child's abort chains off this scope's signal AND its own handle.abort() or bounded
-   * deadline; aborting mid-acquire cascades into acquireSandbox's find-by-name reap.
+   * deadline; aborting mid-acquire cascades into acquireSandbox's find-by-name reap. A live child's
+   * time box counts from its grant, not its spawn: queue time is not its time (zro-game-20261104a
+   * s15-s20 expired queued, execution-did-not-start). A recovered child keeps its journaled grant.
    */
-  private armChildAbort(child: AdmittedChild, cleanup: StartCleanup): AbortController {
+  private armChildAbort(
+    child: AdmittedChild,
+    cleanup: StartCleanup,
+    permit: SlotPermit,
+  ): AbortController {
     const { args, now } = this.deps
     const { id, childDeadlineAtMs } = child
     const controller = new AbortController()
     cleanup.cascadeAbort = () => controller.abort(args.signal.reason)
     if (args.signal.aborted) controller.abort(args.signal.reason)
     else args.signal.addEventListener('abort', cleanup.cascadeAbort, { once: true })
-    if (childDeadlineAtMs !== undefined) {
-      // The run's own deadline (a root scope's pool cutoff) stops the child; any shorter cutoff
-      // is a time box its lead set, which is a check-in for a child that can be told.
-      const runDeadlineAtMs = args.depth === 0 ? args.pool.readout().deadlineMs : 0
-      const timeBox = !(runDeadlineAtMs > 0 && childDeadlineAtMs >= runDeadlineAtMs)
+    // The run's own deadline (a root scope's pool cutoff) stops the child; any shorter cutoff
+    // is a time box its lead set, which is a check-in for a child that can be told.
+    const runDeadlineAtMs = args.depth === 0 ? args.pool.readout().deadlineMs : 0
+    let cleared = false
+    const arm = (deadlineAtMs: number | undefined) => {
+      if (deadlineAtMs === undefined || cleared) return
+      const timeBox = !(runDeadlineAtMs > 0 && deadlineAtMs >= runDeadlineAtMs)
       let clearCheckIn: (() => void) | undefined
-      const clearTimer = armDeadlineTimer(Math.max(0, childDeadlineAtMs - now()), () => {
+      const clearTimer = armDeadlineTimer(Math.max(0, deadlineAtMs - now()), () => {
         clearCheckIn = timeBox ? this.deps.checkInAtTimeBox(id, controller) : undefined
         if (clearCheckIn === undefined) controller.abort(CHILD_DEADLINE_REASON)
       })
@@ -570,6 +578,24 @@ class ScopeSpawner<Out> {
         clearTimer()
         clearCheckIn?.()
       }
+    }
+    if (child.recovery !== undefined || child.opts.budget.deadlineMs === undefined) {
+      arm(childDeadlineAtMs)
+    } else {
+      cleanup.clearChildDeadline = () => {
+        cleared = true
+      }
+      void permit.ready.then(
+        () =>
+          arm(
+            boundedChildDeadlineAt(
+              args.pool.readout().deadlineMs,
+              child.opts.budget.deadlineMs,
+              now(),
+            ),
+          ),
+        () => undefined,
+      )
     }
     return controller
   }
