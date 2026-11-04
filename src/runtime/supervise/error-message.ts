@@ -62,12 +62,13 @@ export function errMessage(error: unknown): string {
       const status = errorHttpStatus(current)
       const message =
         (status === undefined ? '' : `HTTP ${status}: `) + (errorProperty(current, 'message') ?? '')
-      parts.push(
-        (depth === 0 ? message : `${errorProperty(current, 'name')}: ${message}`).slice(
-          0,
-          maxPartLength,
-        ),
-      )
+      // An AggregateError's members carry its evidence: name each, one level deep.
+      const members: unknown = Reflect.get(current, 'errors')
+      const named = Array.isArray(members)
+        ? ` [${members.map((m) => (m instanceof Error ? `${errorProperty(m, 'name')}: ${errorProperty(m, 'message')}` : errorText(m))).join('; ')}]`
+        : ''
+      const part = depth === 0 ? message : `${errorProperty(current, 'name')}: ${message}`
+      parts.push(`${part}${named}`.slice(0, maxPartLength))
       current = current.cause
       if (current === undefined || current === null) break
       if (depth === maxCauseDepth) parts.push('[cause chain truncated]')
