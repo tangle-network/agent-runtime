@@ -97,7 +97,7 @@ export interface DriverAttemptRecord {
 
 /** Sandbox's `PartialFailureError` on `error` or a cause, read by name: packages that hold their own
  *  copy of the class would miss an `instanceof`. */
-export const causedByPartialFailure = (error: unknown): boolean =>
+const causedByPartialFailure = (error: unknown): boolean =>
   causeChain(error).some(
     (cause) => cause instanceof Error && errorProperty(cause, 'name') === 'PartialFailureError',
   )

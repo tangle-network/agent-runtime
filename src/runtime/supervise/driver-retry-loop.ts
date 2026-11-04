@@ -3,7 +3,6 @@ import { sleep } from '../util'
 import { isDeadlineAbortReason } from './deadline'
 import {
   abandonablePending,
-  causedByPartialFailure,
   classifyDriverFailure,
   type DriverAttemptRecord,
   type DriverAttemptStop,
@@ -583,17 +582,14 @@ export class DriverRetryLoop {
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
     if (this.refusals >= CONTENT_FILTER_REFUSAL_LIMIT) return 'repeated-failure'
-    // Inside the outage window too: the same failed box twice at any depth; a nested agent's
-    // deterministic failure at its limit, or its infra failure at the repeated-failure bound, so
-    // its parent acts on it. A root has no parent and waits out the window.
+    // Inside the outage window too: a deterministic failure at its limit at any depth (an opted-in
+    // root pauses on it), and a nested agent's infra failure at the repeated-failure bound, so its
+    // parent acts on it. A root waits out an outage.
     if (
       sameIdle !== undefined &&
-      (causedByPartialFailure(error)
+      (kind === 'deterministic'
         ? sameIdle.count >= SAME_DETERMINISTIC_LIMIT
-        : run.nested === true &&
-          (kind === 'deterministic'
-            ? sameIdle.count >= SAME_DETERMINISTIC_LIMIT
-            : repeatedBy(sameIdle, failedAt)))
+        : run.nested === true && repeatedBy(sameIdle, failedAt))
     ) {
       return 'repeated-failure'
     }
