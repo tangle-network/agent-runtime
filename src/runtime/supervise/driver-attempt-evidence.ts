@@ -223,6 +223,8 @@ function isDispatchExecutionChanged(value: object): boolean {
 /** Read Runtime admission evidence before producer hints and legacy transport metadata. */
 export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (undispatchedCredentialExit(error) !== undefined) return 'credential-unavailable'
+  if (error instanceof CheckUnavailableError) return 'check-unavailable'
+  if (error instanceof CoordinationUnreachableError) return 'coordination-unreachable'
   const typed = turnFailureOf(error)
   if (typed)
     return turnFailurePolicy(typed).classification === 'unavailable' ? typed.code : undefined
@@ -231,10 +233,6 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   if (!(error instanceof Error)) return undefined
   if (isCredentialRefusal(error)) return undefined
   if (isProviderSchemaRejection(error)) return undefined
-  // The check could not run. It is not a verdict on the director, so the loop pauses as it does
-  // for an upstream out of capacity and never counts the turn for or against the run.
-  if (error instanceof CheckUnavailableError) return 'check-unavailable'
-  if (error instanceof CoordinationUnreachableError) return 'coordination-unreachable'
   const transport = error instanceof BackendTransportError
   if (error instanceof AgentEvalError && !transport) return undefined
   const harness = error instanceof HarnessTurnFailedError
@@ -280,6 +278,8 @@ export function classifyDriverFailure(
   stopSignal?: AbortSignal,
 ): DriverFailureClass {
   if (signal?.aborted) return 'terminal'
+  if (error instanceof CheckUnavailableError || error instanceof CoordinationUnreachableError)
+    return 'unavailable'
   // A failed retained read does not settle or replace its execution. A contract violation
   // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
   if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
