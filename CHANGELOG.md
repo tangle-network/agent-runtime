@@ -1,3 +1,9 @@
+## 4.0.0
+
+Adds `workspace-checkpoint-refused` to the exported `SpawnEvent` union so checkpoint failures retain the provider's refusal. Consumers with exhaustive journal-event switches must handle this event before upgrading.
+
+Capacity whose reset cannot fit the run's deadline settles with the existing deadline stop, preserving the published attempt-stop contract and waking its parent without another pause.
+
 ## 3.0.46
 
 A usage-limit seat switch no longer ends a run. An owner with no checkpoint capture now deletes its oldest superseded checkpoint when a provider refuses a newer one, such as under a plan's snapshot limit, and asks once more; refusals are journaled as `workspace-checkpoint-refused`. A switch that still has no checkpoint journals `seat-paused` with its `detail` and rechecks every two minutes, and a move to a seat on the same box no longer needs one.
