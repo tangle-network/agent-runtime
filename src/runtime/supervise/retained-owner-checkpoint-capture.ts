@@ -35,7 +35,8 @@ interface CheckpointCleanup {
 
 /**
  * Delete checkpoints, each only after its files are captured into the run's content-addressed
- * store; a checkpoint no capture holds is kept, and the cleanup record says why. Only the
+ * store; a checkpoint no capture holds is kept, and the cleanup record says why. `uncapturable`
+ * deletes one anyway when no capture port exists: the record then names no digest. Only the
  * source-scoped handle can fork a checkpoint and attest its deletion, including after its source
  * is lost. `parent` cancels the captures (the owner's scope during rotation); each provider
  * operation also has its own bound.
@@ -46,11 +47,19 @@ export async function cleanCheckpoints(
   checkpoints: readonly CheckpointEvent[],
   events: readonly SpawnEvent[],
   parent?: AbortSignal,
+  uncapturable = false,
 ): Promise<CheckpointCleanup> {
   const unconfirmed: CheckpointEvent[] = []
   const refused: CaptureRefusal[] = []
   for (const event of checkpoints) {
-    const captured = await captureBeforeCleanup(state, branching, event, events, parent)
+    const captured = await captureBeforeCleanup(
+      state,
+      branching,
+      event,
+      events,
+      parent,
+      uncapturable,
+    )
     if ('reason' in captured) {
       state.captureRefused ??= new Set()
       state.captureRefused.add(event.checkpoint.checkpointId)
@@ -102,7 +111,7 @@ export async function cleanCheckpoints(
       environmentId: event.environmentId,
       checkpointId: event.checkpoint.checkpointId,
       confirmed,
-      capturedDigest: captured.digest,
+      ...(captured.digest === undefined ? {} : { capturedDigest: captured.digest }),
       seq: state.nextSequence(),
       at: new Date(state.args.now()).toISOString(),
     })
@@ -124,7 +133,8 @@ async function captureBeforeCleanup(
   event: CheckpointEvent,
   events: readonly SpawnEvent[],
   parent?: AbortSignal,
-): Promise<{ readonly digest: Sha256Digest } | CaptureRefusal> {
+  uncapturable = false,
+): Promise<{ readonly digest?: Sha256Digest } | CaptureRefusal> {
   const { args } = state
   const checkpointId = event.checkpoint.checkpointId
   const recorded = events.find(
@@ -143,7 +153,9 @@ async function captureBeforeCleanup(
   })
   const capture = state.checkpointCapture
   if (capture?.port.captureCheckpoint === undefined)
-    return refuse('no checkpoint capture: the owner backend has no captureCheckpoint', false)
+    return uncapturable
+      ? {}
+      : refuse('no checkpoint capture: the owner backend has no captureCheckpoint', false)
   const provider = state.provider
   if (provider?.get === undefined)
     return refuse('the provider cannot reconstruct a fork of the checkpoint', false)

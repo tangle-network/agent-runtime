@@ -10,20 +10,18 @@ import { scopeRetainedOwnerTurnEnded } from './retained-owner-turn-lifecycle'
 import type { Scope, SpawnEvent } from './types'
 
 /** A committed turn is the seat boundary. Keep its native home for a same-harness provider
- * continuation; only a provider/harness change needs a new environment. */
+ * continuation; only a provider/harness change needs a new environment, and a checkpoint of the
+ * old one, whose time it returns. */
 export async function prepareScopeRetainedOwnerSeatSwitch(
   scope: Scope<unknown>,
   mode: 'same-environment' | 'replace-environment',
-): Promise<{
-  readonly checkpointAt: string
-  readonly checkpointId: string
-  readonly sourceEnvironmentId: string
-}> {
+): Promise<string | undefined> {
   const state = owners.get(scope)
   if (!state?.acceptedRef || !state.acceptedConsumed)
     throw new ValidationError('seat switch requires a committed owner turn')
   const accepted = state.acceptedRef
   const owned = await checkpointOwner(scope, state)
+  if (mode === 'same-environment') return undefined
   const acceptedIndex = owned.findIndex(
     (event) =>
       event.kind === 'execution-result' &&
@@ -40,25 +38,21 @@ export async function prepareScopeRetainedOwnerSeatSwitch(
     source?.kind === 'execution-admitted' && source.admission.phase === 'environment'
       ? source.admission.environmentId
       : undefined
-  const checkpoint = owned
-    .slice(acceptedIndex + 1)
-    .reverse()
-    .find(
-      (event) =>
-        event.kind === 'workspace-checkpoint' && event.environmentId === sourceEnvironmentId,
-    )
-  if (checkpoint?.kind !== 'workspace-checkpoint')
-    throw new ValidationError('seat switch requires a checkpoint of its committed source')
-  if (mode === 'replace-environment') {
-    // A seat may move from a verified checkpoint while the old source remains evidence.
-    await retireCheckpointed(scope, state, owned, checkpoint, 'seat changed')
-    state.forceNewSession = true
+  const since = owned.slice(acceptedIndex + 1).reverse()
+  const checkpoint = since.find(
+    (event) => event.kind === 'workspace-checkpoint' && event.environmentId === sourceEnvironmentId,
+  )
+  if (checkpoint?.kind !== 'workspace-checkpoint') {
+    const refusal = since.find((event) => event.kind === 'workspace-checkpoint-refused')
+    const why =
+      state.checkpointsUnavailable ??
+      (refusal?.kind === 'workspace-checkpoint-refused' ? refusal.message : 'none was taken')
+    throw new ValidationError(`no checkpoint of its committed source: ${why}`)
   }
-  return {
-    checkpointAt: checkpoint.at,
-    checkpointId: checkpoint.checkpoint.checkpointId,
-    sourceEnvironmentId: checkpoint.environmentId,
-  }
+  // A seat may move from a verified checkpoint while the old source remains evidence.
+  await retireCheckpointed(scope, state, owned, checkpoint, 'seat changed')
+  state.forceNewSession = true
+  return checkpoint.at
 }
 
 /** An exhausted seat chain pauses its manager until `resumeAt` with no turn to run: on

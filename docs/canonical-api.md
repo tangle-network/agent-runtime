@@ -500,7 +500,8 @@ Checkpoint receipts must match the exact request before Runtime journals or rest
 Missing results are reconciled through exact checkpoint lookup during release.
 An unresolved request preserves its source for later lookup and appears in the settle result.
 Cleanup uses the source-scoped provider handle, even when that source is lost.
-No checkpoint is deleted before its files are captured into the run's content-addressed store.
+A checkpoint a provider refuses is journaled as `workspace-checkpoint-refused`, and the previous one stays the restore point.
+No checkpoint is deleted before its files are captured into the run's content-addressed store, with one exception: when the port has no `captureCheckpoint` and the provider refuses a checkpoint, Runtime deletes the oldest beyond the two newest and asks once more, so the restore point keeps moving under a plan's snapshot limit.
 Runtime forks the checkpoint into a new environment that runs no harness, journaling `workspace-checkpoint-fork-requested` first, and passes it to the retention port's `captureCheckpoint`.
 The port stores the files as a tree (`captureAgentCandidateWorkspaceTreeToArtifacts`): one object per file content and a manifest, so a capture stores only the files no earlier capture holds.
 Runtime verifies that the store holds every file of the tree and the checkpoint's marker bytes, journals `workspace-checkpoint-capture` with the tree's digest, and destroys the fork (`workspace-checkpoint-fork-teardown`).

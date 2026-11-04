@@ -3,6 +3,7 @@ import { ValidationError } from '../../errors'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { harnessTurnFailure } from './driver-execution-attempt'
+import { errorText } from './error-message'
 import { createActivityLog, type ExecutorProgress } from './progress'
 import { releaseScopeRetainedOwnerForSeatPause } from './retained-owner-seat-switch'
 import {
@@ -22,8 +23,9 @@ import { restoreScopeOwnerAcceptedExecution } from './scope'
 import {
   type ActiveSeat,
   authoredSeatStages,
+  SEAT_RECHECK_MS,
   SeatChain,
-  SeatChainExhaustedError,
+  SeatPauseError,
   type SeatSegment,
   type SelectSeat,
   seatExecutionProfile,
@@ -228,15 +230,24 @@ export class ManagerDriveSession {
       now,
       (segment, phase) => seatSelection.onSegment(scope.view.root, segment, phase),
       async (selection, previous) => {
-        if (previous && previous.seat !== selection.seat) {
-          const sameEnvironment =
-            previous.provider === selection.stage.provider &&
-            previous.harness === selection.stage.harness
-          const checkpoint = await prepareScopeRetainedOwnerSeatSwitch(
+        if (!previous || previous.seat === selection.seat) return
+        const sameEnvironment =
+          previous.provider === selection.stage.provider &&
+          previous.harness === selection.stage.harness
+        try {
+          const checkpointAt = await prepareScopeRetainedOwnerSeatSwitch(
             scope,
             sameEnvironment ? 'same-environment' : 'replace-environment',
           )
-          if (!sameEnvironment) this.switchedProviderCheckpointAt = checkpoint.checkpointAt
+          if (!sameEnvironment) this.switchedProviderCheckpointAt = checkpointAt
+        } catch (error) {
+          scope.signal.throwIfAborted()
+          // A seat switch never ends a run; zro-game-20261104b ended 11 h in when its box refused
+          // this checkpoint. Wait and ask again; a seat that resets first needs no switch.
+          throw new SeatPauseError(
+            new Date(now() + SEAT_RECHECK_MS).toISOString(),
+            `seat switch waits: ${errorText(error instanceof Error ? error.message : error)}`,
+          )
         }
       },
     )
@@ -299,13 +310,14 @@ export class ManagerDriveSession {
         if (afterRecheck) await seatSelection.onPause(scope.view.root, '', 'resumed')
         return seat
       } catch (error) {
-        if (!(error instanceof SeatChainExhaustedError)) throw error
+        if (!(error instanceof SeatPauseError)) throw error
         if (error.resumeAt !== pausedUntil) {
           pausedUntil = error.resumeAt
           await seatSelection.journal.appendEvent(seatJournalRoot, {
             kind: 'seat-paused',
             id: scope.view.root,
             resumeAt: error.resumeAt,
+            ...(error.detail === undefined ? {} : { detail: error.detail }),
             seq: Date.parse(error.resumeAt),
             at: new Date(now()).toISOString(),
           })

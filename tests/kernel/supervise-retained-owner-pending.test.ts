@@ -12,7 +12,10 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentRunCancellationAcknowledgement } from '@tangle-network/agent-interface'
+import {
+  type AgentRunCancellationAcknowledgement,
+  workspaceCheckpointRequestDigest,
+} from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
@@ -115,6 +118,15 @@ interface Fixture {
   readonly seatResumeAt?: string
   /** Cancel the run once it journals a seat pause. */
   readonly cancelOnSeatPause?: boolean
+  /** The source box already holds this many checkpoints and refuses any past them, as a plan's
+   *  snapshot limit does. */
+  readonly checkpointCap?: number
+  /** Checkpoint requests the provider answers without a checkpoint, counted from 1. */
+  readonly checkpointRefused?: (request: number) => boolean
+  /** A seat whose account stays exhausted once it has been used. */
+  readonly limitedSeat?: string
+  /** Both seats are one harness and provider, so a switch keeps its box. */
+  readonly sameHarnessSeats?: boolean
 }
 
 async function superviseRoot(fixture: Fixture) {
@@ -148,28 +160,58 @@ async function superviseRoot(fixture: Fixture) {
   let firstResultWakesQueued = false
   let steerRecorded = false
   let steerReplayed = false
+  let checkpointRequests = 0
+  const storedCheckpoints = new Map<string, string[]>()
+  const stored = (environmentId: string): string[] => {
+    const held = storedCheckpoints.get(environmentId) ?? []
+    storedCheckpoints.set(environmentId, held)
+    return held
+  }
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
     ...(fixture.seatSwitch
       ? {
           workspaceBranching: {
-            checkpoint: async (request) => ({
-              status: 'created' as const,
-              idempotencyKey: request.idempotencyKey,
-              requestDigest: request.requestDigest,
-              checkpoint: {
-                checkpointId: `checkpoint-${environment.id}`,
-                provider: environment.provider,
-                source: request.source,
+            checkpoint: async (request) => {
+              checkpointRequests += 1
+              const held = stored(environment.id)
+              if (
+                fixture.checkpointRefused?.(checkpointRequests) ||
+                held.length >= (fixture.checkpointCap ?? Number.POSITIVE_INFINITY)
+              )
+                return {
+                  status: 'unknown' as const,
+                  idempotencyKey: request.idempotencyKey,
+                  requestDigest: request.requestDigest,
+                  message: 'Sandbox checkpoint outcome is unresolved: Snapshot limit reached (3)',
+                  retryable: true,
+                }
+              const checkpointId = `checkpoint-${environment.id}`
+              held.push(checkpointId)
+              return {
+                status: 'created' as const,
                 idempotencyKey: request.idempotencyKey,
                 requestDigest: request.requestDigest,
-                createdAt: new Date().toISOString(),
-              },
-            }),
-            lookupCheckpoint: async () => {
-              throw new Error('seat switch must use its committed checkpoint')
+                checkpoint: {
+                  checkpointId,
+                  provider: environment.provider,
+                  source: request.source,
+                  idempotencyKey: request.idempotencyKey,
+                  requestDigest: request.requestDigest,
+                  createdAt: new Date().toISOString(),
+                },
+              }
             },
-            deleteCheckpoint: async (request) => ({ ...request, status: 'deleted' as const }),
+            lookupCheckpoint: async (request) => {
+              if (fixture.checkpointCap === undefined && fixture.checkpointRefused === undefined)
+                throw new Error('seat switch must use its committed checkpoint')
+              return { status: 'not_found' as const, ...request }
+            },
+            deleteCheckpoint: async (request) => {
+              const held = stored(environment.id)
+              if (held.includes(request.targetId)) held.splice(held.indexOf(request.targetId), 1)
+              return { ...request, status: 'deleted' as const }
+            },
             fork: async () => {
               throw new Error('seat switch must create from its checkpoint')
             },
@@ -381,9 +423,9 @@ async function superviseRoot(fixture: Fixture) {
                 selector: { kind: 'all-eligible' as const },
               },
               {
-                harness: 'codex',
-                provider: 'openai',
-                model: 'gpt-6-sol',
+                ...(fixture.sameHarnessSeats
+                  ? { harness: 'claude-code', provider: 'anthropic', model: 'claude-opus-4-1' }
+                  : { harness: 'codex', provider: 'openai', model: 'gpt-6-sol' }),
                 selector: { kind: 'all-eligible' as const },
               },
             ],
@@ -398,7 +440,10 @@ async function superviseRoot(fixture: Fixture) {
     {
       runDir,
       journal:
-        fixture.crashOnInput === undefined && !fixture.seatPause && !fixture.cancelOnSeatPause
+        fixture.crashOnInput === undefined &&
+        !fixture.seatPause &&
+        !fixture.cancelOnSeatPause &&
+        fixture.checkpointCap === undefined
           ? context.journal
           : {
               beginTree: context.journal.beginTree.bind(context.journal),
@@ -409,6 +454,38 @@ async function superviseRoot(fixture: Fixture) {
                 // The pause's two-minute recheck passes at once.
                 if (event.kind === 'seat-paused' && fixture.seatPause) skew += 125_000
                 await context.journal.appendEvent(root, event)
+                // The checkpoints the earlier hours of this run stored.
+                if (
+                  fixture.checkpointCap !== undefined &&
+                  event.kind === 'execution-admitted' &&
+                  event.admission.phase === 'dispatched' &&
+                  stored(event.admission.controlRef.environmentId).length === 0
+                ) {
+                  const source = event.admission.controlRef
+                  for (let index = 0; index < fixture.checkpointCap; index += 1) {
+                    const checkpointId = `earlier-${index}`
+                    stored(source.environmentId).push(checkpointId)
+                    await context.journal.appendEvent(root, {
+                      kind: 'workspace-checkpoint',
+                      id: event.id,
+                      provider: provider.name,
+                      environmentId: source.environmentId,
+                      checkpoint: {
+                        checkpointId,
+                        provider: provider.name,
+                        source,
+                        idempotencyKey: `earlier:${index}`,
+                        requestDigest: workspaceCheckpointRequestDigest({
+                          source,
+                          name: checkpointId,
+                        }),
+                        createdAt: new Date().toISOString(),
+                      },
+                      seq: 900_000 + index,
+                      at: new Date().toISOString(),
+                    })
+                  }
+                }
                 if (event.kind === 'seat-paused' && selectionsAtPause === undefined) {
                   selectionsAtPause = selections
                   if (fixture.cancelOnSeatPause)
@@ -435,7 +512,9 @@ async function superviseRoot(fixture: Fixture) {
               selections += 1
               const seat = request.stageIndex === 0 ? 'claude-seat' : 'codex-seat'
               // A refused seat's account stays exhausted however the chain asks again.
-              const refused = fixture.quotaRefused !== undefined && seatsUsed.has(seat)
+              const refused =
+                (fixture.quotaRefused !== undefined || fixture.limitedSeat === seat) &&
+                seatsUsed.has(seat)
               if (
                 (fixture.seatPause && fixture.directory !== undefined && skew === 0) ||
                 request.excludedSeatIds.length > 0 ||
@@ -446,6 +525,9 @@ async function superviseRoot(fixture: Fixture) {
               return {
                 seat,
                 backend: { backend: 'provider' as const, provider, workspaceRetention: retention },
+                ...(fixture.sameHarnessSeats && request.stageIndex === 1
+                  ? { nativeTurnGrant: true as const }
+                  : {}),
               }
             },
           }
@@ -525,6 +607,7 @@ async function superviseRoot(fixture: Fixture) {
     restoredCheckpointIds,
     seatEvents,
     selections: () => ({ total: selections, atPause: selectionsAtPause }),
+    stored,
     firstCaptureExecution,
     base,
     evidence: await Promise.all(
@@ -691,6 +774,89 @@ describe('supervised root with a pending retained turn', () => {
         }),
       ]),
     )
+  })
+
+  it("makes room under a plan's snapshot limit, then switches seats from the new checkpoint", async () => {
+    // zro-game-20261104b ended 11 h in on `seat switch requires a checkpoint of its committed
+    // source`, after a weekly limit: its box held 25 checkpoints, its plan's limit, and had refused
+    // 36 more without a word.
+    const run = await superviseRoot({
+      firstTurnFailure: { error: "You've hit your weekly limit" },
+      seatSwitch: true,
+      checkpointCap: 3,
+      submitOn: 2,
+    })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    const source = run.environments[0]!
+    expect(run.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-refused',
+        environmentId: source,
+        message: expect.stringContaining('Snapshot limit reached'),
+      }),
+    )
+    const deleted = run.events.flatMap((event) =>
+      event.kind === 'workspace-checkpoint-cleanup' && event.confirmed ? [event] : [],
+    )
+    expect(deleted.map((event) => event.checkpointId)).toEqual(['earlier-0'])
+    expect(deleted[0]!.capturedDigest).toBeUndefined()
+    expect(run.stored(source)).toEqual(['earlier-1', 'earlier-2', `checkpoint-${source}`])
+    expect(run.environments).toHaveLength(2)
+    expect(run.restoredCheckpointIds).toEqual([`checkpoint-${source}`])
+    expect(count(run.events, 'seat-paused')).toBe(0)
+  })
+
+  it('pauses a seat switch whose checkpoint is refused, and switches once one lands', async () => {
+    const run = await superviseRoot({
+      firstTurnFailure: { error: "You've hit your weekly limit" },
+      seatSwitch: true,
+      seatPause: true,
+      limitedSeat: 'claude-seat',
+      // The switch asks once and its pause once; the recheck's request lands.
+      checkpointRefused: (request) => request <= 2,
+      submitOn: 2,
+    })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(run.events.filter((event) => event.kind === 'seat-paused')).toEqual([
+      expect.objectContaining({
+        detail: expect.stringContaining('Snapshot limit reached'),
+      }),
+    ])
+    const source = run.environments[0]!
+    expect(run.environments).toHaveLength(2)
+    expect(run.restoredCheckpointIds).toEqual([`checkpoint-${source}`])
+  }, 150_000)
+
+  it('stays on a seat that resets while its switch waits for a checkpoint', async () => {
+    const run = await superviseRoot({
+      firstTurnFailure: { error: "You've hit your weekly limit" },
+      seatSwitch: true,
+      seatPause: true,
+      checkpointRefused: () => true,
+      submitOn: 2,
+    })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(count(run.events, 'seat-paused')).toBe(1)
+    expect(run.environments).toHaveLength(1)
+    expect(run.restoredCheckpointIds).toEqual([])
+  }, 150_000)
+
+  it('moves to a seat on the same box without a checkpoint', async () => {
+    const run = await superviseRoot({
+      firstTurnFailure: { error: "You've hit your weekly limit" },
+      seatSwitch: true,
+      sameHarnessSeats: true,
+      checkpointRefused: () => true,
+      submitOn: 2,
+    })
+    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
+    expect(count(run.events, 'seat-paused')).toBe(0)
+    expect(run.environments).toHaveLength(1)
+    expect(
+      run.events.flatMap((event) =>
+        event.kind === 'seat-segment' && event.phase === 'started' ? [event.seat] : [],
+      ),
+    ).toEqual(['claude-seat', 'codex-seat'])
   })
 
   it("retires a re-entered root's box while every seat is exhausted and restores it after", async () => {
