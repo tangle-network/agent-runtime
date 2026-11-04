@@ -68,6 +68,7 @@ const spawnCapableChild = {
 async function spawnLeadFromRoot(
   options: Omit<SuperviseOptions, 'budget' | 'perWorker' | 'journal' | 'runId'>,
   waitForChild = false,
+  child: object = spawnCapableChild,
 ): Promise<{ events: SpawnEvent[]; toolResults: string[] }> {
   const events: SpawnEvent[] = []
   const toolResults: string[] = []
@@ -87,7 +88,7 @@ async function spawnLeadFromRoot(
               id: 'spawn',
               name: 'spawn_worker',
               arguments: JSON.stringify({
-                profile: spawnCapableChild,
+                profile: child,
                 task: 'lead the subtree',
                 key: 'lead',
               }),
@@ -332,6 +333,42 @@ it.each([false, true])(
     expect(receivedProfile?.mcp?.['agent-runtime-coordination']).toBeUndefined()
   },
 )
+
+it('judges the profile create receives, not Runtime-only seats and coordination grants', async () => {
+  // canary-chain-20261104q: the Sandbox verdict refused the Lab's worker profile on `seats` and on
+  // `agent_runtime_coordination_*`, and roots stripped their workers' tools until a spawn passed.
+  const judged: AgentProfile[] = []
+  const { provider: base } = neverCreatingProvider()
+  const provider: AgentEnvironmentProvider = {
+    ...base,
+    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+    validateProfile: (profile) => {
+      judged.push(profile as AgentProfile)
+      return { ok: true, issues: [] }
+    },
+  }
+  const seat = {
+    harness: 'codex',
+    provider: 'openai',
+    model: 'test',
+    selector: { kind: 'all-eligible' },
+  }
+  const { events } = await spawnLeadFromRoot(
+    {
+      backend: { backend: 'provider', provider },
+      coordination: {
+        authentication: true,
+        publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+      },
+      driverRetry: { enabled: false },
+    },
+    true,
+    { ...spawnCapableChild, tools: { read: true, ...spawnCapableChild.tools }, seats: [seat] },
+  )
+  expect(judged[0]?.tools).toEqual({ read: true })
+  expect(judged[0]).not.toHaveProperty('seats')
+  expect(events.some((event) => event.kind === 'spawned' && event.key === 'lead')).toBe(true)
+})
 
 it('never admits a provider manager when asynchronous endpoint provisioning fails', async () => {
   const { provider: base, creates } = neverCreatingProvider()

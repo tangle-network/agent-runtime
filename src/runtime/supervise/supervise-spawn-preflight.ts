@@ -3,6 +3,7 @@ import { ConfigError } from '../../errors'
 import type { SpawnPreflight } from '../../mcp/tools/coordination-contracts'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import { profileBridgeWireModel, profileModelExecutionSettings } from './model-policy'
+import { providerVisibleProfile } from './provider-visible-profile'
 import {
   type BridgeSeam,
   bridgeAdmissionRefusal,
@@ -63,7 +64,9 @@ export function providerSpawnPreflight(
   const validate = provider.validateProfile?.bind(provider)
   if (validate === undefined) return undefined
   return async (profile) => {
-    const result = await validate(profile)
+    // Judge what create receives. Seats and coordination grants are Runtime's and never reach the
+    // provider; judging them refused every worker the Lab's own example profile describes.
+    const result = await validate(providerVisibleProfile(profile))
     const errors = result.issues.filter((issue) => issue.level === 'error')
     if (result.ok && errors.length === 0) return undefined
     const named = errors.map(

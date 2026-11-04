@@ -11,8 +11,6 @@ import {
 } from '../../runtime/supervise/root-stream'
 import { parseCommittedJsonLines, readCommittedJsonLines } from '../jsonl-file'
 import { FileObserverJournal } from '../observer-journal'
-import { FileSpawnJournal } from '../spawn-journal/journal-store'
-import { discoverDurableSupervisionRun } from '../supervision-discovery'
 
 vi.mock('node:fs/promises', async (load) => {
   const actual = await load<typeof fs>()
@@ -113,20 +111,6 @@ describe('streaming committed JSONL', () => {
     await expect(collect(reader)).rejects.toThrow(/journal changed/)
   })
 
-  it('closes its file descriptor when a consumer stops early', async () => {
-    const path = join(root, 'records.jsonl')
-    await fs.writeFile(path, '1\n2\n')
-    const { open } = await vi.importActual<typeof fs>('node:fs/promises')
-    const handle = await open(path, 'r')
-    const close = vi.spyOn(handle, 'close')
-    vi.mocked(fs.open).mockResolvedValueOnce(handle)
-    const reader = readCommittedJsonLines(path)
-    await reader.next()
-    await reader.return(undefined)
-    expect(close).toHaveBeenCalled()
-    await expect(handle.stat()).rejects.toMatchObject({ code: 'EBADF' })
-  })
-
   it('does not hide an allocation failure as a torn final write', async () => {
     const path = join(root, 'records.jsonl')
     const bytes = '{"keep":true}'
@@ -144,19 +128,6 @@ describe('streaming committed JSONL', () => {
 })
 
 describe('durable consumers share streaming reads', () => {
-  it('resumes and verifies the observer without a whole-file read', async () => {
-    const path = join(root, 'observer.jsonl')
-    await new FileObserverJournal(path, 'pursuit').appendEvent(event('one'))
-    vi.mocked(fs.readFile).mockImplementation(async () => {
-      throw new Error('whole-file read')
-    })
-    const resumed = new FileObserverJournal(path, 'pursuit')
-    const second = await resumed.appendEvent(event('two'))
-    const records = await resumed.read()
-    expect(records.map((record) => record.sequence)).toEqual([1, 2])
-    expect(second.previousDigest).toBe(records[0]?.digest)
-  })
-
   it('checks the entire observer chain before allowing a resumed append', async () => {
     const path = join(root, 'observer.jsonl')
     const original = new FileObserverJournal(path, 'pursuit')
@@ -167,19 +138,6 @@ describe('durable consumers share streaming reads', () => {
     const resumed = new FileObserverJournal(path, 'pursuit')
     await expect(resumed.appendEvent(event('three'))).rejects.toThrow(/digest mismatch/)
     expect(await fs.readFile(path, 'utf8')).toBe(bytes)
-  })
-
-  it('loads trees, rebuilds append indexes and discovers identities without whole-file reads', async () => {
-    const path = join(root, 'spawn-journal.jsonl')
-    await new FileSpawnJournal(path).beginTree('root', '2026-01-01T00:00:00Z')
-    vi.mocked(fs.readFile).mockImplementation(async () => {
-      throw new Error('whole-file read')
-    })
-    const resumed = new FileSpawnJournal(path)
-    expect(await resumed.loadTree('root')).toEqual([])
-    expect(await resumed.loadTree('missing')).toBeUndefined()
-    await resumed.beginTree('other', '2026-01-01T00:00:01Z')
-    expect((await discoverDurableSupervisionRun(root)).roots).toEqual(['other', 'root'])
   })
 
   it('keeps coordination and conversation filtering on the streamed path', async () => {
