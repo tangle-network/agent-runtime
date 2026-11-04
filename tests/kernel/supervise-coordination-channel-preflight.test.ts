@@ -308,7 +308,8 @@ it('judges the profile create receives, not Runtime-only seats and coordination 
       return { ok: true, issues: [] }
     },
   }
-  const seat = { harness: 'codex', provider: 'openai', model: 'test', selector: { kind: 'all-eligible' } }
+  const selector = { kind: 'all-eligible' }
+  const seat = { harness: 'codex', provider: 'openai', model: 'test', selector }
   const { events } = await spawnLeadFromRoot(
     {
       backend: { backend: 'provider', provider },
