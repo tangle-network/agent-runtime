@@ -8,7 +8,6 @@ import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
   type RetainedExecutionPendingError,
-  type RetainedObservedPosition,
   type RetainedWorkspaceRestore,
   type RetainedWorkspaceRestoreReceipt,
 } from './retained-executor'
@@ -36,9 +35,8 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
     event.kind === 'execution-admitted' ? [event.admission] : [],
   )
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
-  let observed: RetainedObservedPosition | undefined = events
-    .flatMap((event) => (event.kind === 'execution-observed' ? [event] : []))
-    .at(-1)
+  const records = events.flatMap((event) => (event.kind === 'driver-attempt' ? [event.record] : []))
+  let observed = records.filter((record) => record.observed).at(-1)?.observed
   const priorSession = taskEvent === undefined ? undefined : committedSession(events, start)
   let sequence = Math.max(0, ...events.map((event) => ('seq' in event ? event.seq : 0)))
   const traceRoots = traceRootWriter(args.blobs, args.nodeId)
@@ -87,10 +85,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       get observed() {
         return observed
       },
-      onObserved: async (position) => {
-        const at = new Date(args.now()).toISOString()
-        const row = { kind: 'execution-observed' as const, id: args.nodeId, ...position, at }
-        await args.journal.appendEvent(args.rootId, { ...row, seq: state.nextSequence() })
+      onObserved: (position) => {
         observed = position
       },
       onAdmission: async (admission) => {

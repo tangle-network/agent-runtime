@@ -338,14 +338,12 @@ async function prepareInterruptedExecutors(
             node.ownedTreeRoot === undefined
           ? heldContinuation(node, events, latestInput)
           : undefined
-    const observed = [...current].reverse().find((event) => event.kind === 'execution-observed')
     recoveries.push({
       ...detachedSnapshot(
         {
           spawned: node,
           task,
           admissions,
-          ...(observed?.kind === 'execution-observed' ? { observed } : {}),
           ...(priorMaterialization === undefined ? {} : { priorMaterialization }),
           ...(continuation === undefined ? {} : { continuation }),
         },
@@ -362,8 +360,10 @@ async function prepareInterruptedExecutors(
     signal.throwIfAborted()
     const failure = executorFailure(result)
     const reason = fault ?? failure?.error
-    // A reconcile fault is the runtime's own failure; an envelope failure takes the live path's
-    // label, so a child settled here and one settled live from one durable result carry the same.
+    // A reconcile fault is the runtime's own failure; an envelope failure is attributed by the
+    // same vocabulary the live path uses, so a child settled here and one settled live from the
+    // same durable result carry the same label. This site used to stamp `infra: false` for every
+    // envelope failure, which made the label depend on whether the process survived to settle it.
     const infra =
       fault !== undefined ? true : failure === undefined ? undefined : executorFailureInfra(failure)
     // Await every admitted write before releasing the run lock, including cancellation races.

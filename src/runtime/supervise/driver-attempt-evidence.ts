@@ -34,8 +34,7 @@ export type DriverAttemptStop =
   | 'pending-unresolved'
   | 'repeated-failure'
 
-/** One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so
- *  an operator sees `driver failed after N attempts` instead of one opaque `pi exit unknown`. */
+/** One attempt's record, emitted per attempt so an operator sees each legible failure. */
 export interface DriverAttemptRecord {
   /** 1-based. */
   readonly attempt: number
@@ -48,9 +47,8 @@ export interface DriverAttemptRecord {
   /** Set when this attempt ended the loop. */
   readonly stop?: DriverAttemptStop
   /** Set when this stop would have ended the loop and an opted-in root paused instead
-   *  (`driverRetry.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end. The
-   *  run's journal holds one `paused` row for it. An admission or continuation refusal has no
-   *  failure, so its record carries no `error`. */
+   *  (`driverRetry.pauseRootStops`); `retryInMs` is the pause and `resumeAt` its end, with one
+   *  `paused` row. An admission or continuation refusal carries no `error`. */
   readonly replacesStop?: DriverAttemptStop
   /** With `replacesStop`: stop-pauses in a row since an attempt last made progress, 1-based. */
   readonly stopPauseStreak?: number
@@ -78,6 +76,8 @@ export interface DriverAttemptRecord {
   readonly resumeAt?: string
   /** The completion check's verdict after this attempt. Absent when the caller declares none. */
   readonly contract?: DriverContractState
+  /** How far its retained execution's events were read; a later reconcile subscribes after it. */
+  readonly observed?: { readonly executionId: string; readonly replayPosition: string }
   /** True when this COMPLETED attempt's unmet contract sent the loop back with a continuation. */
   readonly reprompted?: boolean
   /** With `reprompted`: the pause taken before that continuation because the barren streak had

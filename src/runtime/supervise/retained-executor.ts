@@ -6,6 +6,7 @@ import type {
   RetainedRunEnvironmentAdmission,
 } from '../retained-run-types'
 import { isCredentialRefusal } from './credential-refusal'
+import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import { errorProperty } from './error-message'
 import { detachedSnapshot } from './snapshot'
 import { type TraceRootWriter, traceRootWriter } from './trace-root'
@@ -46,10 +47,10 @@ export interface RetainedExecutorContext {
   readonly admissions: readonly RetainedRunAdmission[]
   readonly onReady?: () => void | Promise<void>
   readonly onAdmission: RetainedRunAdmissionHook
-  /** The last replay position journaled for this node's retained execution. */
+  /** How far an owner's retained execution's event stream was read, and the hook that moves it;
+   *  the owner's `driver-attempt` records carry it across a restart. */
   readonly observed?: RetainedObservedPosition
-  /** Journal how far an execution's event stream was read, as an `execution-observed` row. */
-  readonly onObserved?: (observed: RetainedObservedPosition) => Promise<void>
+  readonly onObserved?: (observed: RetainedObservedPosition) => void
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
   /** Retain failure evidence without accepting a result or changing recovery state. */
   readonly onEvidence?: (out: unknown) => Promise<void>
@@ -77,7 +78,7 @@ export interface RetainedExecutorContext {
 }
 
 /** A retained execution's event stream, read through `replayPosition`. */
-export type RetainedObservedPosition = { executionId: string; replayPosition: string }
+export type RetainedObservedPosition = NonNullable<DriverAttemptRecord['observed']>
 
 /** @internal A capture may finish after cancellation; its durable citation remains appendable. */
 export function executorEvidenceWriter(args: {
@@ -501,9 +502,8 @@ export interface RetainedChildRecovery {
   readonly spec: AgentSpec
   /** The node's original task, which its admitted identity digests. */
   readonly task: unknown
-  /** The admissions of the invocation being recovered, and how far its stream was read. */
+  /** The admissions of the invocation being recovered. */
   readonly admissions: readonly RetainedRunAdmission[]
-  readonly observed?: RetainedObservedPosition
   readonly factory: ExecutorFactory<unknown>
   readonly priorMaterialization?: ProfileMaterializationReceipt
   /** The invocation being recovered, when it is a leaf's continuation rather than its first. */

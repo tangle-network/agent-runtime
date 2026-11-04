@@ -39,9 +39,12 @@ export interface WorkspaceCheckpointMarker {
   readonly content: string
 }
 
-/** The Merkle root over the events an output archived, beside that output's `outRef`. `ref`
- *  addresses the stored `TraceRootArtifact`; `leafCount` is the archived event count plus the
- *  summary leaf. Absent where the output archived no events, and on older records. */
+/**
+ * The Merkle root over the events an output archived, as a journal record carries it beside that
+ * output's `outRef`. `ref` is the content address of the stored `TraceRootArtifact`; `leafCount` is
+ * the archived event count plus the summary leaf. Absent where the output archived no events, and
+ * on records written before trace roots existed.
+ */
 export interface TraceRootReceipt {
   readonly root: string
   readonly ref: string
@@ -67,15 +70,19 @@ export type SpawnEvent =
       runtime: Runtime
       /** Root-only opt-in owner-share contract. A resumed run must use the same policy; absent on
        * records that set none. */
-      recursiveAdmission?: { policy: RecursiveReservationPolicy }
+      recursiveAdmission?: {
+        policy: RecursiveReservationPolicy
+      }
       /** Exact nested journal tree this node owns. Runtime writes this only after privately
        * attesting the executor as a recursive scope owner. Its absence means no tree is followed,
        * including records written before this field existed and caller leaves named `driver`. */
       ownedTreeRoot?: NodeId
       /** Exact profile/task digests plus trusted candidate/campaign attribution when available. */
       identity?: NodeExecutionIdentity
-      /** `ResultBlobStore` key of the AUTHORED child `AgentProfile` this spawn ran under: it
-       *  retrieves the bytes `identity.profileDigest` names. Absent on records before bodies. */
+      /** `ResultBlobStore` key holding the AUTHORED child `AgentProfile` this spawn ran under.
+       *  Distinct from `identity.profileDigest`: that is the canonical AgentProfile digest, which
+       *  names the agent, while this is the blob store's own content address, which retrieves its
+       *  bytes. Absent on records written before the body was persisted. */
       profileRef?: string
       /** Present when authorization ran this node on another model than its parent authored. */
       modelSubstitution?: SpawnModelSubstitution
@@ -110,10 +117,12 @@ export type SpawnEvent =
     } & Omit<ExecutorResult<unknown>, 'out' | 'teardown'>)
   | {
       /**
-       * Runtime stopped reconciling this node's unfinished retained invocation, which failed
-       * reconciliation with one pending cause on consecutive drives (or once where that failure
-       * would end the run); the next drive starts a new one. No admission or result of the
-       * abandoned invocation is accepted afterwards, so it is never accepted beside its replacement.
+       * Runtime stopped reconciling this node's unfinished retained invocation: it failed
+       * reconciliation with the same pending cause on consecutive drives, or once when that
+       * failure would otherwise have ended the run, so the next drive starts a new invocation
+       * instead of repeating the refusal. Written only for an invocation with no committed result. No admission or result of the abandoned
+       * invocation is accepted afterwards, so an execution that does finish later can never be
+       * accepted beside its replacement.
        */
       kind: 'execution-abandoned'
       id: NodeId
@@ -125,8 +134,11 @@ export type SpawnEvent =
       failures: number
       /** The last failure, as recorded. */
       detail: string
-      /** What the provider confirmed. `stopped`: stopped or not live, so nothing of it runs.
-       *  `uncertain`: it may have run or still run, and its spend is unknown. */
+      /**
+       * What the provider confirmed about the abandoned execution. `stopped`: the provider
+       * stopped it or reported it not live, so nothing of it still runs. `uncertain`: nothing
+       * could be confirmed; it may have run, may still be running, and its spend is unknown.
+       */
       outcome: 'stopped' | 'uncertain'
       /** The provider's answer to the stop Runtime requested, when the invocation had dispatched. */
       stop?: { executionId: string; effect: RetainedRunEffect; error?: string }
@@ -139,15 +151,6 @@ export type SpawnEvent =
       id: NodeId
       outRef: string
       traceRoot?: TraceRootReceipt
-      seq: number
-      at: string
-    }
-  | {
-      /** How far Runtime read a retained execution's events; a later reconcile resumes after it. */
-      kind: 'execution-observed'
-      id: NodeId
-      executionId: string
-      replayPosition: string
       seq: number
       at: string
     }

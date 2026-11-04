@@ -283,8 +283,9 @@ export function closesCursorSlot(ev: SpawnEvent): boolean {
  * that guard reads this one list — the seq guard, `materializeTreeView`'s settlement split, and
  * `trajectory`'s close list.
  *
- * Declared once as data; the complement below is COMPUTED from `SpawnEvent`, so a new kind lands
- * in the cursor namespace by construction, not by whichever copies its author updated.
+ * Declared once as data. `SpawnEvent` is a discriminated union, so the complement below is
+ * COMPUTED rather than hand-written: a twelfth kind lands in the cursor namespace by construction
+ * instead of by whichever copies its author remembered to update.
  */
 const outsideCursorNamespaceKinds = [
   'spawned',
@@ -296,7 +297,6 @@ const outsideCursorNamespaceKinds = [
   'execution-result',
   'execution-abandoned',
   'execution-evidence',
-  'execution-observed',
   'evidence-pending',
   'progress',
   'reconciled',

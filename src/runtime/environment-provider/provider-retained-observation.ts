@@ -27,7 +27,7 @@ const RETAINED_STATUS_READ_MS = 60_000
 
 // Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
 // Past this many frames after a settled exact result the rest are dropped and the result stands.
-// Each batch and subscription journals its replay position, where a later reconciliation resumes.
+// An owner's later reconciliation of the execution subscribes after the last position read.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
 /** After its exact result, a stream owing its terminal frame reads on while each frame comes this
@@ -79,7 +79,6 @@ export class RetainedObservation {
   // Where a reconnect resumes: the last frame that carried a replay position.
   private lastReplayPosition: string | undefined
   private readonly resumedFrom: string | undefined
-  private journaledPosition: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
   // When the turn last acted on silence: unset until it publishes its wait (once per invocation;
@@ -99,11 +98,11 @@ export class RetainedObservation {
   constructor(
     private readonly handle: RetainedRunHandle,
     private readonly signal: AbortSignal,
-    private readonly journal?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
+    private readonly position?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
   ) {
-    const observed = journal?.observed
+    const observed = position?.observed
     if (observed?.executionId === handle.controlRef.executionId)
-      this.lastReplayPosition = this.resumedFrom = this.journaledPosition = observed.replayPosition
+      this.lastReplayPosition = this.resumedFrom = observed.replayPosition
   }
 
   /** Stream the provider's frames, resume once after a break, then yield the exact result. */
@@ -323,7 +322,12 @@ export class RetainedObservation {
     }
     // A replayed frame is not progress: a provider repeating one cursor must not hold a finished turn open.
     this.lastObservedAt = Date.now()
-    this.lastReplayPosition = identity.cursor ?? eventId ?? this.lastReplayPosition
+    const replayPosition = identity.cursor ?? eventId
+    if (replayPosition !== undefined) {
+      this.lastReplayPosition = replayPosition
+      const { executionId } = this.handle.controlRef
+      this.position?.onObserved?.({ executionId, replayPosition })
+    }
     if (isTerminalEnvironmentEvent(event)) this.sawTerminal = true
     this.readExactResult()
     return true
@@ -363,7 +367,6 @@ export class RetainedObservation {
         if (this.observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0 && this.observedFrames) {
           // Ready iterators would otherwise starve result transport, cancellation and deadlines.
           await awaitAbortable(new Promise<void>((resolve) => setImmediate(resolve)), this.signal)
-          await this.journalPosition()
         }
         let observed: FrameRead
         try {
@@ -395,17 +398,6 @@ export class RetainedObservation {
         .then(() => iterator?.return?.())
         .catch(() => undefined)
     }
-    await this.journalPosition()
     return !failed
-  }
-
-  /** Journal a replay position read since the last one. A lost write costs only a longer replay. */
-  private async journalPosition(): Promise<void> {
-    const replayPosition = this.lastReplayPosition
-    if (this.signal.aborted || replayPosition === this.journaledPosition || !replayPosition) return
-    this.journaledPosition = replayPosition
-    const position = { executionId: this.handle.controlRef.executionId, replayPosition }
-    const write = Promise.resolve(position).then(this.journal?.onObserved)
-    await write.catch(() => undefined)
   }
 }

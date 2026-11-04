@@ -3,6 +3,7 @@ import { checkInIdleMs } from './deadline'
 import { freeSlots } from './dispatch'
 import { errorText } from './error-message'
 import { isTerminalNodeStatus } from './node-status'
+import { owners } from './retained-owner-state'
 import {
   bindScopeRetainedOwnerWorkspaceRetention,
   registerScopeRetainedOwner,
@@ -64,8 +65,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   })
   const cursor = new ScopeSettlementCursor<Out>(args, children, now, recordKeyedSettlement)
 
-  // The replayed committed work, frozen once at construction — a resume-aware `act` reads it
-  // to skip re-spawning settled children. Absent on a fresh scope.
+  // Replayed committed work, frozen at construction: a resume-aware `act` skips settled children.
   const resume: ResumedWork<Out> | undefined = args.resumeFrom
     ? {
         settled: args.resumeFrom.settled as ReadonlyArray<Settled<Out>>,
@@ -106,8 +106,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         working: workerSlots.working,
         queued: workerSlots.queued,
         freeSlots: freeSlots(workerSlots.working, workerSlots.max),
-        // Nodes behind a charged-but-idle slot (settled, executor never acknowledged teardown); each
-        // scope names its OWN children so a leak is attributable.
+        // Settled nodes whose teardown was never acknowledged, each scope naming its OWN children.
         unconfirmed: Object.freeze(
           [...children.values()]
             .filter((child) => isTerminalNodeStatus(child.status) && !child.cleanupConfirmed)
@@ -194,21 +193,19 @@ function bindOwnerJournalRecorders(scope: Scope<unknown>, args: ScopeArgs, now: 
   driverAttemptRecorders.set(scope, async (record) => {
     if (driverAttemptSeq === undefined) {
       const events = (await args.journal.loadTree(args.root)) ?? []
-      driverAttemptSeq = events.reduce(
-        (next, event) =>
-          event.kind === 'driver-attempt' && event.id === args.parentId
-            ? Math.max(next, event.seq + 1)
-            : next,
-        0,
-      )
+      const prior = events.filter((e) => e.kind === 'driver-attempt' && e.id === args.parentId)
+      driverAttemptSeq = Math.max(0, ...prior.map((event) => event.seq + 1))
     }
     const attemptId = ownerMaterializationStates.get(scope)?.attemptId
+    // A retained owner's read position rides on its record, where a restarted owner finds it.
+    const observed = owners.get(scope)?.context.observed
     await args.journal.appendEvent(args.root, {
       kind: 'driver-attempt',
       id: args.parentId,
       record: {
         ...record,
         ...(record.error === undefined ? {} : { error: errorText(record.error) }),
+        ...(observed === undefined ? {} : { observed }),
       },
       ...(attemptId === undefined ? {} : { attemptId }),
       seq: driverAttemptSeq++,
@@ -282,9 +279,8 @@ async function recoverRetainedChildren<Out>(
         throw new ValidationError(`scope recovery admission refused '${node.id}': ${result.reason}`)
       adopted.push(children.get(node.id)!)
     }
-    // A recovered child can reach its original deadline before mounting its descendants.
-    // Its resolved outcome belongs to next(); it must not prevent its parent or siblings
-    // from recovering. Rejected settlement/storage operations still fail this barrier.
+    // A recovered child can reach its deadline before mounting its descendants; its outcome
+    // belongs to next(), not to this barrier, which rejected settlement or storage still fails.
     await Promise.all(
       adopted.map((child) =>
         child.recoveryReady === undefined

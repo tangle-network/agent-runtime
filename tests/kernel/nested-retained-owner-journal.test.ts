@@ -123,8 +123,9 @@ describe('nested retained owner journal isolation', () => {
     'preflight-refused',
     'replayed',
     'unreconciled',
+    'unreconciled-restart',
   ] as const) {
-    const retry = mode === 'retry' || mode === 'pending'
+    const retry = mode === 'retry' || mode === 'pending' || mode === 'unreconciled-restart'
     // The manager's turns: refused until the refusal streak stops it, or passing on the 7th.
     const sends =
       { 'content-filtered': 8, 'content-filter-recovers': 7, 'effort-refused': 10 }[
@@ -136,6 +137,7 @@ describe('nested retained owner journal isolation', () => {
       const directory = await mkdtemp(join(tmpdir(), 'nested-retained-owner-'))
       directories.push(directory)
       const context = createFileRunContext(join(directory, 'run'))
+      const providerFile = join(directory, 'provider.json')
       let creates = 0
       let injected = false
       // The clock alone is faked: each refused create takes 40 s of it.
@@ -171,7 +173,9 @@ describe('nested retained owner journal isolation', () => {
           const session = environment.session!(id, options)
           const refusal = refused.get(options?.controlRef?.executionId ?? '')
           const exact = async () => {
-            if (mode !== 'unreconciled' || reads >= 12) return session.result()
+            // The restarted process's read answers.
+            if (mode === 'unreconciled-restart' ? injected : mode !== 'unreconciled' || reads >= 12)
+              return session.result()
             skew += 40_000
             throw capacityRefusal(reads++)
           }
@@ -246,7 +250,7 @@ describe('nested retained owner journal isolation', () => {
           return environment ? wrap(environment) : null
         },
       })
-      const provider = providerOver(durableRetainedProvider(join(directory, 'provider.json')))
+      const provider = providerOver(durableRetainedProvider(providerFile))
       const journal: SpawnJournal = {
         beginTree: context.journal.beginTree.bind(context.journal),
         loadTree: context.journal.loadTree.bind(context.journal),
@@ -269,7 +273,9 @@ describe('nested retained owner journal isolation', () => {
             injected = true
             throw new Error('parent settlement acknowledgement lost')
           }
-          if (retry && !injected && root !== 'root' && meter) {
+          // The restart mode's process ends at its first pause, after a refused reconciliation.
+          const cut = mode === 'unreconciled-restart' ? event.kind === 'paused' : meter
+          if (retry && !injected && root !== 'root' && cut) {
             injected = true
             throw new Error('nested observation interrupted after usage commit')
           }
@@ -323,7 +329,7 @@ describe('nested retained owner journal isolation', () => {
                 : 2,
           ...(refusing ? { maxConsecutiveFailures: 20 } : {}),
           // A capacity wait spends no attempt, so the refusals fit in one.
-          ...(mode in WAITS || mode === 'unreconciled' ? { unavailablePauseMs: 0 } : {}),
+          ...(mode in WAITS || mode.startsWith('unreconciled') ? { unavailablePauseMs: 0 } : {}),
           initialBackoffMs: 0,
           maxBackoffMs: 0,
           // Discovery's window: an idle transient streak is never charged against maxAttempts.
@@ -386,19 +392,20 @@ describe('nested retained owner journal isolation', () => {
       )
       if (mode === 'unreconciled') {
         // Each refused read pauses the manager, never abandoned, until the 13th answers.
+        const observed = { replayPosition: 'event-2' }
         const paused = ['upstream_unavailable', 'http-429'].map((unavailableSignal) => ({
-          record: { classification: 'unavailable', unavailableSignal },
+          record: { classification: 'unavailable', unavailableSignal, observed },
         }))
         expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
           ...Array(6).fill(paused).flat(),
           { record: { stop: 'completed', reentry: 'upstream-unavailable' } },
         ])
         expect(nested.some((event) => event.kind === 'execution-abandoned')).toBe(false)
-        // The first read journals its last frame; each reconciliation resumes after it, reading none.
-        const [observed, ...more] = nested.filter((event) => event.kind === 'execution-observed')
-        const since = observed?.kind === 'execution-observed' ? observed.replayPosition : ''
-        expect([more, subscriptions.slice(1)]).toEqual([[], Array(12).fill({ since, frames: 0 })])
-        expect(subscriptions[0]?.frames).toBeGreaterThan(0)
+        // Each attempt records its last frame; each reconciliation resumes after it, reading none.
+        expect(subscriptions).toEqual([
+          { since: undefined, frames: 3 },
+          ...Array(12).fill({ since: 'event-2', frames: 0 }),
+        ])
         const settled = parent.find((e) => e.kind === 'settled' && e.id === spawn.id)
         expect(settled).toMatchObject({ status: 'done' })
         return expect(dispatches).toBe(1)
@@ -447,9 +454,7 @@ describe('nested retained owner journal isolation', () => {
         }
         expect(nested.some((event) => event.kind === 'execution-admitted')).toBe(true)
         expect(creates).toBe(1)
-        const restartedProvider = providerOver(
-          durableRetainedProvider(join(directory, 'provider.json')),
-        )
+        const restartedProvider = providerOver(durableRetainedProvider(providerFile))
         const restarted = createFileRunContext(join(directory, 'run'))
         await superviseForTest(root, 'Delegate.', {
           runDir: join(directory, 'run'),
@@ -464,17 +469,16 @@ describe('nested retained owner journal isolation', () => {
           finalizer,
           brain: scriptedDriverBrain([{ content: 'waiting for the manager' }, { content: 'done' }]),
         })
-        // The restarted process resumes after the frames the first one journaled, reading none.
-        if (retry) expect(subscriptions.slice(1)).toEqual([{ since: 'event-2', frames: 0 }])
+        // A restart resumes after the position the last driver attempt recorded, reading no frame;
+        // one before any attempt was recorded replays the execution from its first frame.
+        if (retry)
+          expect(subscriptions.slice(1)).toEqual([
+            mode === 'unreconciled-restart' ? { since: 'event-2', frames: 0 } : subscriptions[0],
+          ])
         const recoveredParent = (await restarted.journal.loadTree('root')) ?? []
         const recoveredNested = (await restarted.journal.loadTree(spawn.ownedTreeRoot)) ?? []
-        const settlement = recoveredParent.find(
-          (event) => event.kind === 'settled' && event.id === spawn.id,
-        )
-        expect(settlement, JSON.stringify(recoveredParent)).toMatchObject({
-          kind: 'settled',
-          status: 'done',
-        })
+        const settlement = recoveredParent.find((e) => e.kind === 'settled' && e.id === spawn.id)
+        expect(settlement, JSON.stringify(recoveredParent)).toMatchObject({ status: 'done' })
         if (settlement?.kind === 'settled' && settlement.outRef) {
           expect(await restarted.blobs.get(settlement.outRef)).toEqual({ finalizedBy: 'manager' })
         }
