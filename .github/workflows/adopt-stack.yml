@@ -11,9 +11,9 @@ permissions:
 
 jobs:
   adopt:
-    uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@9509f8a89a1f13631609d571c3f299f91bf61794
+    uses: tangle-network/agent-eval/.github/workflows/adopt-stack.yml@28e93616e223e5ee3159527ffe03b0c84bb6ddb5
     with:
-      stack-ref: 9509f8a89a1f13631609d571c3f299f91bf61794
+      stack-ref: 28e93616e223e5ee3159527ffe03b0c84bb6ddb5
       gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
       post-pin: node scripts/release-notes.mjs --adoption
       default-branch: main
