@@ -9,7 +9,6 @@ import { defaultRedactor } from '../../redact'
 import {
   assertEventBinding,
   awaitAbortable,
-  isTerminalSessionStatus,
   RetainedRunProviderContractError,
 } from '../retained-run-binding'
 import type { RetainedRunHandle } from '../retained-run-types'
@@ -20,8 +19,7 @@ import { turnFailureOf } from '../supervise/executor-outcome'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
-// Silence never ends a turn. This long without evidence publishes the wait on the exact result
-// once, then reads the run's status: a live or unknown answer keeps the wait.
+// Publish the wait, then bound observation of an unchanged invocation. Silence never proves death.
 const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
 // A status read that fails, outlasts this, or finds the run ended leaves the turn pending.
 const RETAINED_STATUS_READ_MS = 60_000
@@ -94,8 +92,7 @@ export class RetainedObservation {
   private readonly resumedFrom: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
-  // When the turn last acted on silence: unset until it publishes its wait (once per invocation;
-  // the row's `since` is when the silence began), then each live status answer.
+  // The awaiting mark grants one more quiet interval, not an indefinitely renewable lease.
   private silenceHandledAt: number | undefined
   private exactResult: Promise<AgentTurnResult> | undefined
   private exactResultSettled = false
@@ -112,6 +109,7 @@ export class RetainedObservation {
     private readonly handle: RetainedRunHandle,
     private readonly signal: AbortSignal,
     private readonly position?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
+    private readonly quietMs = RETAINED_AWAITING_RESULT_AFTER_MS,
   ) {
     const observed = position?.observed
     if (observed?.executionId === handle.controlRef.executionId)
@@ -141,8 +139,9 @@ export class RetainedObservation {
     // A short stream is not an end: only the exact result settles the invocation.
     if (!this.sawTerminal && !this.exactResultSettled && this.silenceHandledAt === undefined) {
       yield this.awaitingResult(Date.now())
+      this.lastObservedAt = Date.now()
     }
-    while (!(await this.exactOrQuiet())) await this.confirmRunLive(session)
+    while (!(await this.exactOrQuiet())) await this.stopQuietObservation(session)
     yield await this.resultFrame()
   }
 
@@ -156,12 +155,12 @@ export class RetainedObservation {
 
   private armQuiet(onQuiet: () => void): () => void {
     const quietFrom = Math.max(this.lastObservedAt, this.silenceHandledAt ?? 0)
-    const quietMs = RETAINED_AWAITING_RESULT_AFTER_MS - (Date.now() - quietFrom)
+    const quietMs = this.quietMs - (Date.now() - quietFrom)
     return armDeadlineTimer(Math.max(0, quietMs), onQuiet)
   }
 
-  /** Ask the provider whether the run still lives; throw when it cannot say so in time. */
-  private async confirmRunLive(session: AgentSession): Promise<void> {
+  /** Status diagnoses the observation stop; it cannot substitute for a frame or exact result. */
+  private async stopQuietObservation(session: AgentSession): Promise<void> {
     const deadline = new AbortController()
     const clear = armDeadlineTimer(RETAINED_STATUS_READ_MS, () =>
       deadline.abort(new Error(`no status answer within ${RETAINED_STATUS_READ_MS} ms`)),
@@ -173,10 +172,6 @@ export class RetainedObservation {
         Promise.resolve().then(() => session.status({ signal })),
         signal,
       )
-      if (status !== null && !isTerminalSessionStatus(status)) {
-        this.silenceHandledAt = Date.now()
-        return
-      }
       cause = new Error(`provider status reads ${status}`)
     } catch (error) {
       if (this.signal.aborted) throw error
@@ -184,8 +179,11 @@ export class RetainedObservation {
     } finally {
       clear()
     }
-    throw new Error(
-      `retained provider brought no frame or exact result since ${new Date(this.lastObservedAt).toISOString()} and did not confirm its run live`,
+    if (this.exactResultSettled) return
+    throw Object.assign(
+      streamFailure(
+        'retained provider observation exceeded its quiet interval; exact execution remains pending',
+      ),
       { cause },
     )
   }
@@ -397,8 +395,11 @@ export class RetainedObservation {
           break
         }
         if (observed.kind === 'quiet') {
-          if (this.silenceHandledAt !== undefined) await this.confirmRunLive(session)
-          else yield this.awaitingResult(this.lastObservedAt)
+          if (this.silenceHandledAt !== undefined) await this.stopQuietObservation(session)
+          else {
+            yield this.awaitingResult(this.lastObservedAt)
+            this.lastObservedAt = Date.now()
+          }
           continue
         }
         if (observed.kind === 'exact-result') {

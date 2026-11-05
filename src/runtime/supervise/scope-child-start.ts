@@ -16,6 +16,11 @@ import { zeroSpend } from '../util'
 import { RunCancellationReason } from './abortable'
 import { singleFlightTeardown, teardownExecutor } from './deadline'
 import {
+  createExecutorObservation,
+  createToolProgressObserver,
+  executorObservationSeamKey,
+} from './executor-observation'
+import {
   interactiveAdmissionSeamKey,
   writeWorkerInteractiveAdmission,
 } from './interactive-admission'
@@ -24,6 +29,7 @@ import { type RetainedChildRecovery, retainedExecutorSeamKey } from './retained-
 import { nestedTeardownScopes } from './scope-capabilities'
 import type { createChildRetention } from './scope-child-retention'
 import {
+  type ChildAdmission,
   type DeferredOwnerSlot,
   type LiveChild,
   nestedScopeSeamKey,
@@ -39,6 +45,7 @@ import type {
   ExecutionBindingReceipt,
   Executor,
   ExecutorContext,
+  ExecutorProgressEvent,
   Handle,
   HeldRelease,
   NodeExecutionIdentity,
@@ -69,7 +76,7 @@ export interface AdmittedChild {
   readonly ordinal: number
   readonly attemptId: string
   readonly startedAt: number
-  readonly childDeadlineAtMs: number | undefined
+  readonly admission: ChildAdmission
   readonly successorOf: NodeId | undefined
   readonly task: unknown
   readonly opts: SpawnOpts
@@ -96,10 +103,21 @@ export function childExecutorContext(
     readonly workerTrace: TraceContext | undefined
     readonly retainedContext: ChildRetention['retainedContext']
     readonly now: () => number
+    readonly onProgress: (event: ExecutorProgressEvent) => void
   },
 ): ExecutorContext {
   const { id, identity, recovery, continuing, opts } = child
   const interactiveBindingDir = args.interactiveBindingDir
+  const observation = createExecutorObservation(
+    args.hooks,
+    {
+      rootId: args.root,
+      parentId: args.parentId,
+      nodeId: id,
+      attemptId: child.attemptId,
+    },
+    seams.onProgress,
+  )
   return {
     signal: controller.signal,
     node: {
@@ -112,6 +130,7 @@ export function childExecutorContext(
     },
     seams: {
       ...args.seams,
+      [executorObservationSeamKey]: observation,
       [retainedExecutorSeamKey]: seams.retainedContext(
         recovery?.continuation !== undefined
           ? {
@@ -125,12 +144,12 @@ export function childExecutorContext(
             : undefined,
       ),
       [nestedScopeSeamKey]: makeNestedScopeSeam(
-        args,
+        { ...args, seams: { ...args.seams, [executorObservationSeamKey]: observation } },
         seams.workerSlots,
         seams.permit,
         id,
         opts.budget,
-        child.childDeadlineAtMs,
+        child.admission,
         seams.deferredOwner,
       ),
       ...(seams.workerTrace ? { [workerTraceSeamKey]: seams.workerTrace } : {}),
@@ -196,10 +215,23 @@ export function liveChildRecord<C>(
     live.teardownAttempts += 1
   })
   const live: LiveChild = {
+    admission: child.admission,
     events: new WorkerEvents(
       args.interactiveBindingDir === undefined
         ? undefined
         : { runDir: args.interactiveBindingDir, nodeId: id, now },
+      createToolProgressObserver(
+        createExecutorObservation(
+          args.hooks,
+          {
+            rootId: args.root,
+            parentId: args.parentId,
+            nodeId: id,
+            attemptId: child.attemptId,
+          },
+          () => {},
+        ),
+      ),
     ),
     id,
     status: start.granted ? 'acquiring' : 'queued',
@@ -349,6 +381,7 @@ function spawnedEvent<C>(
   const { id, opts, identity, successorOf, continuing, modelSubstitution } = child
   return {
     kind: 'spawned',
+    attemptId: child.attemptId,
     id,
     parent: args.parentId,
     label: opts.label,

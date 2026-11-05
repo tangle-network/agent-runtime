@@ -230,7 +230,15 @@ describe('nested retained owner journal isolation', () => {
                   : { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
               ...(mode === 'failed' ? { success: false, error: MALFORMED } : {}),
-              ...(refusal ? { success: false, error: refusal.error } : {}),
+              ...(refusal
+                ? {
+                    success: false,
+                    error: refusal.error,
+                    ...(mode === 'restart-recovers'
+                      ? { failure: { kind: 'infra' as const, code: 'runtime-restarted' } }
+                      : {}),
+                  }
+                : {}),
             }),
           }
         },
@@ -460,9 +468,14 @@ describe('nested retained owner journal isolation', () => {
       if (downReasons !== undefined) {
         // Nothing is in doubt: the turn committed a failed result, or no create ever answered, so
         // the manager settles down with that reason instead of holding its slot open.
-        expect(parent.some((event) => event.kind === 'reconciled' && event.id === spawn.id)).toBe(
-          false,
-        )
+        expect(
+          parent.some(
+            (event) =>
+              event.kind === 'reconciled' &&
+              event.id === spawn.id &&
+              event.settledSeq !== undefined,
+          ),
+        ).toBe(false)
         const down = parent.find((event) => event.kind === 'settled' && event.id === spawn.id)
         expect(down, JSON.stringify(parent)).toMatchObject({ status: 'down' })
         for (const reason of downReasons)

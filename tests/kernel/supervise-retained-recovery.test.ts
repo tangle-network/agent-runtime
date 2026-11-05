@@ -44,6 +44,10 @@ describe('supervised retained provider recovery', () => {
       expect(fixture.dispatches()).toBe(1)
       // One cache read is excluded by the conserved pool's existing token charge.
       expect(fixture.resumeBudget()).toBe(96)
+      await fixture.resume()
+      expect(fixture.resumeBudget()).toBe(96)
+      expect(fixture.creations()).toBe(1)
+      expect(fixture.dispatches()).toBe(1)
     },
   )
 

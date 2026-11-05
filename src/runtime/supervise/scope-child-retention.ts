@@ -2,16 +2,16 @@ import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { chargedTokens } from '../util'
+import { notifyExecutionAdmitted } from './executor-observation'
 import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
   leafContinuationExecutionId,
   type RetainedChildRecovery,
   type RetainedExecutorContext,
-  workspaceCaptureWriter,
 } from './retained-executor'
 import { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
-import type { LiveChild, ScopeArgs } from './scope-contract'
+import type { ChildAdmission, LiveChild, ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import { assertValidSpend } from './spend-validation'
 import type { TraceRootWriter } from './trace-root'
@@ -23,13 +23,14 @@ export function createChildRetention({
   controller,
   id,
   ordinal,
+  attemptId,
   identity,
   recovery,
   opts,
   now,
   traceRoots,
   markRecoveryReady,
-  childDeadlineAtMs,
+  admission,
   readLive,
   completeEvidence,
 }: {
@@ -37,13 +38,14 @@ export function createChildRetention({
   controller: AbortController
   id: NodeId
   ordinal: number
+  attemptId: string
   identity: NodeExecutionIdentity | undefined
   recovery: RetainedChildRecovery | undefined
   opts: SpawnOpts
   now: () => number
   traceRoots: TraceRootWriter
   markRecoveryReady: (() => void) | undefined
-  childDeadlineAtMs: number | undefined
+  admission: ChildAdmission
   readLive: () => LiveChild
   completeEvidence: () => Promise<void>
 }) {
@@ -92,6 +94,7 @@ export function createChildRetention({
         at: new Date(now()).toISOString(),
       })
       admissions.push(detachedSnapshot(admission, 'retained admission'))
+      notifyExecutionAdmitted(args.hooks, args.root, id, admission, now, attemptId)
       readLive().recoveryPending = true
       controller.signal.throwIfAborted()
     })
@@ -124,14 +127,6 @@ export function createChildRetention({
       )
       readLive().recoveryPending = false
     })
-  let captureSeq = 0
-  const { onWorkspaceCapture, onWorkspaceCaptureStarted } = workspaceCaptureWriter({
-    journal: args.journal,
-    rootId: args.root,
-    nodeId: id,
-    nextSequence: () => captureSeq++,
-    now,
-  })
   const onPause: NonNullable<RetainedExecutorContext['onPause']> = (pause) =>
     retainedWrite(async () => {
       await args.journal.appendEvent(args.root, {
@@ -149,7 +144,7 @@ export function createChildRetention({
     opts.key !== undefined && holdMs > 0
       ? (spent: Spend): boolean =>
           overBudget(opts.budget, spent) ||
-          (childDeadlineAtMs !== undefined && now() > childDeadlineAtMs)
+          (admission.deadlineAtMs !== undefined && now() > admission.deadlineAtMs)
       : undefined
   const retainedContext = (
     continuing:
@@ -182,8 +177,6 @@ export function createChildRetention({
       traceRoots,
     }),
     onPause,
-    onWorkspaceCapture,
-    onWorkspaceCaptureStarted,
     continueInvocation: async (nextTask) => {
       controller.signal.throwIfAborted()
       const live = readLive()

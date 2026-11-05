@@ -1,4 +1,5 @@
 import { appendFile, copyFile, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { type AddressInfo, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -6,6 +7,7 @@ import { readRunState, readSpawnJournal } from '../../src/durable'
 import { acquireRunDirectoryLock, runDirectoryHolderIsLive } from '../../src/durable/run-lock'
 import { writeFailureRecord, writeSettleRecord } from '../../src/durable/settle-record'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { createFileRunContext, createSupervisor } from '../../src/runtime'
 import { cancelRun } from '../../src/runtime/supervise/run-cancellation'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
 
@@ -212,6 +214,31 @@ describe('public Runtime run state from durable evidence', () => {
       failureCode: 'transport',
       settle,
     })
+  })
+
+  it('reads a typed root rejection from the actual supervisor settlement', async () => {
+    const listener = createServer()
+    await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve))
+    const port = (listener.address() as AddressInfo).port
+    await new Promise<void>((resolve) => listener.close(() => resolve()))
+    const settled = await createSupervisor<unknown, unknown>().run(
+      { name: 'root-reader', act: async () => fetch(`http://127.0.0.1:${port}`) },
+      null,
+      {
+        ...createFileRunContext(runDir),
+        resume: false,
+        runId: 'root-reader',
+        budget: { maxTokens: 10, maxIterations: 1, deadlineMs: 10000 },
+      },
+    )
+    expect(settled).toMatchObject({
+      kind: 'no-winner',
+      reason: 'driver-failed',
+      error: { failure: { code: 'transport', owner: 'platform' } },
+    })
+    expect(settled.tree.nodes.some((node) => node.id === settled.tree.root)).toBe(false)
+    await writeSettleRecord(runDir, settled)
+    expect(await readRunState(runDir)).toMatchObject({ phase: 'settled', failureCode: 'transport' })
   })
 
   it('tolerates older settlements without node timing and does not hide corrupt owned records', async () => {

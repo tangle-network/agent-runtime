@@ -14,7 +14,6 @@ export interface SupervisorRunIntake<Task> {
   /** The root scope's one abort source; a persistence failure aborts it. */
   readonly controller: AbortController
   readonly persistence: ReturnType<typeof guardRunPersistence>
-  readonly ownerWorkspaceRetention: SupervisorOpts['ownerWorkspaceRetention']
   readonly deadlineCheckIn: SupervisorOpts['deadlineCheckIn']
   readonly budgetStopHoldMs: SupervisorOpts['budgetStopHoldMs']
 }
@@ -46,7 +45,6 @@ export function admitSupervisorRun<Task>(
     teardownConfirmMs,
     resume,
     retainedAtSettlement: requestedRetainedAtSettlement,
-    ownerWorkspaceRetention,
     now: suppliedNow,
     signal,
     hooks,
@@ -74,7 +72,6 @@ export function admitSupervisorRun<Task>(
         ...(requestedRetainedAtSettlement === undefined
           ? {}
           : { retainedAtSettlement: requestedRetainedAtSettlement }),
-        ...(ownerWorkspaceRetention === undefined ? {} : { ownerWorkspaceRetention }),
         ...(interactiveBindingDir === undefined ? {} : { interactiveBindingDir }),
       },
     },
@@ -125,7 +122,6 @@ export function admitSupervisorRun<Task>(
     slots,
     controller,
     persistence,
-    ownerWorkspaceRetention,
     deadlineCheckIn,
     budgetStopHoldMs,
   }

@@ -23,7 +23,6 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { EventAcknowledgement } from '../../src/mcp/tools/coordination-events'
-import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { AUTHORITY_PROMOTION_MS } from '../../src/runtime/supervise/inbox'
 import {
@@ -39,7 +38,6 @@ import {
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
-import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -87,7 +85,6 @@ function dispatchNotAdmitted(): Error {
 
 interface Fixture {
   readonly firstTurnFailure?: { error: string }
-  readonly captureFailure?: 'throw' | 'partial' | 'raw-partial' | 'recover'
   /** Rotate from Claude to Codex after the first seat reaches its subscription limit. */
   readonly seatSwitch?: boolean
   /** Called before each dispatch reaches the provider; throw to refuse it. */
@@ -101,10 +98,6 @@ interface Fixture {
   /** Milliseconds from now to the continuation deadline, for a director that never submits: a
    *  barren streak only pauses the run, and this deadline ends it. Default one hour. */
   readonly continuationDeadlineMs?: number
-  /** Delay each source lookup between the first failed capture and its recovery. */
-  readonly slowSourceLookupMs?: number
-  /** The retention port's bound; 5 s unless a slow lookup needs more. */
-  readonly retentionTimeoutMs?: number
   /** Re-enter this earlier fixture directory: the same run directory and provider state. */
   readonly directory?: string
   /** The process dies when it journals the Nth `execution-input`, before the run settles. */
@@ -341,72 +334,8 @@ async function superviseRoot(fixture: Fixture) {
       return wrap(environment)
     },
     get: async (id) => {
-      if (fixture.slowSourceLookupMs !== undefined && captureCalls === 1) {
-        await new Promise((resolve) => setTimeout(resolve, fixture.slowSourceLookupMs))
-      }
       const environment = await base.get!(id)
       return environment ? wrap(environment) : null
-    },
-  }
-  const artifacts = fileWorkspaceArtifacts(join(directory, 'artifacts'))
-  let firstCaptureExecution: string | undefined
-  let captureCalls = 0
-  const retention: ProviderWorkspaceRetentionPort = {
-    timeoutMs: fixture.retentionTimeoutMs ?? 5_000,
-    requireCompleteProvenance: true,
-    artifacts,
-    async capture(captureContext) {
-      firstCaptureExecution ??= captureContext.executionId
-      if (captureContext.executionId === firstCaptureExecution) {
-        captureCalls += 1
-        if (
-          fixture.captureFailure === 'throw' ||
-          (fixture.captureFailure === 'recover' && captureCalls === 1)
-        )
-          throw new Error(
-            'process streams incomplete: process_io_missing; process_source_unavailable',
-          )
-        if (fixture.captureFailure === 'partial') {
-          const captured = await completeCapture(captureContext, artifacts)
-          return {
-            ...captured,
-            provenance: {
-              ...captured.provenance,
-              workspace: { ...captured.provenance.workspace!, complete: false },
-              missing: ['process_io_missing'],
-            },
-          }
-        }
-        if (fixture.captureFailure === 'raw-partial') {
-          const captured = await completeCapture(captureContext, artifacts)
-          return {
-            ...captured,
-            provenance: {
-              ...captured.provenance,
-              missing: [
-                `Sandbox session ${captureContext.controlRef!.sessionId} declared partial raw capture`,
-                `Sandbox session ${captureContext.controlRef!.sessionId}: process_io_missing`,
-                `Sandbox session ${captureContext.controlRef!.sessionId}: process_io_unavailable`,
-                `Sandbox session ${captureContext.controlRef!.sessionId}: process_source_unavailable`,
-                `Sandbox session ${captureContext.controlRef!.sessionId}: process_source_unavailable:${captureContext.controlRef!.executionId}`,
-                `Sandbox session ${captureContext.controlRef!.sessionId} attempt ${captureContext.controlRef!.executionId}/1: process_io_missing`,
-                `Sandbox session ${captureContext.controlRef!.sessionId} attempt ${captureContext.controlRef!.executionId}/1: process_source_unavailable`,
-                `Sandbox session ${captureContext.controlRef!.sessionId} has no original process source: ${captureContext.controlRef!.executionId}`,
-                `Raw native session capture for Sandbox session ${captureContext.controlRef!.sessionId} is unavailable: process_io_missing; process_io_unavailable; process_source_unavailable; process_source_unavailable:${captureContext.controlRef!.executionId}`,
-              ],
-              sessions: captured.provenance.sessions!.map((session) => ({
-                ...session,
-                processStreams: { ...session.processStreams!, complete: false },
-              })),
-              attempts: captured.provenance.attempts!.map((attempt) => ({
-                ...attempt,
-                missingReasons: ['process_io_missing', 'process_source_unavailable'],
-              })),
-            },
-          }
-        }
-      }
-      return completeCapture(captureContext, artifacts)
     },
   }
   const result = await supervise(
@@ -500,7 +429,6 @@ async function superviseRoot(fixture: Fixture) {
       driverBackend: {
         backend: 'provider',
         provider,
-        ...(fixture.captureFailure === undefined ? {} : { workspaceRetention: retention }),
       },
       ...(fixture.seatSwitch
         ? {
@@ -524,7 +452,7 @@ async function superviseRoot(fixture: Fixture) {
               seatsUsed.add(seat)
               return {
                 seat,
-                backend: { backend: 'provider' as const, provider, workspaceRetention: retention },
+                backend: { backend: 'provider' as const, provider },
                 ...(fixture.sameHarnessSeats && request.stageIndex === 1
                   ? { nativeTurnGrant: true as const }
                   : {}),
@@ -535,8 +463,7 @@ async function superviseRoot(fixture: Fixture) {
       budget: {
         maxIterations: 100,
         maxTokens: 1000,
-        deadlineMs:
-          fixture.slowSourceLookupMs === undefined && !fixture.seatPause ? 60_000 : 180_000,
+        deadlineMs: !fixture.seatPause ? 60_000 : 180_000,
       },
       // Strict: three barren failures end the run, with no outage window to shelter them.
       driverRetry: {
@@ -608,20 +535,7 @@ async function superviseRoot(fixture: Fixture) {
     seatEvents,
     selections: () => ({ total: selections, atPause: selectionsAtPause }),
     stored,
-    firstCaptureExecution,
     base,
-    evidence: await Promise.all(
-      events.flatMap((event) =>
-        event.kind === 'execution-evidence' ? [context.blobs.get(event.outRef)] : [],
-      ),
-    ),
-    captures: await Promise.all(
-      events.flatMap((event) =>
-        event.kind === 'execution-evidence' || event.kind === 'execution-result'
-          ? [context.blobs.get(event.outRef)]
-          : [],
-      ),
-    ),
   }
 }
 
@@ -630,75 +544,10 @@ function count(events: readonly SpawnEvent[], kind: SpawnEvent['kind']): number 
 }
 
 describe('supervised root with a pending retained turn', () => {
-  it('recaptures an unavailable turn before delivering the next output', async () => {
-    const run = await superviseRoot({
-      firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
-      captureFailure: 'recover',
-      submitOn: 2,
-    })
-    expect(
-      run.result,
-      JSON.stringify({ attempts: run.attempts, dispatched: run.dispatched.length }),
-    ).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-    expect(run.dispatched).toHaveLength(2)
-    expect(run.attempts[0]).toMatchObject({ classification: 'unavailable' })
-    expect(run.attempts[0]?.retryInMs).toBeGreaterThan(0)
-    expect(run.attempts.some((attempt) => attempt.error?.includes('capture pending'))).toBe(false)
-    const first = run.events.find(
-      (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
-    )
-    if (first?.kind !== 'execution-admitted' || first.admission.phase !== 'dispatched')
-      throw new Error('missing first dispatch')
-    expect(run.environments).toHaveLength(1)
-    expect(run.evidence).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          workspaceCapture: expect.objectContaining({
-            executionId: run.firstCaptureExecution,
-            controlRef: first.admission.controlRef,
-            coverageComplete: true,
-          }),
-        }),
-      ]),
-    )
-  })
-
-  it('recovers an accepted workspace whose source lookup takes longer than 30 s but within the retention bound', async () => {
-    // test-acceptance-canary-20261018h (2026-10-18): a box idle about 21 minutes took over 30 s to
-    // answer the recovery lookup, the fixed 30 s cap aborted it, and the resumed supervisor exited
-    // with its accepted workspace pending.
-    const run = await superviseRoot({
-      firstTurnFailure: { error: 'HTTP 429 rate_limit_error' },
-      captureFailure: 'recover',
-      submitOn: 2,
-      slowSourceLookupMs: 31_000,
-      retentionTimeoutMs: 60_000,
-    })
-    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-    // The accepted workspace was recaptured in place: no replacement environment, and its receipt.
-    expect(run.environments).toHaveLength(1)
-    expect(run.evidence).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          workspaceCapture: expect.objectContaining({
-            executionId: run.firstCaptureExecution,
-            coverageComplete: true,
-          }),
-        }),
-      ]),
-    )
-  }, 150_000)
-
-  it.each([
-    [false, true],
-    [true, true],
-    [false, false],
-    [true, false],
-  ] as const)(
-    'settles queued cancellation without dispatch and preserves uncaptured sources (stale acknowledgement=%s, partial capture=%s)',
-    async (staleAcknowledgement, partial) => {
-      const captureFailure = partial ? ('partial' as const) : undefined
-      await expect(superviseRoot({ captureFailure, submitOn: 2, crashOnInput: 2 })).rejects.toThrow(
+  it.each([false, true])(
+    'settles queued cancellation without dispatch or environment creation (stale acknowledgement=%s)',
+    async (staleAcknowledgement) => {
+      await expect(superviseRoot({ submitOn: 2, crashOnInput: 2 })).rejects.toThrow(
         'supervisor process died',
       )
       const directory = directories.at(-1)!
@@ -710,7 +559,7 @@ describe('supervised root with a pending retained turn', () => {
           () => {},
           () => new Date().toISOString(),
         )
-      const run = await superviseRoot({ captureFailure, submitOn: 2, directory })
+      const run = await superviseRoot({ submitOn: 2, directory })
       expect(run.result).toMatchObject({
         kind: 'no-winner',
         reason: 'cancelled',
@@ -723,87 +572,11 @@ describe('supervised root with a pending retained turn', () => {
       )
       if (source?.kind !== 'execution-admitted' || source.admission.phase !== 'environment')
         throw new Error('missing admitted source')
-      if (partial) {
-        expect(run.result.teardownUnconfirmed).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              id: 'pending-root',
-              kept: expect.arrayContaining([
-                expect.objectContaining({
-                  provider: source.admission.provider,
-                  environmentId: source.admission.environmentId,
-                  keptFor: 'evidence',
-                }),
-              ]),
-            }),
-          ]),
-        )
-        expect(run.destroyed).not.toContain(source.admission.environmentId)
-      } else {
-        expect(run.result.teardownUnconfirmed ?? []).toEqual([])
-        expect(run.destroyed).toContain(source.admission.environmentId)
-      }
-      expect(readRunCancellation(runDir, 'dead-cancel')?.effect).toBe(
-        partial ? 'unknown' : 'cancelled',
-      )
+      expect(run.result.teardownUnconfirmed ?? []).toEqual([])
+      expect(run.destroyed).toContain(source.admission.environmentId)
+      expect(readRunCancellation(runDir, 'dead-cancel')?.effect).toBe('cancelled')
     },
   )
-
-  it('continues past an accepted turn with incomplete capture and keeps its source as evidence', async () => {
-    const run = await superviseRoot({ captureFailure: 'partial', submitOn: 2 })
-    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-    expect(run.dispatched).toHaveLength(2)
-    // The uncaptured source is never mutated: the next turn ran in another environment.
-    expect(run.environments).toHaveLength(2)
-    expect(run.destroyed).not.toContain(run.environments[0])
-    expect(await run.base.get!(run.environments[0]!)).not.toBeNull()
-    expect(count(run.events, 'execution-input')).toBe(2)
-    expect(count(run.events, 'execution-result')).toBe(2)
-    expect(run.events.filter((event) => event.kind === 'evidence-pending')).toEqual([
-      expect.objectContaining({
-        executionId: run.firstCaptureExecution,
-        environmentId: run.environments[0],
-        error: expect.stringContaining('retained workspace capture pending'),
-      }),
-    ])
-    expect(run.result.teardownUnconfirmed).toEqual([
-      expect.objectContaining({
-        kept: [
-          expect.objectContaining({ environmentId: run.environments[0], keptFor: 'evidence' }),
-        ],
-      }),
-    ])
-  })
-
-  it('preserves a raw-partial source through a checkpointed seat switch', async () => {
-    const run = await superviseRoot({
-      captureFailure: 'raw-partial',
-      firstTurnFailure: { error: "You've hit your weekly limit" },
-      seatSwitch: true,
-      submitOn: 2,
-    })
-    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-    expect(run.environments).toHaveLength(2)
-    expect(run.dispatched).toHaveLength(2)
-    expect(run.events).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'workspace-checkpoint',
-          environmentId: run.environments[0],
-        }),
-      ]),
-    )
-    expect(run.destroyed).not.toContain(run.environments[0])
-    expect(run.events).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: 'environment-teardown',
-          environmentId: run.environments[0],
-          destroyed: true,
-        }),
-      ]),
-    )
-  })
 
   it("makes room under a plan's snapshot limit, then switches seats from the new checkpoint", async () => {
     // zro-game-20261104b ended 11 h in on `seat switch requires a checkpoint of its committed
@@ -914,9 +687,10 @@ describe('supervised root with a pending retained turn', () => {
     const resumed = run.events.findIndex(
       (event, index) => index > paused && event.kind === 'execution-input',
     )
-    // Retired during the pause, before the drive after it.
+    // Retirement is acknowledged before the pause is published and before resumed work.
     expect(paused).toBeGreaterThan(-1)
-    expect(retired).toBeGreaterThan(paused)
+    expect(retired).toBeGreaterThan(-1)
+    expect(retired).toBeLessThan(paused)
     expect(retired).toBeLessThan(resumed)
     expect(at((event) => admitted(event) === replacement)).toBeGreaterThan(retired)
     expect(run.destroyed[0]).toBe(source)
@@ -971,27 +745,6 @@ describe('supervised root with a pending retained turn', () => {
     // The cancel woke the wait before the reset: it ended the run without selecting again.
     const { total, atPause } = run.selections()
     expect(total).toBe(atPause)
-  })
-
-  it('continues a retained Codex turn when only raw process capture is partial', async () => {
-    const run = await superviseRoot({ captureFailure: 'raw-partial', submitOn: 2 })
-    expect(run.result).toMatchObject({ kind: 'winner', out: { answer: 'delivered' } })
-    expect(run.dispatched).toHaveLength(2)
-    expect(run.environments).toHaveLength(1)
-    expect(run.captures).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          workspaceCapture: expect.objectContaining({
-            coverageComplete: false,
-            incompleteReason: expect.stringContaining('process_io_missing'),
-            provenance: expect.objectContaining({
-              workspace: expect.objectContaining({ complete: true }),
-            }),
-          }),
-        }),
-      ]),
-    )
-    expect(run.destroyed).not.toContain(run.environments[0])
   })
 
   it('settles a root from its exact result when its provider stream has no terminal event', async () => {

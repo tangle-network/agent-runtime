@@ -1,7 +1,13 @@
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
-import { zeroSpend } from '../util'
-import type { ReservationShortfall, ReservationTicket } from './budget'
+import { unreportedSpend, zeroSpend } from '../util'
+import { runAbortable } from './abortable'
+import {
+  budgetLeases,
+  type ReservationHolder,
+  type ReservationShortfall,
+  type ReservationTicket,
+} from './budget'
 import { armDeadlineTimer, boundedChildDeadlineAt, CHILD_DEADLINE_REASON } from './deadline'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import { newExecutionAttemptId } from './materialization'
@@ -60,6 +66,7 @@ interface ScopeSpawnerDeps {
   isAdmissionClosed: () => boolean
   checkInAtTimeBox: (id: NodeId, controller: AbortController) => (() => void) | undefined
   releaseHeld: (child: LiveChild, reason: HeldRelease) => Promise<boolean>
+  publishSettlement: (child: LiveChild, settlement: PreSeqSettled) => Promise<unknown>
 }
 
 type SpawnResult<C> =
@@ -140,10 +147,7 @@ class ScopeSpawner<Out> {
     if (args.maxDepth !== undefined && args.depth >= args.maxDepth) {
       return { ok: false, reason: 'depth-exceeded' }
     }
-    // A concrete child exposes its profile now, so parse and seal it before capacity or budget
-    // admission. A lazy agent factory cannot reveal a profile without being constructed; preserve
-    // the refusal invariant for those factories and validate the result immediately after the
-    // reservation, before registry resolution or any executor code.
+    // Seal concrete profiles before admission; construct lazy factories only after funding.
     if (typeof agentOrFactory !== 'function') prepareOnce(request)
     const reservation = this.reserve(request)
     if (!reservation.ok) {
@@ -240,24 +244,24 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * Reserve the child's whole ceiling atomically so Σk is conserved by construction. A ceiling
-   * the pool could cover once this scope's running children return what they hold WAITS (the
-   * child is admitted `queued`); it fails CLOSED when nothing running could free enough. This
-   * runs before a lazy agent factory is called: refused work constructs nothing. The ticket is
-   * named from the start (assignment now, node id at admission).
+   * Fresh work reserves current funds before constructing a lazy factory. An original retained
+   * invocation may queue without holding funds until a real settlement covers its ceiling.
    */
   private reserve<C extends Out>({ opts, recovery }: SpawnRequest<C>) {
     const { args, ownerFloor } = this.deps
     const assignment = opts.assignmentId ?? opts.key
-    return args.pool.reserve(
-      opts.budget,
-      {
-        ...(assignment === undefined ? {} : { assignment }),
-        label: opts.label,
-        stage: 'admitted',
-      },
-      { wait: true, ...(!recovery && ownerFloor ? { keep: ownerFloor } : {}) },
-    )
+    const holder: ReservationHolder = {
+      ...(assignment === undefined ? {} : { assignment }),
+      label: opts.label,
+      stage: 'admitted',
+    }
+    const lease = budgetLeases.get(args.pool)
+    if (recovery && lease)
+      return lease.recover(opts.budget, holder, recovery.spawned.id, ownerFloor)
+    return args.pool.reserve(opts.budget, holder, {
+      wait: recovery !== undefined,
+      ...(!recovery && ownerFloor ? { keep: ownerFloor } : {}),
+    })
   }
 
   /**
@@ -291,9 +295,7 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * Everything between reserve and runChild's hand-off owns the reservation: a SYNCHRONOUS throw
-   * (most likely the executor factory) would leak it, so it is released with zero spend and
-   * rethrown, keeping `total ≡ free + reserved + committed`. runChild never sync-throws.
+   * A synchronous startup failure refunds its ticket before runChild takes ownership.
    */
   private start<C extends Out>(
     request: SpawnRequest<C>,
@@ -326,8 +328,9 @@ class ScopeSpawner<Out> {
     const { args, children, now } = this.deps
     const { recovery, opts } = request
     const child = this.admit(request, reuse, ticket)
+    child.admission.reservation = budgetLeases.get(args.pool)?.reservation(ticket)
     const { id, continuing } = child
-    const controller = this.armChildAbort(child, cleanup, permit)
+    const controller = this.armChildAbort(child, cleanup)
     const deferredOwner: DeferredOwnerSlot = {}
     // Resolved per spawn: the spawning node's span is opened by the `agent.spawn` hook, so lazy
     // reading assumes no hook ordering. No resolver (untraced) means no seam.
@@ -340,13 +343,14 @@ class ScopeSpawner<Out> {
       controller,
       id,
       ordinal: child.ordinal,
+      attemptId: child.attemptId,
       identity: child.identity,
       recovery,
       opts,
       now,
       traceRoots,
       markRecoveryReady,
-      childDeadlineAtMs: child.childDeadlineAtMs,
+      admission: child.admission,
       readLive: () => live,
       completeEvidence: async () => materialization.complete(),
     })
@@ -357,6 +361,7 @@ class ScopeSpawner<Out> {
       workerTrace,
       retainedContext: retention.retainedContext,
       now,
+      onProgress: (event) => live.events.append(event, now()),
     })
     const executor = resolved.value(child.spec, ctx) as Executor<C>
     const ownedTreeRoot = runtimeOwnedNestedDriverTreeRoot(executor, args.root, id)
@@ -381,6 +386,9 @@ class ScopeSpawner<Out> {
       now,
     })
     recordChildCancellation(live, executor, controller)
+    child.admission.onStatus = (status) => {
+      live.status = status
+    }
     children.set(id, live)
     if (opts.key !== undefined) {
       this.keys.markLive(opts.key, id, child.identity as NodeExecutionIdentity)
@@ -402,6 +410,15 @@ class ScopeSpawner<Out> {
       ordinal: child.ordinal,
       now,
     })
+    const executionReady = this.grantChild(
+      child,
+      live,
+      controller,
+      cleanup,
+      materialization.ready,
+      budgetGranted,
+      permit,
+    )
     if (!recovery) notifyChildSpawned(args, child, executor, now)
     if (continuing !== undefined) handOverContinuation(continuing)
 
@@ -423,12 +440,12 @@ class ScopeSpawner<Out> {
       args.journal,
       args.root,
       () => this.progressSeq++,
-      materialization.ready,
+      executionReady,
       {
         complete: async () => materialization.complete(),
         fail: async () => materialization.fail(),
       },
-      child.childDeadlineAtMs,
+      child.admission,
       recovery !== undefined,
       retention.closeRetainedWrites,
       budgetGranted,
@@ -484,14 +501,17 @@ class ScopeSpawner<Out> {
         ),
       )
       .finally(() => {
-        // The worker slot bounds agents that are SIMULTANEOUSLY WORKING, and a settled child is
-        // not working. Gating the release on proof of destruction held a slot forever for every
-        // retained execution (its executor answers `destroyed: false` while reconciliation is
-        // pending): 127 of 177 children across 14 pursuits, until `max-live-workers`
-        // refused with `live: 16, freeSlots: 0` while 1 child ran (#1183). The unconfirmed-cleanup
-        // fact stays on `live.cleanupConfirmed`, `scope.workerCapacity.unconfirmed`, the
-        // `teardown-unconfirmed` journal event and `result.teardownUnconfirmed`.
+        // Slots bound active work; cleanup uncertainty remains independently owned by custody.
         this.releaseStart(permit, cleanup)
+      })
+      .then(async (resolution) => {
+        if (resolution.metered && live.admission.rehomed)
+          resolution = {
+            ...resolution,
+            metered: unreportedSpend(resolution.metered, live.admission.rehomed),
+          }
+        await this.deps.publishSettlement(live, resolution)
+        return resolution
       })
     // Persistence may fail before a cursor starts awaiting this child.
     void settled.catch(() => undefined)
@@ -524,16 +544,34 @@ class ScopeSpawner<Out> {
     const startedAt = recovery ? Date.parse(recovery.spawned.at) : now()
     if (!Number.isFinite(startedAt))
       throw new ValidationError('scope recovery has an invalid original start time')
+    const prior = (args.resumeFrom?.events ?? []).filter((event) => event.id === id)
+    const granted = prior.find((event) => event.kind === 'admission-granted')
+    // Legacy journals have no grant clock: preserve their original spawn-based cutoff.
+    const legacy = recovery !== undefined && recovery.spawned.attemptId === undefined
     return {
       id,
       ordinal,
       attemptId,
       startedAt,
-      childDeadlineAtMs: boundedChildDeadlineAt(
-        args.pool.readout().deadlineMs,
-        opts.budget.deadlineMs,
-        startedAt,
-      ),
+      admission:
+        granted?.kind === 'admission-granted'
+          ? {
+              ticket,
+              grantedAtMs: Date.parse(granted.deadlineArmedAt),
+              deadlineAtMs:
+                granted.deadlineAt === undefined ? undefined : Date.parse(granted.deadlineAt),
+            }
+          : legacy
+            ? {
+                ticket,
+                grantedAtMs: startedAt,
+                deadlineAtMs: boundedChildDeadlineAt(
+                  args.pool.readout().deadlineMs,
+                  opts.budget.deadlineMs,
+                  startedAt,
+                ),
+              }
+            : { ticket },
       successorOf,
       task: request.task,
       opts,
@@ -546,58 +584,106 @@ class ScopeSpawner<Out> {
   }
 
   /**
-   * The child's abort chains off this scope's signal AND its own handle.abort() or bounded
-   * deadline; aborting mid-acquire cascades into acquireSandbox's find-by-name reap. A live child's
-   * time box counts from its grant, not its spawn: queue time is not its time (zro-game-20261104a
-   * s15-s20 expired queued, execution-did-not-start). A recovered child keeps its journaled grant.
+   * Cancellation and the parent's cutoff apply while queued; the child's time box starts at grant.
    */
-  private armChildAbort(
-    child: AdmittedChild,
-    cleanup: StartCleanup,
-    permit: SlotPermit,
-  ): AbortController {
-    const { args, now } = this.deps
-    const { id, childDeadlineAtMs } = child
+  private armChildAbort(child: AdmittedChild, cleanup: StartCleanup): AbortController {
+    const { args } = this.deps
     const controller = new AbortController()
     cleanup.cascadeAbort = () => controller.abort(args.signal.reason)
     if (args.signal.aborted) controller.abort(args.signal.reason)
     else args.signal.addEventListener('abort', cleanup.cascadeAbort, { once: true })
-    // The run's own deadline (a root scope's pool cutoff) stops the child; any shorter cutoff
-    // is a time box its lead set, which is a check-in for a child that can be told.
-    const runDeadlineAtMs = args.depth === 0 ? args.pool.readout().deadlineMs : 0
-    let cleared = false
-    const arm = (deadlineAtMs: number | undefined) => {
-      if (deadlineAtMs === undefined || cleared) return
-      const timeBox = !(runDeadlineAtMs > 0 && deadlineAtMs >= runDeadlineAtMs)
-      let clearCheckIn: (() => void) | undefined
-      const clearTimer = armDeadlineTimer(Math.max(0, deadlineAtMs - now()), () => {
-        clearCheckIn = timeBox ? this.deps.checkInAtTimeBox(id, controller) : undefined
-        if (clearCheckIn === undefined) controller.abort(CHILD_DEADLINE_REASON)
-      })
-      cleanup.clearChildDeadline = () => {
-        clearTimer()
-        clearCheckIn?.()
-      }
-    }
-    if (child.recovery !== undefined || child.opts.budget.deadlineMs === undefined) {
-      arm(childDeadlineAtMs)
-    } else {
-      cleanup.clearChildDeadline = () => {
-        cleared = true
-      }
-      void permit.ready.then(
-        () =>
-          arm(
-            boundedChildDeadlineAt(
-              args.pool.readout().deadlineMs,
-              child.opts.budget.deadlineMs,
-              now(),
-            ),
-          ),
-        () => undefined,
-      )
-    }
+    this.armDeadline(
+      child,
+      controller,
+      cleanup,
+      child.admission.deadlineAtMs ??
+        boundedChildDeadlineAt(args.pool.readout().deadlineMs, undefined, 0),
+    )
     return controller
+  }
+
+  private armDeadline(
+    child: AdmittedChild,
+    controller: AbortController,
+    cleanup: StartCleanup,
+    deadlineAtMs: number | undefined,
+  ): void {
+    cleanup.clearChildDeadline?.()
+    if (deadlineAtMs === undefined) return
+    const { args, now } = this.deps
+    const rootDeadline = args.rootDeadlineAtMs ?? args.pool.readout().deadlineMs
+    const timeBox = !(rootDeadline > 0 && deadlineAtMs >= rootDeadline)
+    let clearCheckIn: (() => void) | undefined
+    const clear = armDeadlineTimer(Math.max(0, deadlineAtMs - now()), () => {
+      clearCheckIn = timeBox ? this.deps.checkInAtTimeBox(child.id, controller) : undefined
+      if (clearCheckIn === undefined) controller.abort(CHILD_DEADLINE_REASON)
+    })
+    cleanup.clearChildDeadline = () => {
+      clear()
+      clearCheckIn?.()
+    }
+  }
+
+  private async grantChild(
+    child: AdmittedChild,
+    live: LiveChild,
+    controller: AbortController,
+    cleanup: StartCleanup,
+    materialized: Promise<void>,
+    budgetReady: Promise<void> | undefined,
+    permit: SlotPermit,
+  ): Promise<void> {
+    const { args, now } = this.deps
+    const queuedAt = new Date(now()).toISOString()
+    const gate = budgetReady !== undefined ? 'budget' : permit.granted ? undefined : 'slot'
+    const prior = (args.resumeFrom?.events ?? []).filter(
+      (event) =>
+        event.id === child.id &&
+        (event.kind === 'admission-queued' || event.kind === 'admission-granted'),
+    )
+    let seq = prior.reduce((max, event) => Math.max(max, event.seq + 1), 0)
+    const queue = (gate: 'budget' | 'slot', at = new Date(now()).toISOString()) =>
+      args.journal.appendEvent(args.root, {
+        kind: 'admission-queued',
+        id: child.id,
+        attemptId: child.attemptId,
+        gate,
+        seq: seq++,
+        at,
+      })
+    await materialized
+    if (gate !== undefined) await queue(gate, queuedAt)
+    controller.signal.throwIfAborted()
+    if (budgetReady !== undefined) {
+      await runAbortable(() => budgetReady, controller.signal, 'budget admission aborted')
+    }
+    if (gate === 'budget' && !permit.granted) await queue('slot')
+    await runAbortable(() => permit.ready, controller.signal, 'slot admission aborted')
+    controller.signal.throwIfAborted()
+    child.admission.grantedAtMs ??= now()
+    child.admission.deadlineAtMs ??= boundedChildDeadlineAt(
+      args.pool.readout().deadlineMs,
+      child.opts.budget.deadlineMs,
+      child.admission.grantedAtMs,
+    )
+    await args.journal.appendEvent(args.root, {
+      kind: 'admission-granted',
+      id: child.id,
+      attemptId: child.attemptId,
+      deadlineArmedAt: new Date(child.admission.grantedAtMs).toISOString(),
+      ...(child.admission.deadlineAtMs === undefined
+        ? {}
+        : {
+            deadlineAt: new Date(child.admission.deadlineAtMs).toISOString(),
+          }),
+      seq,
+      at: new Date(now()).toISOString(),
+    })
+    if (child.admission.deadlineAtMs !== undefined && now() >= child.admission.deadlineAtMs)
+      controller.abort(CHILD_DEADLINE_REASON)
+    controller.signal.throwIfAborted()
+    live.status = 'acquiring'
+    this.armDeadline(child, controller, cleanup, child.admission.deadlineAtMs)
   }
 }
 

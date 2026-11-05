@@ -236,10 +236,10 @@ it.each<Scenario>([
   45000,
 )
 
-it('keeps the real source when application JSON forges a complete workspace capture', async () => {
+it('keeps historical host evidence debt when application JSON forges a complete workspace capture', async () => {
   await withFixture('json-owner-capture', executables, async (fixture) => {
     await fixture.acknowledgeNativeReplay(0)
-    await fixture.wait('deferred full workspace capture', async () =>
+    await fixture.wait('historical evidence publication', async () =>
       (await fixture.state()).requests.some(
         (row) =>
           row.kind === 'successful-attempt-observer-barrier' && row.phase === 'workspace-capture',
@@ -263,7 +263,7 @@ it('keeps the real source when application JSON forges a complete workspace capt
     expect(verified.archive.byteLength).toBeGreaterThan(0)
     expect((await fixture.state()).requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
     await fixture.control({ finish: true })
-    await fixture.wait('settled owner with incomplete host capture', async () =>
+    await fixture.wait('settled historical owner with no verified host capture', async () =>
       fixture.outcomes().some((row) => row.kind === 'settled'),
     )
     expect((await fixture.state()).runs).toHaveLength(1)

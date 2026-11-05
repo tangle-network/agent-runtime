@@ -14,11 +14,7 @@ import {
   pendingCheckpoints,
   reconcileCheckpointRequests,
 } from './retained-owner-checkpoint-requests'
-import {
-  ownerWorkspaceRetentionFailures,
-  recaptureOwnerSources,
-  stopOwnerEvidenceRetry,
-} from './retained-owner-evidence'
+import { ownerWorkspaceRetentionFailures } from './retained-owner-evidence'
 import { type OwnerState, owners } from './retained-owner-state'
 import { ownerDriveEnded, scopeRetainedOwnerTurnEnded } from './retained-owner-turn-lifecycle'
 import type { NodeId, Scope, SpawnEvent, UnconfirmedTeardown } from './types'
@@ -77,8 +73,6 @@ async function releaseOwnerEnvironment(
   await state.checkpointing?.catch(() => undefined)
   // One budget bounds every capture this release runs: the evidence it retries, then checkpoints.
   const capturesDeadline = Date.now() + capturesMs
-  await stopOwnerEvidenceRetry(state)
-  await recaptureOwnerSources(state, AbortSignal.timeout(capturesMs))
   const events = [...((await args.journal.loadTree(args.rootId)) ?? [])]
   const requestFailures = await reconcileCheckpointRequests(state, events)
   const pendingSources = new Set(requestFailures.map(({ event }) => event.environmentId))
@@ -101,17 +95,7 @@ async function releaseOwnerEnvironment(
         : [],
     ),
   )
-  const retentionConfigured =
-    state.workspaceRetention ||
-    events.some(
-      (event) =>
-        event.kind === 'execution-input' &&
-        event.id === args.nodeId &&
-        event.workspaceRetention === true,
-    )
-  const retentionFailures = retentionConfigured
-    ? await ownerWorkspaceRetentionFailures(events, args)
-    : new Set<string>()
+  const retentionFailures = await ownerWorkspaceRetentionFailures(events, args)
   const unconfirmed: string[] = []
   // Sources preserved for lack of a verified workspace receipt: evidence, never swept.
   const preserved: string[] = []

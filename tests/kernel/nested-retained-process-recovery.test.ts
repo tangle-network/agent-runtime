@@ -497,7 +497,9 @@ it('recovers the parent and healthy sibling when an expired manager settles befo
       { ...context, ...common },
     )
     const before = (await context.journal.loadTree('root'))!
-    expect(before.filter((event) => event.kind === 'reconciled')).toHaveLength(2)
+    expect(
+      before.filter((event) => event.kind === 'reconciled' && event.settledSeq !== undefined),
+    ).toHaveLength(2)
     expect(before.filter((event) => event.kind === 'settled')).toHaveLength(0)
     // The production failure resumed a six-hour root after its three-hour directors expired.
     // Reopen the actual file stores with the original budgets; do not edit their journal dates.

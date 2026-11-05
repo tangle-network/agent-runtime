@@ -9,7 +9,6 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import type { AgentIdentity } from '@tangle-network/agent-trace-contract'
 import { ValidationError } from '../../errors'
 import { snapshotProviderObservations } from '../provider-observation-snapshot'
-import type { OwnerState } from './retained-owner-state'
 import { detachedSnapshot } from './snapshot'
 import type {
   ExecutionBindingReceipt,
@@ -52,7 +51,6 @@ const runtimeOwnedExecutorMaterializations = new WeakMap<
 >()
 interface ScopeOwnerControl {
   readonly provider: AgentEnvironmentProvider
-  readonly checkpointCapture?: OwnerState['checkpointCapture']
 }
 const runtimeOwnedScopeOwners = new WeakMap<
   object,

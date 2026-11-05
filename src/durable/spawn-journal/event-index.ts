@@ -1,12 +1,18 @@
 import { executorFailureReason } from '../../runtime/supervise/executor-outcome'
-import { assertValidSpend } from '../../runtime/supervise/spend-validation'
-import type { NodeId, SpawnEvent } from '../../runtime/supervise/types'
+import { assertValidBudget, assertValidSpend } from '../../runtime/supervise/spend-validation'
+import type { Budget, NodeId, SpawnEvent } from '../../runtime/supervise/types'
 
 /** Minimal state needed to validate a node; progress and trace payloads are never retained here. */
 interface JournalNodeIndex {
   spawned: boolean
+  budget?: Budget
   closed: boolean
   materialized: boolean
+  grants?: Set<string>
+  grantClock?: Pick<
+    Extract<SpawnEvent, { kind: 'admission-granted' }>,
+    'deadlineArmedAt' | 'deadlineAt'
+  >
   authoredProfileDigest?: string
   latestSeatMaterialization: number
   bindings: Set<string>
@@ -65,6 +71,46 @@ export class SpawnEventIndex {
     const node = this.nodes.get(event.id)
     this.assertRetained(node, event)
     assertTraceRoot(event, this.root)
+    if (event.kind === 'reconciled' && event.reservation) {
+      if (!node?.budget) throw new Error('reservation evidence has no admitted node')
+      assertValidBudget(event.reservation, 'reconciled reservation')
+      for (const [name, value] of Object.entries(event.reservation.resources ?? {})) {
+        if (node.budget.resources?.[name]?.unit !== value.unit)
+          throw new Error(`reconciled reservation resource ${name}: original grant unit mismatch`)
+      }
+      for (const channel of ['maxTokens', 'maxIterations', 'maxUsd'] as const)
+        if (event.reservation[channel] !== undefined && node.budget[channel] === undefined)
+          throw new Error(`reconciled reservation adds an undeclared ${channel} channel`)
+    }
+    if (event.kind === 'admission-queued' || event.kind === 'admission-granted') {
+      if (
+        !node?.spawned ||
+        node.closed ||
+        typeof event.attemptId !== 'string' ||
+        event.attemptId.length === 0 ||
+        (event.kind === 'admission-granted' && node.grants?.has(`${event.attemptId}:${event.seq}`))
+      )
+        throw new Error(`spawn journal corrupted: invalid admission transition for '${event.id}'`)
+      if (
+        !Number.isSafeInteger(event.seq) ||
+        event.seq < 0 ||
+        (event.kind === 'admission-queued' &&
+          (!['budget', 'slot', 'seat'].includes(event.gate) ||
+            (event.resumeAt !== undefined && !Number.isFinite(Date.parse(event.resumeAt))))) ||
+        !Number.isFinite(Date.parse(event.at)) ||
+        (event.kind === 'admission-granted' &&
+          (!Number.isFinite(Date.parse(event.deadlineArmedAt)) ||
+            (event.deadlineAt !== undefined && !Number.isFinite(Date.parse(event.deadlineAt)))))
+      )
+        throw new Error(`spawn journal corrupted: invalid admission clock for '${event.id}'`)
+      if (
+        event.kind === 'admission-granted' &&
+        node.grantClock &&
+        (event.deadlineArmedAt !== node.grantClock.deadlineArmedAt ||
+          event.deadlineAt !== node.grantClock.deadlineAt)
+      )
+        throw new Error(`spawn journal corrupted: admission deadline changed for '${event.id}'`)
+    }
     if (event.kind === 'execution-evidence') {
       if (!node?.spawned || !/^sha256:[0-9a-f]{64}$/.test(event.outRef)) {
         throw new Error(
@@ -123,6 +169,7 @@ export class SpawnEventIndex {
     if (!outsideCursorNamespace(event)) this.cursors.add(event.seq)
     if (
       event.kind !== 'spawned' &&
+      event.kind !== 'admission-granted' &&
       event.kind !== 'materialized' &&
       event.kind !== 'seat-materialized' &&
       event.kind !== 'execution-bound' &&
@@ -163,8 +210,14 @@ export class SpawnEventIndex {
     if (event.kind === 'execution-admitted' && event.admission.phase === 'environment') {
       node.lastEnvironmentId = event.admission.environmentId
     }
-    if (event.kind === 'spawned') node.spawned = true
-    else if (event.kind === 'materialized') {
+    if (event.kind === 'spawned') {
+      node.spawned = true
+      node.budget = event.budget
+    } else if (event.kind === 'admission-granted') {
+      node.grants ??= new Set()
+      node.grants.add(`${event.attemptId}:${event.seq}`)
+      node.grantClock ??= { deadlineArmedAt: event.deadlineArmedAt, deadlineAt: event.deadlineAt }
+    } else if (event.kind === 'materialized') {
       node.materialized = true
       node.authoredProfileDigest = event.receipt.authoredProfileDigest
     } else if (event.kind === 'seat-materialized')
@@ -289,6 +342,8 @@ export function closesCursorSlot(ev: SpawnEvent): boolean {
  */
 const outsideCursorNamespaceKinds = [
   'spawned',
+  'admission-queued',
+  'admission-granted',
   'metered',
   'materialized',
   'execution-bound',

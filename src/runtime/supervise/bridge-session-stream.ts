@@ -487,6 +487,10 @@ function* chunkProgress(
       progress: {
         kind: 'tool_result',
         toolName: result.name,
+        status: result.status === 'completed' ? 'ok' : 'error',
+        ...(result.status === 'error'
+          ? { error: { type: 'bridge-tool-error', message: result.error ?? 'tool failed' } }
+          : {}),
         ...(result.id === undefined ? {} : { toolCallId: result.id }),
         result: result.status === 'completed' ? result.output : { error: result.error },
       },

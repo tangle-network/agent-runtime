@@ -167,14 +167,14 @@ export function createProviderFailureLedger(): {
       const tracker = createAgentRunOutcomeTracker()
       for (const frame of failures) tracker.observe(frame)
       const outcome = tracker.finish()
-      const failure = failures
-        .slice()
-        .reverse()
-        .map((frame) => turnFailureOf(frame.data))
-        .find((value) => value !== undefined)
-      return outcome === undefined
-        ? undefined
-        : { ...outcome, ...(failure === undefined ? {} : { failure }) }
+      const failure =
+        turnFailureOf(outcome) ??
+        failures
+          .slice()
+          .reverse()
+          .map((frame) => turnFailureOf(frame.data))
+          .find((value) => value !== undefined)
+      return outcome === undefined ? undefined : { ...outcome, failure }
     },
   }
 }

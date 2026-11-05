@@ -55,6 +55,7 @@ export function dependencyWaves(): { graph: AgentGraph; opts: RunGraphOptions } 
   const received: AgentProfile[] = []
   const opts: RunGraphOptions = {
     runId: 'dag',
+    perWorker: { maxIterations: 4, maxTokens: 1_000 },
     workerSlots: 3,
     makeLeafAgent: leafSeam(received),
   }

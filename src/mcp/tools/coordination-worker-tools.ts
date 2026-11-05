@@ -46,12 +46,10 @@ function spawnWorkerTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +
       'Pass an optional `budget` (per-field) to give a sub-task more or less than the default — ' +
       'it merges over the per-worker default; the conserved pool is still the hard fence. Each worker ' +
-      'reserves only the channels capped by the pool. workerSlots sets concurrency. When ' +
-      'every worker slot is busy, or the pool cannot cover the budget until your running workers ' +
-      'return what they hold, the worker is admitted with `status: "queued"` and starts on its ' +
-      'own when a slot and its budget free — it is never refused for concurrency, so spawn all ' +
-      'the work you want done, then end your turn: you are woken with each result. A queued worker whose budget ' +
-      'never frees settles down as budget-exhausted. ' +
+      'reserves only the channels capped by the pool. workerSlots sets concurrency. A funded ' +
+      'worker waits with `status: "queued"` when every slot is busy and starts when one frees. ' +
+      'A new worker whose budget cannot fit is refused immediately. Wait for settlements or ' +
+      'request a smaller allocation before trying again. End your turn to be woken with results. ' +
       'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
       'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
       'nothing is spent). A keyed worker that settled with a `budgetStop` keeps its session for ' +
@@ -273,11 +271,9 @@ function observeAgentTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       '`progress.team` counts the agents below it (working, queued, done, down) and its idle ' +
       'clock reads the newest activity anywhere in that team, so a lead whose workers are busy ' +
       'is not stalled. A queued worker waits for a worker slot and is never stalled. ' +
-      'A worker whose executor has FINISHED ' +
-      'but whose settlement you have not yet drained reports `settlementPending` with its ' +
-      'terminal kind; its `status` still reads running until your next wake ' +
-      'delivers it, so end your turn rather than observing again. The settled output ' +
-      'artifact is returned once drained: what the worker submitted, often a plain string, else its provider ' +
+      'A completed worker reports its terminal status and output before your next wake. ' +
+      '`settlementPending` means its event has not yet been delivered. The output is ' +
+      'what the worker submitted, often a plain string, else its provider ' +
       'result. Omit `outputPath` to read it whole; ["content"] selects a provider result without its events. ' +
       'Large outputs return a bounded JSON `outputPage`; ' +
       'repeat with `outputOffset: outputPage.nextOffset` until it is null, concatenate page text, ' +
@@ -433,9 +429,6 @@ async function observeAgentHandler(ctx: WorkerToolsCtx, raw: unknown): Promise<u
     }
   }
   const progress = workers.readProgress(id)
-  // Finished-but-undrained is the one state a polling manager cannot otherwise see: the
-  // executor is gone, the settlement sits in the inbox, and `status` still says running.
-  // Say so in the fields the manager reads, and point at the call that resolves it.
   const pending = node.settlementPending
   return {
     ...workers.projectNodeEvidence(node),
@@ -449,7 +442,7 @@ async function observeAgentHandler(ctx: WorkerToolsCtx, raw: unknown): Promise<u
     ...(pending
       ? {
           settlementPending: pending,
-          hint: `this worker has finished (${pending.kind}); its settlement is queued for your next wake — end your turn to receive it, observing again will not change this`,
+          hint: `this worker's ${pending.kind} settlement awaits delivery at your next wake`,
         }
       : {}),
   }

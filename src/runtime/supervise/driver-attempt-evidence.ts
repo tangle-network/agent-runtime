@@ -1,3 +1,4 @@
+import type { AgentTurnFailure } from '@tangle-network/agent-interface/environment-provider'
 import { AgentEvalError, BackendTransportError, RuntimeRunStateError } from '../../errors'
 import type { BlockedToolReport } from '../../mcp/tools/coordination-contracts'
 import { CheckUnavailableError } from './completion-gate'
@@ -48,6 +49,8 @@ export interface DriverAttemptRecord {
   readonly durationMs: number
   /** Absent when the attempt completed. */
   readonly error?: string
+  /** Validated producer attribution, including its reset hint when supplied. */
+  readonly failure?: AgentTurnFailure
   readonly classification?: DriverFailureClass
   /** For a `transient` failure: `infra` (bounded as an outage) or `deterministic` (stops at the
    *  second invocation that fails alike with no progress). */

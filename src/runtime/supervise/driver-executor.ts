@@ -1,47 +1,13 @@
-/**
- *
- * The recursive driver-executor — the seam that lets a SPAWNED child be a DRIVER, so
- * agents drive agents drive agents over the one keystone atom.
- *
- * A spawned child resolves through the open registry to an `Executor`; the built-in
- * executors (router/inline, sandbox, cli) are LEAVES — `execute(task, signal)` runs the
- * work and settles. This executor is the recursive case: on `execute`, it mounts a NESTED
- * `Scope` (the scope hands it the mount via the `nested-scope` seam) over a child allocation
- * carved from its parent reservation, plus shared journal/blobs and the same open registry, then
- * runs the wrapped driver `Agent.act(task, nestedScope)`. The driver spawns its own
- * children into that nested scope; each resolves to EITHER a leaf executor (a worker child)
- * OR this same driver-executor (a driver child) — recursively. So a driver spawns a driver
- * spawns a worker, all on one budget-conserving tree.
- *
- * Why this preserves every keystone invariant (the scope owns the sharing; this executor
- * only runs the driver over what the scope mounts):
- *  - Conserved budget: the parent reserves the driver's whole allocation once. The nested scope
- *    partitions only that allocation, and its actual child work + driver inference reconcile the
- *    parent ticket once at settle. A deep tree cannot overspend or double-charge the root total.
- *  - Journal: the nested scope writes to its OWN tree key (`${journalRoot}/${nodeId}`) so
- *    its cursor `seq`s never collide with the parent's in the per-tree uniqueness guard,
- *    while every nested tree shares the one `SpawnJournal` — the whole recursion is one
- *    journal, queryable tree by tree.
- *  - Settlement bubbling: the driver child settles into its PARENT scope with child work and
- *    driver inference kept separate in the journal, while their sum reconciles the one parent
- *    reservation. The supervisor sees the whole sub-tree exactly once.
- *  - Depth ceiling: the nested scope runs at `depth+1`, so the supervisor's `maxDepth`
- *    (paired with the conserved pool per R3) fails a spawn closed once the recursion is too
- *    deep — exactly as it does for a flat tree.
- *
- * Layering: pure keystone composition. It reuses the scope's `NestedScopeSeam` + the shared
- * `SpawnJournal`; it builds NO new budget, journal, or selection logic. The recursion rides
- * the existing atom.
- *
- * @experimental
- */
+/** A spawned driver mounts a nested Scope over its conserved allocation. Completed drivers
+ * join admitted descendants before refunding; cancellation aborts them through the same scope.
+ * Journal, identity, replay and accounting remain owned by the ordinary Scope paths. */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
 import { ownedTreeRootSpawn } from '../../durable/spawn-journal/spawn-forest'
 import { ValidationError } from '../../errors'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
-import { addSpend, zeroSpend } from '../util'
+import { addSpend, unreportedSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { isCredentialRefusal } from './credential-refusal'
@@ -53,15 +19,14 @@ import {
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
 import type { ExecutorProgress } from './progress'
-import { addResourceSpend } from './resources'
 import { RetainedExecutionPendingError, retainedExecutorContext } from './retained-executor'
 import {
+  closeScopeAdmission,
   finalizeScopeOwnerMaterialization,
   type NestedScopeSeam,
   nestedScopeSeamKey,
   registerNestedTeardownScope,
   releaseHeldEnvironments,
-  releaseManagerEnvironment,
   releaseRetainedEnvironments,
   startScopeRecoveries,
   unconfirmedTeardowns,
@@ -243,11 +208,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
   const unconfirmedDescendants = () =>
     nestedScopeHeld === undefined ? [] : unconfirmedTeardowns(nestedScopeHeld)
 
-  const closeActive = (reason: string): Promise<void> => {
+  const closeActive = (reason?: string): Promise<void> => {
     if (active === undefined) return Promise.resolve()
+    if (reason !== undefined && !active.controller.signal.aborted) active.controller.abort(reason)
     if (!active.close) {
-      const { scope, controller } = active
-      active.close = closeNestedScope(scope, controller, reason).then(
+      active.close = closeNestedScope(active.scope).then(
         () => undefined,
         (error: unknown) => {
           cleanupFailure = error
@@ -306,9 +271,10 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         ? sumMetered((parentEvents ?? []).filter((event) => event.id === seam.nodeId))
         : zeroSpend()
       await journal.beginTree(nestedRoot, new Date(0).toISOString())
-      const prior = (await journal.loadTree(nestedRoot)) ?? []
+      let prior = (await journal.loadTree(nestedRoot)) ?? []
       if (prior.length === 0) {
         await journal.appendEvent(nestedRoot, ownedSpawn)
+        prior = [ownedSpawn]
       } else if (contentAddress(prior[0]) !== contentAddress(ownedSpawn)) {
         throw new ValidationError('driverExecutor: nested recovery changed its owning parent spawn')
       } else if (prior.length !== 1 && !recovering) {
@@ -374,12 +340,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
 
         // A driver may choose its answer while descendants still run. Its allocation is not
         // refundable until every descendant has stopped and reached a terminal journal record.
-        await closeActive('driver completed')
-        // No turn of this manager runs again, so the environment it kept between its turns is
-        // released now rather than left to the provider's idle suspension. The release waits for
-        // the last turn's handed-over capture first, so it runs beside this settlement; the run's
-        // settlement joins it.
-        void releaseManagerEnvironment(nestedScope).catch(() => undefined)
+        await closeActive()
 
         const events = await loadTreeEvents(journal, nestedRoot)
         const childWork = rollUp(events)
@@ -562,12 +523,8 @@ function isTerminalAdmissionRefusal(error: unknown): boolean {
   )
 }
 
-async function closeNestedScope(
-  scope: Scope<unknown>,
-  controller: AbortController,
-  reason: string,
-): Promise<void> {
-  if (!controller.signal.aborted) controller.abort(reason)
+async function closeNestedScope(scope: Scope<unknown>): Promise<void> {
+  closeScopeAdmission(scope)
   for (;;) {
     const settled = await scope.next()
     if (settled === null) break
@@ -686,45 +643,4 @@ function isAgent(value: unknown): value is Agent<unknown, unknown> {
     typeof (value as { act?: unknown }).act === 'function' &&
     typeof (value as { name?: unknown }).name === 'string'
   )
-}
-
-/** Parent journals may already contain an interrupted driver's inference prefix. */
-function unreportedSpend(total: Spend, prior: Spend): Spend {
-  const tokens = { ...total.tokens }
-  for (const key of ['input', 'output', 'freshInput', 'cacheRead', 'cacheWrite'] as const) {
-    const value = total.tokens[key]
-    if (value !== undefined) tokens[key] = Math.max(0, value - (prior.tokens[key] ?? 0))
-  }
-  return {
-    ...total,
-    ...addResourceSpend(
-      total.resources === undefined
-        ? undefined
-        : Object.fromEntries(
-            Object.entries(total.resources).map(([name, value]) => {
-              const previous = prior.resources?.[name]
-              if (previous && previous.unit !== value.unit)
-                throw new ValidationError(`resource ${name}: unit mismatch`)
-              return [
-                name,
-                {
-                  ...value,
-                  amount: Math.max(0, value.amount - (previous?.amount ?? 0)),
-                  known: value.known && (previous?.known ?? true),
-                },
-              ]
-            }),
-          ),
-    ),
-    iterations: Math.max(0, total.iterations - prior.iterations),
-    tokens,
-    usd: Math.max(0, total.usd - prior.usd),
-    ms: Math.max(0, total.ms - prior.ms),
-    ...(total.usdEstimated === undefined
-      ? {}
-      : { usdEstimated: Math.max(0, total.usdEstimated - (prior.usdEstimated ?? 0)) }),
-    ...(total.boxMinutes === undefined
-      ? {}
-      : { boxMinutes: Math.max(0, total.boxMinutes - (prior.boxMinutes ?? 0)) }),
-  }
 }

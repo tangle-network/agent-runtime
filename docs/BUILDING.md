@@ -85,13 +85,17 @@ version only after a definite npm 404, absent local/remote tag, and matching pub
 predecessor. It regenerates derived files; the release gate still admits the archive's
 actual compatibility and CHANGELOG before merge.
 
-`release:tag <version> --commit <merged-sha> --gate <gated-sha>` reads the maintained
-Beelink receipt for exactly `pnpm run release:check`. Only the latest normal/install,
-detached, successful receipt can attest `gate/release-check` through `gh-drew`.
-The selected commit must already be merged into `origin/main` and carry the version;
-its tree must equal the gated tree, including after a squash merge. Existing tags
-are refused. Omitting `--commit` selects fetched main; omitting `--gate` requires full
-qualification at publication. No receipt file or caller-authored status is accepted.
+`release:tag <version> --commit <merged-sha> --gate <gated-sha>` requires a merged,
+version-matching commit and the latest detached, successful normal/install Beelink
+receipt for exactly `pnpm run release:check`; only tree equality permits attestation.
+Existing tags are refused; defaults select fetched main and full hosted qualification.
+Through `gh-drew`, tagging admits only the frozen qualifier's exact `refs/tags/v<version>`
+after the immutable push, retaining every runner-group reference and restriction.
+The organization owner serializes policy writes: GitHub has no conditional PATCH.
+Observed policy drift fails; a pushed tag stays immutable if admission fails and its
+exact qualifier reference needs owner reconciliation. The helper needs no dependency
+install. Frozen qualifiers must match reviewed main or an enrolled immutable workflow SHA;
+mutable workflow references do not establish prior review for a diverged release line.
 
 The frozen tag selects its reusable qualification workflow. Reviewed main owns release
 line and gate-proof policy. Qualification reuses only the latest tree-bound status

@@ -3,7 +3,7 @@ import type { RuntimeFailureCause } from '../failure-cause'
 import type { HarnessTranscriptEvidence } from '../harness-transcript'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import type { RunCancellationReason } from './abortable'
-import type { BudgetPool } from './budget'
+import type { BudgetPool, ReservationTicket } from './budget'
 import type { DeadlineCheckIn, TeardownAnswer } from './deadline'
 import type { ExecutorProgress } from './progress'
 import type { RetainedChildRecovery, RetainedPendingCause } from './retained-executor'
@@ -155,10 +155,21 @@ export interface ScopeArgs {
  * Internal live-set entry. `settled` resolves once the child's executor has fully drained,
  * its reservation reconciled, and its result blob persisted; `next()` awaits these to drive
  * the cursor. `resolved` mirrors that terminal value synchronously so a concurrent `next()`
- * can pick the next undelivered settlement without re-racing. `delivered` guards exactly-once
- * delivery; `seq` is stamped by `next()`, never here.
+ * can observe completion without consuming it. Publication reserves the journal seq independently;
+ * `delivered` guards exactly-once cursor delivery.
  */
+export interface ChildAdmission {
+  readonly ticket: ReservationTicket
+  rehomed?: Spend
+  onStatus?: (status: NodeStatus) => void
+  prepareAccounting?: (closing?: boolean) => Promise<void>
+  reservation?: Budget
+  grantedAtMs?: number
+  deadlineAtMs?: number
+}
+
 export interface LiveChild {
+  readonly admission: ChildAdmission
   readonly events: WorkerEvents
   cancellationReason?: RunCancellationReason
   readonly id: NodeId
@@ -199,7 +210,7 @@ export interface LiveChild {
   providerModel?: import('./types').ProviderModelExecutionEvidence
   /** Exact terminal timestamp committed to the journal. */
   settledAt?: number
-  /** The cursor seq `next()` stamped on this child's settlement. A retained-pending child's
+  /** The publication seq reserved for this child's settlement. A retained-pending child's
    *  terminal record is written later by the release sweep under THIS seq, so replay yields it
    *  at the position the driver saw it; the sweep never mints a new `cursorSeq` for it, and
    *  neither does a resume that heals a crashed sweep — it reads this seq back from the

@@ -311,15 +311,11 @@ export * from './private-cas'
 export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
 export type { ProviderPlacement } from './provider-placement'
 export type {
-  ProviderCheckpointCaptureContext,
-  ProviderNativeCapturePhase,
   ProviderWorkspaceAttemptProvenance,
   ProviderWorkspaceCaptureProvenance,
   ProviderWorkspaceCaptureReceipt,
   ProviderWorkspaceCaptureResult,
   ProviderWorkspaceEntryMetadata,
-  ProviderWorkspaceRetentionContext,
-  ProviderWorkspaceRetentionPort,
 } from './provider-workspace-retention'
 export * from './resolve-sandbox-client'
 export type {
@@ -364,11 +360,7 @@ export {
   type SandboxUsageLedger,
   sumSandboxUsage,
 } from './sandbox-events'
-export type {
-  SandboxEvidenceContext,
-  SandboxEvidenceReceipt,
-  SandboxEvidenceRetentionPort,
-} from './sandbox-evidence-retention'
+export type { SandboxEvidenceReceipt } from './sandbox-evidence-retention'
 export {
   createSandboxToolPartState,
   mapSandboxEvent,

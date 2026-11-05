@@ -55,6 +55,8 @@ export type SpawnEvent =
   | {
       kind: 'spawned'
       id: NodeId
+      /** Kernel attempt identity also identifies grant-clock admission in crash prefixes. */
+      attemptId?: string
       parent?: NodeId
       label: string
       /** The semantic spawn key (`SpawnOpts.key`), when the spawn carried one — what a resumed
@@ -86,6 +88,26 @@ export type SpawnEvent =
       profileRef?: string
       /** Present when authorization ran this node on another model than its parent authored. */
       modelSubstitution?: SpawnModelSubstitution
+      seq: number
+      at: string
+    }
+  | {
+      /** An admitted node waits on this gate; this is not provider dispatch evidence. */
+      kind: 'admission-queued'
+      id: NodeId
+      attemptId: string
+      gate: 'budget' | 'slot' | 'seat'
+      resumeAt?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** The original execution grant and its one absolute deadline, preserved on recovery. */
+      kind: 'admission-granted'
+      id: NodeId
+      attemptId: string
+      deadlineArmedAt: string
+      deadlineAt?: string
       seq: number
       at: string
     }
@@ -344,6 +366,10 @@ export type SpawnEvent =
       kind: 'reconciled'
       id: NodeId
       spent: Spend
+      /** Remaining backing of an active seat-paused allocation, including unacknowledged or
+       * unmeasured liabilities. Execution may already be terminal; only later custody/accounting
+       * evidence reduces this backing. It never grants execution. */
+      reservation?: Budget
       /** The transcript receipt of a retained-pending child. This record is the ONLY durable home
        *  it has: the node writes no `settled` record while its slot stays open, and these are the
        *  #1244 children exactly — dropped mid-run with a live box the capture read. A later
@@ -426,8 +452,8 @@ export type SpawnEvent =
       at: string
     }
   | {
-      /** A `teardown-pending` node whose teardown a retry inside the settlement window confirmed:
-       *  the executor destroyed what it held. Informational, outside the cursor namespace. */
+      /** The executor confirmed its node cleanup, on the first pass or after a pending retry.
+       * Informational, outside the cursor namespace; no provider resource identity is inferred. */
       kind: 'teardown-confirmed'
       id: NodeId
       seq: number

@@ -9,7 +9,6 @@ import {
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import { providerAsSandboxClient } from '../environment-provider/provider-sandbox-adapter'
 import { selectProviderPlacement } from '../provider-placement'
-import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import { type BridgeSeam, validateBridgeModelCredential } from './bridge-config'
 import { bridgeExecutor } from './bridge-executor'
 import { cliInPlaceExecutor, cliWorktreeExecutor } from './cli-executor-factories'
@@ -22,7 +21,6 @@ import {
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
 } from './materialization'
-import { retainedExecutorContext } from './retained-executor'
 import { routerInlineExecutor } from './router-inline-executor'
 import { routerToolsInlineExecutor } from './router-tools-executor'
 import {
@@ -34,7 +32,6 @@ import {
   type RouterSeam,
   type RouterToolsSeam,
   type SandboxSeam,
-  sandboxCaptureOutputSeamKey,
   sandboxSeamKey,
 } from './runtime-seams'
 import { sandboxExecutor, sandboxExecutorForPath } from './sandbox-leaf-executor'
@@ -135,18 +132,15 @@ export function snapshotExecutorConfig(
         profileForCreate,
         taskToTurn,
         validator,
-        workspaceRetention,
         shared,
         ...decisionData
       } = config
       if (
         shared !== undefined &&
-        (decisionData.steering !== undefined ||
-          decisionData.placements !== undefined ||
-          workspaceRetention !== undefined)
+        (decisionData.steering !== undefined || decisionData.placements !== undefined)
       ) {
         throw new ValidationError(
-          'createExecutor(provider): shared placement cannot combine with steering, placements, or workspaceRetention',
+          'createExecutor(provider): shared placement cannot combine with steering or placements',
         )
       }
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
@@ -162,7 +156,6 @@ export function snapshotExecutorConfig(
         ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
         ...(validator === undefined ? {} : { validator }),
-        ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
         // A live pool: every worker of the run must lease from the same boxes.
         ...(shared === undefined ? {} : { shared }),
       })
@@ -173,7 +166,6 @@ export function snapshotExecutorConfig(
         new Set([
           'backend',
           'failOnDestroyError',
-          'workspaceCaptures',
           'lineage',
           'loopCtx',
           'maxIterations',
@@ -185,11 +177,10 @@ export function snapshotExecutorConfig(
       )
       // `validator` is an executable port like `sandboxClient`: retained live by reference,
       // never cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
-      const { sandboxClient, loopCtx, validator, workspaceCaptures, ...decisionData } = config
+      const { sandboxClient, loopCtx, validator, ...decisionData } = config
       const port = {
         sandboxClient,
         ...(validator === undefined ? {} : { validator }),
-        ...(workspaceCaptures === undefined ? {} : { workspaceCaptures }),
       }
       if (loopCtx === undefined) {
         const snapshot = detachedSnapshot(decisionData, 'createExecutor sandbox config')
@@ -375,9 +366,6 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             )
           }
           const harness = requiredProviderProfileHarness(spec, providerSeam)
-          const workspaceCaptures: ProviderWorkspaceCaptureReceipt[] = []
-          let capturedOutput: (() => unknown) | undefined
-          const publishEvidence = retainedExecutorContext(seamed)?.onEvidence
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
               ...(providerSeam.defaults ?? {}),
@@ -387,25 +375,6 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             },
             requireTerminalEvent: providerSeam.requireTerminalEvent,
             requireSession: true,
-            ...(providerSeam.workspaceRetention === undefined
-              ? {}
-              : {
-                  workspaceRetention: providerSeam.workspaceRetention,
-                  retentionIdentity: {
-                    executionId: seamed.node?.nodeId ?? `provider-run-${randomUUID()}`,
-                    profile: spec.profile,
-                    ...(seamed.node === undefined ? {} : { node: seamed.node }),
-                  },
-                  onWorkspaceCaptured: async (receipt: ProviderWorkspaceCaptureReceipt) => {
-                    if (!workspaceCaptures.includes(receipt)) workspaceCaptures.push(receipt)
-                    if (publishEvidence !== undefined) {
-                      if (capturedOutput === undefined) {
-                        throw new ValidationError('provider capture has no bound session output')
-                      }
-                      await publishEvidence(capturedOutput())
-                    }
-                  },
-                }),
           })
           // The steerable session already speaks this vocabulary: it reads
           // `ExecCtx.promptOptions` and the composed client raises them back onto
@@ -415,15 +384,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             ...seamed,
             seams: {
               ...seamed.seams,
-              [sandboxCaptureOutputSeamKey]: (read: () => unknown) => {
-                capturedOutput = read
-              },
               [sandboxSeamKey]: {
                 sandboxClient,
-                failOnDestroyError: providerSeam.workspaceRetention !== undefined,
-                ...(providerSeam.workspaceRetention === undefined
-                  ? {}
-                  : { workspaceCaptures: () => workspaceCaptures }),
                 steering: providerSeam.steering,
                 ...(providerSeam.promptOptions === undefined
                   ? {}

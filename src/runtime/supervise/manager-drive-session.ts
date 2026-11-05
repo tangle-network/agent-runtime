@@ -20,6 +20,7 @@ import {
   type ExecutorConfig,
 } from './runtime'
 import { restoreScopeOwnerAcceptedExecution } from './scope'
+import { pauseScopeSeatAdmission } from './scope-capabilities'
 import {
   type ActiveSeat,
   authoredSeatStages,
@@ -303,14 +304,21 @@ export class ManagerDriveSession {
     // The pause this node is in, if any: a recheck that finds the same reset writes no second row.
     let pausedUntil = paused?.kind === 'seat-paused' ? paused.resumeAt : undefined
     let afterRecheck = pausedUntil !== undefined && Date.parse(pausedUntil) <= now()
+    let resumeAdmission: (() => Promise<void>) | undefined
     for (;;) {
       try {
         const seat = await seatChain.next(usageLimit && !afterRecheck, afterRecheck)
+        await resumeAdmission?.()
         this.activeSeat = seat
         if (afterRecheck) await seatSelection.onPause(scope.view.root, '', 'resumed')
         return seat
       } catch (error) {
         if (!(error instanceof SeatPauseError)) throw error
+        resumeAdmission = await pauseScopeSeatAdmission(scope, error.resumeAt)
+        // Retire only through the existing receipt-backed path; a retained box still backs
+        // its unmeasured physical resource channels while its model seat is unavailable.
+        await releaseScopeRetainedOwnerForSeatPause(scope, error.resumeAt).catch(() => undefined)
+        resumeAdmission = await pauseScopeSeatAdmission(scope, error.resumeAt)
         if (error.resumeAt !== pausedUntil) {
           pausedUntil = error.resumeAt
           await seatSelection.journal.appendEvent(seatJournalRoot, {
@@ -323,8 +331,6 @@ export class ManagerDriveSession {
           })
           await seatSelection.onPause(scope.view.root, error.resumeAt, 'paused')
         }
-        // A box it cannot checkpoint and retire stays, as before; the run's release still owns it.
-        await releaseScopeRetainedOwnerForSeatPause(scope, error.resumeAt).catch(() => undefined)
         // A paused manager has no seat to act with: nothing before the reset rechecks the chain. An
         // aborted scope returns every wait at once, and re-selecting then wrote one pause of
         // magnetar-rust-sandbox-20261102a 2,382 times. The timer runs on the wall clock, not `now`.

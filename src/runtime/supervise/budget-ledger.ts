@@ -228,7 +228,7 @@ export function ledgerTake(l: BudgetLedger, b: Budget): void {
  */
 export function ledgerClassifyOverspend(
   l: BudgetLedger,
-  held: { tokens: number; usd: number; iterations: number },
+  held: { tokens: number; usd: number; iterations: number; resources?: Budget['resources'] },
   usdBudgeted: boolean,
   spent: Spend,
   limits?: Pick<Budget, 'maxTokens' | 'maxIterations'>,
@@ -251,6 +251,12 @@ export function ledgerClassifyOverspend(
   // both); otherwise it is an OBSERVED quantity, and an unset ceiling must not act as a hard $0.
   if (!unknownUnderCap && l.usdCapped && usdBudgeted && spent.usd > held.usd) {
     overspent.push({ channel: 'usd', reserved: held.usd, spent: spent.usd })
+  }
+  for (const name of l.resources.keys()) {
+    const value = spent.resources?.[name]
+    const limit = held.resources?.[name]?.limit ?? 0
+    if (value?.known && value.amount > limit)
+      overspent.push({ channel: `resource:${name}`, reserved: limit, spent: value.amount })
   }
   return { overspent, unknownUnderCap }
 }
@@ -334,6 +340,28 @@ function debit(l: BudgetLedger, spend: Spend): void {
  * the prior spend ALREADY happened, and refusing to record it would be a zero-cost restart.
  */
 export function ledgerRestore(l: BudgetLedger, root: Budget, restore: BudgetPoolRestore): void {
+  for (const held of restore.heldReservations ?? []) {
+    assertValidBudget(held, 'restored remaining reservation')
+    const tokens = held.maxTokens ?? 0
+    const iterations = held.maxIterations ?? 0
+    const usd = held.maxUsd ?? 0
+    l.committedTokens += tokens
+    l.committedIterations += iterations
+    l.committedUsd += usd
+    if (l.tokensCapped) l.freeTokens -= tokens
+    if (l.iterationsCapped) l.freeIterations -= iterations
+    if (l.usdCapped) l.freeUsd -= usd
+    if (tokens > 0) l.tokensTainted = true
+    if (usd > 0) l.usdMeasured = false
+    for (const [name, value] of Object.entries(held.resources ?? {})) {
+      const resource = l.resources.get(name)
+      if (!resource || resource.unit !== value.unit)
+        throw new Error(`restored reservation resource ${name}: unit mismatch`)
+      resource.committed += value.limit
+      resource.remaining -= value.limit
+      if (value.limit > 0) resource.known = false
+    }
+  }
   if (restore.owner) l.ownerSpent = addSpend(l.ownerSpent, restore.owner)
   if (restore.committed !== undefined) {
     const committed = restore.committed

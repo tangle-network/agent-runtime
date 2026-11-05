@@ -45,6 +45,50 @@ if (mode === 'json-owner-capture') {
     })
   Object.assign(output, JSON.parse(fs.readFileSync(file, 'utf8')))
 }
+if (mode.startsWith('json-observation-')) {
+  const coordinates = object(JSON.parse(process.argv[4] ?? '{}'))
+  const file = nativeEventFile(String(coordinates.executionId))
+  for (let attempt = 0; !fs.existsSync(`${file}.exact`); attempt++) {
+    if (attempt === 1000) throw new Error('exact-result HTTP handshake never arrived')
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  if (mode !== 'json-observation-429') {
+    for (let index = 0; index < 1030; index++)
+      fs.appendFileSync(
+        file,
+        encodeFrame(
+          {
+            type: 'message.part.updated',
+            data: {
+              part: { id: `native-${index}`, type: 'text', text: String(fs.statSync('.').size) },
+            },
+          },
+          index + 1,
+        ),
+      )
+    const success = mode === 'json-observation-long-success'
+    const data = {
+      ...coordinates,
+      success,
+      status: success ? 'success' : 'failed',
+      finalText: JSON.stringify(output),
+      usage: { inputTokens: 3, outputTokens: 2 },
+      ...(success
+        ? {}
+        : {
+            error: 'native process exited 7',
+            errorCode: 'NATIVE_PROCESS_EXIT',
+            statusCode: 502,
+            failure: { kind: 'work', code: 'native-process-exit' },
+          }),
+    }
+    fs.appendFileSync(
+      file,
+      encodeFrame({ type: 'result', data }, 1031) +
+        encodeFrame({ type: 'done', data: { ...data, outcome: { type: 'completed' } } }, 1032),
+    )
+  }
+}
 if (mode.startsWith('trace-tree-')) {
   const leaves = Number(mode.slice('trace-tree-'.length))
   if (!Number.isSafeInteger(leaves) || leaves < 3) throw new Error('invalid trace shape')
@@ -94,4 +138,4 @@ process.stdout.write(
       ? '{"n":1e999}'
       : JSON.stringify(output),
 )
-process.exitCode = mode === 'json-native-failed' ? 7 : 0
+process.exitCode = mode === 'json-native-failed' || mode === 'json-observation-long-failed' ? 7 : 0

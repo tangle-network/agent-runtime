@@ -11,6 +11,7 @@ import {
 import { cloneTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import { linkAbort } from './abortable'
 import { localAbortCancellation } from './executor-local-cancellation'
+import { executorObservation, observeModelRequest } from './executor-observation'
 import { contentRef } from './executor-outcome'
 import { readSeam } from './executor-seams'
 import {
@@ -70,42 +71,44 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         const started = Date.now()
         const linked = linkAbort(signal, controller.signal).signal
         recordRuntimeOwnedProviderAttemptStart(executor)
-        const r = await runRouterTransport<RouterChatResult | RouterChatToolsResult>(
-          'routerInlineExecutor',
-          () =>
-            seam.tools
-              ? (profileExecution.stream === true
-                  ? streamRouterChatWithTools
-                  : routerChatWithTools)(
-                  routerTransportConfig(seam, model, profileExecution.retry),
-                  messages,
-                  seam.tools,
-                  {
-                    ...(profileExecution.temperature !== undefined
-                      ? { temperature: profileExecution.temperature }
-                      : {}),
-                    ...(linked ? { signal: linked } : {}),
-                    ...(profileExecution.toolChoice
-                      ? { toolChoice: profileExecution.toolChoice }
-                      : {}),
-                    ...routerGenerationOptions(profileExecution),
-                    ...requestIdentity,
-                  },
-                )
-              : (profileExecution.stream === true
-                  ? streamRouterChatWithUsage
-                  : routerChatWithUsage)(
-                  routerTransportConfig(seam, model, profileExecution.retry),
-                  messages,
-                  {
-                    ...(profileExecution.temperature !== undefined
-                      ? { temperature: profileExecution.temperature }
-                      : {}),
-                    ...(linked ? { signal: linked } : {}),
-                    ...routerGenerationOptions(profileExecution),
-                    ...requestIdentity,
-                  },
-                ),
+        const r = await observeModelRequest(executorObservation(ctx), model, () =>
+          runRouterTransport<RouterChatResult | RouterChatToolsResult>(
+            'routerInlineExecutor',
+            () =>
+              seam.tools
+                ? (profileExecution.stream === true
+                    ? streamRouterChatWithTools
+                    : routerChatWithTools)(
+                    routerTransportConfig(seam, model, profileExecution.retry),
+                    messages,
+                    seam.tools,
+                    {
+                      ...(profileExecution.temperature !== undefined
+                        ? { temperature: profileExecution.temperature }
+                        : {}),
+                      ...(linked ? { signal: linked } : {}),
+                      ...(profileExecution.toolChoice
+                        ? { toolChoice: profileExecution.toolChoice }
+                        : {}),
+                      ...routerGenerationOptions(profileExecution),
+                      ...requestIdentity,
+                    },
+                  )
+                : (profileExecution.stream === true
+                    ? streamRouterChatWithUsage
+                    : routerChatWithUsage)(
+                    routerTransportConfig(seam, model, profileExecution.retry),
+                    messages,
+                    {
+                      ...(profileExecution.temperature !== undefined
+                        ? { temperature: profileExecution.temperature }
+                        : {}),
+                      ...(linked ? { signal: linked } : {}),
+                      ...routerGenerationOptions(profileExecution),
+                      ...requestIdentity,
+                    },
+                  ),
+          ),
         )
         if (r.model !== undefined) recordRuntimeOwnedProviderModel(executor, r.model)
         transcript.reply({ content: r.content, toolCalls: 'toolCalls' in r ? r.toolCalls : [] })

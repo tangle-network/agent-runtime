@@ -88,7 +88,7 @@ driver-of-driver = a child whose profile is itself a coordinator — free, by re
 
 `Scope.spawn` is the recursive boundary; the journal makes completed settlements replayable.
 Recovery restores retained child identities before the coordinator admits new work.
-Original reservations use the shared budget queue when they cannot all fit at once.
+Recovery preserves existing liabilities and queues only the additional funding it needs.
 Funded nested managers restore their descendants before acting; deferred managers remain visible while the parent resumes.
 Parents and children resume together through Scope, including reconstructed nested managers.
 Provider managers can recover their original invocation and reuse an accepted result.
@@ -126,7 +126,7 @@ Every execution backend emits one **agent-centric event stream** (`src/runtime-h
 merged #162/#163): targets `agent.{run, turn, tool_call, spawn, child, plan, decision}`
 × phases `{before, after, error, event}`. `runAgentRounds`, `toolLoop`, **and the `Scope`
 spawn/settle boundary** are **producers** — `Scope.spawn` emits `agent.spawn` (child id,
-label, runtime, budget, depth) and the settle cursor emits `agent.child` (status, score,
+label, runtime, budget, depth) and child settlement emits `agent.child` (status, score,
 reason, spend), threaded in through `SupervisorOpts.hooks`. Developers attach via
 `defineRuntimeHooks` / `composeRuntimeHooks` at the **execution/spawn boundary** — never
 on the `AgentProfile`, never coupled to one backend. This single stream is the
@@ -431,8 +431,14 @@ A dollar cap is unaffected — `observe` and `reconcile` still refuse unknown do
 
 Two facts make this the whole game:
 - `spawn` **reserves** from one root total and refunds the unspent remainder on settle.
+  Fresh children reserve currently free capped budget. Recovery preserves measured prefixes
+  and outstanding holds; only unfunded reentry waits for actual settlements. Admission receipts
+  preserve the original grant deadline across execution, nesting, retention and recovery.
+  Seat pauses return unused allocation and working slots while preserving descendant and
+  unresolved provider liabilities; reentry reacquires funding under that same deadline.
   A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`src/runtime/supervise/budget.ts`).
-- `next()` is the only path that consumes a child's terminal result.
+- Child completion commits its terminal evidence independently of manager delivery; `next()`
+  consumes each result once in journal sequence order. `settlementPending` marks unread results.
   Live observation is explicit and read-only through `progress` and `traceSource`; neither can manufacture a settlement.
   `interactive(nodeId)` is the in-process write-capable live edge: it returns the exact process that child runs in when its executor holds an interactive session, and a named reason otherwise, so a headless worker is never presented as an attachable terminal.
   With a file-backed run, Runtime writes the exact retained reference only after the executor makes it attachable.

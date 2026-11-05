@@ -1,6 +1,6 @@
-import type { AgentProfile, AgentWorkspaceBranching } from '@tangle-network/agent-interface'
+import type { AgentWorkspaceBranching } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
-import type { ProviderWorkspaceRetentionPort } from '../provider-workspace-retention'
+import type { RuntimeHooks } from '../../runtime-hooks'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import type { RetainedExecutorContext, RetainedWorkspaceRestore } from './retained-executor'
 import type {
@@ -29,8 +29,6 @@ export interface OwnerState {
    *  it committed. */
   freshSessions?: boolean
   provider?: AgentEnvironmentProvider
-  /** The provider backend captures executable workspace evidence for unsettled owner turns. */
-  workspaceRetention: boolean
   /** The owner's current environment id, from its executor's materialization receipt. Set by the
    *  drive harness; populated on the retained AND non-retained provider paths, where an
    *  `environment` admission exists only on the retained one. */
@@ -50,12 +48,6 @@ export interface OwnerState {
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
-  /** Where a checkpoint's files are captured before it is deleted, and the profile its capture
-   *  names. Bound with the provider; absent when the owner's backend retains no workspace. */
-  checkpointCapture?: {
-    readonly port: ProviderWorkspaceRetentionPort
-    readonly profile: AgentProfile
-  }
   /** Checkpoints whose capture failed in this process. Rotation keeps them without forking them
    *  again; the release tries each once more. */
   captureRefused?: Set<string>
@@ -68,12 +60,11 @@ export interface OwnerState {
   turnEnd?: Promise<void>
   /** The release in progress, so a second caller joins it instead of destroying twice. */
   releasing?: Promise<readonly UnconfirmedTeardown[]>
-  /** Capture retries of the evidence this node owes, while any is owed; the release stops them. */
-  evidenceRetry?: { readonly stop: AbortController; done: Promise<void> }
 }
 
 /** @internal */
 export interface OwnerRegistration {
+  readonly hooks?: RuntimeHooks
   readonly rootId: NodeId
   readonly executionRootId?: NodeId
   readonly nodeId: NodeId
@@ -86,8 +77,78 @@ export interface OwnerRegistration {
 
 export const owners = new WeakMap<object, OwnerState>()
 
-/** @internal Scope construction carries this private policy to every nested owner scope. */
-export const retainedOwnerWorkspaceRetentionSeamKey = 'runtime.retainedOwnerWorkspaceRetention'
+/** Bound native custody, read from its canonical receipts without probing another provider. */
+export function scopeOwnerLiabilities(
+  scope: Scope<unknown>,
+  events: readonly SpawnEvent[],
+): {
+  environmentHeld: boolean
+  invocationUnsettled: boolean
+  measuredResources: ReadonlyMap<string, string>
+} {
+  const state = owners.get(scope)
+  if (!state)
+    return { environmentHeld: false, invocationUnsettled: false, measuredResources: new Map() }
+  const held = new Set<string>()
+  const destroyed = new Set<string>()
+  const forks = new Set<string>()
+  const key = (provider: string, id: string) => JSON.stringify([provider, id])
+  const forkKey = (provider: string, id: string, environmentId?: string) =>
+    JSON.stringify([provider, id, environmentId ?? null])
+  let invocationUnsettled = false
+  let environment: string | undefined
+  const measurements = new Map<string, Map<string, string>>()
+  for (const event of events) {
+    if (event.id !== state.args.nodeId) continue
+    if (event.kind === 'execution-admitted') {
+      invocationUnsettled = true
+      if (event.admission.phase === 'environment') {
+        environment = key(event.admission.provider, event.admission.environmentId)
+        held.add(environment)
+        destroyed.delete(environment)
+        measurements.delete(environment)
+      }
+    } else if (event.kind === 'execution-result') {
+      invocationUnsettled = false
+      if (environment !== undefined)
+        measurements.set(
+          environment,
+          new Map(
+            Object.entries(event.spent.resources ?? {}).flatMap(([name, value]) =>
+              value.known ? [[name, value.unit] as const] : [],
+            ),
+          ),
+        )
+    } else if (event.kind === 'environment-teardown' && event.destroyed) {
+      held.delete(key(event.provider, event.environmentId))
+      destroyed.add(key(event.provider, event.environmentId))
+    } else if (event.kind === 'workspace-checkpoint-fork-requested')
+      forks.add(forkKey(event.provider, event.idempotencyKey))
+    else if (event.kind === 'workspace-checkpoint-fork-ready') {
+      forks.delete(forkKey(event.provider, event.fork.idempotencyKey))
+      forks.add(forkKey(event.provider, event.fork.idempotencyKey, event.fork.environmentId))
+    } else if (event.kind === 'workspace-checkpoint-fork-teardown' && event.destroyed) {
+      forks.delete(forkKey(event.provider, event.fork.idempotencyKey))
+      forks.delete(forkKey(event.provider, event.fork.idempotencyKey, event.fork.environmentId))
+    }
+  }
+  const live = state.liveEnvironmentId?.()
+  if (
+    live !== undefined &&
+    (state.provider === undefined || !destroyed.has(key(state.provider.name, live)))
+  )
+    held.add(key(state.provider?.name ?? '', live))
+  const measuredResources = new Map(measurements.get([...held][0] ?? '') ?? [])
+  for (const reference of held)
+    for (const [name, unit] of measuredResources)
+      if (measurements.get(reference)?.get(name) !== unit) measuredResources.delete(name)
+  if (forks.size > 0 || invocationUnsettled) measuredResources.clear()
+  return {
+    environmentHeld: held.size > 0 || forks.size > 0,
+    invocationUnsettled,
+    measuredResources,
+  }
+}
 
 export function scopeRetainedOwnerContext(
   scope: Scope<unknown>,
@@ -100,32 +161,13 @@ export function scopeRetainedOwnerJournalRoot(scope: Scope<unknown>): NodeId | u
   return owners.get(scope)?.args.rootId
 }
 
-/**
- * Bind cleanup before replay can return an already accepted owner result. `checkpointCapture` is
- * where each checkpoint's files are stored before the checkpoint is deleted; without it, a
- * checkpoint of this owner is deleted only when a provider refuses a newer one.
- */
+/** Bind the provider that owns native stop, checkpoint and environment acknowledgements. */
 export function bindScopeRetainedOwnerProvider(
   scope: Scope<unknown>,
   provider: AgentEnvironmentProvider,
-  checkpointCapture?: {
-    readonly port: ProviderWorkspaceRetentionPort
-    readonly profile: AgentProfile
-  },
 ): void {
   const state = owners.get(scope)
-  if (state === undefined) return
-  state.provider = provider
-  if (checkpointCapture !== undefined) state.checkpointCapture = checkpointCapture
-}
-
-/** Bind the owner cleanup policy selected by its provider executor. */
-export function bindScopeRetainedOwnerWorkspaceRetention(
-  scope: Scope<unknown>,
-  enabled: boolean,
-): void {
-  const state = owners.get(scope)
-  if (state) state.workspaceRetention = enabled
+  if (state) state.provider = provider
 }
 
 /**

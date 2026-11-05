@@ -21,7 +21,7 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import type { ExecutorProgress } from './progress'
-import { type SandboxSeam, sandboxCaptureOutputSeamKey, sandboxSeamKey } from './runtime-seams'
+import { type SandboxSeam, sandboxSeamKey } from './runtime-seams'
 import { createSteerableSandboxSession } from './sandbox-session'
 import { taskToPrompt } from './task-prompt'
 import type { TraceSource } from './trace-source'
@@ -146,7 +146,6 @@ export function sandboxExecutorForPath(
       harness,
       sandboxClient: seam.sandboxClient,
       failOnDestroyError: seam.failOnDestroyError,
-      workspaceCaptures: seam.workspaceCaptures,
       inbox,
       taskToPrompt: (t) => taskToPrompt(t),
       options: seam.steering,
@@ -154,8 +153,7 @@ export function sandboxExecutorForPath(
       ...(Object.keys(traceEnv).length > 0 ? { traceEnv } : {}),
       contentRef,
     })
-    const bindCaptureOutput = ctx.seams[sandboxCaptureOutputSeamKey]
-    if (typeof bindCaptureOutput === 'function') bindCaptureOutput(() => session.output())
+
     return attestRuntimeOwnedExecutor(
       {
         runtime: 'sandbox' as Runtime,

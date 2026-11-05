@@ -114,21 +114,29 @@ interface Driven {
   readonly tasks: string[]
 }
 
-/** The root's harness, scripted: on its first turn it spawns `spawns` by name; on every later turn
- *  it submits the answer, which Runtime refuses while a worker still runs. */
+/** The root admits assignments while funded, retries unstarted work on a settlement wake,
+ * then submits the answer, which Runtime refuses while a worker still runs. */
 function scriptedRoot(
   root: string,
   driven: Driven,
   options: { readonly spawns?: ReadonlyArray<string>; readonly submits?: boolean } = {},
 ): DriveHarness {
+  const pending = (options.spawns ?? []).map((name, index) => ({ name, task: `part ${index + 1}` }))
   return async ({ profile, coordinationMcpUrl, session, task }) => {
     driven.managers.push(String(profile.name))
     if (profile.name !== root) throw new Error(`a worker became a manager: ${profile.name}`)
     driven.sessions.push(session)
     driven.tasks.push(String(task))
-    if (driven.tasks.length === 1 && (options.spawns?.length ?? 0) > 0) {
-      for (const [index, name] of (options.spawns ?? []).entries()) {
-        await call(coordinationMcpUrl, 'spawn_worker', { profile: name, task: `part ${index + 1}` })
+    if (pending.length > 0) {
+      while (pending.length > 0) {
+        const next = pending[0]!
+        const admitted = (await call(coordinationMcpUrl, 'spawn_worker', {
+          profile: next.name,
+          task: next.task,
+        })) as { error?: string }
+        if (admitted.error === 'budget-exhausted') return
+        if (admitted.error) throw new Error(`assignment ${next.name} refused: ${admitted.error}`)
+        pending.shift()
       }
       return
     }

@@ -6,6 +6,13 @@ import {
 } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
+import type { RuntimeHooks } from '../../runtime-hooks'
+import {
+  createExecutorObservation,
+  createToolProgressObserver,
+  type ExecutorObservation,
+  executorObservation,
+} from './executor-observation'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -23,6 +30,7 @@ import type {
   ExecutionBindingReceipt,
   ExecutorExecutionBinding,
   ExecutorNodeContext,
+  ExecutorProgressEvent,
   MaterializedExecutionIdentity,
   NodeId,
   NodeSnapshot,
@@ -34,6 +42,8 @@ import type {
 } from './types'
 
 interface OwnerMaterializationState {
+  readonly hooks?: RuntimeHooks
+  readonly inheritedObservation?: ExecutorObservation
   readonly retainedRoot: NodeId
   readonly blobs: ResultBlobStore
   readonly journal: SpawnJournal
@@ -604,6 +614,8 @@ export function bindScopeOwnerMaterialization(
             'scope owner authored profile',
           )
     ownerMaterializationStates.set(scope as Scope<unknown>, {
+      ...(args.hooks ? { hooks: args.hooks } : {}),
+      ...(executorObservation(args) ? { inheritedObservation: executorObservation(args) } : {}),
       retainedRoot: args.root,
       blobs: args.blobs,
       journal: args.journal,
@@ -629,4 +641,23 @@ export function bindScopeOwnerMaterialization(
       publishedThisProcess: false,
     })
   }
+}
+
+/** A nested manager forwards output to its existing node channel, never a second stream. */
+export function scopeOwnerExecutionObservation(
+  scope: Scope<unknown>,
+  onProgress: (event: ExecutorProgressEvent) => void,
+): ExecutorObservation {
+  const state = ownerMaterializationStates.get(scope)
+  const observation = createExecutorObservation(
+    state?.hooks,
+    scopeOwnerExecutorNodeContext(scope),
+    (event) => {
+      if (state?.inheritedObservation) state.inheritedObservation.progress(event)
+      else observeTool(event, Date.now())
+      onProgress(event)
+    },
+  )
+  const observeTool = createToolProgressObserver(observation)
+  return observation
 }

@@ -43,26 +43,32 @@ export class WorkerEvents {
   readonly #entries: { entry: WorkerEventEntry; bytes: number }[] = []
   #next = 0
   #capturing = false
-  // The bounded live view above is process-local; the node stream is the durable record, opened
-  // by an attempt's first event so a worker that streams nothing leaves no file.
   readonly #stream: WorkerEventStream | undefined
   #sink: RootStreamSink | undefined
   #writes: Promise<void> = Promise.resolve()
-  #attemptOpen = false
   #failure: unknown
 
-  constructor(stream?: WorkerEventStream) {
+  constructor(
+    stream?: WorkerEventStream,
+    private readonly observeProgress?: (event: ExecutorProgressEvent, at: number) => void,
+  ) {
     this.#stream = stream
   }
 
-  start(): void {
+  async start(): Promise<void> {
     this.#capturing = true
-    this.#attemptOpen = false
+    const stream = this.#stream
+    if (stream === undefined) return
+    this.#sink = createRootStreamSink(stream.runDir, stream.now, nodeStreamFile(stream.nodeId), {
+      continueAttempts: true,
+    })
+    await this.#sink.beginAttempt()
   }
   #bytes = 0
 
   append(event: ExecutorProgressEvent, at: number): void {
     const redacted = defaultRedactor(event)
+    this.observeProgress?.(redacted as ExecutorProgressEvent, at)
     this.#record(redacted as ExecutorProgressEvent)
     let entry: WorkerEventEntry = { sequence: this.#next++, at, event: redacted }
     let bytes: number
@@ -84,20 +90,8 @@ export class WorkerEvents {
   }
 
   #record(event: ExecutorProgressEvent): void {
-    const stream = this.#stream
-    if (stream === undefined) return
-    if (!this.#attemptOpen || this.#sink === undefined) {
-      this.#attemptOpen = true
-      this.#sink ??= createRootStreamSink(
-        stream.runDir,
-        stream.now,
-        nodeStreamFile(stream.nodeId),
-        { continueAttempts: true },
-      )
-      const sink = this.#sink
-      this.#chain(() => sink.beginAttempt())
-    }
-    const sink = this.#sink!
+    const sink = this.#sink
+    if (sink === undefined) return
     this.#chain(() => sink.append(event))
   }
 

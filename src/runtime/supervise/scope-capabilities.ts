@@ -61,6 +61,18 @@ const managerEnvironmentReleases = new WeakMap<object, Promise<void>>()
  *  kept for a resume any longer. */
 export const releasingScopes = new WeakSet<object>()
 export const admissionSeals = new WeakMap<object, () => void>()
+/** A nested owner's existing allocation and permit, suspended across a seat wait. */
+export const scopeSeatAccountingUpdates = new WeakMap<Scope<unknown>, () => Promise<void>>()
+export const seatAdmissionPauses = new WeakMap<
+  object,
+  (resumeAt: string) => Promise<() => Promise<void>>
+>()
+export async function pauseScopeSeatAdmission(
+  scope: Scope<unknown>,
+  resumeAt: string,
+): Promise<() => Promise<void>> {
+  return (await seatAdmissionPauses.get(scope)?.(resumeAt)) ?? (async () => {})
+}
 /** Each scope's reader of its own team, for the settlement its owner writes one level up. */
 export const subtreeReaders = new WeakMap<object, () => SubtreeSummary | undefined>()
 /** A scope's live team and its owner's own turns, as the owner's lead observes them. */
@@ -169,6 +181,7 @@ export async function releaseRetainedEnvironments(
   // and it still holds the environment it kept between its turns.
   await releaseNestedManagerEnvironments(scope)
   ownerUnconfirmedByScope.set(scope, await releaseScopeRetainedOwnerEnvironment(scope))
+  await scopeSeatAccountingUpdates.get(scope)?.()
   return unconfirmedTeardowns(scope)
 }
 
@@ -198,8 +211,12 @@ export function releaseManagerEnvironment(scope: Scope<unknown>): Promise<void> 
   if (release === undefined) {
     release = Promise.all([
       retainedReleasers.get(scope)?.(),
-      releaseScopeRetainedOwnerEnvironment(scope),
-    ]).then(() => undefined)
+      releaseScopeRetainedOwnerEnvironment(scope).then((unconfirmed) => {
+        ownerUnconfirmedByScope.set(scope, unconfirmed)
+      }),
+    ]).then(async () => {
+      await scopeSeatAccountingUpdates.get(scope)?.()
+    })
     managerEnvironmentReleases.set(scope, release)
   }
   return release
@@ -243,7 +260,17 @@ export async function closeRetainedSlots(scope: Scope<unknown>): Promise<void> {
  * confirm. Read live, so a later retry that confirms a node removes it.
  */
 export function unconfirmedTeardowns(scope: Scope<unknown>): ReadonlyArray<UnconfirmedTeardown> {
-  return [...scope.workerCapacity.unconfirmed, ...(ownerUnconfirmedByScope.get(scope) ?? [])]
+  const direct = [
+    ...scope.workerCapacity.unconfirmed,
+    ...(ownerUnconfirmedByScope.get(scope) ?? []),
+  ]
+  const reported = new Set(direct.map((node) => node.id))
+  return [
+    ...direct,
+    ...nestedManagerScopes(scope)
+      .flatMap(unconfirmedTeardowns)
+      .filter((node) => !reported.has(node.id)),
+  ]
 }
 
 /** @internal Let the settlement retry reach the scope a recursive executor owns. */

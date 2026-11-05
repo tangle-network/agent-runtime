@@ -34,17 +34,9 @@ import type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
-import {
-  assertProviderWorkspaceRetentionPort,
-  captureProviderWorkspaceSnapshot,
-  type ProviderWorkspaceCaptureReceipt,
-  type ProviderWorkspaceRetentionPort,
-  workspaceCaptureReceipt,
-} from '../provider-workspace-retention'
-import { freezeControlRef, sameControlCoordinates } from '../retained-run-binding'
+import { sameControlCoordinates } from '../retained-run-binding'
 import { createSandboxUsageLedger } from '../sandbox-events'
 import { concreteProfileModel } from '../supervise/model-policy'
-import type { ExecutorNodeContext } from '../supervise/types'
 import type { SandboxClient } from '../types'
 import {
   createProviderFailureLedger,
@@ -66,16 +58,6 @@ export function providerAsSandboxClient(
   provider: AgentEnvironmentProvider,
   options: ProviderAsSandboxClientOptions = {},
 ): SandboxClient {
-  if (options.workspaceRetention !== undefined) {
-    assertProviderWorkspaceRetentionPort(
-      options.workspaceRetention,
-      `providerAsSandboxClient(${provider.name})`,
-    )
-    if (options.retentionIdentity === undefined)
-      throw new ValidationError(
-        'providerAsSandboxClient: retentionIdentity is required with workspaceRetention',
-      )
-  }
   return {
     async create(createOptions?: CreateSandboxOptions): Promise<SandboxInstance> {
       const defaults = options.defaults ?? {}
@@ -142,7 +124,7 @@ export function providerAsSandboxClient(
         )
       const environment = await provider.create(mapped as CreateAgentEnvironmentInput)
       if (options.requireSession && !environment.session) {
-        if (options.workspaceRetention === undefined) await environment.destroy?.()
+        await environment.destroy?.()
         throw new ValidationError(
           `providerAsSandboxClient(${provider.name}): session() is required`,
         )
@@ -150,9 +132,6 @@ export function providerAsSandboxClient(
       return environmentAsSandboxInstance(environment, {
         ...(typeof mapped.profile === 'string' ? {} : { profile: mapped.profile }),
         requireTerminalEvent: options.requireTerminalEvent ?? true,
-        workspaceRetention: options.workspaceRetention,
-        retentionIdentity: options.retentionIdentity,
-        onWorkspaceCaptured: options.onWorkspaceCaptured,
       })
     },
   }
@@ -239,29 +218,8 @@ export function environmentAsSandboxInstance(
   options: {
     profile?: AgentProfile
     requireTerminalEvent: boolean
-    workspaceRetention?: ProviderWorkspaceRetentionPort
-    retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
-    onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   },
 ): SandboxInstance {
-  let providerSessionId: string | null = null
-  let controlRef: AgentExactRunControlRef | undefined
-  const noteControlRef = (candidate: unknown): void => {
-    if (options.workspaceRetention === undefined) return
-    const parsed = AgentExactRunControlRefSchema.safeParse(candidate)
-    if (!parsed.success) return
-    if (
-      parsed.data.environmentId !== environment.id ||
-      parsed.data.provider !== environment.provider
-    )
-      throw new ValidationError(
-        'providerAsSandboxClient: capture control reference names another environment',
-      )
-    controlRef = freezeControlRef(parsed.data)
-    providerSessionId = controlRef.sessionId
-  }
-  let capture: Promise<ProviderWorkspaceCaptureReceipt> | undefined
-  let publication: Promise<void> | undefined
   const box = {
     id: environment.id,
     name: environment.name,
@@ -275,8 +233,6 @@ export function environmentAsSandboxInstance(
     ): AsyncGenerator<SandboxEvent> {
       let terminal = false
       const input = turnInputFromPrompt(message, promptOptions, options.profile)
-      providerSessionId = input.sessionId ?? null
-      noteControlRef(input.controlRef)
       let cancellation: Promise<void> | undefined
       let cancellationStarted = false
       let cancellationFailed = false
@@ -353,8 +309,6 @@ export function environmentAsSandboxInstance(
       let terminal = false
       const failures = createProviderFailureLedger()
       const input = turnInputFromPrompt(message, promptOptions, options.profile)
-      providerSessionId = input.sessionId ?? null
-      noteControlRef(input.controlRef)
       for await (const event of environment.stream(input)) {
         lastResultText = resultTextFromData(event.data) ?? lastResultText
         if (isTerminalEnvironmentEvent(event)) terminal = true
@@ -389,7 +343,6 @@ export function environmentAsSandboxInstance(
             )
             if (!session)
               throw new ValidationError('providerAsSandboxClient: dispatch returned no session')
-            noteControlRef(session.controlRef)
             return sandboxDispatchResultFromSessionRef(session)
           },
         }
@@ -397,7 +350,6 @@ export function environmentAsSandboxInstance(
     ...(environment.session
       ? {
           session(id: string, sessionOptions?: { controlRef?: AgentRunControlRef }) {
-            noteControlRef(sessionOptions?.controlRef)
             return sandboxSessionFromAgentSession(
               environment.session?.(id, sessionOptions),
               sessionOptions?.controlRef,
@@ -428,50 +380,6 @@ export function environmentAsSandboxInstance(
         }
       : {}),
     async delete(): Promise<void> {
-      if (options.workspaceRetention !== undefined) {
-        const identity = options.retentionIdentity
-        if (identity === undefined)
-          throw new ValidationError(
-            'providerAsSandboxClient: retention identity missing before delete',
-          )
-        capture ??= captureProviderWorkspaceSnapshot(options.workspaceRetention, {
-          environment,
-          executionId: identity.executionId,
-          ...(controlRef === undefined ? {} : { controlRef }),
-          ...(identity.node === undefined ? {} : { node: identity.node }),
-          providerSessionId,
-          nativeSessionId: null,
-          profile: identity.profile,
-        }).then((captured) =>
-          workspaceCaptureReceipt(
-            {
-              environment,
-              executionId: identity.executionId,
-              ...(controlRef === undefined ? {} : { controlRef }),
-              ...(identity.node === undefined ? {} : { node: identity.node }),
-              profile: identity.profile,
-              providerSessionId,
-            },
-            captured,
-          ),
-        )
-        const receipt = await capture
-        publication ??= Promise.resolve().then(async () => {
-          await options.onWorkspaceCaptured?.(receipt)
-        })
-        const publishing = publication
-        try {
-          await publishing
-        } catch (error) {
-          if (publication === publishing) publication = undefined
-          throw error
-        }
-        if (options.workspaceRetention.requireCompleteProvenance && !receipt.coverageComplete) {
-          throw new Error(
-            receipt.incompleteReason ?? 'provider workspace retention coverage incomplete',
-          )
-        }
-      }
       await environment.destroy?.()
     },
   }
@@ -769,12 +677,6 @@ export interface ProviderAsSandboxClientOptions {
   requireTerminalEvent?: boolean
   /** Require declared live continuation plus concrete session controls. */
   requireSession?: boolean
-  /** Verified workspace capture before every environment delete, including steerable sessions. */
-  workspaceRetention?: ProviderWorkspaceRetentionPort
-  /** Supervised identity assigned before the environment is created. */
-  retentionIdentity?: { executionId: string; profile: AgentProfile; node?: ExecutorNodeContext }
-  /** Called after verification and before deletion so the run result can retain the exact join. */
-  onWorkspaceCaptured?: (receipt: ProviderWorkspaceCaptureReceipt) => void | Promise<void>
   /** Translate unsupported Sandbox controls while preserving requested custody. */
   mapCreateOptions?: (
     options: CreateSandboxOptions | undefined,

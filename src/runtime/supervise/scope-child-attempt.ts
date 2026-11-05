@@ -5,11 +5,16 @@ import {
   persistHarnessTranscript,
   readHarnessTranscript,
 } from '../harness-transcript'
-import { type BudgetPool, BudgetReconcileFault, type ReservationTicket } from './budget'
+import {
+  type BudgetPool,
+  BudgetReconcileFault,
+  budgetLeases,
+  type ReservationTicket,
+} from './budget'
 import { teardownExecutor } from './deadline'
 import { errMessage } from './error-message'
 import { withBudgetResources } from './resources'
-import type { LiveChild } from './scope-contract'
+import type { ChildAdmission, LiveChild } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import { captureWorkerTraceEvidence } from './trace-evidence'
 import type {
@@ -52,7 +57,7 @@ export class ChildExecutionAttempt<C> {
     private readonly ticket: ReservationTicket,
     private readonly blobs: ResultBlobStore,
     readonly now: () => number,
-    private readonly deadlineAtMs: number | undefined,
+    private readonly admission: ChildAdmission,
     private readonly startedAt: number | undefined,
   ) {}
 
@@ -71,6 +76,7 @@ export class ChildExecutionAttempt<C> {
     } catch (error) {
       usageError = error
     }
+    await live.admission.prepareAccounting?.(true)
     // Output is evidence, not a success verdict. Preserve it even when terminal usage is invalid.
     const out = detachedSnapshot(result.out, 'scope child output')
     const outRef = contentAddress(out)
@@ -105,7 +111,14 @@ export class ChildExecutionAttempt<C> {
     try {
       // An environment kept for a continuation this settlement will not offer is released too.
       await executor.heldForContinuation?.()?.release()
-      await teardownExecutor(executor, grace, this.deadlineAtMs, this.now, live.askTeardown)
+      await teardownExecutor(
+        executor,
+        grace,
+        this.admission.deadlineAtMs,
+        this.now,
+        live.askTeardown,
+      )
+      await live.admission.prepareAccounting?.(true)
       live.cleanupConfirmed = true
     } catch (error) {
       this.teardownFailure = error
@@ -140,6 +153,12 @@ export class ChildExecutionAttempt<C> {
         }
         throw error
       }
+      if (
+        this.terminalTelemetryCaptured &&
+        !live.recoveryPending &&
+        live.readNestedScope?.() === undefined
+      )
+        budgetLeases.get(this.pool)?.observeTerminal(this.ticket, spend)
       // An overspend is recorded, not thrown (the pool committed the true spend); a fault throws.
       live.budgetViolation = this.pool.reconcile(this.ticket, spend)
       this.recordDeadlineOverrun()
@@ -174,8 +193,9 @@ export class ChildExecutionAttempt<C> {
 
   // A child that settled past its time box names it the same way, as time given and taken.
   private recordDeadlineOverrun(): void {
-    const { live, deadlineAtMs } = this
-    const startedAt = this.startedAt
+    const { live } = this
+    const deadlineAtMs = this.admission.deadlineAtMs
+    const startedAt = this.admission.grantedAtMs ?? this.startedAt
     const settledAt = this.now()
     if (deadlineAtMs !== undefined && startedAt !== undefined && settledAt > deadlineAtMs) {
       live.budgetViolation = {

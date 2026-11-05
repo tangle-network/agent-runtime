@@ -10,6 +10,7 @@ import {
   settleManagerWork,
   unconfirmedTeardowns,
 } from './scope'
+import { appendTeardownConfirmation } from './scope-settlement'
 import {
   confirmSettledTeardowns,
   DEFAULT_TEARDOWN_CONFIRM_MS,
@@ -52,6 +53,7 @@ export async function joinRunChildren(
   // A settled manager may still be capturing its last turn's workspace and releasing its
   // environment; both finish before the run settles.
   await settleManagerWork(scope)
+  join.teardownUnconfirmed = unconfirmedTeardowns(scope)
   // A retained-pending child kept its environment so a resuming process could reconcile the paid
   // execution. When the run will not be resumed nothing would: four settled `no-winner` runs held 18
   // of a 60-slot fleet for 19 to 37 hours. The caller knows whether a later process
@@ -121,6 +123,9 @@ async function unrecoveredRetainedChildren(join: RunJoin): Promise<UnconfirmedTe
   if (resumeFrom === undefined || !(join.opts.signal?.reason instanceof RunCancellationReason))
     return [...unconfirmed.values()]
   const forest = await loadSpawnForest(join.opts.journal, join.opts.runId)
+  const nestedOwners = new Set(
+    forest.nodes.filter((node) => node.ownedTreeRoot !== undefined).map((node) => node.id),
+  )
   type Position = { tree: string; index: number; at: number }
   type Custody = { ref: HeldEnvironment; admissions: Map<string, Position> }
   const destroyed = new Map<string, Position[]>()
@@ -177,9 +182,10 @@ async function unrecoveredRetainedChildren(join: RunJoin): Promise<UnconfirmedTe
   }
   const discharged = (id: string, key: string, custody: Custody) =>
     [...custody.admissions.values()].every((admission) =>
-      [...(destroyed.get(key) ?? []), ...(confirmed.get(id) ?? [])].some((proof) =>
-        later(proof, admission),
-      ),
+      [
+        ...(destroyed.get(key) ?? []),
+        ...(nestedOwners.has(id) ? [] : (confirmed.get(id) ?? [])),
+      ].some((proof) => later(proof, admission)),
     )
   const unknown = new Set(
     [...pending.values()]
@@ -263,11 +269,11 @@ async function confirmRetriableTeardowns(join: RunJoin, releasing: boolean): Pro
   const still = new Set(join.teardownUnconfirmed.map((node) => node.id))
   for (const node of pending) {
     if (still.has(node.id)) continue
-    await opts.journal.appendEvent(opts.runId, {
-      kind: 'teardown-confirmed',
-      id: node.id,
-      seq: join.teardownSeq++,
-      at: new Date(join.now()).toISOString(),
-    })
+    await appendTeardownConfirmation(
+      opts.journal,
+      opts.runId,
+      node.id,
+      new Date(join.now()).toISOString(),
+    )
   }
 }

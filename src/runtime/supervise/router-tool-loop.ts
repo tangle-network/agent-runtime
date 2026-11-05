@@ -18,6 +18,7 @@ import type { ToolSpec } from '../router-request-body'
 import type { PromptCacheUsage } from '../router-response'
 import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import { linkAbort } from './abortable'
+import { type ExecutorObservation, observeModelRequest } from './executor-observation'
 import { contentRef } from './executor-outcome'
 import type { Inbox, InboxLease } from './inbox'
 import {
@@ -45,6 +46,7 @@ type Message = Record<string, unknown>
 
 /** What one router tool loop reads and never changes: the seam, the profile's decisions, the owners. */
 export interface RouterToolLoopEnv {
+  readonly observation: ExecutorObservation | undefined
   readonly seam: RouterToolsSeam
   readonly spec: AgentSpec
   readonly model: string
@@ -237,6 +239,14 @@ async function executeGranted(
   if (context.callId !== context.parentCallId) {
     state.executedToolCalls.push({ id: context.callId, name, arguments: JSON.stringify(args) })
   }
+  const nested = context.callId !== context.parentCallId
+  if (nested)
+    env.observation?.progress({
+      kind: 'tool_call',
+      toolName: name,
+      toolCallId: context.callId,
+      args,
+    })
   const startedAt = Date.now()
   let status: 'ok' | 'error' = 'ok'
   try {
@@ -246,6 +256,13 @@ async function executeGranted(
     throw error
   } finally {
     const endedAt = Date.now()
+    if (nested)
+      env.observation?.progress({
+        kind: 'tool_result',
+        toolName: name,
+        toolCallId: context.callId,
+        status,
+      })
     try {
       seam.onToolStep?.({
         toolName: name,
@@ -313,26 +330,26 @@ async function requestModelTurn(
   transcript.observe(state.messages)
   try {
     recordRuntimeOwnedProviderAttemptStart(env.executor)
-    const res = await (profileExecution.stream === true
-      ? streamRouterChatWithTools
-      : routerChatWithTools)(
-      routerTransportConfig(seam, env.model, profileExecution.retry),
-      state.messages,
-      actions.presentedTools,
-      {
-        ...(profileExecution.temperature !== undefined
-          ? { temperature: profileExecution.temperature }
-          : {}),
-        signal: turn.controller.signal,
-        onResponse: async (receipt: RouterResponseReceipt) => {
-          state.providerResponses.push(receipt)
-          transcript.response(receipt)
-          await seam.onProviderResponse?.(structuredClone(receipt))
+    const res = await observeModelRequest(env.observation, env.model, () =>
+      (profileExecution.stream === true ? streamRouterChatWithTools : routerChatWithTools)(
+        routerTransportConfig(seam, env.model, profileExecution.retry),
+        state.messages,
+        actions.presentedTools,
+        {
+          ...(profileExecution.temperature !== undefined
+            ? { temperature: profileExecution.temperature }
+            : {}),
+          signal: turn.controller.signal,
+          onResponse: async (receipt: RouterResponseReceipt) => {
+            state.providerResponses.push(receipt)
+            transcript.response(receipt)
+            await seam.onProviderResponse?.(structuredClone(receipt))
+          },
+          ...(profileExecution.toolChoice ? { toolChoice: profileExecution.toolChoice } : {}),
+          ...routerGenerationOptions(profileExecution),
+          ...routerTurnRequestIdentity(env.requestIdentity, t),
         },
-        ...(profileExecution.toolChoice ? { toolChoice: profileExecution.toolChoice } : {}),
-        ...routerGenerationOptions(profileExecution),
-        ...routerTurnRequestIdentity(env.requestIdentity, t),
-      },
+      ),
     )
     turn.cleanup()
     return res
@@ -443,11 +460,19 @@ async function runToolCalls(
     const id = tc?.id ?? `call_${i}`
     const toolName = tc?.name ?? ''
     state.executedToolCalls.push({ id, name: toolName, arguments: tc?.arguments ?? '' })
+    env.observation?.progress({ kind: 'tool_call', toolName, toolCallId: id })
     if (!actions.modelToolNames.has(toolName)) {
       state.messages.push({
         role: 'tool',
         tool_call_id: id,
         content: `error: tool ${JSON.stringify(toolName)} is not enabled by AgentProfile.tools`,
+      })
+      env.observation?.progress({
+        kind: 'tool_result',
+        toolName,
+        toolCallId: id,
+        status: 'error',
+        error: { type: 'ToolNotGranted', message: 'Tool is not enabled by AgentProfile.tools' },
       })
       try {
         env.seam.onToolStep?.({ toolName, args: {}, status: 'error' })
@@ -465,6 +490,13 @@ async function runToolCalls(
         role: 'tool',
         tool_call_id: id,
         content: 'error: tool arguments were not valid JSON',
+      })
+      env.observation?.progress({
+        kind: 'tool_result',
+        toolName,
+        toolCallId: id,
+        status: 'error',
+        error: { type: 'ToolArguments', message: 'Tool arguments were not valid JSON' },
       })
       continue
     }
@@ -485,6 +517,13 @@ async function runToolCalls(
       succeeded = false
       result = `error: ${e instanceof Error ? e.message : String(e)}`
     }
+    env.observation?.progress({
+      kind: 'tool_result',
+      toolName,
+      toolCallId: id,
+      status: succeeded ? 'ok' : 'error',
+      ...(succeeded ? {} : { error: { type: 'ToolExecution', message: String(result) } }),
+    })
     const projected =
       succeeded && actions.codeMode && toolName === 'codemode'
         ? codeModeModelOutput(result)

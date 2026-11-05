@@ -3,8 +3,14 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { scanMaterializedWorkspaceManifest } from '../src/candidate-execution/artifacts'
-import { captureAgentCandidateWorkspaceFiles } from '../src/candidate-execution/workspace-archive'
+import {
+  scanMaterializedWorkspaceManifest,
+  verifyWorkspaceSnapshotArtifacts,
+} from '../src/candidate-execution/artifacts'
+import {
+  captureAgentCandidateWorkspaceFiles,
+  verifyAgentCandidateWorkspaceArchive,
+} from '../src/candidate-execution/workspace-archive'
 import {
   captureAgentCandidateWorkspaceToArtifacts,
   captureAgentCandidateWorkspaceTreeToArtifacts,
@@ -14,7 +20,6 @@ import {
 import { durableSyncCount } from '../src/runtime/durable-sync'
 import type { PrivateCasDurableStore } from '../src/runtime/private-cas'
 import { createPrivateCasArtifactPort } from '../src/runtime/private-cas'
-import { captureProviderWorkspaceSnapshot } from '../src/runtime/provider-workspace-retention'
 import { diskS3StreamStore } from './fixtures/disk-s3-stream-store'
 
 const roots: string[] = []
@@ -651,25 +656,9 @@ it('keeps buffered provider verification after a legacy durable store evicts loc
     { artifactPersistence: { executionId: 'node', outputArtifacts: artifacts } },
   )
   expect(await artifacts.offload()).toMatchObject({ localBytes: 0, localObjects: 0, durable: 2 })
-  const result = await captureProviderWorkspaceSnapshot(
-    {
-      timeoutMs: 5_000,
-      artifacts,
-      capture: async () => snapshot,
-    },
-    {
-      environment: {
-        id: 'environment',
-        provider: 'fixture',
-        status: async () => 'running',
-        stream: async function* () {},
-        destroy: async () => {},
-      },
-      executionId: 'node',
-      profile: { name: 'legacy-store' },
-    },
-  )
-  expect(result.snapshot).toEqual(snapshot)
+  const { archive } = await verifyWorkspaceSnapshotArtifacts(snapshot, artifacts)
+  await verifyAgentCandidateWorkspaceArchive({ role: 'candidate', snapshot, archive })
+  expect(Buffer.from(archive).length).toBe(snapshot.archive.byteLength)
 })
 
 it('an ephemeral store streams, publishes and copies its objects off the host without one fsync; a store read after a restart fsyncs each', async () => {

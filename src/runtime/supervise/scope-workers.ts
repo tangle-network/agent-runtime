@@ -1,4 +1,5 @@
 import { ValidationError } from '../../errors'
+import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { RunCancellationReason } from './abortable'
 import { CHILD_DEADLINE_REASON, checkInIdleMs, DEADLINE_CHECK_IN_MESSAGE } from './deadline'
 import { isTerminalNodeStatus } from './node-status'
@@ -69,15 +70,26 @@ export class ScopeWorkers {
     return () => clearInterval(watch)
   }
 
+  private steerSequence = 0
+
   readonly send = (nodeId: NodeId, msg: unknown): boolean => {
     if (this.args.signal.aborted) return false
     const child = this.children.get(nodeId)
     // Only a LIVE child whose executor accepts an inbox can be steered.
-    if (!child || child.delivered || !child.deliver) return false
+    if (!child || child.executorDone || child.delivered || !child.deliver) return false
     const accepted = child.deliver(msg) !== false
     if (!accepted) return false
     // A delivered steer IS activity: it resets the idle clock so the worker is not re-steered before it can act.
     child.lastActivityAt = this.now()
+    notifyRuntimeHookEvent(this.args.hooks, {
+      id: `${this.args.parentId}:steer:${nodeId}:${this.steerSequence++}`,
+      runId: this.args.root,
+      parentId: this.args.parentId,
+      target: 'agent.steer',
+      phase: 'after',
+      timestamp: child.lastActivityAt,
+      payload: { nodeId },
+    })
     return true
   }
 
@@ -100,7 +112,7 @@ export class ScopeWorkers {
       {
         id: child.id,
         status: child.status,
-        steerable: child.deliver !== undefined && !child.delivered,
+        steerable: child.deliver !== undefined && !child.executorDone && !child.delivered,
         startedAt: child.startedAt,
         lastActivityAt: Math.max(child.lastActivityAt, team?.lastActivityAt ?? 0),
         ...addResourceSpend(child.spent.resources),

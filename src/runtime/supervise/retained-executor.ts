@@ -65,11 +65,6 @@ export interface RetainedExecutorContext {
    *  and before release, so the capture precedes the destroy; its receipt arrives through
    *  `onEvidence`. Never rejects. */
   readonly onEndOfTurnWork?: (work: Promise<void>) => void
-  /** Journal where one workspace capture's time went: queue wait, capture time, archive bytes. */
-  readonly onWorkspaceCapture?: (capture: RetainedWorkspaceCapture) => Promise<void>
-  /** Journal that an end-of-turn capture was requested, before it waits; an owner also cuts its
-   *  checkpoint rotation's captures short here, so they never hold the final capture up. */
-  readonly onWorkspaceCaptureStarted?: (capture: RetainedWorkspaceCaptureStarted) => Promise<void>
   /** The checkpoint a NEW environment of this invocation starts from: set only when the provider
    *  lost the environment the previous invocation ran in, and it holds a checkpoint of it. */
   readonly restoreWorkspace?: RetainedWorkspaceRestore
@@ -128,52 +123,6 @@ export type RetainedExecutorPause = Omit<
   Extract<SpawnEvent, { kind: 'paused' }>,
   'kind' | 'id' | 'seq' | 'at'
 >
-
-/** What a `workspace-capture` spawn event records, less the fields the scope supplies. */
-export type RetainedWorkspaceCapture = Omit<
-  Extract<SpawnEvent, { kind: 'workspace-capture' }>,
-  'kind' | 'id' | 'seq' | 'at'
->
-
-/** What a `workspace-capture-started` spawn event records, less the fields the scope supplies. */
-export type RetainedWorkspaceCaptureStarted = Omit<
-  Extract<SpawnEvent, { kind: 'workspace-capture-started' }>,
-  'kind' | 'id' | 'seq' | 'at'
->
-
-/** @internal The journal writers for `onWorkspaceCapture` and `onWorkspaceCaptureStarted`;
- *  `nextSequence` is the node's own. */
-export function workspaceCaptureWriter(args: {
-  journal: SpawnJournal
-  rootId: string
-  nodeId: string
-  nextSequence: () => number
-  now: () => number
-}): {
-  readonly onWorkspaceCapture: (capture: RetainedWorkspaceCapture) => Promise<void>
-  readonly onWorkspaceCaptureStarted: (capture: RetainedWorkspaceCaptureStarted) => Promise<void>
-} {
-  return {
-    onWorkspaceCapture: async (capture) => {
-      await args.journal.appendEvent(args.rootId, {
-        kind: 'workspace-capture',
-        id: args.nodeId,
-        ...detachedSnapshot(capture, 'workspace capture timing'),
-        seq: args.nextSequence(),
-        at: new Date(args.now()).toISOString(),
-      })
-    },
-    onWorkspaceCaptureStarted: async (capture) => {
-      await args.journal.appendEvent(args.rootId, {
-        kind: 'workspace-capture-started',
-        id: args.nodeId,
-        ...detachedSnapshot(capture, 'workspace capture start'),
-        seq: args.nextSequence(),
-        at: new Date(args.now()).toISOString(),
-      })
-    },
-  }
-}
 
 export function retainedExecutorContext(ctx: ExecutorContext): RetainedExecutorContext | undefined {
   return ctx.seams[retainedExecutorSeamKey] as RetainedExecutorContext | undefined

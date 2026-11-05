@@ -1,14 +1,12 @@
 import { ValidationError } from '../../errors'
+import { notifyRuntimeHookEvent } from '../../runtime-hooks'
+import { refreshBudgetLease } from './budget'
 import { checkInIdleMs } from './deadline'
 import { freeSlots } from './dispatch'
 import { errorText } from './error-message'
 import { isTerminalNodeStatus } from './node-status'
 import { owners } from './retained-owner-state'
-import {
-  bindScopeRetainedOwnerWorkspaceRetention,
-  registerScopeRetainedOwner,
-  retainedOwnerWorkspaceRetentionSeamKey,
-} from './retained-scope-owner'
+import { registerScopeRetainedOwner } from './retained-scope-owner'
 import {
   admissionSeals,
   barrenPauseRecorders,
@@ -36,7 +34,16 @@ import { ScopeSettlementCursor } from './scope-settlement-cursor'
 import { createScopeSpawner } from './scope-spawn'
 import { bindChildTeardown, createHeldChildRelease } from './scope-teardown'
 import { ScopeWorkers } from './scope-workers'
-import type { NodeId, ResumedKeyState, ResumedWork, Scope, Settled, TreeView } from './types'
+import { detachedSnapshot } from './snapshot'
+import type {
+  NodeId,
+  ResumedKeyState,
+  ResumedWork,
+  Scope,
+  Settled,
+  SpawnEvent,
+  TreeView,
+} from './types'
 import { createWorkerSlots, openSlotGroup } from './worker-slots'
 
 /** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
@@ -50,7 +57,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const ownerFloor = reservationOwnerFloor(args)
   const now = args.now ?? Date.now
   const workers = new ScopeWorkers(args, children, now)
-  const meter = new ScopeOwnerMeter(args, now)
+  const meter = new ScopeOwnerMeter(
+    args,
+    now,
+    () => ownerMaterializationStates.get(scope)?.attemptId,
+  )
   const { releaseHeld, heldReleases } = createHeldChildRelease(args, now)
   const { spawn, recordKeyedSettlement } = createScopeSpawner<Out>({
     args,
@@ -62,6 +73,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     isAdmissionClosed: () => admissionClosed,
     checkInAtTimeBox: workers.checkInAtTimeBox,
     releaseHeld,
+    publishSettlement: async (child, settlement): Promise<unknown> => {
+      const published = await cursor.publish(child, settlement)
+      await refreshBudgetLease(args.pool)
+      return published
+    },
   })
   const cursor = new ScopeSettlementCursor<Out>(args, children, now, recordKeyedSettlement)
 
@@ -150,6 +166,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   }
   bindChildTeardown(scope, args, children, now)
   registerScopeRetainedOwner(scope as Scope<unknown>, {
+    ...(args.hooks ? { hooks: args.hooks } : {}),
     rootId: args.root,
     executionRootId: args.ownerMaterialization?.journalRoot ?? args.root,
     nodeId: args.parentId,
@@ -159,10 +176,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     priorEvents: args.resumeFrom?.events ?? [],
     now,
   })
-  bindScopeRetainedOwnerWorkspaceRetention(
-    scope as Scope<unknown>,
-    args.seams[retainedOwnerWorkspaceRetentionSeamKey] === true,
-  )
   return scope
 }
 
@@ -199,18 +212,39 @@ function bindOwnerJournalRecorders(scope: Scope<unknown>, args: ScopeArgs, now: 
     const attemptId = ownerMaterializationStates.get(scope)?.attemptId
     // A retained owner's read position rides on its record, where a restarted owner finds it.
     const observed = owners.get(scope)?.context.observed
-    await args.journal.appendEvent(args.root, {
+    const event: Extract<SpawnEvent, { kind: 'driver-attempt' }> = {
       kind: 'driver-attempt',
       id: args.parentId,
-      record: {
-        ...record,
-        ...(record.error === undefined ? {} : { error: errorText(record.error) }),
-        ...(observed === undefined ? {} : { observed }),
-      },
+      record: detachedSnapshot(
+        {
+          ...record,
+          ...(record.error === undefined ? {} : { error: errorText(record.error) }),
+          ...(observed === undefined ? {} : { observed }),
+        },
+        'driver attempt record',
+      ),
       ...(attemptId === undefined ? {} : { attemptId }),
       seq: driverAttemptSeq++,
       at: new Date(now()).toISOString(),
-    })
+    }
+    await args.journal.appendEvent(args.root, event)
+    notifyRuntimeHookEvent(
+      args.hooks,
+      {
+        id: `${event.id}:driver-attempt:${event.seq}`,
+        runId: args.root,
+        parentId: event.id,
+        target: 'agent.execution',
+        phase: 'event',
+        timestamp: Date.parse(event.at),
+        payload: {
+          nodeId: event.id,
+          ...(event.attemptId === undefined ? {} : { attemptId: event.attemptId }),
+          record: event.record,
+        },
+      },
+      { signal: args.signal },
+    )
   })
   let pauseSeq = 0
   pauseRecorders.set(scope, async (pause) => {

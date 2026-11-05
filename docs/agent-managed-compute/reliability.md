@@ -11,7 +11,7 @@ A child that resolves before descendant admission, including at its original dea
 Unresolved executions remain pending; recovery does not extend their deadlines or authorize replacement work.
 For an explicit cancelled recovery, pass the existing `RunCancellationReason` from `@tangle-network/agent-runtime/kernel` as the signal reason; it preserves source, message, operation and operator provenance.
 On terminal resume, original leaf descriptors can be adopted for cleanup under the already-aborted signal; their executors never execute or recover.
-Release confirms the exact native stop before final capture or destruction. Missing dispatch proof or an unknown stop keeps the source; unbound nested owners remain unconfirmed.
+Release confirms the exact native stop before destruction. Missing dispatch proof or an unknown stop keeps the source; unbound nested owners remain unconfirmed.
 An accepted result can be reused after environment deletion.
 A durable-store failure interrupts the controller and revokes further writes from that attempt.
 Runtime joins local observers and preserves retained invocations for recovery using their original identity and deadline.
@@ -26,9 +26,9 @@ Each pending event read gets one scheduler turn before an exact result can close
 Runtime yields to the scheduler every 1,024 iterator frames, including duplicates, so a busy stream cannot starve result transport or cancellation.
 After the result settles, at most 1,024 further frames are observed across the live subscription and its one replay; the rest are not read and the result settles with incomplete observation recorded. A retained owner keeps the last replay position it read and records it on each `driver-attempt` record (`record.observed`); a later reconciliation of that execution, in the same process or after a restart, subscribes after it and reads only new frames, with observation recorded incomplete because an earlier attempt read the rest. A process that ends before its first attempt record replays from the first frame.
 A valid exact result can settle a quiet open subscription, with incomplete observation recorded even if a terminal frame was seen. Incomplete token and dollar totals remain unknown while observed subtotals are retained; exact cumulative token usage can cover missing stream receipts, but a bare numeric cost is not a billing receipt.
-Subscription cleanup cannot block that exact result or a provider contract verdict; workspace capture and source teardown retain their separate verified-receipt requirements.
+Subscription cleanup cannot block that exact result or a provider contract verdict; native stop and source teardown retain their separate acknowledgement requirements.
 This scheduler ordering does not certify that later provider or network events were observed.
-Stream silence never ends a turn. A stream that ends short of its terminal frame, or brings no new evidence for 8 minutes, publishes an `awaiting-result` progress row with `since`, and the node keeps waiting on the exact result. Each further 8 quiet minutes, Runtime reads the run's status: a live or unknown answer keeps the wait; a status read that fails or takes over 60 seconds, or a run reported ended or gone, leaves the invocation pending with its classified cause. A definite read error, including an execution the provider reports gone, keeps its own classified cause. Neither becomes success or a replacement dispatch.
+Stream silence ends only the bounded observation, never the native invocation. The first quiet interval publishes `awaiting-result` with `since`; a further quiet interval on an open stream, or the first one after the stream closes, performs a bounded status diagnosis and returns typed pending evidence even when the box is still live. `RETAINED_AWAITING_RESULT_AFTER_MS` and `RETAINED_STATUS_READ_MS` in `provider-retained-observation.ts` own those bounds. A settled exact result still wins the race. Distinct provider frames reset the quiet clock; duplicate/status-only observations do not, and time blocked on downstream journal persistence is excluded. The retry loop's existing unchanged-pending and root-stop policies remain authoritative; this observer does not guess death or authorize a replacement dispatch.
 Replay of an event with the same provider identity neither charges usage twice nor counts as new evidence, and changed content under that identity is a provider contract error.
 Recovered results preserve incomplete event observation and a bounded, redacted error summary.
 Runtime refuses settlement for received events with invalid identities and for unavailable or invalid exact results.
@@ -133,27 +133,21 @@ does not authorize replacement.
 A resumed run replays a committed failed owner result as the same failure rather than as a delivered turn.
 Accepted failures keep that status through cancellation races and coordinator recovery.
 
-Thrown provider and steerable failures retain verified workspace captures as `execution-evidence` output references.
-Root and child scopes use the same durable writer.
-A bounded capture can finish after cancellation; its evidence remains appendable after the terminal record.
+Runtime retains native events and failure evidence as `execution-evidence`, independently of whether a result was accepted.
 Evidence publication does not accept a result, finalize spend, or authorize replacing a retained invocation.
-A failed capture keeps its live source and records missing evidence.
-A retained manager whose port has `captureNative` commits each completed turn before handing its workspace capture to its scope owner.
-The node settles once the turn's usage is metered; the owner awaits the capture before the environment's next turn and before its release, so the capture still precedes the destroy.
-Before another invocation or seat-switch checkpoint can change that environment, the owner requires a durable, verified workspace archive matching the prior input, profile, original execution node/attempt, and exact admitted provider execution. A capture whose only gap is raw process I/O may permit continuation in the retained environment: the incomplete coverage remains in the committed receipt, and the source remains held for evidence. Workspace, identity, or archive gaps still block continuation. Release and seat retirement still require complete coverage; a seat switch may checkpoint and continue in a new environment while retaining the incomplete source for evidence.
-After coordinator loss or a failed live handoff, it recovers only the missing evidence through the original retention port and matching profile; accepted output and spend are not replayed.
-The obligation comes from the prior input's persisted `workspaceRetention`, not the resumed backend configuration.
-A failed or mismatched workspace capture preserves the source. For a root owner, it throws a recoverable evidence error; `supervisePursuit` writes `failure.json` without sealing `result.json`, so a later entry can retry capture. A raw-process-only gap is recorded without recasting the accepted result as a failure. Nested managers retain the existing pending-execution settlement policy; this does not make a terminally settled pursuit re-enterable.
-The normal child cleanup barrier still runs; this is not a pause that preserves every live child. Explicit cancellation, including cancellation during cleanup, still settles as cancelled while unverified source environments remain preserved.
-An old uncaptured workspace that a later invocation already admitted cannot be recaptured as historical evidence and blocks further reuse.
-The credential-free two-process regression is `tests/runtime/retained-capture-resume.test.ts`; it covers real SIGKILL/re-entry, rejected and foreign evidence, and recovery without another dispatch of the accepted invocation.
-A deadline or abort that reaches a manager whose submission was accepted waits, for at most 5 minutes, for the turn that submitted it to end, and the node settles `done` with the accepted result.
-A nested manager releases its own environment once its scope finishes, and the run settlement waits for every manager's capture and release.
-One release spends at most 15 minutes (`RELEASE_CHECKPOINT_CAPTURES_MS`) capturing the owner's pending checkpoints; a capture it cuts short keeps its checkpoint and the source, as a failed capture does, and the release goes on to settle.
-Live workspace captures stop whenever a turn ends, the copy in flight included, even for a turn its consumer closed in an environment kept for recovery.
-At that release a verified capture recorded as `execution-evidence` is the turn's receipt.
-A `not_found` answer for a checkpoint request older than ten request bounds no longer keeps the source environment alive.
-Each workspace capture journals a `workspace-capture` record with its queue wait, capture time and archive bytes.
+New provider captures belong to the provider and Sandbox Intelligence; the optional Runtime client capture writers have retired.
+Historical capture receipt/provenance types, archive verification/materialization, transcript projection, and inspection readers remain supported.
+An old input's persisted `workspaceRetention: true` remains an obligation even when the resumed backend has no writer option.
+A missing or mismatched host receipt keeps the old source. Accepted work may continue in an isolated new session while its evidence debt remains explicit; an unresolved failed invocation remains pending.
+A receipt whose only gap is raw process I/O may permit continuation in the retained environment, but incomplete coverage still prevents evidence-authorized release.
+The normal child cleanup barrier still runs; explicit cancellation never turns an unverified old source into confirmed teardown.
+An old source mutated by a later invocation cannot be reconstructed as historical evidence.
+`tests/runtime/retained-capture-resume.test.ts` covers real coordinator loss, direct historical receipt verification and cold native custody.
+An accepted submission still gets the bounded grace owned by the deadline policy, and a nested manager's release still waits for its drive and acknowledged end-of-turn work.
+Ordinary checkpoint cleanup requires an existing verified capture receipt; missing capture keeps the checkpoint without requiring a source solely for a retired capture writer.
+The existing provider-capacity retirement path may delete an old checkpoint only through its exact cleanup acknowledgement.
+Historical capture forks remain custody obligations until their provider confirms destruction.
+A `not_found` answer for a checkpoint request older than the source-owned lookup window no longer keeps the source environment alive.
 Recoverable tool failures inside a completed turn do not fail the child.
 
 Terminal success and failure receipts preserve observed usage and explicit completeness flags.
@@ -452,7 +446,7 @@ Retention policy must be configurable by data class:
 A provider workspace receipt retains the attempt manifest in `provenance.attempts`.
 Each attempt records its Sidecar execution ID, ordinal, backend session ID, observed native session IDs, process IDs, outcome, and missing reasons.
 The Sidecar execution ID joins `sessions[].executionIds`; it differs from the Runtime node execution ID.
-Strict retention requires a complete, uniquely owned attempt inventory before it certifies capture coverage.
+Historical complete capture receipts require a uniquely owned attempt inventory.
 A receipt derives its singular `nativeSessionId` after archive verification only when the attempt identities agree.
 Older receipts without an attempt manifest remain unknown at the attempt level.
 

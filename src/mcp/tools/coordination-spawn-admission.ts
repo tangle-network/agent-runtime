@@ -267,9 +267,7 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
     // with its environment still held, continues in the same session.
     ...(key !== undefined && a.budget !== undefined ? { continueHeld: true } : {}),
   })
-  // A keyed spawn that resolved to committed work: NOTHING ran — return the finished result
-  // (it is already in the settled ledger, seeded from the resumed scope or recorded when the
-  // cursor yielded it), so the driver folds it in without waiting for a wake.
+  // Return the durable result immediately; its original event may still await cursor delivery.
   if (res.ok && res.prior?.state === 'completed') {
     return Promise.resolve(committedSpawnReport(state, res.prior.settled))
   }

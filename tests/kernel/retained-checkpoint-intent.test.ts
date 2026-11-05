@@ -7,7 +7,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore } from '../../src/durable/in-memory-spawn-stores'
 import {
   bindScopeRetainedOwnerProvider,
@@ -19,7 +19,12 @@ import {
 } from '../../src/runtime/supervise/retained-scope-owner'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS } from '../../src/runtime/supervise/workspace-checkpoint'
-import { captureProfile, checkpointCaptureFixture } from '../helpers/checkpoint-capture'
+import { checkpointCaptureFixture } from '../helpers/checkpoint-capture'
+
+const cleanups: Array<() => void> = []
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup()
+})
 
 type Boundary = 'unknown-outcome' | 'late-after-cancel' | 'journal-append-failure'
 type Lookup = 'found' | 'unknown' | 'not_found' | 'foreign'
@@ -44,6 +49,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     provider: source.provider,
     snapshotFiles: (id) => (id === 'intent-snapshot' && checkpoint ? snapshot : undefined),
   })
+  cleanups.push(() => capture.cleanup())
   let live = true
   let deletes = 0
   let destroys = 0
@@ -144,7 +150,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
       throw new Error('not used')
     },
     get: async (id) =>
-      id === source.environmentId ? (live ? environment : null) : capture.forkEnvironment(id),
+      id === source.environmentId ? (live ? environment : null) : capture.forkEnvironment(),
     workspaceBranching: {
       forEnvironment: async (id) => {
         expect(id).toBe(source.environmentId)
@@ -171,10 +177,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
         },
       },
     })
-    bindScopeRetainedOwnerProvider(ownerScope, provider, {
-      port: capture.port,
-      profile: captureProfile,
-    })
+    bindScopeRetainedOwnerProvider(ownerScope, provider)
   }
   return {
     events,
@@ -219,6 +222,8 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
       } else {
         await pending
       }
+      // The legacy receipt is fixture data; fresh Runtime never creates a capture writer.
+      if (checkpoint) events.push(await capture.record(checkpoint, source.runId, events.length + 1))
     },
   }
 }

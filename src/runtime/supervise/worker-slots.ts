@@ -60,6 +60,7 @@ interface PermitState {
   readonly group: GroupState
   granted: boolean
   released: boolean
+  paused: boolean
   /** Whether this permit is one of the allocator's working units now. False while one of its own
    *  children works on its slot. */
   counted: boolean
@@ -149,6 +150,51 @@ export function openSlotGroup(slots: WorkerSlots, owner?: SlotPermit): SlotGroup
 }
 
 const permitStates = new WeakMap<SlotPermit, PermitState>()
+const permitOwners = new WeakMap<SlotPermit, { allocator: AllocatorState; depth: number }>()
+
+/** Pause only this owner's work; descendants retain their existing counted/lent units. */
+export function pauseWorkerSlot(handle: SlotPermit): void {
+  const inner = deferredPermits.get(handle)?.() ?? handle
+  const permit = permitStates.get(inner)
+  const owner = permitOwners.get(inner)
+  if (!permit || !owner || permit.released || permit.paused) return
+  permit.paused = true
+  if (permit.granted) releasePermit(owner.allocator, permit)
+  pump(owner.allocator)
+}
+
+/** Reacquire the same permit identity and child group using the ordinary fair queue. */
+export function resumeWorkerSlot(handle: SlotPermit): Promise<void> {
+  const inner = deferredPermits.get(handle)?.() ?? handle
+  const permit = permitStates.get(inner)
+  const owner = permitOwners.get(inner)
+  if (!permit || !owner || permit.released)
+    return Promise.reject(new ValidationError('closed worker slot cannot resume'))
+  permit.paused = false
+  if (permit.granted) return Promise.resolve()
+  const state = owner.allocator
+  if ((permit.children?.running ?? 0) > 0) {
+    // Children that started while their owner slept already account for the working unit.
+    if (costOf(permit.group) === 0) {
+      permit.group.owner!.counted = false
+      state.working -= 1
+    }
+    permit.granted = true
+    permit.group.running += 1
+    return Promise.resolve()
+  }
+  return new Promise<void>((resolve) => {
+    const grant = () => {
+      grantPermit(state, permit)
+      resolve()
+    }
+    if (costOf(permit.group) === 0 || hasCapacity(state)) grant()
+    else {
+      permit.group.queued += 1
+      state.waiters.push({ permit, depth: owner.depth, order: state.order++, grant })
+    }
+  })
+}
 /** Each deferred permit's reader of the permit it acquired, once it has acquired one. */
 const deferredPermits = new WeakMap<SlotPermit, () => SlotPermit | undefined>()
 
@@ -191,7 +237,13 @@ function acquire(
   if (!Number.isSafeInteger(depth) || depth < 0) {
     throw new ValidationError(`worker slots: depth must be a non-negative integer, got ${depth}`)
   }
-  const permit: PermitState = { group, granted: false, released: false, counted: false }
+  const permit: PermitState = {
+    group,
+    granted: false,
+    released: false,
+    paused: false,
+    counted: false,
+  }
   let resolveReady!: () => void
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve
@@ -224,6 +276,7 @@ function acquire(
     },
   }
   permitStates.set(handle, permit)
+  permitOwners.set(handle, { allocator: state, depth })
   return handle
 }
 
@@ -231,7 +284,7 @@ function acquire(
  *  which case the child takes that slot over. */
 function costOf(group: GroupState): 0 | 1 {
   const owner = group.owner
-  return owner?.granted && !owner.released && owner.counted ? 0 : 1
+  return owner?.granted && !owner.released && !owner.paused && owner.counted ? 0 : 1
 }
 
 function hasCapacity(state: AllocatorState): boolean {
@@ -254,6 +307,7 @@ function releasePermit(state: AllocatorState, permit: PermitState): void {
   // A manager that ends while its own children still run keeps its place in the chain of lent
   // slots until the last of them ends; the slot then passes up as if the manager ended then.
   if ((permit.children?.running ?? 0) > 0) return
+  if (permit.paused) permit.granted = false
   const group = permit.group
   group.running -= 1
   if (group.running < 0)
@@ -264,7 +318,7 @@ function releasePermit(state: AllocatorState, permit: PermitState): void {
   if (group.running === 0 && owner !== undefined && owner.granted) {
     // The manager's last running child ended: the slot returns to the manager.
     owner.counted = true
-    if (owner.released) releasePermit(state, owner)
+    if (owner.released || owner.paused) releasePermit(state, owner)
     return
   }
   state.working -= 1

@@ -3,16 +3,10 @@ import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'
 import { finalizeSettlement, raceFirstSettled } from './scope-settlement'
 import type { NodeId, Settled } from './types'
 
-/**
- * The scope's `next()` cursor: delivers each child's settlement exactly once, stamps the cursor
- * `seq`, and tracks the settlement writes still landing so a drain can wait for them.
- */
+/** Commit completed children eagerly; deliver their acknowledged results exactly once. */
 export class ScopeSettlementCursor<Out> {
-  /** Settlement writes in flight; a drain or an empty cursor waits for every one. */
   readonly writes = new Set<Promise<Settled<Out>>>()
-  // The order `next()` yields settlements (B2): the `seq` of `settled`/`cancelled` events and of
-  // `Settled`. Separate from the spawn ordinal so a `spawned` event never collides with a `settled`
-  // one in the per-tree uniqueness guard. A resumed scope continues PAST the recorded maximum.
+  private readonly publications = new Map<NodeId, { seq: number; result: Promise<Settled<Out>> }>()
   private cursorSeq: number
 
   constructor(
@@ -25,69 +19,67 @@ export class ScopeSettlementCursor<Out> {
   }
 
   readonly next = async (): Promise<Settled<Out> | null> => {
-    const undelivered = () => [...this.children.values()].filter((c) => !c.delivered)
-
-    // ray.wait n=1: await the FIRST not-yet-delivered child to settle. Loop because a
-    // concurrent `next()` may take the race winner between the await and the pick.
     for (;;) {
-      const pending = undelivered()
+      const pending = [...this.children.values()].filter((c) => !c.delivered)
       if (pending.length === 0) {
         await Promise.all([...this.writes])
         return null
       }
-      // Prefer an already-resolved-but-undelivered child (no await needed).
-      const ready = pending.find((c) => c.resolved !== undefined)
-      const chosen = ready ?? (await raceFirstSettled(pending))
-      if (chosen.delivered) continue
-      chosen.delivered = true
-
-      const seq = this.cursorSeq++
-      const settlement = chosen.resolved
-      if (!settlement) {
-        throw new ValidationError(
-          `scope.next: child '${chosen.id}' won the settle race without a resolved value`,
-        )
+      const chosen = this.firstPublished(pending)
+      if (!chosen) {
+        await raceFirstSettled(pending)
+        continue
       }
-      return await this.commit(chosen, settlement, seq)
+      chosen.delivered = true
+      return await this.published(chosen)
     }
   }
 
   readonly nextResolved = async (): Promise<Settled<Out> | null> => {
-    // Same exactly-once delivery as `next()`, but never awaits a RUNNING executor. A child
-    // whose executor has finished (`executorDone`) may still be mid-persistence — awaiting its
-    // `settled` promise there completes in bounded bookkeeping time, never on live work.
     for (;;) {
       const candidates = [...this.children.values()].filter((c) => !c.delivered)
-      const pick =
-        candidates.find((c) => c.resolved !== undefined) ?? candidates.find((c) => c.executorDone)
+      const pick = this.firstPublished(candidates) ?? candidates.find((c) => c.executorDone)
       if (!pick) {
         await Promise.all([...this.writes])
         return null
       }
-      const settlement = await pick.settled
-      if (pick.delivered) continue // lost the race with a concurrent cursor — pick again
+      if (!this.publications.has(pick.id)) {
+        await pick.settled
+        continue
+      }
       pick.delivered = true
-      const seq = this.cursorSeq++
-      return await this.commit(pick, settlement, seq)
+      return await this.published(pick)
     }
   }
 
-  private async commit(
-    child: LiveChild,
-    settlement: PreSeqSettled,
-    seq: number,
-  ): Promise<Settled<Out>> {
+  readonly publish = (child: LiveChild, settlement: PreSeqSettled): Promise<Settled<Out>> => {
+    const prior = this.publications.get(child.id)
+    if (prior) return prior.result
+    const seq = this.cursorSeq++
     const pending = finalizeSettlement<Out>(child, settlement, seq, this.args, this.now).then(
       (delivered) => {
         if (child.key !== undefined) this.recordKeyedSettlement(child.key, delivered)
         return delivered
       },
     )
+    this.publications.set(child.id, { seq, result: pending })
     this.writes.add(pending)
-    try {
-      return await pending
-    } finally {
-      this.writes.delete(pending)
-    }
+    void pending.then(
+      () => this.writes.delete(pending),
+      () => this.writes.delete(pending),
+    )
+    return pending
+  }
+
+  private firstPublished(children: LiveChild[]): LiveChild | undefined {
+    return children
+      .filter((child) => this.publications.has(child.id))
+      .sort((a, b) => this.publications.get(a.id)!.seq - this.publications.get(b.id)!.seq)[0]
+  }
+
+  private published(child: LiveChild): Promise<Settled<Out>> {
+    const publication = this.publications.get(child.id)
+    if (!publication) throw new ValidationError(`scope: child '${child.id}' has no publication`)
+    return publication.result
   }
 }

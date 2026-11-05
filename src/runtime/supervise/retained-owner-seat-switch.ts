@@ -91,7 +91,7 @@ async function retireCheckpointed(
   { environmentId }: { readonly environmentId: string },
   detail: string,
 ): Promise<void> {
-  if ((await ownerWorkspaceRetentionFailures(owned, args, true)).has(environmentId)) return
+  if ((await ownerWorkspaceRetentionFailures(owned, args)).has(environmentId)) return
   if (!provider?.get)
     throw new ValidationError('seat change requires a provider with exact environment lookup')
   const unusable = (event: SpawnEvent) =>

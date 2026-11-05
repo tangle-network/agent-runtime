@@ -6,7 +6,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { contentAddress } from '../../src/durable/content-address'
 import {
@@ -16,7 +16,6 @@ import {
 import {
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
-  bindScopeRetainedOwnerWorkspaceRetention,
   consumeScopeRetainedOwnerResult,
   noteScopeRetainedOwnerCoordination,
   prepareScopeRetainedOwnerTask,
@@ -31,7 +30,12 @@ import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
-import { captureProfile, checkpointCaptureFixture } from '../helpers/checkpoint-capture'
+import { checkpointCaptureFixture } from '../helpers/checkpoint-capture'
+
+const checkpointCleanups: Array<() => void> = []
+afterEach(() => {
+  for (const cleanup of checkpointCleanups.splice(0)) cleanup()
+})
 
 function checkpointFixture(
   options: {
@@ -63,6 +67,7 @@ function checkpointFixture(
     provider: source.provider,
     snapshotFiles: (id) => snapshots.get(id),
   })
+  checkpointCleanups.push(() => capture.cleanup())
   const environment: AgentEnvironment = {
     id: source.environmentId,
     provider: source.provider,
@@ -119,7 +124,7 @@ function checkpointFixture(
       throw new Error('not used')
     },
     get: async (id) =>
-      id === source.environmentId ? (lost ? null : environment) : capture.forkEnvironment(id),
+      id === source.environmentId ? (lost ? null : environment) : capture.forkEnvironment(),
   }
   const register = (scope: Scope<unknown>) => {
     registerScopeRetainedOwner(scope, {
@@ -136,10 +141,7 @@ function checkpointFixture(
         },
       },
     })
-    bindScopeRetainedOwnerProvider(scope, provider, {
-      port: capture.port,
-      profile: captureProfile,
-    })
+    bindScopeRetainedOwnerProvider(scope, provider)
   }
   return {
     events,
@@ -166,6 +168,9 @@ function checkpointFixture(
       })
       noteScopeRetainedOwnerCoordination(scope)
       await scopeRetainedOwnerCheckpointing(scope)
+      const recorded = events.find((event) => event.kind === 'workspace-checkpoint')
+      if (recorded?.kind === 'workspace-checkpoint')
+        events.push(await capture.record(recorded.checkpoint, 'owner-test', events.length + 1))
     },
     lose() {
       lost = true
@@ -364,197 +369,6 @@ describe('retained scope owner input and result', () => {
     ])
   })
 
-  it('preserves a later unreceipted attempt after resumed retention config drifts', async () => {
-    const blobs = new InMemoryResultBlobStore()
-    const events: SpawnEvent[] = [
-      {
-        kind: 'execution-input',
-        id: 'owner-test',
-        taskRef: contentAddress('first-task'),
-        workspaceRetention: true,
-        seq: 1,
-        at: new Date(0).toISOString(),
-      },
-      {
-        kind: 'execution-admitted',
-        id: 'owner-test',
-        admission: {
-          phase: 'environment',
-          provider: 'owner-provider',
-          environmentId: 'first-source',
-          idempotencyKey: 'first-key',
-          turnId: 'first-turn',
-          sessionId: 'first-session',
-          executionId: 'first-execution',
-        },
-        seq: 2,
-        at: new Date(0).toISOString(),
-      },
-      {
-        kind: 'execution-input',
-        id: 'owner-test',
-        taskRef: contentAddress('second-task'),
-        seq: 3,
-        at: new Date(0).toISOString(),
-      },
-      {
-        kind: 'execution-admitted',
-        id: 'owner-test',
-        admission: {
-          phase: 'environment',
-          provider: 'owner-provider',
-          environmentId: 'second-source',
-          idempotencyKey: 'second-key',
-          turnId: 'second-turn',
-          sessionId: 'second-session',
-          executionId: 'second-execution',
-        },
-        seq: 4,
-        at: new Date(0).toISOString(),
-      },
-    ]
-    let destroys = 0
-    const provider: AgentEnvironmentProvider = {
-      name: 'owner-provider',
-      capabilities() {
-        throw new Error('cleanup must not request execution capabilities')
-      },
-      async create() {
-        throw new Error('cleanup must not create an environment')
-      },
-      async get(id) {
-        return {
-          id,
-          provider: 'owner-provider',
-          status: async () => 'running',
-          async *stream() {
-            yield* []
-          },
-          async destroy() {
-            destroys++
-          },
-        }
-      },
-    }
-    await inScope(async (scope) => {
-      registerScopeRetainedOwner(scope, {
-        rootId: 'owner-test',
-        nodeId: 'owner-test',
-        blobs,
-        priorEvents: events,
-        now: () => 0,
-        journal: {
-          loadTree: async () => [...events],
-          beginTree: async () => {},
-          appendEvent: async (_root, event) => {
-            events.push(event)
-          },
-        },
-      })
-      bindScopeRetainedOwnerProvider(scope, provider)
-      bindScopeRetainedOwnerWorkspaceRetention(scope, false)
-      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toHaveLength(1)
-    })
-    expect(destroys).toBe(0)
-    const teardowns = events.filter((event) => event.kind === 'environment-teardown')
-    expect(new Set(teardowns.map((event) => event.environmentId))).toEqual(
-      new Set(['first-source', 'second-source']),
-    )
-    expect(teardowns.every((event) => !event.destroyed)).toBe(true)
-  })
-
-  it('preserves an unmarked legacy source when retention remains configured on resume', async () => {
-    const environmentId = 'legacy-environment-id'
-    const blobs = new InMemoryResultBlobStore()
-    const events: SpawnEvent[] = [
-      {
-        kind: 'execution-input',
-        id: 'owner-test',
-        taskRef: contentAddress('legacy-task'),
-        seq: 1,
-        at: new Date(0).toISOString(),
-      },
-      {
-        kind: 'execution-admitted',
-        id: 'owner-test',
-        admission: {
-          phase: 'environment',
-          provider: 'owner-provider',
-          environmentId,
-          idempotencyKey: 'legacy-environment-key',
-          turnId: 'legacy-turn',
-          sessionId: 'legacy-session',
-          executionId: 'legacy-execution',
-        },
-        seq: 2,
-        at: new Date(0).toISOString(),
-      },
-    ]
-    let destroys = 0
-    const provider: AgentEnvironmentProvider = {
-      name: 'owner-provider',
-      capabilities() {
-        throw new Error('cleanup must not request execution capabilities')
-      },
-      async create() {
-        throw new Error('cleanup must not create an environment')
-      },
-      async get(id) {
-        return {
-          id,
-          provider: 'owner-provider',
-          status: async () => 'running',
-          async *stream() {
-            yield* []
-          },
-          async destroy() {
-            destroys++
-          },
-        }
-      },
-    }
-    await inScope(async (scope) => {
-      registerScopeRetainedOwner(scope, {
-        rootId: 'owner-test',
-        nodeId: 'owner-test',
-        blobs,
-        priorEvents: events,
-        now: () => 0,
-        journal: {
-          loadTree: async () => [...events],
-          beginTree: async () => {},
-          appendEvent: async (_root, event) => {
-            events.push(event)
-          },
-        },
-      })
-      bindScopeRetainedOwnerProvider(scope, provider)
-      bindScopeRetainedOwnerWorkspaceRetention(scope, true)
-
-      expect(await releaseScopeRetainedOwnerEnvironment(scope)).toEqual([
-        {
-          id: 'owner-test',
-          label: 'scope owner',
-          runtime: provider.name,
-          status: 'done',
-          // Preserved on purpose as evidence, so it is kept, never offered to a sweeper.
-          kept: [{ provider: provider.name, environmentId, keptFor: 'evidence' }],
-          detail: expect.stringContaining('no verified workspace receipt'),
-        },
-      ])
-    })
-
-    expect(destroys).toBe(0)
-    expect(events.at(-1)).toMatchObject({
-      kind: 'environment-teardown',
-      id: 'owner-test',
-      provider: provider.name,
-      environmentId,
-      destroyed: false,
-      detail: expect.stringContaining('no verified workspace receipt'),
-    })
-  })
-
   it.each([
     { name: 'null', invalid: null },
     { name: 'empty', invalid: {} },
@@ -653,7 +467,6 @@ describe('retained scope owner input and result', () => {
         },
       })
       bindScopeRetainedOwnerProvider(scope, provider)
-      bindScopeRetainedOwnerWorkspaceRetention(scope, false)
       expect(await releaseScopeRetainedOwnerEnvironment(scope)).toHaveLength(1)
     })
     expect(destroys).toBe(0)

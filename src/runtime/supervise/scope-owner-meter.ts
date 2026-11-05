@@ -1,5 +1,6 @@
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
+import { refreshBudgetLease } from './budget'
 import { withBudgetResources } from './resources'
 import type { ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
@@ -15,6 +16,7 @@ export class ScopeOwnerMeter {
   constructor(
     private readonly args: ScopeArgs,
     private readonly now: () => number,
+    private readonly attemptId: () => string | undefined,
   ) {}
 
   async record(
@@ -60,6 +62,7 @@ export class ScopeOwnerMeter {
       seq,
       at: new Date(now()).toISOString(),
     })
+    await refreshBudgetLease(args.pool)
     // Emit it as an `agent.turn` event so the trace/topology view sees per-turn driver inference
     // (the same stream `spawn`/`next` feed — one observable tree).
     notifyRuntimeHookEvent(
@@ -71,7 +74,7 @@ export class ScopeOwnerMeter {
         phase: 'after',
         timestamp: now(),
         parentId: args.parentId,
-        payload: { spend, ...(detail ?? {}) },
+        payload: { spend, ...(detail ?? {}), attemptId: this.attemptId() },
       },
       { signal: args.signal },
     )

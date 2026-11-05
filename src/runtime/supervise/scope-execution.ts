@@ -8,10 +8,10 @@ import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS } from './deadline'
 import { errMessage } from './error-message'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { runtimeOwnedExecutorProviderEvidence } from './materialization'
-import { addResourceSpend, resourceTelemetry } from './resources'
+import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { RetainedExecutionPendingError } from './retained-executor'
 import { ChildExecutionAttempt } from './scope-child-attempt'
-import type { LiveChild, PreSeqSettled } from './scope-contract'
+import type { ChildAdmission, LiveChild, PreSeqSettled } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import type {
   Executor,
@@ -43,7 +43,7 @@ export async function runChild<C>(
   nextProgressSeq: () => number,
   executionReady: Promise<void>,
   executionEvidence: ExecutionEvidence,
-  deadlineAtMs: number | undefined,
+  admission: ChildAdmission,
   recovering = false,
   closeRetainedWrites: () => Promise<void> = async () => {},
   budgetReady: Promise<void> | undefined = undefined,
@@ -61,7 +61,7 @@ export async function runChild<C>(
     ticket,
     blobs,
     now,
-    deadlineAtMs,
+    admission,
     startedAt,
   )
   try {
@@ -72,6 +72,7 @@ export async function runChild<C>(
     // A queued child runs nothing until the pool grants its budget slice and then a worker slot.
     if (budgetReady !== undefined) await awaitAbortable(budgetReady, childAbort.signal)
     await awaitAbortable(slotReady, childAbort.signal)
+    await live.events.start()
     // A budgetExempt WORKER (the raw `cli` printer) reports zero spend by contract and its
     // reconcile refunds the whole reservation; only the DRIVER path refuses such runtimes.
     live.status = 'running'
@@ -103,12 +104,14 @@ export async function runChild<C>(
       )
       terminalSpend = artifact.spent
     }
+    await live.events.settle()
     await executionEvidence.complete()
     attempt.commitTerminalSpend(terminalSpend)
     return await settleExecuted(attempt, artifact)
   } catch (cause) {
     return await settleThrown(attempt, cause, executionEvidence, closeRetainedWrites)
   } finally {
+    await live.events.settle().catch(() => undefined)
     await closeRetainedWrites()
   }
 }
@@ -134,33 +137,28 @@ async function foldExecutorStream<C>(
   nextProgressSeq: () => number,
   priorSpent: Spend | undefined,
 ): Promise<Spend> {
-  live.events.start()
   let publishedAt = Number.NEGATIVE_INFINITY
-  try {
-    return await foldStream(
-      stream,
-      async (running, event) => {
-        live.spent = running
-        live.lastActivityAt = now()
-        const mark = event.kind === 'progress' ? event.progress : undefined
-        if (mark?.kind !== 'awaiting-result' && live.lastActivityAt - publishedAt < 1_000) return
-        publishedAt = live.lastActivityAt
-        await journal.appendEvent(journalRoot, {
-          kind: 'progress',
-          id: live.id,
-          spend: running,
-          ...(mark?.kind === 'awaiting-result' ? { awaitingResult: { since: mark.since } } : {}),
-          seq: nextProgressSeq(),
-          at: new Date(publishedAt).toISOString(),
-        })
-      },
-      childAbort.signal,
-      priorSpent,
-      (event) => live.events.append(event, now()),
-    )
-  } finally {
-    await live.events.settle()
-  }
+  return await foldStream(
+    stream,
+    async (running, event) => {
+      live.spent = running
+      live.lastActivityAt = now()
+      const mark = event.kind === 'progress' ? event.progress : undefined
+      if (mark?.kind !== 'awaiting-result' && live.lastActivityAt - publishedAt < 1_000) return
+      publishedAt = live.lastActivityAt
+      await journal.appendEvent(journalRoot, {
+        kind: 'progress',
+        id: live.id,
+        spend: running,
+        ...(mark?.kind === 'awaiting-result' ? { awaitingResult: { since: mark.since } } : {}),
+        seq: nextProgressSeq(),
+        at: new Date(publishedAt).toISOString(),
+      })
+    },
+    childAbort.signal,
+    priorSpent,
+    (event) => live.events.append(event, now()),
+  )
 }
 
 /** Settle an execution that returned its terminal artifact and reconciled its reservation. */
@@ -313,7 +311,16 @@ async function settleRetainedPending<C>(
   if (!attempt.reconciled) {
     const accounting = executor.accounting?.()
     const ms = Math.max(0, now() - live.startedAt)
-    live.spent = { ...unknownFloor(accounting?.reported ?? live.spent), ms }
+    live.spent = {
+      ...unknownFloor(
+        withBudgetResources(
+          accounting?.reported ?? live.spent,
+          opts.budget,
+          accounting !== undefined,
+        ),
+      ),
+      ms,
+    }
     attempt.reconcile({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
   }
   // The slot stays open, so no terminal record carries an overspend yet and the floor is not the

@@ -7,8 +7,6 @@ import { runTree } from './finalizer'
 import { runtimeOwnedScopeOwnerControl } from './materialization'
 import {
   bindScopeRetainedOwnerProvider,
-  bindScopeRetainedOwnerWorkspaceRetention,
-  retainedOwnerWorkspaceRetentionSeamKey,
   scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerSettled,
 } from './retained-scope-owner'
@@ -85,15 +83,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       const openScope = scope as unknown as Scope<unknown>
       const ownerControl = runtimeOwnedScopeOwnerControl(root)
       if (ownerControl !== undefined) {
-        bindScopeRetainedOwnerProvider(
-          openScope,
-          ownerControl.provider,
-          ownerControl.checkpointCapture,
-        )
-        bindScopeRetainedOwnerWorkspaceRetention(
-          openScope,
-          ownerControl.checkpointCapture !== undefined,
-        )
+        bindScopeRetainedOwnerProvider(openScope, ownerControl.provider)
       }
 
       // Bind any attached RootHandle to THIS live run; detached again in the finally barrier.
@@ -228,7 +218,7 @@ function createRootScope<Out>(
     journal,
     blobs: opts.blobs,
     executors: opts.executors,
-    seams: { [retainedOwnerWorkspaceRetentionSeamKey]: intake.ownerWorkspaceRetention === true },
+    seams: {},
     depth: 0,
     maxDepth: opts.maxDepth ?? DEFAULT_MAX_DEPTH,
     workerSlots: intake.slots,

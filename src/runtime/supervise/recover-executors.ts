@@ -12,7 +12,13 @@ import { RuntimeRunStateError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { reportedFailureCause } from '../failure-cause'
 import { addSpend, chargedTokens, zeroSpend } from '../util'
-import { type BudgetPoolRestore, BudgetReconcileFault, createBudgetPool } from './budget'
+import {
+  type BudgetPoolRestore,
+  BudgetReconcileFault,
+  budgetRecoverySeeds,
+  completedLeafBacking,
+  createBudgetPool,
+} from './budget'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
 import {
@@ -58,30 +64,9 @@ function journaledEnvironmentId(owned: ReadonlyArray<SpawnEvent>): string | unde
   return undefined
 }
 
-/**
- * Close the cursor slot of every node the release sweep destroyed but never recorded: the
- * settling process died between the last `environment-teardown` receipt and the terminal record
- * (the 0.233.0 crash window). The record is the sweep's own — the same builder, the cursor seq
- * `next()` stamped on the delivery and the settlement instant, all read back from the node's
- * latest `reconciled` record — so a healed journal replays as one the sweep completed.
- *
- * The gate is fail-closed, every clause required, because the heal cannot re-ask the executor
- * to confirm teardown the way the sweep does:
- *  - the latest `reconciled` record carries `settledSeq`, `reason` and `trace` (a record written
- *    before those fields existed names no cursor position and is not healed; `infra` is carried
- *    when present and never required, since an unattributable envelope failure has none);
- *  - at least one receipt sits after that record and every such receipt reads `destroyed: true`
- *    (an empty set must not close the slot vacuously, and a receipt from an earlier process
- *    belongs to an earlier settlement);
- *  - the environment the latest admission names is among those receipts, so a receipt for an
- *    environment the journal never admitted, or a re-admitted node whose receipt names the
- *    earlier environment, is left open where the live sweep would have closed it.
- * A node with an `execution-result` is left to the recorded-result branch of
- * {@link prepareInterruptedExecutors}, which settles it from the durable blob and takes
- * precedence. The walk is over the whole forest because a nested manager settled on the ordinary
- * path is never restored, so a per-tree heal inside the resume of its tree would never reach its
- * grandchild. Returns the number of records written.
- */
+/** Heal release-to-terminal crashes across the forest using the original floor's settlement,
+ * cursor seq and timestamp. Require a complete floor, later nonempty successful receipts,
+ * and the latest admitted environment among them. Recorded results take precedence. */
 async function healReleasedSlots(
   opts: ResumeStores,
   signal: AbortSignal,
@@ -107,9 +92,7 @@ async function healReleasedSlots(
             : latest,
         undefined,
       )
-      // A complete floor names its cursor seq, its reason and its trace. `infra` is not required:
-      // a floor whose envelope failure the runtime could not attribute carries none, and a
-      // release that healed everything else must not be skipped for a claim the record never made.
+      // Complete floors require cursor, reason and trace; infra remains optional.
       if (
         floor?.settledSeq === undefined ||
         floor.reason === undefined ||
@@ -124,9 +107,7 @@ async function healReleasedSlots(
       if (held === undefined || !receipts.some((receipt) => receipt.environmentId === held))
         continue
       const settledSeq = floor.settledSeq
-      // The journal's own duplicate-cursor guard is the backstop; this names the node first, and
-      // writes nothing. A fixed process cannot produce it: the resumed cursor starts past every
-      // open node's `settledSeq` (see `maxCursorSeq` below).
+      // Reserved cursors cannot be reused by recovery or healing.
       if (events.some((event) => closesCursorSlot(event) && event.seq === settledSeq)) {
         throw new RuntimeRunStateError(
           `retained child '${spawned.id}' cannot be released at cursor seq ${settledSeq}: tree '${tree.root}' already closes that seq`,
@@ -155,10 +136,7 @@ async function healReleasedSlots(
         terminalDownEvent(subject, settlement, settledSeq, floor.at, 'released'),
       )
       healed += 1
-      // The sweep's `agent.child` on the resumed stream, so a projection whose node state comes
-      // only from that target flips the node to released as it does live. `startedAt` is the
-      // runtime's own rule for a recovered child (the spawn instant), `releasedAt` the last
-      // receipt's instant; the journal record above is the byte-identical surface.
+      // Replay the live release hook with original spawn and acknowledged release times.
       const materialized = [...owned]
         .reverse()
         .find((event) => event.kind === 'materialized' || event.kind === 'seat-materialized')
@@ -217,8 +195,7 @@ async function prepareInterruptedExecutors(
       event.kind === 'spawned' && event.parent === parentId && !terminal.has(event.id),
   )
   const recoveries: RetainedChildRecovery[] = []
-  // Interrupted children usually carry the same mounted files. Each blob parses to its own
-  // strings, so share equal ones across this pass instead of holding one copy per child.
+  // Intern equal mounted strings across recovered children.
   const parsedStrings = new Map<string, string>()
   const accepted: Array<{
     result: RecordedResult
@@ -231,9 +208,7 @@ async function prepareInterruptedExecutors(
   for (const node of interrupted) {
     signal.throwIfAborted()
     const owned = events.filter((event) => event.id === node.id)
-    // A leaf that continued after an unavailable upstream has one invocation per
-    // `execution-input`. Only the latest decides: an earlier invocation's result is the refusal
-    // the leaf continued past, not its outcome.
+    // Earlier invocation results cannot settle the latest input.
     const inputs = owned.filter(
       (event): event is Extract<SpawnEvent, { kind: 'execution-input' }> =>
         event.kind === 'execution-input',
@@ -360,10 +335,7 @@ async function prepareInterruptedExecutors(
     signal.throwIfAborted()
     const failure = executorFailure(result)
     const reason = fault ?? failure?.error
-    // A reconcile fault is the runtime's own failure; an envelope failure is attributed by the
-    // same vocabulary the live path uses, so a child settled here and one settled live from the
-    // same durable result carry the same label. This site used to stamp `infra: false` for every
-    // envelope failure, which made the label depend on whether the process survived to settle it.
+    // Replayed and live settlements use the same Runtime/provider attribution.
     const infra =
       fault !== undefined ? true : failure === undefined ? undefined : executorFailureInfra(failure)
     // Await every admitted write before releasing the run lock, including cancellation races.
@@ -505,16 +477,8 @@ export type ScopeResumeState = NonNullable<ScopeArgs['resumeFrom']> & {
   readonly recoveries: readonly RetainedChildRecovery[]
 }
 
-/**
- * The keyed assignments a prior journal proves: every `spawned` event carrying a `key`, resolved
- * against the replayed settlements. A key spawned more than once (a retry chain) resolves to its
- * LATEST attempt — iterate in ordinal order so later spawns overwrite earlier ones. A spawned
- * event with no matching settlement is `in-doubt`: the process died with it in flight — UNLESS
- * the spawn's own runtime proves the execution cannot have outlived the process (`inline`, the
- * same predicate the budget layer charges no uncertain reservation for), in which case the resume
- * itself is the terminal evidence and the key resolves `down` with a derived reason, so a re-spawn
- * under the same key retries instead of wedging in-doubt.
- */
+/** Latest keyed attempts, resolved against durable settlements. An interrupted inline
+ * invocation died with its process; remote invocations remain in doubt. */
 function keyedAssignments(
   events: SpawnEvent[],
   settled: ReadonlyArray<Settled<unknown>>,
@@ -569,10 +533,11 @@ function uncertainSpawnBudgets(
   recovered: ReadonlySet<NodeId> = new Set(),
 ): Budget[] {
   const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
-  const reconciled = new Set(
-    events.flatMap((event) => (event.kind === 'reconciled' ? [event.id] : [])),
+  const reconciled = openReconciledFloors(events)
+  const granted = new Set(
+    events.filter((event) => event.kind === 'admission-granted').map((event) => event.id),
   )
-  return events
+  const unknown = events
     .filter(
       (event): event is Spawned =>
         event.kind === 'spawned' &&
@@ -580,13 +545,129 @@ function uncertainSpawnBudgets(
         !terminal.has(event.id) &&
         !reconciled.has(event.id) &&
         !recovered.has(event.id) &&
-        // An `inline` executor runs inside the process that spawned it, so a resume can prove it
-        // dead rather than in-doubt: holding its reservation would charge the pool for work no
-        // process can ever finish. Only a runtime that can re-attach across a process boundary
-        // (bridge, sandbox) keeps its reservation charged as uncertain.
+        (event.attemptId === undefined || granted.has(event.id)) &&
+        // Inline work died with its process; only external executions remain uncertain.
         event.runtime !== 'inline',
     )
     .map((event) => event.budget)
+  return unknown
+}
+
+function openReconciledFloors(events: readonly SpawnEvent[]) {
+  const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
+  const floors = new Map<NodeId, Extract<SpawnEvent, { kind: 'reconciled' }>>()
+  for (const event of events) {
+    if (
+      event.kind === 'reconciled' &&
+      !terminal.has(event.id) &&
+      event.seq > (floors.get(event.id)?.seq ?? -1)
+    )
+      floors.set(event.id, event)
+  }
+  return floors
+}
+
+function heldSpawnBudgets(
+  events: readonly SpawnEvent[],
+  recovered: ReadonlySet<NodeId> = new Set(),
+): Array<{ id: NodeId; budget: Budget; custody?: Budget }> {
+  const floors = new Map<NodeId, Reconciled>()
+  for (const event of events)
+    if (event.kind === 'reconciled' && event.seq > (floors.get(event.id)?.seq ?? -1))
+      floors.set(event.id, event)
+  const spawns = new Map(
+    events
+      .filter((event): event is Spawned => event.kind === 'spawned')
+      .map((event) => [event.id, event]),
+  )
+  const terminal = new Map(
+    events
+      .filter(
+        (event): event is Extract<SpawnEvent, { kind: 'settled' | 'cancelled' }> =>
+          event.kind === 'settled' || event.kind === 'cancelled',
+      )
+      .map((event) => [event.id, event]),
+  )
+  return [...spawns].flatMap(([id, spawned]) => {
+    const floor = floors.get(id),
+      closed = terminal.get(id)
+    const legacy =
+      spawned.attemptId === undefined && (!closed || closed.retainedExecution !== undefined)
+    const accepted = events.some((event) => event.id === id && event.kind === 'execution-result')
+    const completedLeaf =
+      spawned.ownedTreeRoot === undefined &&
+      closed?.spent !== undefined &&
+      closed.retainedExecution !== 'release-unconfirmed' &&
+      ((closed.kind === 'settled' && closed.status === 'done') || accepted)
+    // A normal leaf can close without a floor. Its grant still backs physical custody;
+    // a terminal usage receipt alone is not a resource-teardown acknowledgement.
+    let reservation =
+      floor?.reservation ??
+      ((floor && legacy) || (completedLeaf && accepted && spawned.parent !== undefined)
+        ? spawned.budget
+        : undefined)
+    if (reservation && completedLeaf && closed?.spent) {
+      const owned = events.filter((event) => event.id === id)
+      const lastAdmission = owned.reduce(
+        (last, event, index) =>
+          event.kind === 'admission-granted' || event.kind === 'execution-admitted' ? index : last,
+        -1,
+      )
+      const cleanupConfirmed =
+        closed.retainedExecution === 'released' ||
+        owned.some((event, index) => event.kind === 'teardown-confirmed' && index > lastAdmission)
+      reservation = completedLeafBacking(
+        reservation,
+        closed.spent,
+        floor?.spent ?? zeroSpend(),
+        cleanupConfirmed,
+      )
+    }
+    if (recovered.has(id) || !reservation) return []
+    const custody =
+      completedLeaf && accepted && spawned.parent !== undefined && reservation.resources
+        ? {
+            resources: Object.fromEntries(
+              Object.entries(spawned.budget.resources ?? reservation.resources).map(
+                ([name, value]) => [
+                  name,
+                  {
+                    unit: value.unit,
+                    limit:
+                      closed?.spent?.resources?.[name]?.known === true
+                        ? (reservation.resources?.[name]?.limit ?? 0)
+                        : 0,
+                  },
+                ],
+              ),
+            ),
+          }
+        : undefined
+    return [
+      {
+        id,
+        budget: {
+          ...reservation,
+          ...(reservation.resources
+            ? {
+                resources: Object.fromEntries(
+                  Object.entries(reservation.resources).map(([name, value]) => [
+                    name,
+                    { ...value, limit: value.limit - (custody?.resources[name]?.limit ?? 0) },
+                  ]),
+                ),
+              }
+            : {}),
+          maxTokens: reservation.maxTokens ?? 0,
+          maxIterations: reservation.maxIterations ?? 0,
+          maxUsd: reservation.maxUsd ?? 0,
+        },
+        ...(custody && Object.values(custody.resources).some((value) => value.limit > 0)
+          ? { custody }
+          : {}),
+      },
+    ]
+  })
 }
 
 /** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
@@ -597,16 +678,8 @@ function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): numb
   return max
 }
 
-/**
- * The highest cursor seq any record in the journal already owns, closed OR reserved.
- *
- * A closed slot owns its seq outright. An open retained node owns the `settledSeq` its
- * `reconciled` record carries: that is the seq the driver already branched on, and the seq the
- * heal (or a later release sweep) writes the terminal record under. Every writer that mints a
- * new cursor seq in a resumed process — the recorded-result settlements below and the resumed
- * scope's own cursor — must start past BOTH, or a recovered result lands on a seq an open node
- * has reserved and the heal can only ever collide. One function so no writer can drift.
- */
+/** Closed cursor seqs and open retained floors both reserve their original positions.
+ * Recovery must allocate above both so a later heal cannot collide with new delivery. */
 function reservedCursorFloor(events: SpawnEvent[]): number {
   return Math.max(
     maxSeqOf(events, closesCursorSlot),
@@ -620,12 +693,8 @@ function reservedCursorFloor(events: SpawnEvent[]): number {
   )
 }
 
-/** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled), plus
- *  the reconciled floor of every node still open, plus the declared ceiling of every open node
- *  nothing reconciled; `metered` = driver inference (re-homed up the tree, so a single root-tree
- *  pass already includes every nested driver's inference). The pool commits exactly these amounts
- *  — a floor where a reconcile ran, a ceiling where the process died first — so this sum is the
- *  same ledger the pool holds, read from the journal. */
+/** Durable measured costs plus conservative unmeasured ceilings and remaining backing.
+ * Unknown flags distinguish those charges from observed spend. */
 export function sumSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
@@ -667,10 +736,30 @@ export function sumSpendFromEvents(events: SpawnEvent[]): {
     totals.childWork.usdKnown = false
     remainingRootUsd = Math.max(0, remainingRootUsd - usdCharge)
   }
+  for (const { budget: held } of heldSpawnBudgets(events)) {
+    totals.childWork = addSpend(totals.childWork, {
+      ...zeroSpend(),
+      iterations: held.maxIterations ?? 0,
+      tokens: { input: held.maxTokens ?? 0, output: 0 },
+      tokensKnown: (held.maxTokens ?? 0) === 0,
+      usd: held.maxUsd ?? 0,
+      usdKnown: (held.maxUsd ?? 0) === 0,
+      ...(held.resources === undefined
+        ? {}
+        : {
+            resources: Object.fromEntries(
+              Object.entries(held.resources).map(([name, value]) => [
+                name,
+                { unit: value.unit, amount: value.limit, known: value.limit === 0 },
+              ]),
+            ),
+          }),
+    })
+  }
   return totals
 }
 
-function sumMeasuredSpendFromEvents(events: SpawnEvent[], ownerId?: NodeId) {
+export function sumMeasuredSpendFromEvents(events: SpawnEvent[], ownerId?: NodeId) {
   const budgets = new Map(
     events.flatMap((event) =>
       event.kind === 'spawned' ? [[event.id, event.budget] as const] : [],
@@ -679,12 +768,8 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[], ownerId?: NodeId) {
   let childWork = zeroSpend()
   let driverInference = zeroSpend()
   const owners = new Map<NodeId, Spend>()
-  const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
-  // A retained-pending node's reconciled floor is its child work for as long as the node stays
-  // open. The LATEST record is the whole charge, not a sum: a recovered execution reports its
-  // total again on its next reconcile, so an earlier floor would count the same work twice. A
-  // terminal record supersedes every floor for the same reason.
-  const floors = new Map<NodeId, Extract<SpawnEvent, { kind: 'reconciled' }>>()
+  // Latest open floors are cumulative child work; terminal costs replace their spend only.
+  const floors = openReconciledFloors(events)
   for (const ev of events) {
     if (ev.kind === 'settled' || ev.kind === 'cancelled')
       childWork = addSpend(
@@ -696,10 +781,6 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[], ownerId?: NodeId) {
       )
     else if (ev.kind === 'metered')
       owners.set(ev.id, addSpend(owners.get(ev.id) ?? zeroSpend(), ev.spend))
-    else if (ev.kind === 'reconciled' && !terminal.has(ev.id)) {
-      const prior = floors.get(ev.id)
-      if (prior === undefined || ev.seq > prior.seq) floors.set(ev.id, ev)
-    }
   }
   for (const [id, floor] of floors) {
     childWork = addSpend(childWork, withBudgetResources(floor.spent, budgets.get(id) ?? {}))
@@ -721,10 +802,7 @@ export async function prepareScopeResume(
   /** A terminal entry restores cleanup descriptors, never slot heals or execution. */
   settleOnly = false,
 ): Promise<{ resumeFrom: ScopeResumeState; poolRestore: BudgetPoolRestore }> {
-  // The root resume walks the whole forest once; the nested restore, whose `parentId` is the
-  // manager node, does not walk again. A healed node is then terminal to everything below:
-  // never interrupted, never a recovery, charged its floor as `settled.spent` instead of the
-  // reconciled floor (the same object), and replayed at the driver's own seq.
+  // Heal the forest once at root entry; nested restore uses already healed events.
   if (!settleOnly && parentId === opts.runId && (await healReleasedSlots(opts, signal, now)) > 0) {
     events = (await opts.journal.loadTree(opts.runId)) ?? events
   }
@@ -732,9 +810,8 @@ export async function prepareScopeResume(
   const prepared = await prepareInterruptedExecutors(opts, events, signal, now, parentId)
   const prior = prepared.events
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
-  // A restored child's full reservation already covers its previous inference and its reconciled
-  // floor. Its executor reconciles total spend and publishes only the unrecorded meter delta, so
-  // neither prior record may be committed a second time.
+  // Recovery attaches its original ticket to the prefix and backing seeded below.
+  // Exclude them here so the pool credits them exactly once before admitting any new work.
   const measuredEvents = prior.filter(
     (event) =>
       (event.kind !== 'metered' && event.kind !== 'reconciled') || !recovering.has(event.id),
@@ -749,14 +826,60 @@ export async function prepareScopeResume(
   )
   const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
   if (!settleOnly) signal.throwIfAborted()
+  const holds = heldSpawnBudgets(prior, recovering)
+  const poolRestore: BudgetPoolRestore = {
+    ...(hasCommittedEvidence
+      ? { committed: addSpend(measured.childWork, measured.driverInference) }
+      : {}),
+    owner: measured.owner,
+    uncertainReservations: uncertainSpawnBudgets(prior, recovering),
+    heldReservations: holds.map(({ budget }) => budget),
+  }
+  budgetRecoverySeeds.set(poolRestore, [
+    ...prepared.recoveries.map(({ spawned }) => {
+      const owned = prior.filter((event) => event.id === spawned.id)
+      const totals = sumMeasuredSpendFromEvents(owned)
+      const floor = owned.filter((event) => event.kind === 'reconciled').at(-1)
+      const reservation =
+        floor?.reservation ??
+        (spawned.attemptId === undefined ||
+        owned.some((event) => event.kind === 'admission-granted')
+          ? spawned.budget
+          : undefined)
+      return {
+        id: spawned.id,
+        spent: withBudgetResources(
+          addSpend(totals.childWork, totals.driverInference),
+          spawned.budget,
+          true,
+        ),
+        held: {
+          ...(spawned.budget.maxTokens === undefined
+            ? {}
+            : { maxTokens: reservation?.maxTokens ?? 0 }),
+          ...(spawned.budget.maxIterations === undefined
+            ? {}
+            : { maxIterations: reservation?.maxIterations ?? 0 }),
+          ...(spawned.budget.maxUsd === undefined ? {} : { maxUsd: reservation?.maxUsd ?? 0 }),
+          ...(spawned.budget.resources === undefined
+            ? {}
+            : {
+                resources: Object.fromEntries(
+                  Object.entries(spawned.budget.resources).map(([name, value]) => [
+                    name,
+                    { unit: value.unit, limit: reservation?.resources?.[name]?.limit ?? 0 },
+                  ]),
+                ),
+              }),
+        },
+      }
+    }),
+    ...holds.flatMap(({ id, custody }) =>
+      custody ? [{ id, spent: zeroSpend(), held: custody, closed: true as const }] : [],
+    ),
+  ])
   return {
-    poolRestore: {
-      ...(hasCommittedEvidence
-        ? { committed: addSpend(measured.childWork, measured.driverInference) }
-        : {}),
-      owner: measured.owner,
-      uncertainReservations: uncertainSpawnBudgets(prior, recovering),
-    },
+    poolRestore,
     resumeFrom: {
       events: prior,
       recoveries: prepared.recoveries,

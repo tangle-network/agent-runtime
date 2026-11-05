@@ -19,7 +19,6 @@ import {
 } from './materialization'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import type { scopeRetainedOwnerContext } from './retained-scope-owner'
-import type { RootStreamSink } from './root-stream'
 import {
   meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
@@ -69,10 +68,9 @@ interface DriverAttemptStops {
 
 /** Where a streamed drive reports its turns and observed output. */
 interface DriverTurnSink {
+  readonly observeProgress: (event: ExecutorProgressEvent) => void
   readonly state: DriverSessionState
   readonly turnCap: number
-  readonly rootStream: RootStreamSink | undefined
-  readonly noteDriveProgress: (event: ExecutorProgressEvent) => void
   readonly onModelEvent?: () => void
 }
 
@@ -383,8 +381,7 @@ export class DriverExecutionAttempt {
       } else if (event.kind === 'progress') {
         // A progress event carries the driver's observed output, never accounting: it is
         // retained in the run directory as it arrives and never reaches a meter.
-        sink.rootStream?.append(event.progress)
-        sink.noteDriveProgress(event.progress)
+        sink.observeProgress(event.progress)
         sink.onModelEvent?.()
       } else {
         this.pendingUsage.push(event)

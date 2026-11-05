@@ -7,6 +7,7 @@
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'
+import { ValidationError } from '../errors'
 import { armDeadlineTimer } from './supervise/deadline'
 import { addResourceSpend } from './supervise/resources'
 import type { Spend, TokenUsageProvenance } from './supervise/types'
@@ -529,4 +530,45 @@ export function fnv1a32Hex(text: string): string {
     h = Math.imul(h, 0x01000193)
   }
   return (h >>> 0).toString(16).padStart(8, '0')
+}
+
+/** Parent journals may already contain an interrupted driver's inference prefix. */
+export function unreportedSpend(total: Spend, prior: Spend): Spend {
+  const tokens = { ...total.tokens }
+  for (const key of ['input', 'output', 'freshInput', 'cacheRead', 'cacheWrite'] as const) {
+    const value = total.tokens[key]
+    if (value !== undefined) tokens[key] = Math.max(0, value - (prior.tokens[key] ?? 0))
+  }
+  return {
+    ...total,
+    ...addResourceSpend(
+      total.resources === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(total.resources).map(([name, value]) => {
+              const previous = prior.resources?.[name]
+              if (previous && previous.unit !== value.unit)
+                throw new ValidationError(`resource ${name}: unit mismatch`)
+              return [
+                name,
+                {
+                  ...value,
+                  amount: Math.max(0, value.amount - (previous?.amount ?? 0)),
+                  known: value.known && (previous?.known ?? true),
+                },
+              ]
+            }),
+          ),
+    ),
+    iterations: Math.max(0, total.iterations - prior.iterations),
+    tokens,
+    usd: Math.max(0, total.usd - prior.usd),
+    ms: Math.max(0, total.ms - prior.ms),
+    ...(total.usdEstimated === undefined
+      ? {}
+      : { usdEstimated: Math.max(0, total.usdEstimated - (prior.usdEstimated ?? 0)) }),
+    ...(total.boxMinutes === undefined
+      ? {}
+      : { boxMinutes: Math.max(0, total.boxMinutes - (prior.boxMinutes ?? 0)) }),
+  }
 }

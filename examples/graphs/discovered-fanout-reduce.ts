@@ -5,7 +5,7 @@
  * Some workflows discover their work list first (files, tickets, URLs) and only then spawn one
  * worker per item, so the fan-out width is not in the graph. What the graph does carry is the ONE
  * `reader` edge with `maxTraversals: 4` (the ceiling on discovered work) and the run's
- * `workerSlots` (the concurrency): the root queues one reader spawn per item, the runtime runs
+ * `workerSlots` (the concurrency): each small offline allocation fits at spawn, and Runtime runs
  * `workerSlots` of them at a time, and the `reducer` is spawned once every reader has settled.
  *
  * The concurrency is measured, not claimed: each reader counts itself live from the start of its
@@ -71,6 +71,7 @@ export function discoveredFanoutReduce(slots = 2): {
   const received: AgentProfile[] = []
   const opts: RunGraphTestOptions = {
     runId: 'fan',
+    perWorker: { maxIterations: 4, maxTokens: 1_000 },
     workerSlots: slots,
     makeLeafAgent: leafSeam(received, {
       reader: { shots: [{ out: { read: true }, valid: true, after: occupy }] },

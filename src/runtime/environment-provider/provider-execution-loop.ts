@@ -21,7 +21,6 @@ import {
   streamProviderExecutor,
 } from './provider-invocation'
 import { ValidationError } from './provider-validation-error'
-import { captureExecutorWorkspace } from './provider-workspace-capture'
 
 interface Invocation {
   task: unknown
@@ -105,23 +104,6 @@ function invocationArgs(
       }
       state.environment = env
     },
-    onPublishedSnapshot: (snapshot) => {
-      state.workspacePublishedSnapshot = snapshot
-      if (
-        continued &&
-        snapshot !== undefined &&
-        (!options.workspaceRetention?.requireCompleteProvenance || state.workspaceCoverageComplete)
-      ) {
-        state.workspacePreservationRequired = false
-      }
-    },
-    captureWorkspace: (next, outcome) => captureExecutorWorkspace(scope, next, outcome),
-    workspaceControlRef: () => state.workspaceControlRef,
-    workspaceProvenance: () => state.workspaceProvenance,
-    workspaceCoverage: () => ({
-      complete: state.workspaceCoverageComplete,
-      incompleteReason: state.workspaceIncompleteReason,
-    }),
   }
 }
 
@@ -132,21 +114,9 @@ function invocationArgs(
  * resolving its unreceipted source.
  */
 function beginWorkspaceExecution(scope: ProviderExecutorScope): void {
-  const { state, options, provider } = scope
+  const { state, provider } = scope
   if (state.workspaceRunActive) {
     throw new ValidationError(`providerAsExecutor(${provider.name}): executor is already running`)
-  }
-  if (options.workspaceRetention !== undefined) {
-    if (state.workspacePreservationRequired) {
-      throw new ValidationError(
-        `providerAsExecutor(${provider.name}): a prior failed execution has no retrievable workspace receipt; source remains preserved and this executor cannot be reused`,
-      )
-    }
-    if (state.environment !== undefined && !state.destroyed) {
-      throw new ValidationError(
-        `providerAsExecutor(${provider.name}): the prior workspace environment is still live; teardown must release it before this executor can be reused`,
-      )
-    }
   }
   if (runtimeOwnedExecutorMaterialization(scope.executor()) !== undefined) {
     throw new ValidationError(
@@ -175,7 +145,7 @@ export async function* runProviderExecution(
   signal: AbortSignal,
   recovering = false,
 ): AsyncIterable<UsageEvent> {
-  const { state, options, retention } = scope
+  const { state, retention } = scope
   beginWorkspaceExecution(scope)
   const linked = linkAbort(scope.ctx.signal, signal, scope.controller.signal)
   state.runSignal = linked.signal
@@ -196,7 +166,6 @@ export async function* runProviderExecution(
         state.resetWorkspace(state.environment, invocation.executionId)
         state.workspaceControlRef = undefined
         state.providerSessionId = null
-        state.workspacePreservationRequired = options.workspaceRetention !== undefined
       }
       const ended = yield* streamProviderExecutor(
         invocationArgs(scope, invocation, linked.signal, carried, executionStartedAt, continued),
@@ -236,8 +205,7 @@ async function pauseForContinuation(
   if (
     refusal === undefined ||
     continueInvocation === undefined ||
-    state.workspacePreservationRequired ||
-    state.workspaceCaptureFailure !== undefined
+    state.workspacePreservationRequired
   ) {
     return undefined
   }

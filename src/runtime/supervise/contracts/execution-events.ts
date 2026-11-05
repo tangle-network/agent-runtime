@@ -42,6 +42,8 @@ export type ExecutorProgressEvent =
       readonly toolName: string
       readonly toolCallId?: string
       readonly result?: unknown
+      readonly status?: 'ok' | 'error'
+      readonly error?: { readonly type: string; readonly message: string }
     }
   | { readonly kind: 'interaction'; readonly request: InteractionRequest }
   | {

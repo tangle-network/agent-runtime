@@ -108,6 +108,7 @@ export function judgePanel(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   const received: AgentProfile[] = []
   const opts: RunGraphTestOptions = {
     runId: 'panel',
+    perWorker: { maxIterations: 4, maxTokens: 1_000 },
     workerSlots: 3,
     wake: { debounceMs: 0 },
     makeLeafAgent: leafSeam(received, {

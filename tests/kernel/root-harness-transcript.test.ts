@@ -6,15 +6,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
-import { sha256Bytes } from '../../src/candidate-execution/digest'
 import { harnessTranscriptArtifact } from '../../src/runtime/harness-transcript'
-import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
-import type {
-  ProviderWorkspaceCaptureResult,
-  ProviderWorkspaceRetentionContext,
-  ProviderWorkspaceRetentionPort,
-} from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { testContinuation } from '../helpers/continuation'
@@ -41,8 +33,7 @@ const SESSION = {
   content: '{"id":"ses_root","parts":["delegated the audit, then submitted the answer"]}',
 }
 
-/** A retained provider-backed opencode root whose one turn submits the deliverable. */
-/** The retention port's native session copies, for a run that keeps them. */
+/** Bounds the independent native transcript read while a real root submits its result. */
 interface NativeCopies {
   /** The final copy a turn takes as it ends waits for this. */
   readonly settledCopy?: Promise<void>
@@ -55,9 +46,7 @@ async function rootRun(
   runId: string,
   options: {
     readable: boolean
-    retained?: boolean
     native?: NativeCopies
-    captureFailure?: Error
   },
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'root-harness-transcript-'))
@@ -104,6 +93,9 @@ async function rootRun(
               : { stdout: `${SESSION.content.length}\t${SESSION.path}\n`, exitCode: 0 },
           read: async (path: string) => {
             if (path !== SESSION.path) throw new Error(`no such file: ${path}`)
+            options.native?.onSettledCopy?.()
+            await options.native?.settledCopy
+            if (options.native?.failure) throw options.native.failure
             return SESSION.content
           },
         }
@@ -125,99 +117,6 @@ async function rootRun(
       return environment ? wrap(environment) : null
     },
   }
-  const artifacts = createPrivateCasArtifactPort(join(directory, 'cas'), runId)
-  // The session as the retention port stores it: a workspace capture, or a native-only copy.
-  const sessionCapture = async (
-    context: ProviderWorkspaceRetentionContext,
-    scope: 'environment' | 'none',
-  ): Promise<ProviderWorkspaceCaptureResult> => {
-    const bytes = Buffer.from(SESSION.content)
-    const { snapshot } = await captureAgentCandidateWorkspaceFiles(
-      [{ path: 'provider/retained/native.jsonl', bytes, mode: 0o600 }],
-      {
-        artifactPersistence: { executionId: context.executionId, outputArtifacts: artifacts },
-      },
-    )
-    return {
-      snapshot,
-      provenance: {
-        status: 'reported',
-        ...(scope === 'none' ? { workspaceScope: 'none' as const } : {}),
-        executionId: context.executionId,
-        environmentId: context.environment.id,
-        controlRef: context.controlRef,
-        missing: [],
-        workspace: {
-          scannedFiles: 1,
-          reportedFiles: 1,
-          scannedDirectories: 0,
-          reportedDirectories: 0,
-          complete: true,
-        },
-        sessions: [
-          {
-            id: context.providerSessionId!,
-            executionId: context.executionId,
-            backendType: 'opencode',
-            transportEvents: 'complete',
-            eventCount: 1,
-            messageCount: 1,
-            nativeStore: {
-              scope: 'session',
-              complete: true,
-              roots: [{ scope: 'session-home', path: '/native-home' }],
-              excludedPaths: [],
-              inventory: {
-                scannedFiles: 1,
-                reportedFiles: 1,
-                scannedDirectories: 0,
-                reportedDirectories: 0,
-                scannedSymlinks: 0,
-                reportedSymlinks: 0,
-                skippedEntries: 0,
-              },
-              entries: [
-                {
-                  sourceId: 'native-execution',
-                  rootScope: 'session-home',
-                  path: SESSION.path,
-                  kind: 'file',
-                  mode: 0o600,
-                  sizeBytes: bytes.length,
-                  sha256: sha256Bytes(bytes),
-                  linkTarget: null,
-                },
-              ],
-            },
-          },
-        ],
-      },
-    }
-  }
-  const workspaceRetention: ProviderWorkspaceRetentionPort | undefined = options.retained
-    ? {
-        artifacts,
-        timeoutMs: 5_000,
-        async capture(context) {
-          if (options.captureFailure) throw options.captureFailure
-          return sessionCapture(context, 'environment')
-        },
-        ...(options.native === undefined
-          ? {}
-          : {
-              // No running copy: only the copies taken as the turn ends.
-              nativeIntervalMs: 3_600_000,
-              async captureNative(context) {
-                if (context.phase === 'settled') {
-                  options.native?.onSettledCopy?.()
-                  await options.native?.settledCopy
-                }
-                if (options.native?.failure) throw options.native.failure
-                return sessionCapture(context, 'none')
-              },
-            }),
-      }
-    : undefined
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error('test run timed out')), 20_000)
   const result = await supervise(
@@ -232,8 +131,8 @@ async function rootRun(
       journal: context.journal,
       blobs: context.blobs,
       signal: abort.signal,
-      backend: { backend: 'provider', provider, workspaceRetention },
-      driverBackend: { backend: 'provider', provider, workspaceRetention },
+      backend: { backend: 'provider', provider },
+      driverBackend: { backend: 'provider', provider },
       budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
       driverRetry: { maxAttempts: 1, initialBackoffMs: 0, maxBackoffMs: 0 },
       retainedAtSettlement: 'release',
@@ -254,7 +153,7 @@ async function rootRun(
       },
     },
   ).finally(() => clearTimeout(timer))
-  return { result, blobs: context.blobs, artifacts }
+  return { result, blobs: context.blobs }
 }
 
 describe("the root's harness session", () => {
@@ -276,38 +175,14 @@ describe("the root's harness session", () => {
     ])
   })
 
-  it('settles a retained root descriptor even when HOME is unreadable', async () => {
-    const { result, blobs, artifacts } = await rootRun('root-transcript-retained', {
-      readable: false,
-      retained: true,
-    })
-    expect(result).toMatchObject({ kind: 'winner' })
-    expect(result.rootHarnessTranscript).toMatchObject({
-      status: 'available',
-      harness: 'opencode',
-      fileCount: 1,
-    })
-    const receipt = result.rootHarnessTranscript!
-    const metadata = await harnessTranscriptArtifact(receipt, blobs, { content: false })
-    expect(metadata?.source?.node?.nodeId).toBeDefined()
-    const artifact = await harnessTranscriptArtifact(receipt, blobs, { artifacts })
-    expect(artifact?.files[0]?.content).toBe(SESSION.content)
-    expect(artifact?.files[0]?.bytes).toBe(Buffer.byteLength(SESSION.content))
-  })
-
-  it('reaches the result when the final session copy lands after the turn commits', async () => {
-    // A retained root commits its turn before its final session copy and workspace capture,
-    // which run as the owner's end-of-turn work. The receipt was copied when the attempt ended,
-    // so result.json kept `capture-did-not-run` for a session stored minutes later: 7 of 8 such
-    // nodes on Runtime 0.319.8 and later, test-on-merge-proof-20261015a among them (#1360).
+  it('waits for an independent final native read before publishing its result', async () => {
     let openCopy!: () => void
     const settledCopy = new Promise<void>((resolve) => {
       openCopy = resolve
     })
     let copyStarted = false
     const running = rootRun('root-transcript-deferred', {
-      readable: false,
-      retained: true,
+      readable: true,
       native: {
         settledCopy,
         onSettledCopy: () => {
@@ -317,7 +192,7 @@ describe("the root's harness session", () => {
     })
     await expect.poll(() => copyStarted, { timeout: 15_000, interval: 50 }).toBe(true)
     openCopy()
-    const { result, blobs, artifacts } = await running
+    const { result, blobs } = await running
 
     expect(result).toMatchObject({ kind: 'winner' })
     expect(result.rootHarnessTranscript).toMatchObject({
@@ -325,19 +200,14 @@ describe("the root's harness session", () => {
       harness: 'opencode',
       fileCount: 1,
     })
-    const artifact = await harnessTranscriptArtifact(result.rootHarnessTranscript!, blobs, {
-      artifacts,
-    })
+    const artifact = await harnessTranscriptArtifact(result.rootHarnessTranscript!, blobs)
     expect(artifact?.files[0]?.content).toBe(SESSION.content)
   })
 
-  it('names the failure when every copy of the root session fails', async () => {
-    // 64 nodes on 2026-10-15 had every capture fail and settled `capture-did-not-run`, which
-    // reads as nobody trying (#1360).
+  it('records incomplete evidence when native session reads fail', async () => {
     const failure = new Error('Failed to connect to sandbox: Request timed out after 30000ms')
     const { result } = await rootRun('root-transcript-failed', {
-      readable: false,
-      retained: true,
+      readable: true,
       native: { failure },
       captureFailure: failure,
     })
@@ -345,8 +215,8 @@ describe("the root's harness session", () => {
     expect(result).toMatchObject({ kind: 'winner' })
     expect(result.rootHarnessTranscript).toMatchObject({
       status: 'unavailable',
-      reason: 'enumeration-failed',
-      skipped: [{ reason: expect.stringContaining('Failed to connect to sandbox') }],
+      reason: 'nothing-carried',
+      skipped: [{ path: SESSION.path, reason: 'read-failed' }],
     })
   })
 

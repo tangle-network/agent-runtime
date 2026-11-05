@@ -9,16 +9,13 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { RunCancellationReason } from '../../src/runtime/index'
-import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { cancelRun } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import type { Agent, SpawnEvent } from '../../src/runtime/supervise/types'
-import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
+import type { Agent, SpawnEvent, UsageEvent } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -72,6 +69,7 @@ function liveProcessProvider(
   } = {},
 ) {
   const processes = new Map<string, ChildProcess>()
+  const stoppedAt = new Map<string, number>()
   // Executions whose event stream Runtime opened: it is observing the native process.
   const observed = new Set<string>()
   const base = durableRetainedProvider(stateFile)
@@ -91,6 +89,7 @@ function liveProcessProvider(
           stdio: 'ignore',
         })
         harnesses.push(harness)
+        harness.once('exit', () => stoppedAt.set(executionId, Date.now()))
         processes.set(executionId, harness)
       }
       return dispatched
@@ -166,27 +165,11 @@ function liveProcessProvider(
   return {
     provider,
     processes,
+    stoppedAt,
     observing: () => observed.size > 0,
     creates: () => creates,
     destroys: () => destroys,
     dispatches: () => dispatches,
-  }
-}
-
-/** Captures deterministic workspace bytes through the real artifact persistence boundary. */
-function evidenceRetention(): ProviderWorkspaceRetentionPort {
-  const { outputArtifacts } = createCandidateOutputFixture()
-  return {
-    timeoutMs: 5_000,
-    artifacts: outputArtifacts,
-    async capture(context) {
-      return (
-        await captureAgentCandidateWorkspaceFiles(
-          [{ path: 'turn.txt', mode: 0o644, bytes: Uint8Array.from(Buffer.from('partial\n')) }],
-          { artifactPersistence: { executionId: context.executionId, outputArtifacts } },
-        )
-      ).snapshot
-    },
   }
 }
 
@@ -197,10 +180,10 @@ function ofKind<K extends SpawnEvent['kind']>(
   return events.filter((event): event is Extract<SpawnEvent, { kind: K }> => event.kind === kind)
 }
 
-/** A leaf whose provider execution is retained and whose kept source is evidence. */
+/** A retained provider execution using native custody, without a client capture writer. */
 function retainedLeaf(
   provider: AgentEnvironmentProvider,
-  workspaceRetention = evidenceRetention(),
+  factory = providerAsExecutor(provider),
 ): Agent<unknown, string> {
   const profile = testAgentProfile('leaf')
   return Object.assign(
@@ -209,7 +192,7 @@ function retainedLeaf(
       executorSpec: {
         profile,
         harness: profile.harness,
-        executorFactory: providerAsExecutor(provider, { workspaceRetention }),
+        executorFactory: factory,
       },
     },
   )
@@ -244,7 +227,7 @@ async function scratch(prefix: string): Promise<string> {
   return directory
 }
 
-describe('a cancelled run that keeps a retained environment for evidence', () => {
+describe('native custody when a retained run is cancelled', () => {
   it('stops the root harness process before it settles and records its usage as unknown', async () => {
     const directory = await scratch('native-stop-owner-')
     const proxy = await coordinationProxy()
@@ -253,8 +236,7 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     const runId = 'native-stop-owner'
     const context = createFileRunContext(runDir)
     const live = liveProcessProvider(join(directory, 'provider.json'))
-    const workspaceRetention = evidenceRetention()
-    const backend = { backend: 'provider' as const, provider: live.provider, workspaceRetention }
+    const backend = { backend: 'provider' as const, provider: live.provider }
 
     const settling = supervise(
       testAgentProfile('root', { tools: runtimeToolDeclarations('submit_result') }),
@@ -294,15 +276,13 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     const result = await settling
 
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
-    // The box is kept for evidence, and nothing runs inside it any more.
-    expect(live.destroys()).toBe(0)
-    expect(result.teardownUnconfirmed?.[0]?.kept).toMatchObject([{ keptFor: 'evidence' }])
+    expect(live.destroys()).toBe(1)
+    expect(result.teardownUnconfirmed).toBeUndefined()
     expect(running(harness!)).toBe(false)
     const events = (await context.journal.loadTree(runId)) ?? []
     const teardown = ofKind(events, 'environment-teardown').filter((event) => event.id === runId)
     expect(teardown.at(-1)).toMatchObject({
-      destroyed: false,
-      detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /),
+      destroyed: true,
     })
   })
 
@@ -340,15 +320,14 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
       const result = await settling
 
       expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
-      expect(live.destroys()).toBe(0)
+      expect(live.destroys()).toBe(1)
       expect(running(harness!)).toBe(false)
       const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
       const teardown = ofKind(events, 'environment-teardown').filter(
         (event) => event.id === 'root:s0',
       )
       expect(teardown.at(-1)).toMatchObject({
-        destroyed: false,
-        detail: expect.stringMatching(/stopped at .*; usage unknown: killed at /),
+        destroyed: true,
       })
     },
   )
@@ -385,191 +364,68 @@ describe('a cancelled run that keeps a retained environment for evidence', () =>
     )
     expect(stoppedWhileLive).toBe(true)
     expect(result.kind).toBe('winner')
-    expect(live.destroys()).toBe(0)
+    expect(live.destroys()).toBe(1)
   })
 })
 
 describe('a deadline that ends a retained turn', () => {
-  // The node's settlement must cite a copy taken after its harness physically stopped.
-  it('settles the node only after the stopped harness session is copied', async () => {
-    const directory = await scratch('native-stop-deadline-settle-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'))
-    const retention = evidenceRetention()
-    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
-    const copies: Array<{ scope: string; harnessRunning: boolean; storedAt: number }> = []
-    const workspaceRetention: ProviderWorkspaceRetentionPort = {
-      ...retention,
-      // A copy taken while the turn runs, so the node holds a running copy when its deadline hits.
-      nativeIntervalMs: 200,
-      async capture(context) {
-        const running = harnessRunning()
-        const snapshot = await retention.capture(context)
-        copies.push({ scope: 'workspace', harnessRunning: running, storedAt: Date.now() })
-        return snapshot
-      },
-      async captureNative(context) {
-        const running = harnessRunning()
-        const snapshot = await retention.capture(context)
-        copies.push({
-          scope: `native:${context.phase}`,
-          harnessRunning: running,
-          storedAt: Date.now(),
-        })
-        return snapshot
-      },
-    }
-    const worker = retainedLeaf(live.provider, workspaceRetention)
-    await createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(worker, 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
-          })
-          expect(await scope.next()).toMatchObject({
-            kind: 'down',
-            reason: 'child deadline exceeded',
-          })
-          return 'root done'
-        },
-      },
-      'root-task',
-      {
-        ...childRunContext(runDir),
-      },
-    )
-    expect(copies.some((copy) => copy.harnessRunning)).toBe(true)
-    const stopped = copies.find((copy) => !copy.harnessRunning)
-    expect(stopped).toBeDefined()
-    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
-    const settles = events.filter(
-      (event) =>
-        event.id === 'root:s0' && (event.kind === 'settled' || event.kind === 'reconciled'),
-    )
-    expect(settles.length).toBeGreaterThan(0)
-    for (const event of settles) {
-      expect(Date.parse((event as { at: string }).at)).toBeGreaterThanOrEqual(stopped!.storedAt)
-    }
-  })
-
-  // Provider outcome persistence can lag the physical stop; the final copy waits for it.
-  it('copies a stopped harness again until the provider records how it ended', async () => {
-    const directory = await scratch('native-stop-deadline-ended-')
-    const runDir = join(directory, 'run')
-    const live = liveProcessProvider(join(directory, 'provider.json'))
-    const retention = evidenceRetention()
-    const harnessRunning = (): boolean => [...live.processes.values()].some(running)
-    let stoppedAt: number | undefined
-    const copies: Array<{ phase: string; outcome: string; storedAt: number }> = []
-    const workspaceRetention: ProviderWorkspaceRetentionPort = {
-      ...retention,
-      async captureNative(context) {
-        if (!harnessRunning()) stoppedAt ??= Date.now()
-        // The provider records the outcome 1.2 s after the process is gone.
-        const outcome =
-          stoppedAt !== undefined && Date.now() - stoppedAt >= 1_200 ? 'cancelled' : 'unknown'
-        const snapshot = await retention.capture(context)
-        copies.push({ phase: context.phase ?? 'none', outcome, storedAt: Date.now() })
-        return {
-          snapshot,
-          provenance: {
-            status: 'reported' as const,
-            environmentId: context.environment.id,
-            executionId: context.executionId,
-            workspaceScope: 'none' as const,
-            attempts: [
-              {
-                executionId: context.controlRef?.executionId ?? context.executionId,
-                ordinal: 1,
-                providerSessionId: context.providerSessionId ?? 'session',
-                nativeSessionIds: [],
-                processIds: [],
-                outcome,
-                missingReasons: [],
-              },
-            ],
-            missing: outcome === 'unknown' ? ['native_snapshot_live'] : [],
+  it.each([undefined, 1_500])(
+    'records settlement only after the physical process stops (async stop: %s)',
+    async (asynchronousStopMs) => {
+      const directory = await scratch('native-stop-deadline-')
+      const runDir = join(directory, 'run')
+      const live = liveProcessProvider(join(directory, 'provider.json'), { asynchronousStopMs })
+      await createSupervisor<string, string>().run(
+        {
+          name: 'root',
+          act: async (_task, scope) => {
+            scope.spawn(retainedLeaf(live.provider), 'child task', {
+              key: 'work',
+              budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
+            })
+            await expect.poll(() => live.observing()).toBe(true)
+            expect([...live.processes.values()].some(running)).toBe(true)
+            expect(await scope.next()).toMatchObject({
+              kind: 'down',
+              reason: 'child deadline exceeded',
+            })
+            expect([...live.processes.values()].some(running)).toBe(false)
+            return 'root done'
           },
-        }
-      },
-    }
-    const worker = retainedLeaf(live.provider, workspaceRetention)
-    await createSupervisor<string, string>().run(
-      {
-        name: 'root',
-        act: async (_task, scope) => {
-          scope.spawn(worker, 'child task', {
-            key: 'work',
-            budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
-          })
-          await scope.next()
-          return 'root done'
         },
-      },
-      'root-task',
-      {
-        ...childRunContext(runDir),
-      },
-    )
-    const final = copies.filter((copy) => copy.phase === 'failed')
-    expect(final.map((copy) => copy.outcome)).toContain('unknown')
-    expect(final.at(-1)?.outcome).toBe('cancelled')
-    const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
-    const settles = events.filter(
-      (event) =>
-        event.id === 'root:s0' && (event.kind === 'settled' || event.kind === 'reconciled'),
-    )
-    expect(settles.length).toBeGreaterThan(0)
-    for (const event of settles) {
-      expect(Date.parse((event as { at: string }).at)).toBeGreaterThanOrEqual(
-        final.at(-1)!.storedAt,
+        'root-task',
+        childRunContext(runDir),
       )
-    }
-  }, 30_000)
+      expect(live.stoppedAt.size).toBe(1)
+      const stoppedAt = [...live.stoppedAt.values()][0]!
+      const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
+      const settlements = events.filter(
+        (event) =>
+          event.id === 'root:s0' && (event.kind === 'settled' || event.kind === 'reconciled'),
+      )
+      expect(settlements.length).toBeGreaterThan(0)
+      for (const event of settlements)
+        expect(Date.parse(event.at)).toBeGreaterThanOrEqual(stoppedAt)
+      expect(live.destroys()).toBe(1)
+      expect(
+        ofKind(events, 'execution-input').every((event) => event.workspaceRetention !== true),
+      ).toBe(true)
+    },
+    30_000,
+  )
 })
 
 describe('terminal recovery of a previously admitted native process', () => {
-  it.each(['deadline', 'cancelled', 'unknown', 'undispatched'] as const)(
-    'stops the original process before capture/return on %s entry without dispatching',
+  it.each(['deadline', 'cancelled', 'unknown', 'undispatched', 'retry-stop'] as const)(
+    'stops only the exact original process on %s recovery and releases only confirmed custody',
     async (ending) => {
       const directory = await scratch('native-stop-terminal-resume-')
       const runDir = join(directory, 'run')
       const context = createFileRunContext(runDir)
-      const live = liveProcessProvider(join(directory, 'provider.json'), {
-        stopUnavailable: ending === 'unknown',
-      })
-      const retention = evidenceRetention()
-      const copies: Array<{
-        running: boolean
-        executionId?: string
-        environmentId: string
-        sessionId?: string
-      }> = []
-      const workspaceRetention: ProviderWorkspaceRetentionPort = {
-        ...retention,
-        async capture(context) {
-          copies.push({
-            running: [...live.processes.values()].some(running),
-            executionId: context.controlRef?.executionId,
-            environmentId: context.environment.id,
-            sessionId: context.providerSessionId ?? undefined,
-          })
-          throw new Error('terminal workspace capture refused')
-        },
-        async captureNative(context) {
-          copies.push({
-            running: [...live.processes.values()].some(running),
-            executionId: context.controlRef?.executionId,
-            environmentId: context.environment.id,
-            sessionId: context.providerSessionId ?? undefined,
-          })
-          return retention.capture(context)
-        },
-      }
-      const factory = providerAsExecutor(live.provider, { workspaceRetention })
-      const worker = retainedLeaf(live.provider, workspaceRetention)
+      const availability = { stopUnavailable: ending === 'unknown' || ending === 'retry-stop' }
+      const live = liveProcessProvider(join(directory, 'provider.json'), availability)
+      const factory = providerAsExecutor(live.provider)
+      const worker = retainedLeaf(live.provider)
       let clock = Date.now()
       const common = {
         ...childRunContext(runDir),
@@ -633,7 +489,7 @@ describe('terminal recovery of a previously admitted native process', () => {
       const cancel = new AbortController()
       if (ending !== 'cancelled') clock += 120_000
       else cancel.abort(new RunCancellationReason('operator', 'cancelled before resume'))
-      copies.length = 0
+      let recovered: ReturnType<typeof factory> | undefined
       const result = await createSupervisor<string, string>().run(
         {
           name: 'root',
@@ -644,7 +500,10 @@ describe('terminal recovery of a previously admitted native process', () => {
         'root-task',
         {
           ...common,
-          recoverExecutor: factory,
+          recoverExecutor: (spec, context) => {
+            recovered = factory(spec, context)
+            return recovered
+          },
           retainedAtSettlement: 'release',
           signal: cancel.signal,
           teardownConfirmMs: 1_000,
@@ -654,16 +513,13 @@ describe('terminal recovery of a previously admitted native process', () => {
         kind: 'no-winner',
         reason: ending === 'cancelled' ? 'cancelled' : 'deadline',
       })
-      expect(running(harness!)).toBe(ending === 'unknown' || ending === 'undispatched')
+      const unresolved = ['unknown', 'undispatched', 'retry-stop'].includes(ending)
+      expect(running(harness!)).toBe(unresolved)
       expect(running(canary)).toBe(true)
       expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
-      if (ending === 'unknown' || ending === 'undispatched') expect(copies).toEqual([])
-      else {
-        expect(copies.length).toBeGreaterThan(0)
-        expect(copies.some((copy) => copy.running)).toBe(false)
-      }
-      expect(live.destroys()).toBe(0) // Incomplete evidence keeps the stopped source.
-      expect(result.teardownUnconfirmed?.[0]?.kept?.[0]).toMatchObject({ keptFor: 'evidence' })
+      expect(live.destroys()).toBe(unresolved ? 0 : 1)
+      if (unresolved) expect(result.teardownUnconfirmed?.length).toBeGreaterThan(0)
+      else expect(result.teardownUnconfirmed).toBeUndefined()
       const events = (await context.journal.loadTree('root')) ?? []
       const admission = ofKind(events, 'execution-admitted').find(
         (event) =>
@@ -675,24 +531,87 @@ describe('terminal recovery of a previously admitted native process', () => {
           : admission.admission.phase === 'environment'
             ? admission.admission
             : undefined
-      for (const copy of copies)
-        expect(copy).toMatchObject({
-          environmentId: original?.environmentId,
-          executionId:
-            admission.admission.phase === 'dispatched'
-              ? admission.admission.controlRef.executionId
-              : undefined,
-          sessionId:
-            admission.admission.phase === 'dispatched'
-              ? admission.admission.controlRef.sessionId
-              : undefined,
-        })
       expect(ofKind(events, 'environment-teardown').at(-1)).toMatchObject({
         id: admission.id,
         environmentId: original?.environmentId,
-        destroyed: false,
+        destroyed: !unresolved,
       })
+      if (ending === 'retry-stop') {
+        availability.stopUnavailable = false
+        const receipts = await recovered!.releaseRetained!(AbortSignal.timeout(5_000))
+        expect(running(harness!)).toBe(false)
+        expect(running(canary)).toBe(true)
+        expect(receipts).toMatchObject([
+          { environmentId: original?.environmentId, destroyed: true },
+        ])
+        expect(live.destroys()).toBe(1)
+        expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
+      }
     },
     30_000,
   )
+})
+
+it('releases warm native custody after an unknown stop later receives an exact stop ACK', async () => {
+  const directory = await scratch('native-stop-warm-retry-')
+  const availability = { stopUnavailable: true }
+  const live = liveProcessProvider(join(directory, 'provider.json'), availability)
+  const factory = providerAsExecutor(live.provider)
+  let executor: ReturnType<typeof factory> | undefined
+  let finishTurn!: () => void
+  const turnEnded = new Promise<void>((resolve) => {
+    finishTurn = resolve
+  })
+  const worker = retainedLeaf(live.provider, (spec, context) => {
+    executor = factory(spec, context)
+    const execute = executor.execute.bind(executor)
+    executor.execute = async function* (task, signal) {
+      try {
+        yield* execute(task, signal) as AsyncIterable<UsageEvent>
+      } finally {
+        finishTurn()
+      }
+    }
+    return executor
+  })
+  let first: readonly { environmentId: string; destroyed: boolean }[] | undefined
+  let second: typeof first
+  let firstAlive: boolean | undefined
+  let firstDestroys: number | undefined
+  let secondAlive: boolean | undefined
+  await createSupervisor<string, string>().run(
+    {
+      name: 'root',
+      act: async (_task, scope) => {
+        const spawned = scope.spawn(worker, 'child task', {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 100 },
+        })
+        if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
+        await expect.poll(() => live.observing()).toBe(true)
+        spawned.handle.abort('the director stopped this worker')
+        await turnEnded
+        const [harness] = [...live.processes.values()]
+        first = await executor!.releaseRetained!(AbortSignal.timeout(5_000))
+        firstAlive = running(harness!)
+        firstDestroys = live.destroys()
+        availability.stopUnavailable = false
+        second = await executor!.releaseRetained!(AbortSignal.timeout(5_000))
+        secondAlive = running(harness!)
+        return 'root done'
+      },
+    },
+    'root-task',
+    childRunContext(join(directory, 'run')),
+  )
+  expect(first).toMatchObject([{ destroyed: false }])
+  expect(firstAlive).toBe(true)
+  expect(firstDestroys).toBe(0)
+  expect(secondAlive).toBe(false)
+  expect(second).toMatchObject([{ environmentId: first![0]!.environmentId, destroyed: true }])
+  expect(live.destroys()).toBe(1)
+  expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual({
+    creates: 1,
+    dispatches: 1,
+  })
 })

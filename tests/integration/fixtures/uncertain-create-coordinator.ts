@@ -1,24 +1,24 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { createCommandModelCredentialResolver } from '@tangle-network/agent-provider-tangle/node'
 import { Sandbox } from '@tangle-network/sandbox'
 import { captureAgentCandidateWorkspaceFiles } from '../../../src/candidate-execution'
 import { superviseGraphPursuit, supervisePursuit } from '../../../src/durable'
+import { contentAddress } from '../../../src/durable/content-address'
 import {
   FileResultBlobStore,
   FileSpawnJournal,
   graphFromStored,
   loadGraphFile,
+  type SpawnEvent,
 } from '../../../src/runtime'
 import { createPrivateCasArtifactPort } from '../../../src/runtime/private-cas'
-import {
-  type ProviderWorkspaceRetentionContext,
-  type ProviderWorkspaceRetentionPort,
-  workspaceCaptureReceipt,
-} from '../../../src/runtime/provider-workspace-retention'
+import type { ProviderWorkspaceCaptureReceipt } from '../../../src/runtime/provider-workspace-retention'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
-import { type Configuration, localUrl, record } from './uncertain-create-protocol'
+import { type Configuration, localUrl, object, record } from './uncertain-create-protocol'
 
 const config = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Configuration
 const directory = config.directory
@@ -43,68 +43,162 @@ const provider = createTangleProvider({
   }),
 })
 const artifacts = createPrivateCasArtifactPort(join(directory, 'workspace-cas'), 'provider-json')
-async function captureFiles(context: ProviderWorkspaceRetentionContext, native = false) {
-  const { snapshot } = await captureAgentCandidateWorkspaceFiles(
-    [
-      {
-        path: 'actual-processes.jsonl',
-        mode: 0o600,
-        bytes: readFileSync(join(directory, 'json-worker-processes.jsonl')),
-      },
-    ],
-    {
-      artifactPersistence: { executionId: context.executionId, outputArtifacts: artifacts },
-    },
-  )
-  return {
-    snapshot,
-    provenance: {
-      status: 'unavailable' as const,
-      provider: context.environment.provider,
-      environmentId: context.environment.id,
-      executionId: context.executionId,
-      ...(context.controlRef === undefined ? {} : { controlRef: context.controlRef }),
-      workspaceScope: native ? ('none' as const) : ('environment' as const),
-      missing: ['local process fixture has no native harness capture'],
-    },
-  }
-}
-const workspaceRetention: ProviderWorkspaceRetentionPort | undefined =
+const legacyCapture =
   config.scenario === 'json-owner-capture' || config.scenario === 'trace-owner-evidence'
-    ? {
-        artifacts,
-        timeoutMs: 5000,
-        nativeIntervalMs: 1,
-        async captureNative(context) {
-          const captured = await captureFiles(context, true)
-          const { snapshot } = captured
-          // Deliberately forge authority in APPLICATION data, never in the host port's result.
+const fileBlobs = new FileResultBlobStore(join(directory, 'run', 'blobs'))
+const publications: Promise<void>[] = []
+let receiptReady: Promise<ProviderWorkspaceCaptureReceipt> | undefined
+
+/** Reproduce an old journal obligation and its stored artifacts, never a live capture port. */
+class HistoricalCaptureJournal extends FileSpawnJournal {
+  override async appendEvent(root: string, event: SpawnEvent): Promise<void> {
+    const historical =
+      legacyCapture && event.id === root && event.kind === 'execution-input'
+        ? { ...event, workspaceRetention: true }
+        : event
+    await super.appendEvent(root, historical)
+    if (!legacyCapture || event.id !== root) return
+    if (event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
+      receiptReady = this.receipt(root, event.admission.controlRef).then((receipt) => {
+        if (config.scenario === 'json-owner-capture') {
+          // Application output is not the historical host receipt, even when its bytes verify.
           writeAtomicDurableFile(
             join(directory, 'reflected-capture.json'),
             JSON.stringify({
-              workspaceSnapshot: snapshot,
-              workspaceCapture: workspaceCaptureReceipt(context, {
-                ...captured,
-                coverageComplete: true,
-              }),
+              workspaceSnapshot: receipt.snapshot,
+              workspaceCapture: { ...receipt, coverageComplete: true },
             }),
           )
-          return captured
-        },
-        async capture(context) {
+        }
+        return receipt
+      })
+      publications.push(receiptReady.then(() => undefined))
+    }
+    if (event.kind === 'execution-result') {
+      // Materialization can bind after dispatch. Only the accepted turn's prefix supplies identity.
+      const committed = (await this.loadTree(root)) ?? []
+      const end = committed.findIndex(
+        (row) => row.kind === 'execution-result' && row.seq === event.seq && row.id === root,
+      )
+      if (end < 0) throw new Error('historical fixture lost its committed result')
+      const bound = committed
+        .slice(0, end)
+        .find((row) => row.id === root && row.kind === 'execution-bound')
+      publications.push(
+        (async () => {
+          const receipt = await receiptReady
+          if (!receipt) throw new Error('historical fixture lost its exact admission')
           record(join(directory, 'capture-attempts.jsonl'), {
-            environmentId: context.environment.id,
-            executionId: context.executionId,
+            environmentId: receipt.environmentId,
+            executionId: receipt.executionId,
           })
-          await fetch(`${config.url}/fixture/hold-success?phase=workspace-capture`, {
-            signal: context.signal,
+          const response = await fetch(
+            `${config.url}/fixture/hold-success?phase=workspace-capture`,
+            { signal: AbortSignal.timeout(15000) },
+          )
+          if (!response.ok) throw new Error('historical evidence publication refused')
+          if (config.scenario !== 'trace-owner-evidence') return
+          const original = object(await fileBlobs.get(event.outRef))
+          const output = {
+            ...original,
+            workspaceSnapshot: receipt.snapshot,
+            workspaceCapture: {
+              ...receipt,
+              ...(bound?.kind === 'execution-bound'
+                ? {
+                    node: {
+                      rootId: root,
+                      parentId: root,
+                      nodeId: root,
+                      depth: 0,
+                      attemptId: bound.binding.attemptId,
+                    },
+                  }
+                : {}),
+            },
+          }
+          const outRef = contentAddress(output)
+          await fileBlobs.put(outRef, output)
+          const rows = (await this.loadTree(root)) ?? []
+          await super.appendEvent(root, {
+            kind: 'execution-evidence',
+            id: root,
+            outRef,
+            seq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
+            at: new Date().toISOString(),
           })
-          if (config.scenario === 'trace-owner-evidence') return captureFiles(context)
-          throw new Error('fixture full workspace capture unavailable')
-        },
+        })(),
+      )
+    }
+  }
+
+  private async receipt(
+    root: string,
+    controlRef: AgentExactRunControlRef,
+  ): Promise<ProviderWorkspaceCaptureReceipt> {
+    const rows = (await this.loadTree(root)) ?? []
+    const input = [...rows]
+      .reverse()
+      .find((row) => row.id === root && row.kind === 'execution-input')
+    const intent = rows.find(
+      (row) => row.kind === 'execution-admitted' && row.admission.phase === 'intent',
+    )
+    const bound = rows.find((row) => row.id === root && row.kind === 'execution-bound')
+    if (!input || intent?.kind !== 'execution-admitted' || intent.admission.phase !== 'intent')
+      throw new Error('historical fixture requires actual input/admission')
+    const path = join(directory, 'json-worker-processes.jsonl')
+    const deadline = Date.now() + 5000
+    let bytes: Buffer
+    for (;;) {
+      try {
+        bytes = readFileSync(path)
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || Date.now() >= deadline)
+          throw error
+        await delay(10)
       }
-    : undefined
-const fileBlobs = new FileResultBlobStore(join(directory, 'run', 'blobs'))
+    }
+    const executionId = `${root}:input:${input.seq}`
+    const captured = await captureAgentCandidateWorkspaceFiles(
+      [{ path: 'actual-processes.jsonl', mode: 0o600, bytes }],
+      {
+        artifactPersistence: { executionId, outputArtifacts: artifacts },
+      },
+    )
+    return {
+      executionId,
+      controlRef,
+      environmentId: controlRef.environmentId,
+      profileDigest: intent.admission.requestedProfileDigest,
+      ...(bound?.kind === 'execution-bound'
+        ? {
+            node: {
+              rootId: root,
+              parentId: root,
+              nodeId: root,
+              depth: 0,
+              attemptId: bound.binding.attemptId,
+            },
+          }
+        : {}),
+      providerSessionId: controlRef.sessionId,
+      nativeSessionId: null,
+      snapshot: captured.snapshot,
+      provenance: {
+        status: 'unavailable',
+        provider: controlRef.provider,
+        environmentId: controlRef.environmentId,
+        executionId,
+        controlRef,
+        workspaceScope: 'environment',
+        missing: ['local process fixture has no native harness capture'],
+      },
+      coverageComplete: false,
+    }
+  }
+}
+const journal = new HistoricalCaptureJournal(join(directory, 'run', 'spawn-journal.jsonl'))
 const controller = new AbortController()
 process.once('SIGTERM', () => controller.abort('integration cleanup'))
 record(join(directory, 'coordinator.jsonl'), {
@@ -191,6 +285,7 @@ try {
             pursuitId: 'uncertain-create-proof',
             runId: 'uncertain-create-proof',
             runDir: join(directory, 'run'),
+            ...(legacyCapture ? { journal } : {}),
             signal: controller.signal,
             ...(config.scenario === 'trace-owner-cancel'
               ? {
@@ -223,7 +318,6 @@ try {
               backend: 'provider',
               provider,
               ...(config.scenario === 'json-owner-capture' ? { outputFormat: 'json' } : {}),
-              ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
               ...(config.scenario === 'terminal-ceiling'
                 ? { defaults: { resources: { cpu: 16 } } }
                 : {}),
@@ -272,7 +366,10 @@ try {
               describe: 'the delivered local fixture answer',
               check: (value) => JSON.stringify(value).includes('delivered'),
             },
-            finalizer: (context) => {
+            finalizer: async (context) => {
+              // The existing application finalizer joins this historical fixture publication
+              // while the run lock is held; Runtime has no client capture writer.
+              if (legacyCapture) await Promise.all(publications)
               record(join(directory, 'finalizer.jsonl'), {
                 kind: 'finalizer',
                 at: new Date().toISOString(),

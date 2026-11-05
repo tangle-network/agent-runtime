@@ -1,15 +1,9 @@
-import type {
-  AgentCandidateWorkspaceSnapshotEvidence,
-  AgentExactRunControlRef,
-  AgentProfile,
-} from '@tangle-network/agent-interface'
+import type { AgentExactRunControlRef, AgentProfile } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import { type HarnessTranscriptCapture, harnessTranscriptUnavailable } from '../harness-transcript'
-import type { ProviderWorkspaceCaptureProvenance } from '../provider-workspace-retention'
 import type { RetainedRunHandle } from '../retained-run-types'
 import { RunCancellationReason } from '../supervise/abortable'
 import type { TeardownAnswer } from '../supervise/deadline'
@@ -24,10 +18,7 @@ import type {
 } from '../supervise/types'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
 import type { providerMaterialization } from './provider-materialization'
-import type {
-  createProviderCaptureMirrors,
-  createProviderNativeControl,
-} from './provider-retention-lifecycle'
+import type { createProviderNativeControl } from './provider-retention-lifecycle'
 
 /** Everything one provider executor knows about its environment, capture generation and release. */
 export class ProviderExecutorState {
@@ -53,18 +44,9 @@ export class ProviderExecutorState {
    *  environment is released or handed to the successor node. */
   holdingForContinuation = false
   workspaceEnvironmentId: string | undefined
-  workspaceSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
-  workspaceProvenance: ProviderWorkspaceCaptureProvenance | undefined
-  workspaceCoverageComplete = false
-  workspaceIncompleteReason: string | undefined
-  workspacePublishedSnapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined
-  workspaceCaptureFailure: unknown
-  workspaceCapturePromise: Promise<AgentCandidateWorkspaceSnapshotEvidence> | undefined
   workspaceCleanupPromise: Promise<TeardownAnswer> | undefined
   retainedReleasePromise: Promise<ReadonlyArray<EnvironmentTeardownReceipt>> | undefined
   releaseReadTried = false
-  releaseNativeTried = false
-  workspaceOutcome: AgentRunOutcome | undefined
   workspacePreservationRequired = false
   workspaceRunActive = false
   providerSessionId: string | null = null
@@ -92,16 +74,8 @@ export class ProviderExecutorState {
 
   /** Forget the capture generation: the next one owns its own snapshot, receipts and verdicts. */
   clearWorkspaceCapture(): void {
-    this.workspaceSnapshot = undefined
-    this.workspaceProvenance = undefined
-    this.workspaceCoverageComplete = false
-    this.workspaceIncompleteReason = undefined
-    this.workspacePublishedSnapshot = undefined
-    this.workspaceCaptureFailure = undefined
-    this.workspaceCapturePromise = undefined
     this.workspaceCleanupPromise = undefined
     this.retainedReleasePromise = undefined
-    this.workspaceOutcome = undefined
     this.workspacePreservationRequired = false
     this.destroyed = false
   }
@@ -129,7 +103,6 @@ export interface ProviderExecutorScope {
   readonly controller: AbortController
   readonly trace: ReturnType<typeof createPushTraceSource>
   readonly materialization: ReturnType<typeof providerMaterialization>
-  readonly mirrors: ReturnType<typeof createProviderCaptureMirrors>
   readonly nativeControl: ReturnType<typeof createProviderNativeControl>
   readonly continuationTask: string
   readonly executor: () => Executor<unknown>

@@ -6,6 +6,7 @@ import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-f
 import {
   attachments,
   digest,
+  durableBytes,
   encodeFrame,
   localUrl,
   type NativeRun,
@@ -189,6 +190,8 @@ async function replay(
     const wait = flushedAt + EXACT_RESULT_AFTER_STREAM_MS - Date.now()
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
   }
+  if (scenario === 'json-observation-429' && !exactResult)
+    return sse(response, terminal(run, scenario).slice(0, 1))
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
   // Let the independently requested exact result win before this connection's first frame.
@@ -198,7 +201,8 @@ async function replay(
   run.terminalReads += 1
   sse(
     response,
-    scenario.startsWith('trace-tree-') && run.processResult?.exitCode === 0
+    (scenario.startsWith('trace-tree-') && run.processResult?.exitCode === 0) ||
+      scenario.startsWith('json-observation-long-')
       ? readFileSync(join(directory, nativeEventFile(run.executionId)))
       : terminal(run, scenario),
   )
@@ -609,7 +613,8 @@ async function runtime(
     if (
       scenario.startsWith('create-') ||
       ((scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
-        scenario !== 'json-incomplete')
+        scenario !== 'json-incomplete' &&
+        !scenario.startsWith('json-observation-'))
     ) {
       let observed!: () => void
       const received = new Promise<void>((resolve) => {
@@ -696,6 +701,17 @@ async function runtime(
       })
     }
     if (run.environmentId !== environmentId) throw new Error('SDK event target mismatch')
+    if (exactResult && scenario.startsWith('json-observation-')) {
+      durableBytes(join(directory, `${nativeEventFile(run.executionId)}.exact`), 'ready')
+      note('exact-result-handshake', { executionId: run.executionId, sessionId: run.sessionId })
+      if (scenario === 'json-observation-429') {
+        note('exact-result-http-error', { executionId: run.executionId, status: 429 })
+        return jsonError(response, 429, {
+          code: 'FIXTURE_OBSERVATION_THROTTLED',
+          message: 'exact observation temporarily unavailable',
+        })
+      }
+    }
     return replay(run, response, exactResult)
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
