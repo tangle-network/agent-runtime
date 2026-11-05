@@ -36,6 +36,8 @@ assertEqual(consumer.env?.EXPECTED_SHA256,
 const consumerCommand = requireSteps('verify-publication', consumer).find((step) => step.run)?.run ?? ''
 if (!consumerCommand.includes('node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published') || !consumerCommand.includes('[ "$status" -eq 3 ] || exit "$status"'))
   throw new Error('publication verifier must require actual bytes and fail closed on mismatches')
+if (!consumer.steps.some((step) => step.if === "env.PACKAGE == 'agent-runtime'" && step.run?.includes('workflows/upstream-evidence.yml/runs')))
+  throw new Error('publication verifier must fail a Runtime release whose tag started no upstream evidence run')
 const releaseCohort = readReleaseCohort()
 
 const publishJobs = {
