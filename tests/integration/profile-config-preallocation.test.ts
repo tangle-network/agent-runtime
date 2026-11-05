@@ -7,6 +7,7 @@ import {
   type AgentProfile,
 } from '@tangle-network/agent-interface'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
+import { createCommandModelCredentialResolver } from '@tangle-network/agent-provider-tangle/node'
 import { Sandbox } from '@tangle-network/sandbox'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { createFileRunContext, type DriveHarness, supervise } from '../../src/runtime'
@@ -50,7 +51,32 @@ afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 
-const controls: Array<{ name: string; child: AgentProfile; field: string }> = [
+const controls: Array<{
+  name: string
+  child: AgentProfile
+  field?: string
+  command?: 'infra' | 'capacity' | 'caller'
+  failure?: { code: string; owner: string; providerCode: string }
+}> = [
+  ...(
+    [
+      ['infra', 'transport', 'platform', 'credential_command_failed'],
+      ['capacity', 'upstream-unavailable', 'platform', 'provider_quota_exhausted'],
+      ['caller', 'request-rejected', 'caller', 'model_credential_refused'],
+    ] as const
+  ).map(([command, code, owner, providerCode]) => ({
+    name: `command-${command}`,
+    child: testAgentProfile(`command-${command}`, {
+      prompt: { instructions: ['private-command-stdin-stderr-sentinel'] },
+      model: {
+        provider: 'offline',
+        default: 'offline-test-model',
+        metadata: { credentialSource: 'subscription' },
+      },
+    }),
+    command,
+    failure: { code, owner, providerCode },
+  })),
   {
     name: 'nonexistent-opencode-tool',
     child: testAgentProfile('malformed-tool', {
@@ -88,11 +114,39 @@ const controls: Array<{ name: string; child: AgentProfile; field: string }> = [
 
 it.each(controls)(
   'refuses $name through native MCP before child allocation',
-  async ({ name, child, field }) => {
+  async ({ name, child, field, command, failure }) => {
     const fixture = await ProcessFixture.start('json-output', executables, { coordinator: false })
     const runId = `profile-preallocation-${name}`
     const context = createFileRunContext(join(fixture.directory, 'run'), { withDriver: true })
+    const credentialCommand = [
+      process.execPath,
+      '-e',
+      `
+      let input=''; process.stdin.on('data',chunk=>input+=chunk); process.stdin.on('end',()=>{
+        const request=JSON.parse(input), selected=request.input.profile.name===process.env.CHILD;
+        require('node:fs').appendFileSync(process.env.RECEIPT,JSON.stringify({pid:process.pid,profile:request.input.profile.name,key:request.input.idempotencyKey})+'\\n');
+        if(!selected){process.stdout.write('{"supported":true}');return}
+        process.stderr.write(process.env.PRIVATE_SENTINEL);
+        const mode=process.env.MODE;
+        process.stdout.write(JSON.stringify({error:mode==='capacity'?{code:'provider_quota_exhausted',reason:'exhausted'}:{code:'model_credential_refused',reason:'unsupported_route'}}));
+        process.exitCode=mode==='infra'?1:mode==='capacity'?75:78;
+      });`,
+    ]
     const provider = createTangleProvider({
+      ...(command
+        ? {
+            modelCredentials: createCommandModelCredentialResolver({
+              command: credentialCommand,
+              validationCommand: credentialCommand,
+              env: {
+                CHILD: child.name,
+                MODE: command,
+                PRIVATE_SENTINEL: 'private-command-stdin-stderr-sentinel',
+                RECEIPT: join(fixture.directory, 'validation.jsonl'),
+              },
+            }),
+          }
+        : {}),
       client: new Sandbox({
         apiKey: 'offline-not-a-secret',
         baseUrl: fixture.url,
@@ -184,6 +238,7 @@ it.each(controls)(
               ).catch(() => undefined)
               if (bytes === undefined) return false
               const response = object(JSON.parse(bytes).reply)
+              if (command) return object(response.error).code === -32000
               const tool = object(response.result)
               const observed = object(
                 tool.structuredContent ??
@@ -208,16 +263,34 @@ it.each(controls)(
       ).toBeDefined()
       const receipt = JSON.parse(receiptBytes!)
       const reply = object(receipt.reply)
-      const tool = object(reply.result)
-      const refusal = object(
-        tool.structuredContent ?? JSON.parse(object((tool.content as unknown[])[0]).text as string),
-      )
-      expect(refusal).toMatchObject({
-        error: 'preflight-refused',
-        cause: expect.any(String),
-        live: 0,
-      })
-      expect(refusal.reason).toContain(field)
+      if (command) {
+        expect(reply).toMatchObject({
+          jsonrpc: '2.0',
+          id: 1,
+          error: { code: -32000, data: { failure } },
+        })
+        expect(object(object(reply.error).data).failure).toEqual(failure)
+        expect(JSON.stringify(reply)).not.toContain('private-command-stdin-stderr-sentinel')
+        const validations = (await readFile(join(fixture.directory, 'validation.jsonl'), 'utf8'))
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line))
+        expect(validations.filter((row) => row.profile === child.name)).toEqual([
+          { pid: expect.any(Number), profile: child.name, key: 'profile-preflight' },
+        ])
+      } else {
+        const tool = object(reply.result)
+        const refusal = object(
+          tool.structuredContent ??
+            JSON.parse(object((tool.content as unknown[])[0]).text as string),
+        )
+        expect(refusal).toMatchObject({
+          error: 'preflight-refused',
+          cause: expect.any(String),
+          live: 0,
+        })
+        expect(refusal.reason).toContain(field!)
+      }
       expect(nativeCalls).toBe(1)
       expect(budgets).toHaveLength(2)
       expect(budgets[1]).toEqual(budgets[0])
@@ -241,6 +314,15 @@ it.each(controls)(
       expect(
         state.requests.filter((row) => row.kind === 'create' || row.kind === 'dispatch'),
       ).toEqual([])
+      if (command)
+        expect(state.requests).toEqual([
+          {
+            kind: 'service-ready',
+            at: expect.any(String),
+            pid: expect.any(Number),
+            url: fixture.url,
+          },
+        ])
       expect(state.failures).toEqual([])
       expect(result.kind).toBe('winner')
       passed = true

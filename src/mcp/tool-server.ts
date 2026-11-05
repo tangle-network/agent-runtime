@@ -5,17 +5,12 @@
  * client's protocol version when listed in `SUPPORTED_PROTOCOL_VERSIONS`,
  * else 2024-11-05, and publishes tool annotations when a tool declares them.
  *
- * Extracted from `createMcpServer` (server.ts) so every in-repo MCP server —
- * the delegation server, the memory server — serves the ONE wire protocol the
- * same-host client (`connectStdioMcp`, runtime/stdio-mcp-client.ts) speaks.
- * A second hand-rolled serve loop could drift from what the client expects;
- * this core makes that impossible by construction.
- *
  * @experimental
  */
 
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline'
 import { ValidationError } from '../errors'
+import { runtimeFailureCause, runtimeFailureCauseSchema } from '../runtime/failure-cause'
 import type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
 
 export type { JsonRpcMessage, JsonRpcResponse, McpToolDescriptor, McpTransport } from './protocol'
@@ -33,6 +28,14 @@ const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
   '2025-03-26',
   PROTOCOL_VERSION,
 ]
+
+const toolFailureSchema = runtimeFailureCauseSchema.unwrap().pick({
+  code: true,
+  owner: true,
+  providerCode: true,
+  providerStatus: true,
+  retryAfterMs: true,
+})
 
 /** @experimental */
 export interface StdioToolServerOptions {
@@ -116,7 +119,13 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
         const code = err instanceof TypeError || err instanceof RangeError ? -32602 : -32000
-        return rpcError(message.id ?? null, code, reason)
+        const failure = toolFailureSchema.safeParse(runtimeFailureCause(err))
+        return rpcError(
+          message.id ?? null,
+          code,
+          reason,
+          failure.success ? { failure: failure.data } : undefined,
+        )
       }
     }
     if (message.id === undefined || message.id === null) return null
