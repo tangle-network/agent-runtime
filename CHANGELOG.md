@@ -1,3 +1,9 @@
+## 6.0.5
+
+A release publishes only after its seven upstream contracts pass on the qualified archive, as an `evidence` job inside `Publish`; the local release gate no longer runs them a second time.
+
+Stop unchanged driver failures at the retry loop's ceiling even when the root pauses or the provider reports unavailable capacity. Compare the underlying cause across observation wrappers and pending-invocation replacement; changed text, code or progress earns another retry. Settlements preserve the original error, supplied producer failure and unresolved execution cause.
+
 ## 6.0.4
 
 Release verification distinguishes readable journal bytes from acknowledged child publication before checking keyed MCP result delivery, preserving exact output and once-only execution and joins.
