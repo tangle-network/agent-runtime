@@ -20,7 +20,10 @@ import {
   DriverAttemptsExhaustedError,
 } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { runDriverWithRetry } from '../../src/runtime/supervise/driver-retry'
-import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
+import {
+  RetainedExecutionPendingError,
+  type RetainedObservedPosition,
+} from '../../src/runtime/supervise/retained-executor'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 
 const quietMs = 300
@@ -30,7 +33,15 @@ afterEach(async () => {
 })
 
 async function nativeRun(
-  mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'probe' | 'replay' | 'replay-closed',
+  mode:
+    | 'duplicate'
+    | 'progress'
+    | 'held'
+    | 'closed'
+    | 'probe'
+    | 'replay'
+    | 'replay-closed'
+    | 'replay-cold',
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-silence-'))
   const child = spawn(process.execPath, ['tests/helpers/retained-silence-native.cjs', directory], {
@@ -146,6 +157,7 @@ async function nativeRun(
 async function observeWithRetry(
   fixture: Awaited<ReturnType<typeof nativeRun>>,
   records: DriverAttemptRecord[],
+  observed?: RetainedObservedPosition,
 ) {
   return runDriverWithRetry({
     async drive() {
@@ -153,7 +165,7 @@ async function observeWithRetry(
         const observation = new RetainedObservation(
           fixture.handle,
           fixture.stop.signal,
-          undefined,
+          { observed },
           quietMs,
         )
         for await (const event of observation.observe(fixture.session))
@@ -316,12 +328,21 @@ it('accepts the exact result that arrives while a live-status read is outstandin
   }
 })
 
-it.each(['replay', 'replay-closed'] as const)(
+it.each(['replay', 'replay-closed', 'replay-cold'] as const)(
   'replays advancing native cursors inside one driver attempt (%s)',
   async (mode) => {
     const fixture = await nativeRun(mode)
     const records: DriverAttemptRecord[] = []
-    await observeWithRetry(fixture, records)
+    const observedPosition =
+      mode === 'replay-cold'
+        ? { executionId: fixture.handle.controlRef.executionId, replayPosition: 'event-0' }
+        : undefined
+    if (observedPosition)
+      await appendCommittedJsonLine(
+        fixture.journal,
+        JSON.parse((await readFile(join(fixture.directory, 'events.jsonl'), 'utf8')).trim()),
+      )
+    await observeWithRetry(fixture, records, observedPosition)
     expect(records).toMatchObject([{ attempt: 1, stop: 'completed' }])
     expect(fixture.dispatches()).toBe(1)
     const observed = []
@@ -341,8 +362,8 @@ it.each(['replay', 'replay-closed'] as const)(
       .map((row) => JSON.parse(row))
     const subscriptions = protocol.filter((row) => row.op === 'observe').map((row) => row.since)
     expect([
-      [null, 'event-0', 'event-1'],
-      [null, 'event-0', 'event-1', 'event-2'],
+      [observedPosition ? 'event-0' : null, 'event-0', 'event-1'],
+      [observedPosition ? 'event-0' : null, 'event-0', 'event-1', 'event-2'],
     ]).toContainEqual(subscriptions)
     expect(protocol).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ op: 'cancel' })]),

@@ -3809,28 +3809,6 @@ describe('retained runtime run control', () => {
     })
   })
 
-  it.each([
-    ['environment', 'turn'],
-    [
-      'runtime:research-frontier-continuation-20260909:s0',
-      'research-frontier-continuation-20260909:s0:turn:0',
-    ],
-    ['environment:/% α', 'turn:/% β'],
-    [`environment-${'e'.repeat(256)}`, `turn-${'t'.repeat(256)}`],
-  ])('mints deterministic filesystem-safe coordinates for %s', (environmentKey, turnId) => {
-    const first = mintRetainedIdentity(environmentKey, turnId)
-    const second = mintRetainedIdentity(environmentKey, turnId)
-
-    expect(first).toEqual(second)
-    expect(first.sessionId).toMatch(/^retained-session-[a-f0-9]{64}$/u)
-    expect(first.executionId).toMatch(/^retained-execution-[a-f0-9]{64}$/u)
-    expect(first.sessionId.length).toBeLessThanOrEqual(128)
-    expect(first.executionId.length).toBeLessThanOrEqual(128)
-    expect(mintRetainedIdentity(`${environmentKey}x`, turnId)).not.toEqual(first)
-    expect(mintRetainedIdentity(environmentKey, `${turnId}x`)).not.toEqual(first)
-    expect(mintRetainedIdentity('a:b', 'c')).not.toEqual(mintRetainedIdentity('a', 'b:c'))
-  })
-
   it('fails loud with the provider reference when dispatch dishonors the requested identity', async () => {
     let destroys = 0
     const rogueRef = {

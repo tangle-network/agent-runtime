@@ -7,6 +7,7 @@ const directory = process.argv[2]
 let timer
 let initial
 let mode
+let replayReads = 0
 const write = (file, value) =>
   fs.appendFileSync(path.join(directory, file), `${JSON.stringify(value)}\n`)
 const frame = (sequence) => ({
@@ -36,7 +37,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     op === 'observe' &&
     mode.startsWith('replay') &&
     input.since &&
-    !fs.existsSync(path.join(directory, 'result'))
+    !fs.existsSync(path.join(directory, 'result')) &&
+    (mode !== 'replay-cold' || replayReads++ > 0)
   ) {
     const sequence = Number(input.since.slice('event-'.length)) + 1
     write('events.jsonl', frame(sequence))

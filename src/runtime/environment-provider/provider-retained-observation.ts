@@ -109,17 +109,17 @@ export class RetainedObservation {
   async *observe(
     session: AgentSession,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult> {
-    let since = this.resumedFrom
+    let replayedFrom: string | undefined
     let firstFailure: typeof this.failure
     while (true) {
       this.lastObservedAt = Date.now()
-      if ((yield* this.drain(session, since)) || this.sawTerminal) break
+      if ((yield* this.drain(session, replayedFrom ?? this.resumedFrom)) || this.sawTerminal) break
       firstFailure ??= this.failure
-      if (this.lastReplayPosition === undefined || this.lastReplayPosition === since) {
+      if (this.lastReplayPosition === undefined || this.lastReplayPosition === replayedFrom) {
         this.failure = firstFailure
         break
       }
-      since = this.lastReplayPosition
+      replayedFrom = this.lastReplayPosition
       this.failure = undefined
     }
     // An earlier attempt read the frames up to a resumed position, usage receipts among them.

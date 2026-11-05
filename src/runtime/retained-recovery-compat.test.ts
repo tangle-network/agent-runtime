@@ -1,9 +1,3 @@
-/**
- * Upgrade-compat regressions for the interface-5 recovery surfaces:
- *  - environment-stage recovery of a context-transfer run repeats the
- *    receipt-authorized lookup and verifies the receipt's run binding.
- */
-
 import {
   type AgentEnvironmentProvider,
   execOnlyEnvironmentCapabilities,
