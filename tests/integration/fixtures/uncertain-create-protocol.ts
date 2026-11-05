@@ -40,6 +40,7 @@ export interface Configuration {
   directory: string
   url: string
   resolver: string
+  holdCreateFailure?: true
 }
 export interface WireRecord {
   kind: string

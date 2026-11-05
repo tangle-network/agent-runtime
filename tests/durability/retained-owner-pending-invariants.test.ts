@@ -13,10 +13,8 @@
  * random sequences of dispatch faults, process crashes at durable boundaries, resumes from the
  * journal, and reconciliation. Every sequence must hold two invariants:
  *
- * 1. Liveness: the run never dies on a pending execution that can be resolved. A capacity refusal
- *    before dispatch is waited out however long it lasts, a lost reply is reconciled by replaying
- *    the admitted intent, a crash is resumed, and an execution the provider can no longer resolve
- *    is abandoned with its outcome recorded.
+ * 1. Liveness: recovery either completes or reports a bounded unchanged failure. Lost replies
+ *    reconcile the admitted intent and crashes resume without replacing unknown work.
  * 2. Safety: no accepted effect is duplicated. Every invocation commits at most one result, no
  *    provider execution is accepted twice, an abandoned invocation never commits a result, and
  *    every execution the provider ran is either accepted or recorded as abandoned.
@@ -39,7 +37,10 @@ import {
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
-import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
+import {
+  type DriverAttemptRecord,
+  DriverAttemptsExhaustedError,
+} from '../../src/runtime/supervise/driver-attempt-evidence'
 import {
   type DriverBudgetReadout,
   runDriverWithRetry,
@@ -154,6 +155,7 @@ interface World {
   faults: number
   capacityStreak: number
   process?: AbortController
+  failure?: DriverAttemptsExhaustedError
 }
 
 function crash(world: World, where: string): never {
@@ -361,6 +363,7 @@ async function runProcess(world: World): Promise<'completed' | 'crashed'> {
     return 'completed'
   } catch (error) {
     if (signal.aborted && signal.reason instanceof ProcessCrash) return 'crashed'
+    if (error instanceof DriverAttemptsExhaustedError) throw error
     const last = records.at(-1)
     throw new Error(
       `seed ${world.seed}: the run died after ${records.length} attempt(s) ` +
@@ -411,7 +414,13 @@ async function runSequence(seed: number): Promise<World> {
   })
   for (let process = 0; ; process += 1) {
     if (process > MAX_CRASHES) throw new Error(`seed ${seed}: more processes than crashes`)
-    if ((await runProcess(world)) === 'completed') return world
+    try {
+      if ((await runProcess(world)) === 'completed') return world
+    } catch (error) {
+      if (!(error instanceof DriverAttemptsExhaustedError)) throw error
+      world.failure = error
+      return world
+    }
   }
 }
 
@@ -439,7 +448,14 @@ function invocations(events: readonly SpawnEvent[]) {
 
 describe('retained owner pending executions: invariants over dispatch, crash, resume and reconcile', () => {
   it(`holds liveness and no duplicated accepted effect across ${SEQUENCES} seeded sequences`, async () => {
-    const totals = { crashes: 0, capacity: 0, abandoned: 0, lostReplies: 0 }
+    const totals = {
+      crashes: 0,
+      capacity: 0,
+      abandoned: 0,
+      lostReplies: 0,
+      stopped: 0,
+      completed: 0,
+    }
     for (let seed = 1; seed <= SEQUENCES; seed += 1) {
       const world = await runSequence(seed)
       const owned = ((await world.journal.loadTree(ROOT)) ?? []).filter(
@@ -479,15 +495,26 @@ describe('retained owner pending executions: invariants over dispatch, crash, re
         }
       }
       const context = `seed ${seed}\n${world.log.join('\n')}`
-      // The run delivered exactly its turns: no turn lost, and no accepted effect duplicated.
-      expect(accepted.size, context).toBe(TURNS)
+      // A bounded stop retains its current unknown invocation; completed sequences deliver all turns.
+      const pending = world.failure ? invoked.at(-1)?.executionId : undefined
+      if (world.failure) {
+        totals.stopped++
+        expect(['repeated-failure', 'pending-unresolved']).toContain(world.failure.stop)
+        expect(accepted.size, context).toBeLessThanOrEqual(TURNS)
+      } else {
+        totals.completed++
+        expect(accepted.size, context).toBe(TURNS)
+      }
       expect(
         invoked.reduce((sum, invocation) => sum + invocation.results, 0),
         context,
-      ).toBe(TURNS)
-      // Every execution the provider ran is accounted for: accepted once, or abandoned on record.
+      ).toBe(accepted.size)
+      // Every execution is accepted, abandoned, or the last explicitly unresolved invocation.
       for (const executionId of world.executions)
-        expect(accepted.has(executionId) || abandoned.has(executionId), context).toBe(true)
+        expect(
+          accepted.has(executionId) || abandoned.has(executionId) || executionId === pending,
+          context,
+        ).toBe(true)
       for (const executionId of accepted)
         expect(world.unresolvable.has(executionId) || world.stopped.has(executionId), context).toBe(
           false,
@@ -498,6 +525,8 @@ describe('retained owner pending executions: invariants over dispatch, crash, re
       totals.lostReplies += world.log.filter((line) => line.endsWith(': lost-reply')).length
     }
     // The seeds exercise every path the invariants are about.
+    expect(totals.stopped).toBeGreaterThan(0)
+    expect(totals.completed).toBeGreaterThan(0)
     expect(totals.crashes).toBeGreaterThan(5)
     expect(totals.abandoned).toBeGreaterThan(3)
     expect(totals.capacity).toBeGreaterThan(MAX_CAPACITY_STREAK)

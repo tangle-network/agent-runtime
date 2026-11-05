@@ -9,7 +9,6 @@ import {
   DriverAttemptsExhaustedError,
   type DriverRepromptRefusal,
   HarnessTurnFailedError,
-  isContentFilterRefusal,
   transientFailureKind,
   undispatchedCredentialExit,
   upstreamUnavailableSignal,
@@ -48,8 +47,6 @@ const BARREN_PAUSE_MAX_MS = 60 * 60_000
 const PAUSED_STOPS: ReadonlySet<DriverAttemptStop> = new Set<DriverAttemptStop>([
   'no-progress',
   'max-attempts',
-  'repeated-failure',
-  'pending-unresolved',
   'budget-exhausted',
 ])
 
@@ -59,30 +56,12 @@ function barrenPauseMs(streak: number, maxBarren: number): number {
   return cappedDoublingMs(streak - maxBarren + 1, BARREN_PAUSE_FIRST_MS, BARREN_PAUSE_MAX_MS)
 }
 
-/**
- * {@link REPEATED_FAILURE_LIMIT} attempts in a row failing alike within {@link INSTANT_FAILURE_MS}
- * over {@link REPEATED_FAILURE_WINDOW_MS} stop with `repeated-failure` though progress reads
- * run-wide (magnetar-rust-20261017c failed 1,258 of 2,069 root attempts on one ECONNREFUSED).
- */
-const INSTANT_FAILURE_MS = 30_000
-const REPEATED_FAILURE_LIMIT = 10
-const REPEATED_FAILURE_WINDOW_MS = 5 * 60_000
-/**
- * Content-filter refusals in a row (any other outcome resets) that stop an agent with
- * `repeated-failure`; an opted-in root pauses and re-enters. One prompt is not refused every time:
- * on Discovery run magnetar-rust-sandbox-20261031f agents passed after up to 6 in a row (`:s0:s1`
- * on its 7th identical send), and the loops that never passed ran 9 and 10.
- */
-const CONTENT_FILTER_REFUSAL_LIMIT = 8
 /** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
 const SAME_PENDING_LIMIT = 2
+/** No unchanged no-progress failure earns a fourth drive, including root pauses and capacity. */
+const SAME_CAUSE_LIMIT = 3
 
-/**
- * Invocations in a row ending in one deterministic failure with nothing gained that stop the agent
- * with no window, so its parent acts at once: a second proves what a third repeats. Over the week
- * to 2026-11-04, us-legal-exploits-20261103b:s1 retried one harness refusal for 2 hours and
- * queens21-h22-capture-root-1-20261019c re-entered four failed boxes 154 times in 37 minutes.
- */
+/** Deterministic failures without progress stop on their second identical cause. */
 const SAME_DETERMINISTIC_LIMIT = 2
 
 /** `deadline` when a deadline cut the run, else `aborted`. Read before classification, which calls
@@ -162,30 +141,36 @@ export function driverRetryLimits(run: DriverRetryRun): DriverRetryLimits {
 }
 
 /** A run of alike failures (text with ids and times blanked, code when one carried it). */
-type Streak = { error: string; code?: string | undefined; count: number; since: number }
+type Streak = { error: string; code?: string | undefined; count: number }
 
-/** A failure compares by the first cause under any pending-reconciliation wrapper. The stream
- *  codes a refusal and the exact result does not, so an absent code matches any. */
-function extend(streak: Streak | undefined, error: unknown, at: number): Streak {
+/** Compare the underlying cause, excluding changing observation/reconciliation wrappers. */
+function extend(streak: Streak | undefined, error: unknown): Streak {
   const chain = causeChain(error)
-  const root = chain.find((cause) => !(cause instanceof RetainedExecutionPendingError)) ?? error
-  const code =
+  const root =
+    chain
+      .filter(
+        (cause) => cause instanceof Error && !(cause instanceof RetainedExecutionPendingError),
+      )
+      .at(-1) ?? error
+  let code =
     turnFailureOf(error)?.code ??
     chain.find((cause) => cause instanceof HarnessTurnFailedError)?.errorCode
+  if (code === undefined) {
+    try {
+      const value: unknown = Reflect.get(root as object, 'code')
+      if (typeof value === 'string') code = value
+    } catch {
+      /* A foreign getter cannot prevent failure settlement. */
+    }
+  }
   const text = (code ? errMessage(root).replace(` (${code})`, '') : errMessage(root))
     .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z?/gu, '<time>')
     .replace(/\b(?=[\da-f-]*\d)[\da-f]{8,}(?:-[\da-f]{4,})*\b/giu, '<id>')
     .replace(/\d{6,}/gu, '<n>')
   if (streak?.error !== text || (streak.code ?? code) !== (code ?? streak.code))
-    return { error: text, code, count: 1, since: at }
+    return { error: text, code, count: 1 }
   return { ...streak, code: code ?? streak.code, count: streak.count + 1 }
 }
-
-/** True once a streak has run {@link REPEATED_FAILURE_LIMIT} alike over the window by `at`. */
-const repeatedBy = (streak: Streak | undefined, at: number): boolean =>
-  streak !== undefined &&
-  streak.count >= REPEATED_FAILURE_LIMIT &&
-  at - streak.since >= REPEATED_FAILURE_WINDOW_MS
 
 /** One failed drive, as the loop read it the moment it failed. */
 interface DriverFailure {
@@ -216,15 +201,10 @@ export class DriverRetryLoop {
   // Consecutive `unavailable` attempts, for the pause doubling only. Any other outcome, or an
   // unavailable attempt that still made progress, resets it: the upstream served in between.
   private consecutivePauses = 0
-  // Failures without progress that left an invocation pending for one cause (`error`), across
-  // abandonments, and how many of them the current invocation failed.
-  private samePending: Streak | undefined
+  // Reads of the current pending invocation; reset when it is abandoned.
   private pendingTries = 0
-  // The current streaks, each with its first failure: instant failures with one error, and
-  // identical transient attempts that gained nothing.
-  private sameFailure: Streak | undefined
+  // Unchanged failures without progress, across capacity waits and recoverable root stops.
   private sameIdle: Streak | undefined
-  private refusals = 0 // CONTENT_FILTER_REFUSAL_LIMIT
   private abandonments = 0
   // Stop-pauses in a row since the last attempt that made progress, for the stop-pause ladder.
   private stopPauses = 0
@@ -372,10 +352,7 @@ export class DriverRetryLoop {
     }
     this.chargedFailures = 0
     this.consecutiveBarren = 0
-    this.sameFailure = undefined
-    this.sameIdle = undefined
-    this.refusals = 0
-    this.samePending = undefined
+    this.pendingTries = 0
     this.abandonments = 0
     this.outageSince = undefined
     // The same rule as a failure retry: the failed drive may never have read a re-prompt.
@@ -426,7 +403,6 @@ export class DriverRetryLoop {
   ): Promise<void> {
     const durationMs = this.limits.now() - startedAt
     const classification = classifyDriverFailure(error, this.run.signal, this.run.stopSignal)
-    this.refusals = isContentFilterRefusal(error) ? this.refusals + 1 : 0
     const after = this.run.progress()
     const progressed = madeProgress(before, after)
     if (progressed) {
@@ -446,21 +422,36 @@ export class DriverRetryLoop {
       progressed,
       pending,
     }
-    // Another failure or a pause holds the streak; progress or another cause ends it.
-    if (progressed) this.samePending = undefined
+    this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
+    if (
+      classification !== 'terminal' &&
+      !this.run.signal.aborted &&
+      budgetStop(this.run.budget(), this.limits.now()) === undefined &&
+      (this.sameIdle?.count ?? 0) >= SAME_CAUSE_LIMIT
+    ) {
+      const stop =
+        pending === undefined || classification === 'unavailable'
+          ? 'repeated-failure'
+          : 'pending-unresolved'
+      await this.emit({
+        ...this.failureRecord(failure),
+        stop,
+        ...(error instanceof RetainedExecutionPendingError
+          ? { pendingCause: error.pendingCause }
+          : {}),
+      })
+      throw new DriverAttemptsExhaustedError(error, this.attempts, stop)
+    }
+    // Count reads of this invocation; the unchanged-cause streak survives its replacement.
+    if (progressed) this.pendingTries = 0
     else if (pending !== undefined && classification === 'transient') {
-      const same = this.samePending?.error === pending.pendingCause ? this.samePending : undefined
-      this.pendingTries = same === undefined ? 1 : this.pendingTries + 1
-      this.samePending = same
-        ? { ...same, count: same.count + 1 }
-        : { error: pending.pendingCause, count: 1, since: startedAt + durationMs }
+      this.pendingTries = this.sameIdle?.count === 1 ? 1 : this.pendingTries + 1
     }
     if (classification === 'unavailable') await this.pause(failure)
     else await this.retry(failure)
   }
 
-  // A pause, not a failure: neither `failures` nor the barren streak moves, so an outage of
-  // any length ends the run only at the deadline, the budget, or a cancellation.
+  // Capacity waits do not charge failure allowances; the unchanged-cause ceiling still applies.
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure
@@ -525,21 +516,12 @@ export class DriverRetryLoop {
     this.failures += 1
     const failedAt = limits.now()
     const stop = this.failureStop(failure, failedAt)
-    // One pending cause at the repeated-failure bound, however its abandonments went, or again
-    // once they are spent, stops with that cause inside the outage window too: in 4 h,
-    // magnetar-rust-sandbox-20261102a reconciled 3 ended executions 348 times.
-    const same = failure.pending && this.samePending
-    const repeated = repeatedBy(same, failedAt)
-    const abandoned = !repeated && (await this.abandonPending(failure, stop))
-    const unresolved =
-      !abandoned &&
-      same !== undefined &&
-      (stop === undefined || stop === 'no-progress') &&
-      (repeated ||
-        (run.resolvePending !== undefined &&
-          this.abandonments >= limits.maxConsecutive &&
-          this.pendingTries >= SAME_PENDING_LIMIT))
-    const retryStop = abandoned ? undefined : unresolved ? 'pending-unresolved' : stop
+    const abandoned = await this.abandonPending(failure, stop)
+    const retryStop = abandoned
+      ? undefined
+      : failure.pending && stop === 'no-progress'
+        ? 'pending-unresolved'
+        : stop
 
     if (progressed) this.barrenReentries = 0
     if (retryStop !== undefined) {
@@ -583,41 +565,24 @@ export class DriverRetryLoop {
     // a pause, and the failure bounds apply only once it outlasts `transientOutageMs`.
     const inOutage = idle && failedAt - (this.outageSince ?? failedAt) < limits.transientOutage
     if (!inOutage) this.chargedFailures += 1
-    const sameFailure =
-      failure.durationMs >= INSTANT_FAILURE_MS
-        ? undefined
-        : extend(this.sameFailure, error, failedAt)
-    this.sameFailure = sameFailure
-    // One streak of alike failures with nothing gained, read through the pending wrapper. An
-    // abandonable pending invocation keeps its own bound (pending-unresolved) and leaves the streak
-    // as it was; a content-filter refusal keeps its own count.
-    if (progressed || kind === undefined || isContentFilterRefusal(error)) this.sameIdle = undefined
-    else if (failure.pending === undefined) this.sameIdle = extend(this.sameIdle, error, failedAt)
-    const sameIdle = this.sameIdle
     // An aborted run failed because it was stopped, so the abort names the stop, not the failure.
     if (run.signal.aborted) return abortStop(run.signal)
     if (classification === 'terminal') return 'terminal-error'
     if (!limits.retryEnabled) return 'retry-disabled'
     const byBudget = budgetStop(run.budget(), failedAt)
     if (byBudget) return byBudget
-    if (this.refusals >= CONTENT_FILTER_REFUSAL_LIMIT) return 'repeated-failure'
-    // Inside the outage window too: a deterministic failure at its limit at any depth (an opted-in
-    // root pauses on it), and a nested agent's infra failure at the repeated-failure bound, so its
-    // parent acts on it. A root waits out an outage.
     if (
-      sameIdle !== undefined &&
-      (kind === 'deterministic'
-        ? sameIdle.count >= SAME_DETERMINISTIC_LIMIT
-        : run.nested === true && repeatedBy(sameIdle, failedAt))
-    ) {
+      kind === 'deterministic' &&
+      failure.pending === undefined &&
+      (this.sameIdle?.count ?? 0) >= SAME_DETERMINISTIC_LIMIT
+    )
       return 'repeated-failure'
-    }
     if (inOutage) return undefined
     if (this.chargedFailures >= limits.maxAttempts) return 'max-attempts'
     // Progress resets the barren counter: a driver that is doing real work between crashes
     // has earned another attempt, and the budget remains the bound on how many. Progress is
     // read run-wide, so an attempt that dies on arrival with the same error is bounded here.
-    if (progressed) return repeatedBy(sameFailure, failedAt) ? 'repeated-failure' : undefined
+    if (progressed) return undefined
     return this.consecutiveBarren + 1 >= limits.maxConsecutive ? 'no-progress' : undefined
   }
 
@@ -632,7 +597,7 @@ export class DriverRetryLoop {
     const { pending } = failure
     if (
       pending === undefined ||
-      this.samePending === undefined ||
+      this.sameIdle === undefined ||
       run.resolvePending === undefined ||
       !limits.retryEnabled ||
       run.signal.aborted ||
@@ -733,10 +698,8 @@ export class DriverRetryLoop {
     this.consecutiveBarren = 0
     this.consecutivePauses = 0
     this.outageSince = undefined
-    this.samePending = undefined
-    this.sameFailure = undefined
+    this.pendingTries = 0
     this.sameIdle = undefined
-    this.refusals = 0
     this.abandonments = 0
     const durationMs = this.limits.now() - startedAt
     let after = run.progress()

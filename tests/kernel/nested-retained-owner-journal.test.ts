@@ -57,6 +57,7 @@ const DOWN_REASONS: Partial<Record<string, readonly string[]>> = {
     "stopped by repeated-failure: refused by the model provider's content filter",
     CONTENT_FILTERED,
   ],
+  'content-filter-recovers': ['stopped by repeated-failure', CONTENT_FILTERED],
   'effort-refused': ['after 2 attempt(s) — stopped by repeated-failure', EFFORT_REFUSED],
 }
 // What the Sandbox answered managers s0 and s1 of magnetar-rust-sandbox-20261031g on every turn
@@ -142,6 +143,7 @@ describe('nested retained owner journal isolation', () => {
       { 'content-filtered': 8, 'content-filter-recovers': 7 }[mode as string] ??
       EFFORT_TURNS[mode]?.length ??
       1
+    const expectedSends = mode.startsWith('content-filter') ? 2 : sends
     const refusing = sends > 1
     const parentInterruption = mode.startsWith('parent-')
     it(`keeps backend evidence inside its owned tree (${mode})`, async () => {
@@ -225,7 +227,7 @@ describe('nested retained owner journal isolation', () => {
               ...(await exact()),
               // s1's refused turns metered no tokens.
               usage:
-                EFFORT_TURNS[mode] !== undefined && refusal
+                refusal !== undefined
                   ? { inputTokens: 0, outputTokens: 0 }
                   : { inputTokens: 3, outputTokens: 2 },
               // institutional-compiler-20261031c:s9's turn, as the Sandbox SDK settled it.
@@ -267,7 +269,12 @@ describe('nested retained owner journal isolation', () => {
           }
           if (mode === 'same-failure') {
             skew += 40_000
-            throw parseErrorResponse(502, JSON.stringify({ error: 'Bad Gateway' }))
+            throw Object.assign(
+              new Error('changing observation wrapper', {
+                cause: parseErrorResponse(502, JSON.stringify({ error: 'Bad Gateway' })),
+              }),
+              { code: `observation-${creates}` },
+            )
           }
           if (mode === 'capacity-waits' && creates < 3) throw shapeRefusal(HELD_ROOM)
           if (mode === 'capacity-503' && creates < 3) throw NO_HOSTS
@@ -439,30 +446,46 @@ describe('nested retained owner journal isolation', () => {
       // A refused route ends the drive before the harness is admitted.
       const admitted = mode !== 'preflight-refused'
       expect(nested.filter((event) => event.kind === 'execution-input')).toHaveLength(
-        admitted ? sends : 0,
+        admitted ? expectedSends : 0,
       )
       if (mode === 'unreconciled') {
-        // Each refused read pauses the manager, never abandoned, until the 13th answers.
-        const observed = { replayPosition: 'event-2' }
-        const paused = ['upstream_unavailable', 'http-429'].map((unavailableSignal) => ({
-          record: { classification: 'unavailable', unavailableSignal, observed },
-        }))
-        expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([
-          ...Array(6).fill(paused).flat(),
-          { record: { stop: 'completed', reentry: 'upstream-unavailable' } },
-        ])
+        const attempts = nested.filter((event) => event.kind === 'driver-attempt')
+        expect(attempts).toHaveLength(3)
+        expect(attempts.at(-1)).toMatchObject({
+          record: {
+            classification: 'unavailable',
+            stop: 'repeated-failure',
+            pendingCause: 'unobservable',
+            observed: { replayPosition: 'event-2' },
+          },
+        })
         expect(nested.some((event) => event.kind === 'execution-abandoned')).toBe(false)
-        // Each attempt records its last frame; each reconciliation resumes after it, reading none.
         expect(subscriptions).toEqual([
           { since: undefined, frames: 3 },
-          ...Array(12).fill({ since: 'event-2', frames: 0 }),
+          ...Array(2).fill({ since: 'event-2', frames: 0 }),
         ])
-        const settled = parent.find((e) => e.kind === 'settled' && e.id === spawn.id)
-        expect(settled).toMatchObject({ status: 'done' })
+        const floor = parent.find(
+          (event) =>
+            event.kind === 'reconciled' && event.id === spawn.id && event.settledSeq !== undefined,
+        )
+        expect(floor).toMatchObject({
+          retainedPendingCause: 'nested-recovery',
+          reason: expect.stringContaining('stopped by repeated-failure'),
+        })
+        expect(parent.some((event) => event.kind === 'settled' && event.id === spawn.id)).toBe(
+          false,
+        )
+        expect(rootSaw.flatMap(driverWakeEvents)).toContainEqual(
+          expect.objectContaining({
+            settled: spawn.id,
+            status: 'down',
+            reason: expect.stringContaining('stopped by repeated-failure'),
+          }),
+        )
         return expect(dispatches).toBe(1)
       }
       expect(nested.filter((event) => event.kind === 'execution-result')).toHaveLength(
-        retry || (mode in DOWN_REASONS && mode !== 'failed' && !refusing) ? 0 : sends,
+        retry || (mode in DOWN_REASONS && mode !== 'failed' && !refusing) ? 0 : expectedSends,
       )
       const downReasons = DOWN_REASONS[mode]
       if (downReasons !== undefined) {
@@ -481,8 +504,8 @@ describe('nested retained owner journal isolation', () => {
         for (const reason of downReasons)
           expect(down?.kind === 'settled' ? down.reason : '').toContain(reason)
         expect(down).not.toHaveProperty('retainedExecution')
-        // The capability refusal ends the first attempt; the same 502 ends the tenth, 6 min in.
-        expect(creates).toBe(mode === 'same-failure' ? 10 : admitted ? 1 : 0)
+        // Unchanged create failures stop before a fourth provision attempt.
+        expect(creates).toBe(mode === 'same-failure' ? 3 : admitted ? 1 : 0)
         // The lead is woken with the reason, so it can reword or re-scope the refused task.
         for (const reason of refusing ? downReasons : [])
           expect(rootSaw.flatMap(driverWakeEvents)).toContainEqual(

@@ -192,7 +192,7 @@ it.each(['duplicate', 'closed'] as const)(
     expect(failure).toBeInstanceOf(DriverAttemptsExhaustedError)
     expect(records).toHaveLength(2)
     expect(records.at(-1)).toMatchObject({
-      stop: 'no-progress',
+      stop: 'pending-unresolved',
       pendingCause: 'unobservable',
       classification: 'transient',
       failureKind: 'infra',

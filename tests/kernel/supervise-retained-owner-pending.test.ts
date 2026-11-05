@@ -781,24 +781,24 @@ describe('supervised root with a pending retained turn', () => {
     })
   })
 
-  it('waits out a credential capacity refusal before dispatch instead of ending the run', async () => {
-    // The second turn's dispatch is refused eight times: run d's root met 20 such refusals.
+  it('settles unchanged credential refusal without abandoning an undispatched input', async () => {
     const run = await superviseRoot({
       beforeDispatch: (call) => {
-        if (call >= 2 && call <= 9) throw credentialCapacityRefusal()
+        if (call >= 2) throw credentialCapacityRefusal()
       },
       submitOn: 2,
     })
-    expect(run.result.kind).toBe('winner')
+    expect(run.result.kind).toBe('no-winner')
     const refused = run.attempts.filter((attempt) => attempt.classification === 'unavailable')
-    expect(refused).toHaveLength(8)
-    expect(refused[0]).toMatchObject({ unavailableSignal: 'provider_quota_exhausted' })
-    expect(refused[0]?.error).toContain('refused before it ran; nothing to reconcile')
-    // The refused turn was never replaced: one input per turn, each with one result.
+    expect(refused).toHaveLength(3)
+    expect(refused.at(-1)).toMatchObject({
+      stop: 'repeated-failure',
+      pendingCause: 'request-rejected',
+    })
     expect(count(run.events, 'execution-input')).toBe(2)
-    expect(count(run.events, 'execution-result')).toBe(2)
+    expect(count(run.events, 'execution-result')).toBe(1)
     expect(count(run.events, 'execution-abandoned')).toBe(0)
-    expect(run.dispatched).toHaveLength(2)
+    expect(run.dispatched).toHaveLength(1)
   })
 
   it('stops on a dispatch that Sandbox did not admit instead of retrying it', async () => {
@@ -860,16 +860,16 @@ describe('supervised root with a pending retained turn', () => {
     })
     expect(run.result.kind).toBe('no-winner')
     const abandoned = run.events.filter((event) => event.kind === 'execution-abandoned')
-    // The default maxConsecutiveFailures bounds the abandonments in a row.
-    expect(abandoned).toHaveLength(3)
+    // A replacement does not erase the underlying unchanged failure streak.
+    expect(abandoned).toHaveLength(1)
     expect(run.attempts.at(-1)).toMatchObject({
       stop: 'pending-unresolved',
       pendingCause: 'unobservable',
       madeProgress: false,
     })
     expect(JSON.stringify(run.result)).toContain('stopped by pending-unresolved')
-    // One committed first turn, then four invocations: three abandoned, one left unresolved.
-    expect(count(run.events, 'execution-input')).toBe(5)
+    // One committed first turn, one abandoned invocation, then one left unresolved.
+    expect(count(run.events, 'execution-input')).toBe(3)
     expect(count(run.events, 'execution-result')).toBe(1)
   })
 })
