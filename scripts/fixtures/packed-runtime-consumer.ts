@@ -13,6 +13,7 @@
         createCommandProfileTrainer,
         createProfileImprovementHarness,
         improve,
+        isolatedCheckResultSchema,
         type ControlledTrainingCommand,
         type ImproveTrainingOptions,
         type ImproveTrainingResult,
@@ -35,13 +36,21 @@
       import {
         attachWorker,
         createRootHandle,
+        type IsolatedCheckOptions,
+        type IsolatedCheckOutputDeclaration,
+        type IsolatedCheckOutputEvidence,
+        type IsolatedCheckOutputFailure,
+        type IsolatedCheckOutputOptions,
+        type IsolatedCheckResult,
         type ObserveInput,
         type ObserveOptions,
         readWorkerSteerAcknowledgement,
+        runIsolatedCheck,
         type ToolLoopChat as KernelToolLoopChat,
         type WorkerInteractiveBinding,
         type WorkerSteerAcknowledgement,
         type WriteWorkerSteerOptions,
+        validateIsolatedCheckOutputs,
         writeWorkerSteer,
       } from '@tangle-network/agent-runtime/kernel'
       import {
@@ -96,6 +105,28 @@
       declare const executionInput: ExactProcessCandidateExperimentExecution
       declare const verification: VerifyCandidateExecutionEvidenceOptions
       declare const storedEvidence: unknown
+      declare const checkerArtifacts: IsolatedCheckOutputOptions['artifacts']
+      const checkerOutputDeclaration: IsolatedCheckOutputDeclaration = validateIsolatedCheckOutputs({
+        paths: ['report.bin'], maxFileBytes: 1024, maxTotalBytes: 2048,
+      })
+      const checkerOutputs: IsolatedCheckOutputOptions = {
+        ...checkerOutputDeclaration, executionId: 'packed-check', artifacts: checkerArtifacts,
+      }
+      const checkerOptions: IsolatedCheckOptions = {
+        workspaceRoot: '/workspace', tree: '/workspace/check', command: ['true'],
+        outputs: checkerOutputs,
+      }
+      const isolatedCheck: Promise<IsolatedCheckResult> = runIsolatedCheck(checkerOptions)
+      const decodedCheck: IsolatedCheckResult = isolatedCheckResultSchema.parse(storedEvidence)
+      const retainedOutputs: IsolatedCheckOutputEvidence | undefined = decodedCheck.outputs
+      const missingOutputReason: IsolatedCheckOutputFailure | undefined = retainedOutputs?.missing[0]?.reason
+      const retainedOutputDigest: Sha256Digest | undefined = retainedOutputs?.files[0]?.artifact.sha256
+      // @ts-expect-error Output byte budgets remain mandatory in the packed caller contract.
+      const missingOutputBudget: IsolatedCheckOutputOptions = { paths: ['report.bin'], executionId: 'packed-check', artifacts: checkerArtifacts }
+      void isolatedCheck
+      void missingOutputReason
+      void retainedOutputDigest
+      void missingOutputBudget
       declare const transitionInput: AgentImprovementActivationTransitionInput
       declare const profileTransition: ProfileImprovementActivationTransitionInput
       declare const profileStateDigest: AgentImprovementProfileStateDigest
