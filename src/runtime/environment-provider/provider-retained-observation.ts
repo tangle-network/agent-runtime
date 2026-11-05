@@ -367,7 +367,7 @@ export class RetainedObservation {
               `retained provider stream sent ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result; the rest were not read`,
             ),
           }
-          break
+          return true
         }
         if (this.observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0 && this.observedFrames) {
           // Ready iterators would otherwise starve result transport, cancellation and deadlines.
@@ -379,7 +379,7 @@ export class RetainedObservation {
         } catch (error) {
           if (this.signal.aborted) throw error
           this.failure = { error }
-          break
+          return false
         }
         if (observed.kind === 'quiet') {
           if (this.silenceHandledAt === undefined) yield this.awaitingResult(this.lastObservedAt)
@@ -392,10 +392,10 @@ export class RetainedObservation {
           this.failure ??= {
             error: streamFailure('retained provider stream remained open after its exact result'),
           }
-          break
+          return true
         }
         this.pendingRead = undefined
-        if (observed.value.done) break
+        if (observed.value.done) return this.sawTerminal
         if (this.acceptFrame(observed.value.value)) {
           yield observed.value.value
           // Consumer persistence is backpressure, not silence on the provider connection.
@@ -410,6 +410,5 @@ export class RetainedObservation {
         .then(() => iterator?.return?.())
         .catch(() => undefined)
     }
-    return this.sawTerminal || this.exactResultSettled
   }
 }
