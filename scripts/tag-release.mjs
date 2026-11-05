@@ -14,7 +14,7 @@ for (let i = 0; i < options.length; i += 2) {
   else gated = value
 }
 if (!/^\d+\.\d+\.\d+$/u.test(version ?? '')) {
-  console.error('usage: pnpm run release:tag <major.minor.patch> [--commit <full-sha>] [--gate <gated-sha>]')
+  console.error('usage: node scripts/tag-release.mjs <major.minor.patch> [--commit <full-sha>] [--gate <gated-sha>]')
   process.exit(2)
 }
 const tag = `v${version}`

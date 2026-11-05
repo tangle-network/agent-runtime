@@ -16,33 +16,12 @@ export class RunCancellationReason extends Error {
   }
 }
 
-/**
- * One abort race, and one abort cascade, for the supervision tree.
- *
- * Every layer that can be cancelled needs the same three things: the reason a signal
- * carries, an `AbortError` built from it, and a settle-once race between the work and
- * the signal. Written per layer, each drifts — a listener stops being removed on one
- * path, a late resolution overwrites a cancellation that already won, or a cascade
- * forwards no reason and renames every downstream death to the layer's own fallback.
- *
- * The fallback message is the only thing a layer supplies, so the error still names
- * which layer cancelled.
- */
-
-/**
- * The reason a signal carries, or `fallback` when it states none.
- *
- * A cascade that drops the upstream reason turns every downstream death into its own generic
- * message: the worker's `down` record then says nothing about WHY, which makes a whole class of
- * child mortality undiagnosable from the journal alone.
- */
+/** The signal's explicit reason, or the caller's fallback when none was supplied. */
 export function abortReason(signal: AbortSignal, fallback: string): unknown {
   const reason = signal.reason
   if (reason instanceof RunCancellationReason) return reason
   if (typeof reason === 'string' && reason.length > 0) return reason
-  // `abort()` with no argument sets a DOMException whose message is the platform placeholder
-  // ("This operation was aborted"), which carries no more information than the generic death it
-  // would replace — treat it as reasonless and use the fallback.
+  // A default AbortError carries no caller reason.
   if (reason instanceof Error && reason.name !== 'AbortError' && reason.message.length > 0) {
     return reason.message
   }
@@ -63,23 +42,14 @@ export function signalAbortError(signal: AbortSignal, fallback: string): Error {
   return error
 }
 
-/** A downstream abort linked to one or more upstream signals. */
 interface LinkedAbort {
-  /** Fires when any source fires, or when {@link LinkedAbort.abort} is called. */
   readonly signal: AbortSignal
-  /** Abort this link on its own (teardown, cancellation), carrying `reason`. */
   abort(reason?: unknown): void
   /** Stop listening to the sources. Idempotent; required where a source outlives the link. */
   release(): void
 }
 
-/**
- * Cascade N abort signals into one downstream abort that fires when ANY of them does, carrying
- * that signal's own reason ({@link abortReason}). Node-portable: `AbortSignal.any` needs >=20.3
- * and the package floor is >=20, and it would drop the reason anyway.
- *
- * The one cascade every executor uses, so a reason forwarded here reaches every layer below.
- */
+/** Cascade source aborts and preserve their reason; release removes the source listeners. */
 export function linkAbort(...sources: ReadonlyArray<AbortSignal>): LinkedAbort {
   const controller = new AbortController()
   const listeners: Array<{ source: AbortSignal; onAbort: () => void }> = []
@@ -104,19 +74,9 @@ export function linkAbort(...sources: ReadonlyArray<AbortSignal>): LinkedAbort {
   return { signal: controller.signal, abort, release }
 }
 
-/**
- * Settle `act()` against `signal`. The first outcome wins and the listener is always
- * removed, so neither a late resolution nor a late abort can settle the promise twice.
- * The losing promise stays observed, so a late rejection cannot surface as an unhandled
- * process error.
- *
- * The abort rejection is deferred one microtask so a result the action had ALREADY
- * produced still wins. It does not hand the race to a listener the action registers
- * from inside `act()`: this function subscribes before it calls `act()`, so its own
- * abort handler runs first and settles the promise. A caller that must let the action
- * observe the abort itself has to hold a live promise and await that instead.
- *
- * A synchronous throw from `act()` propagates as the rejection, not as an abort.
+/** Settle work against cancellation once, observing the losing promise.
+ * Defer abort one microtask so already-completed work wins. An action's own abort listener
+ * cannot win this race: this function subscribes before invoking it.
  */
 export async function runAbortable<T>(
   act: () => Promise<T>,

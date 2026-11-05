@@ -1,11 +1,9 @@
-import { readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
-import { Sandbox } from '@tangle-network/sandbox'
+import { execFile } from 'node:child_process'
+import { readFile, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import { afterAll, beforeAll, expect, it } from 'vitest'
-import { createExecutor, createFileRunContext, createSupervisor } from '../../src/runtime'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { createFileRunContext } from '../../src/runtime'
 import {
   type Executables,
   ProcessFixture,
@@ -32,60 +30,37 @@ it.each<Scenario>([
   'json-observation-long-success',
   'json-observation-long-failed',
 ])(
-  'preserves exact retained outcome through real SDK HTTP/native/File observation (%s)',
+  'preserves exact retained outcome and exits after real SDK HTTP/native/File observation (%s)',
   async (scenario) => {
     const fixture = await ProcessFixture.start(scenario, executables, { coordinator: false })
     let passed = false
     try {
       await fixture.control({ finish: true })
-      const provider = createTangleProvider({
-        client: new Sandbox({
-          apiKey: 'offline-not-a-secret',
-          baseUrl: fixture.url,
-          platformUrl: fixture.url,
-          trustLocalCliAuth: false,
-          directExec: false,
-        }),
-      })
       const context = createFileRunContext(join(fixture.directory, 'run'))
-      const profile = testAgentProfile('fetch-pr')
-      const executorFactory = createExecutor({ backend: 'provider', provider })
-      let delivered: unknown
-      await createSupervisor().run(
+      // A watchdog fails and reaps a leaking process; success requires its natural exit.
+      const exit = await promisify(execFile)(
+        process.execPath,
+        [
+          resolve('tests/integration/fixtures/provider-observation-process.mjs'),
+          fixture.directory,
+          fixture.url,
+        ],
         {
-          name: 'root',
-          async act(_task, scope) {
-            expect(
-              scope.spawn(
-                {
-                  name: 'fetch-pr',
-                  act: async () => {
-                    throw new Error('executor owns native execution')
-                  },
-                  executorSpec: { profile, harness: null, executorFactory },
-                },
-                'read local evidence',
-                {
-                  budget: { maxIterations: 1, maxTokens: 100 },
-                },
-              ).ok,
-            ).toBe(true)
-            delivered = await scope.next()
-            return 'observed'
-          },
+          timeout: 5000,
+          killSignal: 'SIGKILL',
+          env: { PATH: process.env.PATH, HOME: fixture.directory },
         },
-        null,
-        {
-          ...context,
-          runId: 'http-observation',
-          rootIdentity: {
-            profileDigest: canonicalCandidateDigest({ name: 'root' }),
-            taskDigest: canonicalCandidateDigest(null),
-          },
-          workerSlots: 1,
-          teardownConfirmMs: 0,
-          budget: { maxIterations: 2, maxTokens: 200, deadlineMs: 8000 },
-        },
+      ).then(
+        () => ({ code: 0 }),
+        (error: unknown) => ({
+          error: String(error),
+          signal: object(error).signal,
+          killed: object(error).killed,
+        }),
+      )
+      await writeFile(join(fixture.directory, 'observer-process-exit.json'), JSON.stringify(exit))
+      const { delivered, budget } = JSON.parse(
+        await readFile(join(fixture.directory, 'observed.json'), 'utf8'),
       )
       await fixture.wait('actual native process closed', async () =>
         (await fixture.state()).requests.some((row) => row.kind === 'json-worker-closed'),
@@ -94,6 +69,16 @@ it.each<Scenario>([
       const state = await fixture.state()
       expect(state.failures).toEqual([])
       expect(state.runs).toHaveLength(1)
+      expect(state.requests.filter((row) => row.kind === 'cancel')).toEqual([])
+      expect(budget).toMatchObject(
+        scenario === 'json-observation-429'
+          ? { tokensLeft: 200, reservedTokens: 0, committedTokens: 0, tokensKnown: false }
+          : { tokensLeft: 195, reservedTokens: 0, committedTokens: 5, tokensKnown: true },
+      )
+      expect(state.requests.filter((row) => row.kind === 'delete')).toHaveLength(
+        scenario === 'json-observation-429' ? 0 : 1,
+      )
+      expect(state.lost).toHaveLength(scenario === 'json-observation-429' ? 0 : 1)
       const run = state.runs[0]!
       const processes = readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))
       expect(processes).toHaveLength(1)
@@ -156,6 +141,7 @@ it.each<Scenario>([
       expect(() => process.kill(Number(processes[0]!.pid), 0)).toThrow(
         expect.objectContaining({ code: 'ESRCH' }),
       )
+      expect(exit).toEqual({ code: 0 })
       passed = true
     } finally {
       await fixture.close()

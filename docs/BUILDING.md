@@ -2,9 +2,7 @@
 
 # Building Guidelines
 
-This repo is a measurement substrate as much as a runtime. The build style is:
-prove the smallest real path, extend the existing primitive, and report what is
-measured versus inferred.
+Prove the smallest real path, extend the existing primitive, and distinguish measured results from inference.
 
 ## Default Loop
 
@@ -12,7 +10,6 @@ For every substantive step, state:
 
 - what is changing
 - why it matters to the north star
-- why the obvious alternatives are worse
 - how the claim was verified
 
 ## Rules
@@ -39,30 +36,23 @@ and the axis that must discriminate before optimizing anything.
    evidence ledger, or process doc when the work changes how future agents
    should operate.
 
-The development dependency keeps Miniflare on the latest stable 4.x release.
-Do not replace it with the registry's prerelease 5.x line until a stable release exists.
-
-The development compiler remains TypeScript 6.0.3 because TypeDoc 0.28.20 and
-the repository's compiler-AST test helpers require the JavaScript compiler API.
-TypeScript 7.0.2 removes that API, so `typescript-consumer` keeps an exact 7.0.2
-alias for packed-consumer compatibility checks without breaking local tooling.
+Read development-tool pins from `package.json`. Keep Miniflare on the declared stable line.
+TypeDoc and compiler-AST helpers need the development TypeScript compiler API;
+`typescript-consumer` selects the separate compiler for packed compatibility checks.
 
 Optimizer verification reads its Python requirement from [.python-version](../.python-version).
 Normal Beelink gates provision the complete precompiled interpreter through [mise.toml](../mise.toml);
 GitHub's Python setup reads the same version file. `PYTHON` remains an explicit local override.
 
-One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
-They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
-such as `--check` still reach the same maintained generator.
+One-shot fixture scripts use `node --import tsx` for TypeScript loading without the tsx CLI supervisor or IPC socket.
+Arguments such as `--check` still reach the maintained generator.
 Durable worker integration fixtures wait for actual executor entry after spawn
 commit before steering or checking attach reasons. A returned spawn handle is
 admission, and a child prestarted by a fixture does not prove Runtime execution.
 Held executions are released and joined during cleanup, including failed assertions.
 
-The parking process integration fixture compiles once with the existing
-`tsdown` builder into an isolated temporary directory. Their child deadlines then measure
-execution and exit rather than repeated source compilation; failures retain stage timing
-and process output in the fixture directory.
+The parking process fixture compiles once with `tsdown` into an owned temporary directory, so child deadlines measure execution and exit.
+Failures retain stage timing and process output there.
 
 ## Loop API Discipline
 
@@ -93,7 +83,7 @@ Through `gh-drew`, tagging admits only the frozen qualifier's exact `refs/tags/v
 after the immutable push, retaining every runner-group reference and restriction.
 The organization owner serializes policy writes: GitHub has no conditional PATCH.
 Observed policy drift fails; a pushed tag stays immutable if admission fails and its
-exact qualifier reference needs owner reconciliation. The helper needs no dependency
+exact qualifier reference needs owner reconciliation. Invoke `node scripts/tag-release.mjs` directly for metadata-only tagging, which needs no dependency
 install. Frozen qualifiers must match reviewed main or an enrolled immutable workflow SHA;
 mutable workflow references do not establish prior review for a diverged release line.
 
@@ -134,6 +124,4 @@ calls; live Braid handoff remains separate evidence.
 - `docs/research/*`: evidence, postmortems, open designs, and dated decisions.
 - the untracked `.evolve` run record and `memory/`: live state and measured results.
 
-If a rule is timeless and applies across agents, put it here and link to it from
-the bootloader. If it is an experiment result, put it in the evidence ledger, not
-the bootloader.
+Link stable rules here from the bootloader; put experiment results in the evidence ledger.
