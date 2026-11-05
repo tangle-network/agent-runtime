@@ -17,6 +17,12 @@ describe('createStdioToolServer — official client round trip', () => {
     })
 
     await client.connect(transport)
+    const wire: unknown[] = []
+    const receive = transport.onmessage
+    transport.onmessage = (message) => {
+      wire.push(message)
+      receive?.(message)
+    }
     try {
       const stringResult = await client.callTool({ name: 'string_result', arguments: {} })
       expect(stringResult.content).toEqual([{ type: 'text', text: 'plain string result' }])
@@ -25,6 +31,36 @@ describe('createStdioToolServer — official client round trip', () => {
       const objectResult = await client.callTool({ name: 'object_result', arguments: {} })
       expect(objectResult.content).toEqual([{ type: 'text', text: '{"answer":42}' }])
       expect(objectResult.structuredContent).toEqual({ answer: 42 })
+      for (const [kind, text] of [
+        ['null', 'null'],
+        ['array', '[1,"two"]'],
+        ['number', '42'],
+        ['boolean', 'true'],
+      ]) {
+        const result = await client.callTool({ name: 'json_result', arguments: { kind } })
+        expect(result.content).toEqual([{ type: 'text', text }])
+        expect(result).not.toHaveProperty('structuredContent')
+      }
+      for (const kind of ['undefined', 'bigint', 'circular']) {
+        await expect(
+          client.callTool({ name: 'json_result', arguments: { kind } }),
+        ).rejects.toMatchObject({ code: -32602 })
+      }
+      await expect(
+        client.callTool({ name: 'unknown_failure', arguments: {} }),
+      ).rejects.toMatchObject({
+        code: -32000,
+        data: { failure: { code: 'unknown', owner: 'unknown' } },
+      })
+      expect(wire.at(-1)).toMatchObject({
+        jsonrpc: '2.0',
+        error: {
+          code: -32000,
+          message: 'Ordinary tool failure',
+          data: { failure: { code: 'unknown', owner: 'unknown' } },
+        },
+      })
+      expect(JSON.stringify(wire)).not.toContain('private-error-credential-stdin-stderr-sentinel')
     } finally {
       await client.close()
     }
