@@ -269,7 +269,12 @@ describe('nested retained owner journal isolation', () => {
           }
           if (mode === 'same-failure') {
             skew += 40_000
-            throw parseErrorResponse(502, JSON.stringify({ error: 'Bad Gateway' }))
+            throw Object.assign(
+              new Error('changing observation wrapper', {
+                cause: parseErrorResponse(502, JSON.stringify({ error: 'Bad Gateway' })),
+              }),
+              { code: `observation-${creates}` },
+            )
           }
           if (mode === 'capacity-waits' && creates < 3) throw shapeRefusal(HELD_ROOM)
           if (mode === 'capacity-503' && creates < 3) throw NO_HOSTS

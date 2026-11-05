@@ -155,18 +155,14 @@ function extend(streak: Streak | undefined, error: unknown): Streak {
   let code =
     turnFailureOf(error)?.code ??
     chain.find((cause) => cause instanceof HarnessTurnFailedError)?.errorCode
-  if (code === undefined)
-    for (const cause of chain) {
-      try {
-        const value: unknown = Reflect.get(cause, 'code')
-        if (typeof value === 'string') {
-          code = value
-          break
-        }
-      } catch {
-        /* A foreign getter cannot prevent failure settlement. */
-      }
+  if (code === undefined) {
+    try {
+      const value: unknown = Reflect.get(root as object, 'code')
+      if (typeof value === 'string') code = value
+    } catch {
+      /* A foreign getter cannot prevent failure settlement. */
     }
+  }
   const text = (code ? errMessage(root).replace(` (${code})`, '') : errMessage(root))
     .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z?/gu, '<time>')
     .replace(/\b(?=[\da-f-]*\d)[\da-f]{8,}(?:-[\da-f]{4,})*\b/giu, '<id>')

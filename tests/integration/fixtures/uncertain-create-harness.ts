@@ -60,15 +60,16 @@ export class ProcessFixture {
     readonly directory: string,
     readonly scenario: Scenario,
     readonly executables: Executables,
+    private readonly holdCreateFailure?: true,
   ) {}
   static async start(
     scenario: Scenario,
     executables: Executables,
-    options: { directory?: string; coordinator?: false } = {},
+    options: { directory?: string; coordinator?: false; holdCreateFailure?: true } = {},
   ): Promise<ProcessFixture> {
     const directory =
       options.directory ?? (await mkdtemp(join(tmpdir(), 'uncertain-create-integration-')))
-    const fixture = new ProcessFixture(directory, scenario, executables)
+    const fixture = new ProcessFixture(directory, scenario, executables, options.holdCreateFailure)
     try {
       fixture.credentialMode(
         scenario === 'unsupported-intent',
@@ -167,6 +168,7 @@ export class ProcessFixture {
       scenario: this.scenario,
       url: this.url,
       resolver: this.executables.credential,
+      ...(this.holdCreateFailure ? { holdCreateFailure: true } : {}),
     }
     const configPath = join(this.directory, 'coordinator-config.json')
     writeAtomicDurableFile(configPath, JSON.stringify(config))
@@ -332,8 +334,9 @@ export async function withFixture(
   scenario: Scenario,
   executables: Executables,
   body: (fixture: ProcessFixture) => Promise<void>,
+  options: { holdCreateFailure?: true } = {},
 ): Promise<void> {
-  const fixture = await ProcessFixture.start(scenario, executables)
+  const fixture = await ProcessFixture.start(scenario, executables, options)
   const failures: unknown[] = []
   try {
     await body(fixture)

@@ -402,12 +402,14 @@ try {
               // Let the normal wake drain child completion first; then preserve its measured
               // disposition before global settlement can legitimately release retained cursors.
               if (
-                (config.scenario.startsWith('create-') && attempt.error === undefined) ||
+                (config.scenario.startsWith('create-') &&
+                  (attempt.error === undefined ||
+                    (config.holdCreateFailure && attempt.attempt === 2))) ||
                 measuredDisposition ||
                 (config.scenario.startsWith('dispatch-') && attempt.error !== undefined)
               ) {
                 await fetch(
-                  `${config.url}/fixture/hold-success?phase=${config.scenario.startsWith('dispatch-') ? 'dispatch-failure-recorded' : measuredDisposition ? 'nested-disposition-committed' : 'native-result-committed'}`,
+                  `${config.url}/fixture/hold-success?phase=${config.holdCreateFailure && attempt.error !== undefined ? 'create-failure-recorded' : config.scenario.startsWith('dispatch-') ? 'dispatch-failure-recorded' : measuredDisposition ? 'nested-disposition-committed' : 'native-result-committed'}`,
                   { signal: controller.signal },
                 )
               }

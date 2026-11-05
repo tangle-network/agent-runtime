@@ -221,106 +221,123 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
 
 describe('actual Tangle SDK uncertain root create identities', () => {
   it.each(['create-408', 'create-503'] as const)(
-    'UC1 %s retains key/digest/execution/input beyond two failures and SIGKILL/resume',
+    'UC1 %s preserves its unresolved identity across SIGKILL/resume before the retry ceiling',
+    async (scenario) => {
+      await withFixture(
+        scenario,
+        executables,
+        async (fixture) => {
+          await fixture.wait(
+            'two failed attempts are durable before the third can enter',
+            async () =>
+              (await fixture.state()).requests.some(
+                (row) =>
+                  row.kind === 'successful-attempt-observer-barrier' &&
+                  row.phase === 'create-failure-recorded',
+              ),
+          )
+          const identity = await assertOneIdentity(fixture)
+          const before = (await fixture.state()).requests.filter(
+            (row) => row.kind === 'create',
+          ).length
+          const servicePid = JSON.parse(
+            await readFile(join(fixture.directory, 'service-ready.json'), 'utf8'),
+          ).pid
+          const previousPid = fixture.coordinator!.pid
+          await fixture.killCoordinator()
+          await fixture.control({ finish: true })
+          await fixture.resume()
+          expect(fixture.coordinator!.pid).not.toBe(previousPid)
+          expect(
+            JSON.parse(await readFile(join(fixture.directory, 'service-ready.json'), 'utf8')).pid,
+          ).toBe(servicePid)
+          await fixture.wait(
+            'the recovered service receives the original create identity',
+            async () =>
+              (await fixture.state()).requests.filter((row) => row.kind === 'create').length >
+              before,
+          )
+          await assertOneIdentity(fixture, identity)
+          expect((await fixture.events()).some((event) => event.kind === 'root-reentered')).toBe(
+            true,
+          )
+          // The service writes this native reasoning frame and result/done in one SSE batch.
+          // Observe the real Runtime stream before allowing the independent exact-result reply.
+          await fixture.wait('native replay reached the root stream', async () => {
+            const run = (await fixture.state()).runs[0]
+            return (
+              run !== undefined &&
+              readRecords(join(fixture.directory, 'run', 'root-stream.jsonl')).some(
+                (row) =>
+                  object(row.event).kind === 'reasoning_delta' &&
+                  object(row.event).text === run.executionId,
+              )
+            )
+          })
+          await fixture.control({
+            nativeReplayObserved: (await fixture.state()).runs[0]!.executionId,
+          })
+          await fixture.wait('original provision resolves to its exact native result', async () => {
+            const state = await fixture.state()
+            return (
+              state.requests.some(
+                (row) =>
+                  row.kind === 'successful-attempt-observer-barrier' &&
+                  row.phase === 'native-result-committed',
+              ) &&
+              (await fixture.events()).some(
+                (event) => event.kind === 'execution-result' && event.id === rootId,
+              )
+            )
+          })
+          await assertOneIdentity(fixture, identity)
+          const state = await fixture.state()
+          expect(state.requests.filter((row) => row.kind === 'provision-admitted')).toHaveLength(1)
+          expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
+          const results = (await fixture.events()).flatMap((event) =>
+            event.kind === 'execution-result' && event.id === rootId ? [event] : [],
+          )
+          expect(results).toHaveLength(1)
+          const accepted = results[0]!
+          expect(accepted.spent.tokens).toMatchObject({
+            input: 3,
+            output: 2,
+            cacheBreakdownKnown: false,
+          })
+          await assertAcceptedNativeResult(fixture, accepted)
+          expect(
+            state.requests.filter((row) => row.kind === 'native-replay-consumed'),
+          ).toHaveLength(1)
+        },
+        { holdCreateFailure: true },
+      )
+    },
+    45000,
+  )
+
+  it.each(['create-408', 'create-503'] as const)(
+    'UC1 %s settles three unchanged failures without replacing unresolved work',
     async (scenario) => {
       await withFixture(scenario, executables, async (fixture) => {
-        await fixture.wait(
-          'at least six SDK requests and three failed Runtime root attempts',
-          async () =>
-            (await fixture.state()).requests.filter((row) => row.kind === 'create').length >= 6 &&
-            (await fixture.events()).filter(
-              (event) =>
-                event.kind === 'driver-attempt' &&
-                event.id === rootId &&
-                event.record.error !== undefined,
-            ).length >= 3,
+        await fixture.wait('bounded failure reaches the supervisor outcome', async () =>
+          fixture.outcomes().some((row) => row.kind === 'settled'),
         )
-        const identity = await assertOneIdentity(fixture)
-        const before = (await fixture.state()).requests.filter(
-          (row) => row.kind === 'create',
-        ).length
-        const servicePid = JSON.parse(
-          await readFile(join(fixture.directory, 'service-ready.json'), 'utf8'),
-        ).pid
-        const previousPid = fixture.coordinator!.pid
-        await fixture.killCoordinator()
-        const beforeAttempts = (await fixture.events()).filter(
-          (event) =>
-            event.kind === 'driver-attempt' &&
-            event.id === rootId &&
-            event.record.error !== undefined,
-        ).length
-        await fixture.resume()
-        expect(fixture.coordinator!.pid).not.toBe(previousPid)
-        expect(
-          JSON.parse(await readFile(join(fixture.directory, 'service-ready.json'), 'utf8')).pid,
-        ).toBe(servicePid)
-        await fixture.wait(
-          'same invocation actually retried in replacement process',
-          async () =>
-            (await fixture.state()).requests.filter((row) => row.kind === 'create').length >=
-              before + 4 &&
-            (await fixture.events()).filter(
-              (event) =>
-                event.kind === 'driver-attempt' &&
-                event.id === rootId &&
-                event.record.error !== undefined,
-            ).length >=
-              beforeAttempts + 3,
+        await assertOneIdentity(fixture)
+        const attempts = fixture.attempts().filter((row) => row.error !== undefined)
+        expect(attempts).toHaveLength(3)
+        expect(attempts.at(-1)?.stop).toBe(
+          scenario === 'create-408' ? 'pending-unresolved' : 'repeated-failure',
         )
-        await assertOneIdentity(fixture, identity)
-        expect((await fixture.events()).some((event) => event.kind === 'root-reentered')).toBe(true)
-        await fixture.control({ finish: true })
-        // The service writes this native reasoning frame and result/done in one SSE batch.
-        // Observe the real Runtime stream before allowing the independent exact-result reply.
-        await fixture.wait('native replay reached the root stream', async () => {
-          const run = (await fixture.state()).runs[0]
-          return (
-            run !== undefined &&
-            readRecords(join(fixture.directory, 'run', 'root-stream.jsonl')).some(
-              (row) =>
-                object(row.event).kind === 'reasoning_delta' &&
-                object(row.event).text === run.executionId,
-            )
-          )
+        const result = object(object(fixture.outcomes().at(-1)).result)
+        expect(object(result.result)).toMatchObject({
+          reason: 'driver-failed',
+          continuation: { attempts: 3 },
         })
-        await fixture.control({
-          nativeReplayObserved: (await fixture.state()).runs[0]!.executionId,
-        })
-        await fixture.wait('original provision resolves to its exact native result', async () => {
-          const state = await fixture.state()
-          return (
-            state.requests.some((row) => row.kind === 'successful-attempt-observer-barrier') &&
-            (await fixture.events()).some(
-              (event) => event.kind === 'execution-result' && event.id === rootId,
-            )
-          )
-        })
-        await assertOneIdentity(fixture, identity)
         const state = await fixture.state()
-        expect(state.provisions).toHaveLength(1)
-        expect(state.requests.filter((row) => row.kind === 'provision-admitted')).toHaveLength(1)
-        expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
+        expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(0)
         expect(
-          (await fixture.events()).filter(
-            (event) => event.kind === 'execution-result' && event.id === rootId,
-          ),
-        ).toEqual([
-          expect.objectContaining({
-            outRef: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-            spent: expect.objectContaining({
-              tokens: { input: 3, output: 2, cacheBreakdownKnown: false },
-            }),
-          }),
-        ])
-        const accepted = (await fixture.events()).find(
-          (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
-            event.kind === 'execution-result' && event.id === rootId,
-        )!
-        await assertAcceptedNativeResult(fixture, accepted)
-        expect(state.requests.filter((row) => row.kind === 'native-replay-consumed')).toHaveLength(
-          1,
-        )
+          (await fixture.events()).filter((event) => event.kind === 'execution-result'),
+        ).toHaveLength(0)
       })
     },
     45000,
@@ -410,17 +427,32 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         await fixture.wait('actual exact cancellation', async () =>
           (await fixture.state()).requests.some((row) => row.kind === 'cancel'),
         )
-        // This is an external-service barrier: inspect actual status polls, never fake elapsed time.
+        if (scenario === 'cancel-unknown') {
+          await fixture.wait(
+            'unchanged reconciliation settles with cancellation still unknown',
+            async () => fixture.outcomes().some((row) => row.kind === 'settled'),
+          )
+          const events = await fixture.events()
+          expect(inputs(events)).toHaveLength(1)
+          expect(intents(events)).toHaveLength(1)
+          expect(abandoned(events)).toHaveLength(0)
+          expect(fixture.attempts().at(-1)?.stop).toBe('pending-unresolved')
+          expect(fixture.attempts().filter((row) => row.error !== undefined)).toHaveLength(3)
+          expect(
+            (await fixture.state()).requests.filter((row) => row.kind === 'dispatch'),
+          ).toHaveLength(1)
+          return
+        }
         await fixture.wait(
-          'second unknown cancellation or asynchronous status observation',
+          'asynchronous cancellation remains unconfirmed until status changes',
           async () => {
             const requests = (await fixture.state()).requests
-            return scenario === 'cancel-unknown'
-              ? requests.filter((row) => row.kind === 'cancel').length >= 3
-              : requests
-                  .slice(requests.findIndex((row) => row.kind === 'cancel') + 1)
-                  .filter((row) => row.kind === 'session-status' && row.status === 'running')
-                  .length >= 2
+            return (
+              requests
+                .slice(requests.findIndex((row) => row.kind === 'cancel') + 1)
+                .filter((row) => row.kind === 'session-status' && row.status === 'running')
+                .length >= 2
+            )
           },
         )
         const held = await fixture.events()
@@ -429,8 +461,8 @@ describe('actual Tangle SDK uncertain root create identities', () => {
         expect(abandoned(held)).toHaveLength(0)
         const first = intents(held)[0]!
         await fixture.control({
-          cancelEffect: scenario === 'cancel-unknown' ? 'not_live' : 'cancelled',
-          ...(scenario === 'cancel-requested' ? { nativeStatus: 'cancelled' } : {}),
+          cancelEffect: 'cancelled',
+          nativeStatus: 'cancelled',
         })
         await fixture.wait(
           'confirmed terminal stop authorizes next invocation',
@@ -449,7 +481,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           expect.objectContaining({
             outcome: 'stopped',
             stop: expect.objectContaining({
-              effect: scenario === 'cancel-unknown' ? 'not_live' : 'cancelled',
+              effect: 'cancelled',
               executionId: first.executionId,
             }),
           }),
