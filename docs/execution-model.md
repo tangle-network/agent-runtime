@@ -162,7 +162,7 @@ Unsupported hosts return a refusal; the checker never executes the command direc
 
 Provide the trusted workspace root, the tree path, and an executable with its argument array.
 The checker copies the tree without following symbolic links and mounts that writable copy at the tree's canonical host path.
-Writes disappear after execution.
+Writes disappear after execution unless explicitly requested output retention fails and returns recovery custody.
 The namespace exposes trusted system toolchains, private process and device filesystems, and temporary storage.
 Workspace parents contain no host files; sibling trees and external symbolic-link targets remain inaccessible.
 The checker rejects toolchain mounts that overlap the workspace or tree, including canonical paths through symbolic links.
@@ -186,6 +186,52 @@ Run `bash scripts/verify-isolated-checker-linux.sh` for the real Linux boundary 
 The script copies source into disposable Docker containers and never mounts the host workspace.
 It tests successful isolation with namespace privileges and refusal without those privileges.
 
+### Retaining declared output files
+
+Pass `outputs` to retain exact evaluator files before the writable copy or check box is removed.
+The declaration contains `paths`, `maxFileBytes`, `maxTotalBytes`, and an optional `timeoutMs`.
+Add the check's `executionId` and an existing `AgentCandidateOutputArtifactPort` as `artifacts`.
+Use `validateIsolatedCheckOutputs` from the same kernel entrypoint when validating authored declarations.
+Paths name between one and 16 distinct portable relative files, without globs, directory trees, links, or protected `.git`/`.sidecar` entries.
+The total byte cap is at most 64 MiB; the per-file cap must fit inside it.
+The declaration author must approve these files for disclosure. Hidden judge inputs, credentials, private prompts, and unrestricted logs do not belong in this list.
+Runtime treats retained bytes as opaque and does not infer a benchmark verdict or redact file content.
+
+Requested paths must not overlap input files. This prevents an old input report from being accepted as newly produced evidence.
+For local checks with outputs, the private input copy must also satisfy the existing regular-file workspace-manifest contract; preserved symbolic links are refused before execution.
+The local copier already rejects special files and detaches source hard links into independent copied files.
+The checker binds output evidence to the canonical digest of the exact input copy before the command starts.
+Box checks use the same `box.inputDigest` already recorded on complete input delivery.
+This digest identifies the delivered tree; callers still record their candidate revision and checker identity with the result.
+
+Capture follows observed command termination, including a nonzero exit, timeout, or cancellation whose bounded process kill and wait succeeded.
+An unconfirmed launch or termination skips capture and enters the whole-box recovery path below.
+It has its own bounded deadline (30 seconds by default, at most 120 seconds) so cancellation does not discard files the check already wrote.
+Each file is persisted with purpose `grader-evidence`, and the existing artifact helper verifies the returned digest, byte count, and stored bytes before accepting its reference.
+`outputs.files` contains only verified references. `outputs.missing` reports bounded reason codes for every other declared path.
+`outputs.status: 'retained'` means every requested file passed this procedure; it does not claim stronger durability than the caller's chosen artifact port.
+Files are verified individually, not as an atomic snapshot of the output tree. A process exit receipt alone does not prove all detached descendants stopped; checks must finish their writers before returning.
+A local private CAS still needs its existing configured durable store to survive loss of the host.
+
+If any output cannot be retained, `outputs.status` is `incomplete` and cleanup preserves the source for explicit recovery.
+A local `outputs.source` gives the private Runtime scratch path, outside the original input tree. The caller owns recovery and removal; there is no automatic retry, background keeper, or expiry timer.
+The existing resource-limited placement requirement still applies to all generated files and retained scratch. The capture byte limit does not impose a writable-disk quota.
+A box source gives its sandbox id and `state: 'stopped'` only after the existing native `stop({ wait: true })` operation confirms the whole sandbox stopped. This also stops detached descendants and capture processes still in flight.
+This recovery stop has a separate 30-second deadline. If stopped state cannot be confirmed, the checker attempts its normal deletion and returns incomplete retention without a recovery source.
+A command transport failure with unknown settlement skips live file capture and takes this same whole-box recovery path.
+The caller owns recovery and eventual deletion of a stopped box. Runtime does not resume it, run a keeper, or extend its lifetime.
+The Sandbox `maxLifetimeSeconds` setting is a native lifecycle policy, not a guaranteed deletion deadline; suspend and cold-recovery behavior depend on the native driver.
+Recovery coordinates are private operational data and must be omitted from public result projections.
+When the command succeeded but retention failed, the result is `succeeded: false`, `reason: 'failed'`, and `exitCode: 0`, with `outputs.status: 'incomplete'`. This is an evidence failure, not a negative scientific verdict.
+An existing command failure keeps its original reason and exit evidence.
+Without `outputs`, the original cleanup behavior is unchanged. A confirmed setup refusal also cleans up normally because no check ran.
+
+Box output capture requires `/usr/bin/python3` with its standard library in the selected environment.
+The fixed capture program uses isolated Python startup, directory file descriptors, no-follow opens, regular-file and link checks, bounded reads, and a post-read stability check.
+Caller paths are separate arguments and never enter shell source. Missing capture tooling produces explicit incomplete retention.
+The local filesystem/CAS tests and direct Python capture tests exercise these byte and path boundaries without claiming Sandbox transport or namespace isolation.
+The Linux integration script additionally covers real isolated success, failed commands, timeouts, and source custody on a real filesystem store failure.
+
 ### A check in its own box
 
 Pass `box` to run the check in a fresh Sandbox box instead of Bubblewrap on the calling host.
@@ -208,11 +254,12 @@ The box is created with `createIsolated`, blocked egress, and a new idempotency 
 The checker refuses a box unless its create receipt reports a new box, isolated owner context, and no injected secrets.
 Each file is uploaded with its mode, and the digest that the box computes on receipt must match the recorded digest.
 The command runs in `tree/` under the box workspace, with only `PATH`, `HOME`, and `LANG` set.
-The box is deleted after the command; its lifetime bound removes it if the calling process dies.
+The box is deleted after the command and successful requested retention. Incomplete retention preserves it only after a confirmed whole-box stop, as described above.
+The requested lifetime includes setup headroom, but crash recovery and native lifecycle policy remain the placement owner's responsibility; Runtime does not add an automatic deletion service.
 
 The result has the same shape as a Bubblewrap check.
 A zero exit returns `succeeded: true`; a nonzero exit or signal returns `reason: 'failed'`.
-Both mean the check executed and returned a verdict.
+Both normally mean the check executed and returned a verdict; incomplete requested output retention must be treated as unassessed, as described above.
 Every other reason means the check produced no verdict, so the artifact is unassessed.
 A box that could not start the executable returns `refused`, not `failed`.
 Once the box received its complete input, the result carries `box`: the box id, the check's account, the delivered manifest, and its canonical digest.

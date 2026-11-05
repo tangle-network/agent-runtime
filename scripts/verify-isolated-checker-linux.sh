@@ -14,6 +14,8 @@ mkdir -p "$proof_context/tests/runtime"
 rolldown_cli=$(cd "$repo_root" && node -e 'const p=require("node:path");console.log(p.join(p.dirname(require.resolve("rolldown",{paths:[require.resolve("tsdown")]})),"..","bin/cli.mjs"))')
 (cd "$repo_root" && node "$rolldown_cli" src/runtime/isolated-checker.ts --format esm --platform node \
   --file "$proof_context/tests/runtime/isolated-checker.mjs" >/dev/null)
+(cd "$repo_root" && node "$rolldown_cli" src/runtime/private-cas.ts --format esm --platform node \
+  --file "$proof_context/tests/runtime/private-cas.mjs" >/dev/null)
 cp "$repo_root/tests/runtime/isolated-checker.linux.mjs" "$proof_context/tests/runtime/"
 cat > "$proof_context/Dockerfile" <<'DOCKERFILE'
 FROM node:24-bookworm

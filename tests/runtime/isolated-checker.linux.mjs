@@ -227,6 +227,71 @@ try {
     command: ['/bin/true'],
   })
   assert.equal(overlap.reason, 'refused')
+  const { createPrivateCasArtifactPort } = await import('./private-cas.mjs')
+  const outputTree = `${workspace}/output-tree`
+  await mkdir(outputTree)
+  await writeFile(`${outputTree}/input.txt`, 'immutable fixture input')
+  const artifacts = createPrivateCasArtifactPort(`${workspace}/output-cas`, 'isolated-check-proof')
+  const outputOptions = {
+    paths: ['report.txt'],
+    maxFileBytes: 1024,
+    maxTotalBytes: 1024,
+    executionId: 'isolated-check-proof',
+    artifacts,
+  }
+  const runOutput = (script, extra = {}) =>
+    runIsolatedCheck({
+      workspaceRoot: workspace,
+      tree: outputTree,
+      command: ['/bin/sh', '-c', script],
+      outputs: outputOptions,
+      ...extra,
+    })
+  const success = await runOutput('printf "native output fixture" > report.txt')
+  assert.equal(success.succeeded, true, JSON.stringify(success))
+  const failed = await runOutput('printf "native output fixture" > report.txt; exit 7')
+  assert.equal(failed.reason, 'failed', JSON.stringify(failed))
+  assert.equal(failed.exitCode, 7)
+  const timedOut = await runOutput('printf "native output fixture" > report.txt; sleep 30', {
+    timeoutMs: 1000,
+  })
+  assert.equal(timedOut.reason, 'timeout', JSON.stringify(timedOut))
+  for (const result of [success, failed, timedOut]) {
+    assert.equal(result.outputs.status, 'retained', JSON.stringify(result))
+    assert.equal(result.outputs.inputDigest, success.outputs.inputDigest)
+    assert.deepEqual(result.outputs.missing, [])
+    assert.equal(result.outputs.source, undefined)
+    assert.equal(
+      Buffer.from(await artifacts.read(result.outputs.files[0].artifact)).toString(),
+      'native output fixture',
+    )
+  }
+  await assert.rejects(readFile(`${outputTree}/report.txt`), { code: 'ENOENT' })
+  await writeFile(`${workspace}/blocked-cas`, 'not a directory')
+  const held = await runOutput('printf "recoverable output fixture" > report.txt', {
+    outputs: {
+      ...outputOptions,
+      artifacts: createPrivateCasArtifactPort(`${workspace}/blocked-cas`, 'isolated-check-proof'),
+    },
+  })
+  assert.equal(held.succeeded, false, JSON.stringify(held))
+  assert.equal(held.reason, 'failed')
+  assert.equal(held.exitCode, 0)
+  assert.equal(held.outputs.status, 'incomplete')
+  assert.deepEqual(held.outputs.missing, [{ path: 'report.txt', reason: 'store-failed' }])
+  assert.equal(held.outputs.source.kind, 'local')
+  try {
+    assert.equal(
+      await readFile(`${held.outputs.source.path}/tree/report.txt`, 'utf8'),
+      'recoverable output fixture',
+    )
+  } finally {
+    await rm(held.outputs.source.path, { recursive: true, force: true })
+  }
+  assert.equal(await readFile(`${outputTree}/input.txt`, 'utf8'), 'immutable fixture input')
+  console.log(
+    'PASS: isolated output success/failure/timeout → verified private CAS; store failure → recoverable source; exact input binding; original input unchanged',
+  )
   console.log(
     'PASS: parent absent, external symlink dangling, writes discarded, literal path, environment cleared, timeout, output limit, input limits, compressed expansion inside capped container, cancellation, ancestor bind refusal, PID/network isolation, parent-death termination, deep cleanup, symlink-safe cleanup, trusted execution classification, stdout failure evidence',
   )
