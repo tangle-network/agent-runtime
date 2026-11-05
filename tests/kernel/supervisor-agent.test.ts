@@ -1006,7 +1006,8 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         },
         deliverable: {
           check: () => {
-            if (!up) throw new CheckUnavailableError('check box did not start')
+            const cause = { failure: { kind: 'caller', code: 'opaque-check-failure' } }
+            if (!up) throw new CheckUnavailableError('check box did not start', { cause })
             return true
           },
         },
@@ -1020,7 +1021,6 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
       classification: 'unavailable',
       unavailableSignal: 'check-unavailable',
     })
-    // A pause re-enters with the objective, never with a verdict the check did not give.
     expect(tasks[1]).not.toContain('The outside check failed')
     expect(tasks[1]).toContain('solve it')
   })

@@ -1,5 +1,8 @@
 import type { TokenUsage } from '@tangle-network/agent-interface'
-import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
+import type {
+  AgentEnvironmentEvent,
+  AgentTurnFailure,
+} from '@tangle-network/agent-interface/environment-provider'
 import {
   collectAgentFinalMessageText,
   collectAgentResponseText,
@@ -9,6 +12,7 @@ import {
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { recordValue } from '../../record-value'
 import { isSandboxTerminalEvent, sandboxTerminalUsageField } from '../sandbox-events'
+import { turnFailureOf } from '../supervise/executor-outcome'
 import type { ExecutorResult } from '../supervise/types'
 import type { ProviderLeafOut } from './provider-executor-admission'
 import { ValidationError } from './provider-validation-error'
@@ -98,6 +102,8 @@ function providerFailureEvent(
   const errorCode = failureCode(sandboxEvent.data) ?? failureCode(outcome) ?? failureCode(result)
   const statusCode =
     failureStatusCode(sandboxEvent.data) ?? failureStatusCode(outcome) ?? failureStatusCode(result)
+  const failure =
+    turnFailureOf(sandboxEvent.data) ?? turnFailureOf(outcome) ?? turnFailureOf(result)
   return {
     type: 'result',
     data: {
@@ -105,6 +111,7 @@ function providerFailureEvent(
       ...(detail ? { error: detail } : {}),
       ...(errorCode ? { errorCode } : {}),
       ...(statusCode === undefined ? {} : { statusCode }),
+      ...(failure === undefined ? {} : { failure }),
     },
   }
 }
@@ -137,29 +144,10 @@ function providerTerminalSuccess(
   )
 }
 
-/**
- * Holds a stream's failure frames until it ends, so the terminal frame decides the outcome.
- *
- * The sandbox outcome tracker latches the first `error` frame as the run's error and settles
- * `failed` on it whatever the terminal frame says; and until this ledger existed the runtime
- * only ever showed the tracker its failure frames, so a terminal `success: true` was never in
- * evidence at all. A transport error that the harness recovered from — a stream break the
- * sidecar re-attached, a tool backend that failed once — therefore settled the whole child
- * `down` with the transient error as its reason, and the artifact the child had banked was
- * discarded. On the 2026-09-20 fleet corpus, 25 children that finished their work settled that
- * way.
- *
- * The rule: `error` frames are forgiven when the stream reports success and carries no verdict;
- * a failed status or a failed terminal frame is the provider's own verdict on the run, and once
- * one exists every failure frame is evidence again, in order, so the tracker names the first
- * `error` as it always did. The existing contracts hold unchanged: `status: failed` then
- * `done: {}` is failed, and the retained Claude tail `completed → failed → error → done` is
- * failed with the error frame's message. The forgiven frames stay in the event archive the trace
- * reads; only the outcome stops claiming them.
- */
+/** Terminal success forgives recovered error frames; explicit failed verdicts retain their evidence. */
 export function createProviderFailureLedger(): {
   observe(event: AgentEnvironmentEvent, sandboxEvent: SandboxEvent): void
-  finish(): AgentRunOutcome | undefined
+  finish(): (AgentRunOutcome & { failure?: AgentTurnFailure }) | undefined
 } {
   const failures: SandboxEvent[] = []
   let verdicts = 0
@@ -178,7 +166,15 @@ export function createProviderFailureLedger(): {
       if (failures.length === 0 || (verdicts === 0 && succeeded)) return undefined
       const tracker = createAgentRunOutcomeTracker()
       for (const frame of failures) tracker.observe(frame)
-      return tracker.finish()
+      const outcome = tracker.finish()
+      const failure = failures
+        .slice()
+        .reverse()
+        .map((frame) => turnFailureOf(frame.data))
+        .find((value) => value !== undefined)
+      return outcome === undefined
+        ? undefined
+        : { ...outcome, ...(failure === undefined ? {} : { failure }) }
     },
   }
 }

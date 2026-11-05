@@ -1236,7 +1236,7 @@ One flattened node with the journal tree that owns its records.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
 
@@ -2375,7 +2375,7 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`.
 
@@ -8520,7 +8520,7 @@ readonly `AnalystFinding`[]
 
 ###### budget
 
-`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensCapped?`: `boolean`; `committedTokens?`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `iterationsCapped?`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -15944,6 +15944,13 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 > `readonly` **id**: `number`
 
+##### limits?
+
+> `readonly` `optional` **limits?**: `Pick`\<[`Budget`](#budget-10), `"maxIterations"` \| `"maxTokens"`\>
+
+Child ceilings, including caps enforced without a corresponding root reservation.
+Absent on historical tickets, whose reserved amounts remain their ceilings.
+
 ##### reserved
 
 > `readonly` **reserved**: `object`
@@ -17179,17 +17186,17 @@ Select sufficiently fine units, such as GPU-milliseconds.
 
 ### Budget
 
-A budget envelope on a spawn or the root. All ceilings; the pool reserves against them.
+Explicit ceilings on a spawn or root. An omitted channel is uncapped and reserves nothing.
 
 #### Properties
 
-##### maxIterations
+##### maxIterations?
 
-> `readonly` **maxIterations**: `number`
+> `readonly` `optional` **maxIterations?**: `number`
 
-##### maxTokens
+##### maxTokens?
 
-> `readonly` **maxTokens**: `number`
+> `readonly` `optional` **maxTokens?**: `number`
 
 ##### maxUsd?
 
@@ -17558,7 +17565,7 @@ Local ownership does not provide distributed fencing.
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensCapped?`: `boolean`; `committedTokens?`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `iterationsCapped?`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Conserved-pool readouts (post-reservation).
 
@@ -18058,7 +18065,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### budget
 
-`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensCapped?`: `boolean`; `committedTokens?`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `iterationsCapped?`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -18895,7 +18902,7 @@ Host-projected application JSON; its keys are never native trace or capture auth
 
 ##### outcome?
 
-> `optional` **outcome?**: `Pick`\<`AgentTurnResult`, `"error"` \| `"success"`\> & `object`
+> `optional` **outcome?**: `Pick`\<`AgentTurnResult`, `"error"` \| `"success"` \| `"failure"`\> & `object`
 
 Explicit execution outcome; application output and scoring verdicts do not determine failure.
  `errorCode` is the provider's machine code for a failure when it reported one. A retry policy
@@ -19315,7 +19322,7 @@ Agents in this child's own subtree, itself excluded.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
 
@@ -20277,7 +20284,7 @@ its fields.
 
 ##### failure?
 
-> `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Structural failure evidence captured before the rejection becomes message text.
 
@@ -21789,7 +21796,7 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensCapped?`: `boolean`; `committedTokens?`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `iterationsCapped?`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ***
 
@@ -23132,53 +23139,6 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`onDriverAttempt`](#ondriverattempt-1)
-
-##### workerRetry?
-
-> `readonly` `optional` **workerRetry?**: [`WorkerSpawnRetryPolicy`](#workerspawnretrypolicy)
-
-How a BACKEND-DERIVED WORKER whose spawn was refused before it ran is re-entered, instead of
-settling dead with a slot free seconds later.
-
-`driverRetry` guards the root only. A worker that dies is typed into a `down` settlement,
-which is the right shape when the worker RAN — and the wrong shape for
-`host-executor: acquire timeout after 60000ms (in_flight=4/4, queued=1)`, a queue refusal the
-bridge emits before any harness child exists. Measured 2026-08-22 on discovery-lab cells
-oscnp s2/s3: ten live agents on one bridge that admits four, and every worker refused at the
-60 s acquire deadline was lost for the whole run.
-
-Fail-closed on two proofs that the attempt did no work: the error carries a pre-spawn
-signature, AND the attempt yielded no execution event. An attempt that streamed anything may
-have metered usage, so a blind re-run would double-spend and stays fatal.
-
-Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
-a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-[runtime.withWorkerSpawnRetry](#withworkerspawnretry) itself.
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`workerRetry`](#workerretry-1)
-
-##### onWorkerRetry?
-
-> `readonly` `optional` **onWorkerRetry?**: (`attempt`) => `void`
-
-Per-re-entry record for every retried worker spawn — what makes a saturated executor visible
- as waiting rather than as a worker that silently took longer.
-
-###### Parameters
-
-###### attempt
-
-[`WorkerSpawnRetryAttempt`](#workerspawnretryattempt)
-
-###### Returns
-
-`void`
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`onWorkerRetry`](#onworkerretry-1)
 
 ##### continuation?
 
@@ -25567,7 +25527,7 @@ Minimal agent identity and topology returned by the protected reader.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"platform"` \| `"runtime"` \| `"work"` \| `"caller"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"` \| `"runtime"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ***
 
@@ -28504,45 +28464,6 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 
 `void` \| `Promise`\<`void`\>
 
-##### workerRetry?
-
-> `readonly` `optional` **workerRetry?**: [`WorkerSpawnRetryPolicy`](#workerspawnretrypolicy)
-
-How a BACKEND-DERIVED WORKER whose spawn was refused before it ran is re-entered, instead of
-settling dead with a slot free seconds later.
-
-`driverRetry` guards the root only. A worker that dies is typed into a `down` settlement,
-which is the right shape when the worker RAN — and the wrong shape for
-`host-executor: acquire timeout after 60000ms (in_flight=4/4, queued=1)`, a queue refusal the
-bridge emits before any harness child exists. Measured 2026-08-22 on discovery-lab cells
-oscnp s2/s3: ten live agents on one bridge that admits four, and every worker refused at the
-60 s acquire deadline was lost for the whole run.
-
-Fail-closed on two proofs that the attempt did no work: the error carries a pre-spawn
-signature, AND the attempt yielded no execution event. An attempt that streamed anything may
-have metered usage, so a blind re-run would double-spend and stays fatal.
-
-Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
-a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-[runtime.withWorkerSpawnRetry](#withworkerspawnretry) itself.
-
-##### onWorkerRetry?
-
-> `readonly` `optional` **onWorkerRetry?**: (`attempt`) => `void`
-
-Per-re-entry record for every retried worker spawn — what makes a saturated executor visible
- as waiting rather than as a worker that silently took longer.
-
-###### Parameters
-
-###### attempt
-
-[`WorkerSpawnRetryAttempt`](#workerspawnretryattempt)
-
-###### Returns
-
-`void`
-
 ##### continuation?
 
 > `readonly` `optional` **continuation?**: [`ContinuationPolicy`](#continuationpolicy)
@@ -29711,6 +29632,14 @@ Call once per model event the harness streams: text, reasoning, or a tool call o
 
 `Promise`\<`void`\>
 
+#### Properties
+
+##### seatChain?
+
+> `readonly` `optional` **seatChain?**: `true`
+
+This harness owns the maintained seat chain's rotation and reset wait.
+
 #### Methods
 
 ##### deliver()?
@@ -30748,155 +30677,6 @@ Options for reconstructing one worker's exact retained interactive process.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
-
-***
-
-### WorkerSpawnRetryAttempt
-
-One re-entry, reported before it waits.
-
-#### Properties
-
-##### attempt
-
-> `readonly` **attempt**: `number`
-
-1-based: the attempt that just failed.
-
-##### waitMs
-
-> `readonly` **waitMs**: `number`
-
-How long this seam waits before re-entering `execute`.
-
-##### worker?
-
-> `readonly` `optional` **worker?**: `string`
-
-The refused profile's name, when it declares one.
-
-##### error
-
-> `readonly` **error**: `string`
-
-***
-
-### WorkerSpawnRetryPolicy
-
-How hard a pre-spawn worker refusal is re-entered. Absent from `supervise` means NO retry — the
-historical behaviour, and the conservative default: a worker failure already has a typed
-settlement the driver can respond to, so adding silent latency to every run is not the runtime's
-call to make.
-
-#### Properties
-
-##### enabled?
-
-> `readonly` `optional` **enabled?**: `boolean`
-
-`false` disables the seam while leaving the option in a recorded run configuration.
-
-##### maxTotalMs?
-
-> `readonly` `optional` **maxTotalMs?**: `number`
-
-Total wall-clock ms this seam may spend waiting for a slot, backoff included. Default 900000
- — the span measured between saturation and the next free slot on a four-way host executor.
-
-##### initialBackoffMs?
-
-> `readonly` `optional` **initialBackoffMs?**: `number`
-
-Wait before the first re-entry, doubling per attempt. Default 5000.
-
-##### maxBackoffMs?
-
-> `readonly` `optional` **maxBackoffMs?**: `number`
-
-Ceiling on the doubling. Default 60000.
-
-##### additionalPreSpawnSignatures?
-
-> `readonly` `optional` **additionalPreSpawnSignatures?**: readonly `RegExp`[]
-
-Extra PRE-SPAWN signatures a consumer's own admission layer emits, added to the built-in set.
-
-This widens which messages qualify, and it can only be used safely for a refusal the consumer
-knows is emitted before any provider call. The second proof — that the attempt yielded no
-execution event — still applies to every added signature, so a mistake here cannot cause a
-double-spend on a stream that had already started.
-
-***
-
-### WorkerSpawnRetryHooks
-
-#### Properties
-
-##### onRetry?
-
-> `readonly` `optional` **onRetry?**: (`attempt`) => `void`
-
-###### Parameters
-
-###### attempt
-
-[`WorkerSpawnRetryAttempt`](#workerspawnretryattempt)
-
-###### Returns
-
-`void`
-
-##### now?
-
-> `readonly` `optional` **now?**: () => `number`
-
-###### Returns
-
-`number`
-
-##### sleep?
-
-> `readonly` `optional` **sleep?**: (`ms`, `signal?`) => `Promise`\<`void`\>
-
-###### Parameters
-
-###### ms
-
-`number`
-
-###### signal?
-
-`AbortSignal`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### ResolvedWorkerSpawnRetry
-
-A policy with every bound decided — what [retryPreSpawnRefusals](#retryprespawnrefusals) acts on. Produced by
- [resolveWorkerSpawnRetry](#resolveworkerspawnretry), never written by hand, so one reading of the defaults serves
- the `supervise` option and a caller-owned seam alike.
-
-#### Properties
-
-##### maxTotalMs
-
-> `readonly` **maxTotalMs**: `number`
-
-##### initialBackoffMs
-
-> `readonly` **initialBackoffMs**: `number`
-
-##### maxBackoffMs
-
-> `readonly` **maxBackoffMs**: `number`
-
-##### signatures
-
-> `readonly` **signatures**: readonly `RegExp`[]
 
 ***
 
@@ -31946,7 +31726,7 @@ Why this candidate was (or was not) selected, when the selector states it.
 
 ##### selector
 
-> **selector**: `"driver"` \| `"default"` \| `"caller"`
+> **selector**: `"driver"` \| `"caller"` \| `"default"`
 
 Identity of the selector that produced this receipt — `'caller'` (an
  explicit `selectWinner`), `'driver'` (a driver-authored winner), or
@@ -34857,7 +34637,7 @@ Where in the spawn lifecycle a reservation was last seen. `admitted` is the wind
 
 ### BudgetReadout
 
-> **BudgetReadout** = `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> **BudgetReadout** = `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensCapped?`: `boolean`; `committedTokens?`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `iterationsCapped?`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `deadlineMs` is the ABSOLUTE
  wall-clock deadline (0 when none). `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion
@@ -39537,7 +39317,7 @@ The same data grammar as routes; no executable expressions or additional operato
 
 ### graphFileSchema
 
-> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; \}, `$strict`\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodNumber`; `maxTokens`: `ZodNumber`; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
+> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; \}, `$strict`\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
 
 Authoring envelope. Canonical profiles and topology are validated by their existing owners.
 
@@ -46132,118 +45912,6 @@ Unknown, headless, unsupported, settled, stale, and unregistered-provider cases 
 
 ***
 
-### isPreSpawnExecutorFailure()
-
-> **isPreSpawnExecutorFailure**(`error`, `additionalSignatures?`): `boolean`
-
-True when `error` is a backend refusal issued before anything ran.
-
-This answers "did this fail BEFORE any provider call", which is a strictly narrower question
-than "is this an infrastructure hiccup". The broader question admits `ECONNRESET` and a bare
-`fetch failed`, both of which can arrive after a metered call, and answering the broad question
-where the narrow one is required is what makes a retry double-spend.
-
-#### Parameters
-
-##### error
-
-`unknown`
-
-##### additionalSignatures?
-
-readonly `RegExp`[] = `[]`
-
-#### Returns
-
-`boolean`
-
-***
-
-### resolveWorkerSpawnRetry()
-
-> **resolveWorkerSpawnRetry**(`policy`): [`ResolvedWorkerSpawnRetry`](#resolvedworkerspawnretry) \| `undefined`
-
-Read the policy, refusing a number a run cannot act on rather than silently clamping it.
-
-#### Parameters
-
-##### policy
-
-[`WorkerSpawnRetryPolicy`](#workerspawnretrypolicy) \| `undefined`
-
-#### Returns
-
-[`ResolvedWorkerSpawnRetry`](#resolvedworkerspawnretry) \| `undefined`
-
-***
-
-### withWorkerSpawnRetry()
-
-> **withWorkerSpawnRetry**(`make`, `policy`, `hooks?`): [`MakeWorkerAgent`](#makeworkeragent)
-
-Wrap a worker seam so a leaf whose spawn is refused before it runs is re-entered instead of
-settling dead.
-
-The wrapper composes the agent's `executorFactory`, which is where a leaf executor is built with
-the real child signal and node context, and it never replaces the executor object the factory
-returned: the retry lives in one `execute` wrapper that carries the inner executor's attestation
-forward and delegates every other surface to it.
-
-#### Parameters
-
-##### make
-
-[`MakeWorkerAgent`](#makeworkeragent)
-
-##### policy
-
-[`WorkerSpawnRetryPolicy`](#workerspawnretrypolicy) \| `undefined`
-
-##### hooks?
-
-[`WorkerSpawnRetryHooks`](#workerspawnretryhooks) = `{}`
-
-#### Returns
-
-[`MakeWorkerAgent`](#makeworkeragent)
-
-***
-
-### retryPreSpawnRefusals()
-
-> **retryPreSpawnRefusals**\<`Out`\>(`inner`, `policy`, `hooks?`): [`Executor`](#executor-3)\<`Out`\>
-
-Re-enter `execute` on one executor while a pre-spawn refusal keeps proving nothing ran.
-
-Exported so an owner of `makeLeafAgent` — which builds its own executors — gets the same seam
-without reimplementing the two proofs.
-
-#### Type Parameters
-
-##### Out
-
-`Out`
-
-#### Parameters
-
-##### inner
-
-[`Executor`](#executor-3)\<`Out`\>
-
-##### policy
-
-[`ResolvedWorkerSpawnRetry`](#resolvedworkerspawnretry)
-
-##### hooks?
-
-[`WorkerSpawnRetryHooks`](#workerspawnretryhooks) & `object` = `{}`
-
-#### Returns
-
-[`Executor`](#executor-3)\<`Out`\>
-
-***
-
 ### createWorkerSlots()
 
 > **createWorkerSlots**(`max?`): [`WorkerSlots`](durable.md#workerslots-2)
@@ -46526,6 +46194,48 @@ The clone is removed after; durable state lives only in the ref.
 ### assertProfileMaterializes
 
 Re-exports [assertProfileMaterializes](agent.md#assertprofilematerializes)
+
+***
+
+### RunState
+
+Re-exports [RunState](durable.md#runstate)
+
+***
+
+### readRunState
+
+Re-exports [readRunState](durable.md#readrunstate)
+
+***
+
+### readSpawnJournal
+
+Re-exports [readSpawnJournal](durable.md#readspawnjournal)
+
+***
+
+### SpawnJournalCursor
+
+Re-exports [SpawnJournalCursor](durable.md#spawnjournalcursor)
+
+***
+
+### SpawnJournalReadOptions
+
+Re-exports [SpawnJournalReadOptions](durable.md#spawnjournalreadoptions)
+
+***
+
+### SpawnJournalReadRecord
+
+Re-exports [SpawnJournalReadRecord](durable.md#spawnjournalreadrecord)
+
+***
+
+### SpawnJournalReadResult
+
+Re-exports [SpawnJournalReadResult](durable.md#spawnjournalreadresult)
 
 ***
 

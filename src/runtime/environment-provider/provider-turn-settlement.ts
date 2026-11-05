@@ -207,6 +207,7 @@ export class ProviderTurnSettlement {
       outcome?.status === 'failed'
         ? {
             success: false,
+            ...(outcome.failure === undefined ? {} : { failure: outcome.failure }),
             ...(outcome.error ? { error: outcome.error } : {}),
             ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
             ...(statusCode === undefined ? {} : { statusCode }),
@@ -227,7 +228,11 @@ export class ProviderTurnSettlement {
         error: nativeFailure.error ?? '',
       })
       if (signal !== undefined)
-        this.unavailable = { signal, cause: errorText(nativeFailure.error ?? '') }
+        this.unavailable = {
+          signal,
+          cause: errorText(nativeFailure.error ?? ''),
+          ...(nativeFailure.failure ? { failure: nativeFailure.failure } : {}),
+        }
     }
     if (this.retained) await args.retention?.onResult(settled)
     else if (retainedWorkspace !== undefined && !jsonOutput)

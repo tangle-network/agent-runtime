@@ -35,7 +35,7 @@
  * overspend of a $0 ceiling. Unknowable dollar cost under a dollar limit closes the known
  * token/iteration work, marks the dollar channel unusable and refuses later reservations. An
  * unknowable TOKEN count records the work, debits what is known, and marks
- * `readout().tokensKnown` false (a ceiling, not a measurement); tokens are always capped, so one
+ * `readout().tokensKnown` false (a ceiling, not a measurement); one
  * unreported turn must not end the run.
  *
  * A reservation the free balance cannot cover now can WAIT (`reserve(b, holder, { wait: true })`)
@@ -83,6 +83,9 @@ export class BudgetReconcileFault extends Error {
  *  `reconcile`. Carries the reserved ceilings so reconciliation needs no lookup. */
 export interface ReservationTicket {
   readonly id: number
+  /** Child ceilings, including caps enforced without a corresponding root reservation.
+   * Absent on historical tickets, whose reserved amounts remain their ceilings. */
+  readonly limits?: Pick<Budget, 'maxTokens' | 'maxIterations'>
   readonly reserved: {
     readonly resources?: Budget['resources']
     readonly tokens: number
@@ -137,6 +140,10 @@ export type BudgetReadout = Readonly<{
     >
   >
   tokensLeft: number
+  /** Explicit false means uncapped; older readouts without this flag were capped. */
+  tokensCapped?: boolean
+  /** Committed token charge, including conservative unknown-work debits on restore. */
+  committedTokens?: number
   /** False once the pool recorded work with UNREPORTED tokens (`tokensKnown: false`): `tokensLeft`
    *  is then a ceiling, and real consumption is at least the debited amount. */
   tokensKnown: boolean
@@ -151,6 +158,7 @@ export type BudgetReadout = Readonly<{
    *  lower bound on real spend, not a measurement. */
   usdKnown: boolean
   iterationsLeft: number
+  iterationsCapped?: boolean
   deadlineMs: number
   reservedTokens: number
 }>
@@ -322,7 +330,7 @@ export function createBudgetPool(
   ): { ok: true; ticket: ReservationTicket; granted: Promise<void> } {
     const id = nextTicketId++
     open.set(id, holder)
-    const ticket = ticketFor(id, b)
+    const ticket = ticketFor(id, b, ledger)
     let grant!: () => void
     let refuse!: (error: ReservationWaitRefused) => void
     const granted = new Promise<void>((resolve, reject) => {
@@ -362,7 +370,7 @@ export function createBudgetPool(
       ledgerTake(ledger, b)
       const id = nextTicketId++
       open.set(id, holder)
-      return { ok: true, ticket: ticketFor(id, b) }
+      return { ok: true, ticket: ticketFor(id, b, ledger) }
     }
     if (options.wait !== true || !fitsAfterRefunds(shortfalls)) {
       return { ok: false, reason: 'budget-exhausted', shortfalls }
@@ -399,7 +407,13 @@ export function createBudgetPool(
     // is returned, with `free` allowed negative (agent-runtime#1206). Unknown dollars are a fault
     // even beside an overspend.
     const usdBudgeted = ticket.reserved.usdBudgeted !== false
-    const { overspent, unknownUnderCap } = ledgerClassifyOverspend(ledger, held, usdBudgeted, spent)
+    const { overspent, unknownUnderCap } = ledgerClassifyOverspend(
+      ledger,
+      held,
+      usdBudgeted,
+      spent,
+      heldNothing ? { maxTokens: 0, maxIterations: 0 } : ticket.limits,
+    )
     let fault = unknownUnderCap
       ? `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
       : undefined
@@ -454,12 +468,15 @@ export function createBudgetPool(
           }
         : {}),
       tokensLeft: ledger.freeTokens,
+      tokensCapped: ledger.tokensCapped,
+      committedTokens: ledger.committedTokens,
       tokensKnown: !ledger.tokensTainted,
       cacheBreakdownKnown: !ledger.cacheBreakdownTainted,
       usdLeft: ledger.usdCapped ? (ledger.usdTainted ? 0 : ledger.freeUsd) : 0,
       usdCapped: ledger.usdCapped,
       usdKnown: ledger.usdMeasured && !ledger.usdTainted,
       iterationsLeft: ledger.freeIterations,
+      iterationsCapped: ledger.iterationsCapped,
       deadlineMs: ledger.absoluteDeadlineMs,
       reservedTokens: ledger.reservedTokens,
     }
@@ -521,9 +538,13 @@ function fitsAfterRefunds(shortfalls: readonly ReservationShortfall[]): boolean 
   )
 }
 
-function ticketFor(id: number, b: Budget): ReservationTicket {
+function ticketFor(id: number, b: Budget, ledger: BudgetLedger): ReservationTicket {
   return {
     id,
+    limits: {
+      ...(b.maxTokens === undefined ? {} : { maxTokens: b.maxTokens }),
+      ...(b.maxIterations === undefined ? {} : { maxIterations: b.maxIterations }),
+    },
     reserved: {
       ...(b.resources === undefined
         ? {}
@@ -532,9 +553,9 @@ function ticketFor(id: number, b: Budget): ReservationTicket {
               Object.entries(b.resources).map(([name, value]) => [name, { ...value }]),
             ),
           }),
-      tokens: b.maxTokens,
+      tokens: ledger.tokensCapped ? (b.maxTokens ?? 0) : 0,
       usd: b.maxUsd ?? 0,
-      iterations: b.maxIterations,
+      iterations: ledger.iterationsCapped ? (b.maxIterations ?? 0) : 0,
       usdBudgeted: b.maxUsd !== undefined,
     },
   }

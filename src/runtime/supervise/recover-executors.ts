@@ -11,7 +11,7 @@ import { materializeTreeView } from '../../durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { reportedFailureCause } from '../failure-cause'
-import { addSpend, zeroSpend } from '../util'
+import { addSpend, chargedTokens, zeroSpend } from '../util'
 import { type BudgetPoolRestore, BudgetReconcileFault, createBudgetPool } from './budget'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { addResourceSpend, withBudgetResources } from './resources'
@@ -634,6 +634,18 @@ export function sumSpendFromEvents(events: SpawnEvent[]): {
   const rootBudget = events.find(
     (event): event is Spawned => event.kind === 'spawned' && event.parent === undefined,
   )?.budget
+  let remainingRootTokens = Math.max(
+    0,
+    (rootBudget?.maxTokens ?? 0) -
+      chargedTokens(totals.childWork.tokens) -
+      chargedTokens(totals.driverInference.tokens),
+  )
+  let remainingRootIterations = Math.max(
+    0,
+    (rootBudget?.maxIterations ?? 0) -
+      totals.childWork.iterations -
+      totals.driverInference.iterations,
+  )
   let remainingRootUsd = Math.max(
     0,
     (rootBudget?.maxUsd ?? 0) - totals.childWork.usd - totals.driverInference.usd,
@@ -641,10 +653,14 @@ export function sumSpendFromEvents(events: SpawnEvent[]): {
   for (const budget of uncertainSpawnBudgets(events)) {
     const unknown = withBudgetResources(zeroSpend(), budget)
     Object.assign(totals.childWork, addResourceSpend(totals.childWork.resources, unknown.resources))
-    totals.childWork.iterations += budget.maxIterations
+    const iterationCharge = budget.maxIterations ?? remainingRootIterations
+    totals.childWork.iterations += iterationCharge
+    remainingRootIterations = Math.max(0, remainingRootIterations - iterationCharge)
     // The numeric value is the charged upper bound, not a fabricated measurement. The false flag
     // makes that distinction machine-readable in every report.
-    totals.childWork.tokens.input += budget.maxTokens
+    const tokenCharge = budget.maxTokens ?? remainingRootTokens
+    totals.childWork.tokens.input += tokenCharge
+    remainingRootTokens = Math.max(0, remainingRootTokens - tokenCharge)
     totals.childWork.tokensKnown = false
     const usdCharge = budget.maxUsd ?? (rootBudget?.maxUsd !== undefined ? remainingRootUsd : 0)
     totals.childWork.usd += usdCharge

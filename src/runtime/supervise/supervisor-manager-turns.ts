@@ -34,6 +34,7 @@ import {
   recordScopeOwnerDriverAttempt,
   recordScopeOwnerPause,
 } from './scope'
+import { authoredSeatStages } from './seat-chain'
 import type { SupervisorAgentDeps } from './supervisor-agent-contracts'
 import type { SupervisorProfile } from './supervisor-agent-profile'
 import type { ExternalManagerConfig, ManagerSession } from './supervisor-manager-session'
@@ -194,6 +195,8 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       sleep: (ms, signal) => sleepScopeWait(scope, ms, signal, 'paused-root'),
       ...rootStopPause(config, session),
       nested: (config.nodeContextSeed?.depth ?? 0) > 0,
+      seatChain:
+        config.driveHarness.seatChain === true && authoredSeatStages(config.profile) !== undefined,
       resolvePending: (failure, failures) =>
         abandonScopeRetainedOwnerInvocation(scope, failure, failures),
       wait: {
@@ -352,7 +355,10 @@ function readManagerProgress(loop: ManagerTurnLoop): DriverProgressMark {
   const submitted = Boolean(mcp.submittedResult())
   const composite = bestComposite(controls.checkReads())
   return {
-    poolTokensSpent: loop.baseTokensLeft - scope.budget.tokensLeft,
+    poolTokensSpent:
+      scope.budget.tokensCapped === false
+        ? (scope.budget.committedTokens ?? 0)
+        : loop.baseTokensLeft - scope.budget.tokensLeft,
     settledCount: settled.length,
     submitted,
     deliveredCount,

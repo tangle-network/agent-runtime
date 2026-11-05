@@ -1,9 +1,13 @@
 import { z } from 'zod'
-import { BackendTransportError } from '../errors'
+import { AgentEvalError, BackendTransportError } from '../errors'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
 import { causeChain, errMessage } from './supervise/error-message'
-import { PLATFORM_FAILURE_CODES } from './supervise/executor-outcome'
+import {
+  PLATFORM_FAILURE_CODES,
+  turnFailureOf,
+  turnFailurePolicy,
+} from './supervise/executor-outcome'
 import {
   classifyRetainedPendingCause,
   isPlatformPredispatchRefusal,
@@ -154,6 +158,8 @@ export function runtimeProviderCode(value: unknown): string | undefined {
 }
 
 function upstreamMachineCode(links: readonly object[]): string | undefined {
+  const typed = links.map(turnFailureOf).find((value) => value !== undefined)
+  if (typed) return runtimeProviderCode(typed.code)
   return ['upstreamCode', 'errorCode', 'code']
     .flatMap((field) => links.map((link) => runtimeProviderCode(read(link, field))))
     .find((code) => code !== undefined)
@@ -164,6 +170,8 @@ function upstreamResponse(
   links: readonly object[],
   providerCode: string | undefined,
 ): Pick<RuntimeFailureCause, 'providerStatus' | 'retryAfterMs'> {
+  const typed = links.map(turnFailureOf).find((value) => value !== undefined)
+  if (typed?.retryAfterMs !== undefined) return { retryAfterMs: typed.retryAfterMs }
   const link = links.find((each) =>
     ['upstreamCode', 'errorCode', 'code'].some((field) => read(each, field) === providerCode),
   )
@@ -221,6 +229,20 @@ export function runtimeFailureCause(
         : {}),
     })
     if (caller !== undefined) return failure({ code: caller, owner: 'caller' })
+    for (const link of links) {
+      if (
+        link instanceof RetainedExecutionPendingError &&
+        link.pendingCause === 'provider-contract'
+      )
+        return failure(retainedFailures['provider-contract'])
+      if (read(link, 'name') === 'RetainedRunProviderContractError')
+        return failure(retainedFailures[classifyRetainedPendingCause(link)])
+    }
+    const typed =
+      error instanceof AgentEvalError && !(error instanceof BackendTransportError)
+        ? undefined
+        : turnFailureOf(error)
+    if (typed) return failure(turnFailurePolicy(typed))
     // Without the caller's signal, an AbortError is the only evidence of a cancellation. With it,
     // an AbortError the caller did not ask for is some other party's abort, classified below.
     if (context.signal === undefined && links.some((link) => read(link, 'name') === 'AbortError')) {
@@ -259,11 +281,13 @@ export function reportedFailureCause(outcome: {
   readonly error?: string
   readonly errorCode?: string
   readonly statusCode?: number
+  readonly failure?: import('@tangle-network/agent-interface/environment-provider').AgentTurnFailure
 }): RuntimeFailureCause {
   return runtimeFailureCause(
     Object.assign(new Error(outcome.error ?? 'execution reported a failure'), {
       errorCode: outcome.errorCode,
       statusCode: outcome.statusCode,
+      failure: outcome.failure,
     }),
   )
 }

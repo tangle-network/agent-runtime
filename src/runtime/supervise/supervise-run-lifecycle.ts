@@ -7,12 +7,24 @@ import { RunCancellationReason } from './abortable'
 import { CONTINUATIONS_DIR } from './continuation'
 import type { PriorCoordination } from './coordination-log'
 import type { DriverContinuationRecord } from './driver-attempt-evidence'
-import { authoredAgentIdentity, runtimeOwnedDriveHarnessProviderEvidence } from './materialization'
+import {
+  attestRuntimeOwnedScopeOwner,
+  authoredAgentIdentity,
+  runtimeOwnedDriveHarnessProviderEvidence,
+} from './materialization'
 import { createSupervisorSpanRecorder, type SupervisorSpanRecorder } from './otel-spans'
+import { providerVisibleProfile } from './provider-visible-profile'
 import { ROOT_STREAM_FILE } from './root-stream'
 import type { RunCancelRequest } from './run-cancellation'
-import { watchRunCancellation } from './run-cancellation'
+import {
+  applyRunCancellation,
+  readRunCancellation,
+  readRunCancelRequest,
+  watchRunCancellation,
+} from './run-cancellation'
+import { createFileRunContext } from './run-context'
 import { withRunParking } from './run-parking'
+import { assertValidBudget } from './spend-validation'
 import { supervisorTurnOptions } from './supervise-agent-options'
 import type { SuperviseOptions } from './supervise-options'
 import { createSuperviseWorkers } from './supervise-recursive-workers'
@@ -23,7 +35,7 @@ import {
   rootProviderModelEvidenceFromExecution,
 } from './supervise-root-evidence'
 import { rootSegmentOf } from './supervise-root-profile'
-import { prepareSuperviseRun } from './supervise-run-setup'
+import { prepareSuperviseIdentity, prepareSuperviseRun } from './supervise-run-setup'
 import { assertSqlRunProvider } from './supervise-sql-admission'
 import { createRootHandle, createSupervisor, DEFAULT_MAX_DEPTH } from './supervisor'
 import {
@@ -59,6 +71,8 @@ export function superviseInternal(
   opts: SuperviseOptions,
   testBrain?: ToolLoopChat,
 ) {
+  const cancelled = pendingCancellationRun(profile, task, opts)
+  if (cancelled !== undefined) return cancelled
   const setup = prepareSuperviseRun(profile, task, opts, testBrain)
   const { options } = setup
   const workers = createSuperviseWorkers(setup, (reason, request) =>
@@ -87,14 +101,156 @@ export function superviseInternal(
   })
 }
 
+/** The aborted kernel entry owns replay and resource custody without executable admission. */
+function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
+  const runDir = opts.runDir
+  if (runDir === undefined || opts.runContext?.durability === 'sql') return undefined
+  const request = readRunCancelRequest(runDir)
+  if (request === undefined) return undefined
+  const acknowledged = readRunCancellation(runDir, request.operationId)
+  if (acknowledged !== undefined && acknowledged.effect !== 'cancel_requested') return undefined
+  const { options, registeredProfile, canonicalProfile, canonicalTask, rootExecution } =
+    prepareSuperviseIdentity(profile, task, opts, 'control')
+  const now = options.now ?? Date.now
+  const controller = new AbortController()
+  applyRunCancellation(
+    runDir,
+    (reason, request) => {
+      controller.abort(
+        request === undefined
+          ? new Error(reason)
+          : new RunCancellationReason(
+              request.source,
+              reason,
+              request.operationId,
+              request.operator,
+            ),
+      )
+    },
+    () => new Date(now()).toISOString(),
+    'observer',
+  )
+  const context = options.runContext ?? createFileRunContext(runDir, { withDriver: true })
+  return (async () => {
+    if (!controller.signal.aborted) throw new Error('run cancellation changed before control entry')
+    const runId = options.runId ?? context.runId ?? 'supervise'
+    const journal = options.journal ?? context.journal
+    const prior = await journal.loadTree(runId)
+    const root = prior?.find((event) => event.kind === 'spawned' && event.id === runId)
+    const reopened = [...(prior ?? [])]
+      .reverse()
+      .find(
+        (event) => event.kind === 'reopened' && event.id === runId && event.budget !== undefined,
+      )
+    const budget =
+      options.budget ??
+      (reopened?.kind === 'reopened' ? reopened.budget : undefined) ??
+      (root?.kind === 'spawned' ? root.budget : undefined)
+    if (budget === undefined) throw new Error('cancelled run has no declared or recorded budget')
+    assertValidBudget(budget, 'supervise budget')
+    const rootAgent = {
+      name: canonicalProfile.name ?? 'supervise',
+      async act() {
+        throw new Error('cancelled run cannot enter execution')
+      },
+    }
+    const backend =
+      options.driverBackend ??
+      (options.rootDriverFromBackend === false ? undefined : options.backend)
+    if (backend?.backend === 'provider' && !options.driveHarness && !options.resolveDriveHarness) {
+      const provider =
+        typeof backend.provider === 'string'
+          ? backend.registry?.get(backend.provider)
+          : backend.provider
+      const priorProviders = new Set(
+        (prior ?? []).flatMap((event) =>
+          event.id === runId && event.kind === 'execution-admitted'
+            ? [
+                event.admission.phase === 'dispatched'
+                  ? event.admission.controlRef.provider
+                  : event.admission.provider,
+              ]
+            : [],
+        ),
+      )
+      if (provider !== undefined && priorProviders.size === 1 && priorProviders.has(provider.name))
+        attestRuntimeOwnedScopeOwner(
+          rootAgent,
+          root?.kind === 'spawned' ? root.runtime : provider.name,
+          {
+            provider,
+            ...(backend.workspaceRetention === undefined
+              ? {}
+              : {
+                  checkpointCapture: {
+                    port: backend.workspaceRetention,
+                    profile: providerVisibleProfile(canonicalProfile),
+                  },
+                }),
+          },
+        )
+    }
+    const result = await createSupervisor<unknown, unknown>().run(rootAgent, canonicalTask, {
+      budget,
+      runId,
+      journal,
+      blobs: options.blobs ?? context.blobs,
+      executors: context.executors,
+      rootIdentity: rootExecution.identity,
+      rootMaterialization: {
+        runtime: root?.kind === 'spawned' ? root.runtime : 'inline',
+        declaration: 'deferred',
+        authoredProfile: registeredProfile,
+      },
+      ...(options.segment === undefined
+        ? {}
+        : {
+            rootSegment: {
+              registered: rootSegmentOf(registeredProfile),
+              current: {
+                ...rootSegmentOf(canonicalProfile),
+                ...(options.segment.stack === undefined
+                  ? {}
+                  : { stack: { ...options.segment.stack } }),
+              },
+              reason: options.segment.reason,
+            },
+          }),
+      ...(options.recoverExecutor === undefined
+        ? {}
+        : { recoverExecutor: options.recoverExecutor }),
+      ...(options.reservationPolicy === undefined
+        ? {}
+        : { reservationPolicy: options.reservationPolicy }),
+      ...(options.workerSlots === undefined ? {} : { workerSlots: options.workerSlots }),
+      ...(options.teardownConfirmMs === undefined
+        ? {}
+        : { teardownConfirmMs: options.teardownConfirmMs }),
+      ...(context.resume === true || options.resume === true ? { resume: true } : {}),
+      retainedAtSettlement: options.retainedAtSettlement ?? 'release',
+      hooks: options.hooks,
+      now,
+      signal:
+        options.signal === undefined
+          ? controller.signal
+          : AbortSignal.any([controller.signal, options.signal]),
+      interactiveBindingDir: runDir,
+    })
+    recordRunCancellationOutcome(runDir, result, now)
+    return {
+      ...result,
+      rootProviderModel: rootProviderModelEvidence([]),
+      ...(rootExecution.ref === undefined ? {} : { execution: rootExecution.ref }),
+    }
+  })()
+}
+
 async function startSupervisedRun(run: SupervisedRun) {
   const { setup, runControl, cancelDurableRun } = run
   const { options, ctx, log, runId, rootOwnerId, canonicalTask } = setup
   if (ctx.durability === 'sql') await assertSqlRunProvider(options)
   await verifyProfilePromotions(setup.profileTable)
-  // The durable coordination side-log (file contexts only) loads prior questions, findings and
-  // instruction receipts and appends this process's evidence. The router arm gets all three in its
-  // resume brief; the external arm seeds prior questions. No prior instruction is auto-delivered.
+  // Replay recorded coordination evidence; instructions still require explicit delivery.
   const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
   const runDir = options.runDir === undefined ? undefined : resolve(options.runDir)
   const agent = rootSupervisorAgent(run, priorCoordination, runDir)
@@ -223,10 +379,7 @@ function rootSupervisorAgent(
               }),
         }
       : {}),
-    // A durable run's layout dir is the worker-cancel control surface: each router-arm manager's turn
-    // loop acknowledges the `cancelWorker` requests it OWNS (the root its direct children plus
-    // label/profile references, nested managers their direct-child ids) and the root also applies
-    // the run-scoped `cancelRun` through the one cascade controller.
+    // Managers own their worker cancels; the root also owns the run-cancel cascade.
     ...(runDir === undefined || runControl === undefined
       ? {}
       : {

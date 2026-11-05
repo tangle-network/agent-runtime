@@ -73,7 +73,7 @@ function leafWorker(
   const makeSelectedLeaf =
     childDeliverable === deliverable
       ? env.makeLeaf
-      : env.withRetry(workerFromBackend(options.backend as ExecutorConfig, childDeliverable))
+      : workerFromBackend(options.backend as ExecutorConfig, childDeliverable)
   return withModelSubstitution(
     makeSelectedLeaf(
       admitted.authorized,

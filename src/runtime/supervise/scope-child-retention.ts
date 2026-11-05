@@ -241,8 +241,8 @@ export function createChildRetention({
 /** Whether a settled spend exceeds the budget it was given, by the channels the pool reconciles. */
 function overBudget(budget: Budget, spent: Spend): boolean {
   return (
-    chargedTokens(spent.tokens) > budget.maxTokens ||
-    spent.iterations > budget.maxIterations ||
+    (budget.maxTokens !== undefined && chargedTokens(spent.tokens) > budget.maxTokens) ||
+    (budget.maxIterations !== undefined && spent.iterations > budget.maxIterations) ||
     (budget.maxUsd !== undefined && spent.usdKnown !== false && spent.usd > budget.maxUsd)
   )
 }

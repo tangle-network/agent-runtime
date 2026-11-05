@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { ProxySecretReceiptSchema } from '@tangle-network/agent-interface'
 import {
   createTangleProvider,
   defaultTangleSandboxCapabilities,
@@ -80,12 +81,12 @@ let prepared = false,
   priorListsToolsAfterRenewal = false,
   expiredHolderStopsManager = false,
   issuedAt = 0
-let firstCommit
-const committed = new Promise((resolve) => {
-  firstCommit = resolve
-})
+const { promise: committed, resolve: firstCommit } = Promise.withResolvers()
 let rekeyBeforeResumedDispatch = false,
   nativeTurns = 0
+let proxySecretReceipt,
+  proxyDeclarations = [],
+  proxyGeneration = 0
 let secretRevision = 0
 const nextRevision = () => new Date(Date.now() + ++secretRevision).toISOString()
 const secretMetadata = (name) => ({
@@ -136,6 +137,51 @@ const close = (server) =>
     server.closeAllConnections()
     server.close((error) => (error ? reject(error) : resolve()))
   })
+const installProxyReceipt = () => {
+  const now = Date.now()
+  proxySecretReceipt = proxyDeclarations?.length
+    ? ProxySecretReceiptSchema.parse({
+        protocolVersion: 1,
+        sandboxId: 'sandbox-custody',
+        generation: ++proxyGeneration,
+        status: 'installed',
+        proxyAcknowledged: true,
+        materializationAcknowledged: true,
+        bindings: proxyDeclarations.map((binding, i) => ({
+          envName: binding.envName,
+          secretRef: binding.secretRef,
+          grant: {
+            protocolVersion: 1,
+            grantId: `fixture-grant-${proxyGeneration}-${i}`,
+            sandboxId: 'sandbox-custody',
+            epoch: `fixture-epoch-${creates.length}`,
+            identity: {
+              tenantId: 'fixture-tenant',
+              issuerId: 'fixture-issuer',
+              secretId: binding.secretRef.key,
+              revision: revisions.get(binding.secretRef.key) ?? 'external-fixture-revision',
+            },
+            scope: Object.fromEntries(
+              ['hosts', 'methods', 'paths']
+                .filter((key) => binding[key] !== undefined)
+                .map((key) => [key, binding[key]]),
+            ),
+            presentation: binding.presentation,
+            placeholderFormat: binding.placeholderFormat ?? 'opaque',
+            issuedAt: new Date(now).toISOString(),
+            expiresAt: new Date(
+              now +
+                Math.min(
+                  binding.ttlSeconds ?? 3600,
+                  policies.get(binding.secretRef.key)?.[0]?.ttlSeconds ?? 3600,
+                ) *
+                  1000,
+            ).toISOString(),
+          },
+        })),
+      })
+    : undefined
+}
 const info = () => ({
   id: 'sandbox-custody',
   status: 'running',
@@ -144,6 +190,7 @@ const info = () => ({
   filesystemIncarnationReadiness: 'ready',
   createdAt: new Date(0).toISOString(),
   metadata,
+  ...(proxySecretReceipt ? { proxySecretReceipt } : {}),
   connection: {
     runtimeUrl: `${baseUrl}/runtime`,
     authToken: 'fixture-control-token',
@@ -259,6 +306,7 @@ const api = createServer(async (request, response) => {
     if (path.startsWith('/v1/secrets/') && request.method === 'PUT') {
       const name = decodeURIComponent(path.slice('/v1/secrets/'.length))
       const policy = capturePolicy(body, name)
+      const installedBefore = structuredClone(proxySecretReceipt)
       assert.equal(stored.has(name), true)
       if (mode === 'rekey-conflict' || body.expectedUpdatedAt !== revisions.get(name))
         return answer(response, 409, { code: 'CONFLICT', message: 'revision changed' })
@@ -272,6 +320,7 @@ const api = createServer(async (request, response) => {
         renewalMisses++
         stored.set(name, body.value)
         revisions.set(name, nextRevision())
+        assert.deepEqual(proxySecretReceipt, installedBefore)
         return answer(response, 503, {
           code: 'UNAVAILABLE',
           message: `Secret ${name} is stored but live re-key was not acknowledged by sandbox-fixture`,
@@ -293,6 +342,26 @@ const api = createServer(async (request, response) => {
       policies.set(name, policy)
       revisions.set(name, nextRevision())
       updates++
+      if (proxyDeclarations.some((binding) => binding.secretRef.key === name)) {
+        const acknowledgedAt = Date.now()
+        installProxyReceipt()
+        assert.ok(proxySecretReceipt.generation > installedBefore.generation)
+        assert.equal(proxySecretReceipt.bindings.length, proxyDeclarations.length)
+        for (const { secretRef, grant } of proxySecretReceipt.bindings) {
+          assert.equal(
+            grant.identity.revision,
+            revisions.get(secretRef.key) ?? 'external-fixture-revision',
+          )
+          assert.ok(Date.parse(grant.issuedAt) >= acknowledgedAt)
+          assert.ok(Date.parse(grant.expiresAt) > Date.now())
+          const ttl = policies.get(secretRef.key)?.[0]?.ttlSeconds
+          if (ttl !== undefined)
+            assert.ok(Date.parse(grant.expiresAt) - Date.parse(grant.issuedAt) <= ttl * 1000)
+          assert.ok(
+            installedBefore.bindings.every((prior) => prior.grant.grantId !== grant.grantId),
+          )
+        }
+      }
       return answer(response, 200, {
         secret: secretMetadata(name),
       })
@@ -323,6 +392,8 @@ const api = createServer(async (request, response) => {
     if (path === '/v1/sandboxes' && request.method === 'POST') {
       creates.push(body)
       metadata = body.metadata
+      proxyDeclarations = structuredClone(body.proxySecrets ?? [])
+      installProxyReceipt()
       return answer(response, 200, info())
     }
     if (path === '/v1/sandboxes/sandbox-custody' && request.method === 'DELETE')
@@ -474,8 +545,6 @@ const api = createServer(async (request, response) => {
         return
       }
       if (['renewal', 'stale-holder', ...RENEWAL_FAILS].includes(mode)) {
-        // The holder keeps the bearer it started with, as a box whose acknowledged rekey never
-        // reached its MCP client does (institutional-compiler-20261031f).
         const list = async (value) => {
           const listed = await fetch(attachment.url, {
             method: 'POST',
@@ -554,36 +623,14 @@ try {
   })
   if (mode === 'restart') {
     let firstDiagnostic = ''
-    const restartBegan = performance.now()
-    const progress = (phase) =>
-      console.error(
-        JSON.stringify({
-          phase,
-          elapsedMs: Math.round(performance.now() - restartBegan),
-          nativeTurns,
-          updates,
-          requests: requests.slice(-8),
-          childDiagnostic: Boolean(firstDiagnostic),
-        }),
-      )
     const directory = await mkdtemp(join(tmpdir(), 'runtime-custody-resume-'))
     const helper = fileURLToPath(new URL('./runtime-secret-resume.mjs', import.meta.url))
     const args = ['--dns-result-order=ipv4first', helper, baseUrl, publicUrl, directory]
     const child = spawn(process.execPath, [...args, 'first'], { stdio: ['ignore', 'pipe', 'pipe'] })
-    progress('restart-first-started')
     child.stderr.on('data', (chunk) => {
       firstDiagnostic += chunk.toString()
-      for (const line of chunk.toString().split('\n')) {
-        try {
-          const event = JSON.parse(line)
-          if (['restart-helper-ready', 'restart-helper-attempt'].includes(event.phase))
-            progress(event.phase)
-        } catch {}
-      }
     })
     child.stdout.resume()
-    const diagnosticTimer = setInterval(() => progress('restart-progress'), 5000)
-    diagnosticTimer.unref()
     const exited = new Promise((resolve) => child.once('exit', resolve))
     try {
       await Promise.race([
@@ -594,19 +641,16 @@ try {
           )
         }),
       ])
-      progress('restart-first-committed')
       assert.equal(stored.size, 1)
       const originalPolicy = structuredClone([...policies.values()][0])
       child.kill('SIGKILL')
       await exited
-      progress('restart-first-killed')
       await delay(1200)
       const { stdout } = await promisify(execFile)(process.execPath, [...args, 'resume'], {
         timeout: 12000,
       }).catch((error) => {
         throw new Error(`resumed coordinator failed: ${safeFailure(error.stderr)}`)
       })
-      progress('restart-resume-returned')
       assert.equal(JSON.parse(stdout.trim().split('\n').at(-1)).resumed, true)
       assert.deepEqual(policyRequests.at(-1), originalPolicy)
       assert.ok(policyAttempts.at(-2)[0].ttlSeconds < originalPolicy[0].ttlSeconds)
@@ -627,7 +671,6 @@ try {
         }),
       )
     } finally {
-      clearInterval(diagnosticTimer)
       if (child.exitCode === null) child.kill('SIGKILL')
       await rm(directory, { recursive: true, force: true })
     }
@@ -650,7 +693,9 @@ try {
             backend: {
               backend: 'provider',
               provider,
-              ...(['bound', 'prefix-env'].includes(mode) ? { defaults: callerDefaults } : {}),
+              ...(['bound', 'prefix-env', 'renewal'].includes(mode)
+                ? { defaults: callerDefaults }
+                : {}),
             },
             budget: {
               maxIterations: 4,
@@ -736,7 +781,7 @@ try {
     }
     if (['explicit-ttl', 'unbounded', 'long-ttl'].includes(mode))
       assert.equal(policyRequests[0][0].ttlSeconds, undefined)
-    if (['bound', 'prefix-env'].includes(mode) && creates.length) {
+    if (['bound', 'prefix-env', 'renewal'].includes(mode) && creates.length) {
       assert.equal(creates.length, 1)
       assert.equal(Object.hasOwn(creates[0].env, 'AGENT_RUNTIME_COORDINATION_TOKEN'), false)
       assert.equal(creates[0].env.AGENT_RUNTIME_COORDINATION_TOKEN_DEBUG, 'caller-debug-kept')

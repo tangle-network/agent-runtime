@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -7,15 +8,35 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
+const registries = new Map<
+  string,
+  { server: Server; url: string; versions: Map<string, string[]> }
+>()
 
-/**
- * A throwaway repository with the two shapes that matter: a root manifest whose
- * peer ranges a consumer resolves against, and a workspace package that reaches
- * its dependency versions through a `catalog:` pin.
- */
 async function createRepo(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'agent-runtime-version-bump-'))
   roots.push(root)
+  const versions = new Map<string, string[]>()
+  const server = createServer((request, response) => {
+    const name = decodeURIComponent(new URL(request.url!, 'http://registry').pathname.slice(1))
+    const served = versions.get(name)
+    response.setHeader('content-type', 'application/json')
+    response.writeHead(served ? 200 : 404).end(
+      JSON.stringify(
+        served
+          ? {
+              name,
+              'dist-tags': { latest: served.at(-1) },
+              versions: Object.fromEntries(served.map((version) => [version, { name, version }])),
+            }
+          : { error: 'Not found' },
+      ),
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('fixture registry did not listen')
+  registries.set(root, { server, url: `http://127.0.0.1:${address.port}`, versions })
   await git(root, 'init', '--quiet', '--initial-branch=main')
   await mkdir(join(root, 'bench'))
   await writeManifests(root, {
@@ -33,10 +54,6 @@ async function createRepo(): Promise<string> {
   return root
 }
 
-/**
- * An export surface record for a fixture package. Every publishable manifest
- * must carry one, so the fixture writes one wherever it writes a manifest.
- */
 async function writeSurface(
   root: string,
   directory: string,
@@ -58,6 +75,7 @@ async function writeManifests(
     `${JSON.stringify(
       {
         name: '@tangle-network/agent-runtime',
+        publishConfig: { registry: registries.get(root)!.url },
         version: spec.version,
         exports: { '.': './dist/index.js' },
         files: ['dist', 'README.md'],
@@ -75,6 +93,7 @@ async function writeManifests(
     `${JSON.stringify(
       {
         name: '@tangle-network/agent-bench',
+        publishConfig: { registry: registries.get(root)!.url },
         version: spec.benchVersion,
         dependencies: { '@tangle-network/agent-knowledge': 'catalog:' },
       },
@@ -96,8 +115,6 @@ async function writeManifests(
 }
 
 async function git(root: string, ...args: string[]): Promise<string> {
-  // -c core.hooksPath keeps a developer's global hooks out of the fixture; the
-  // fixture identity is local so it never depends on machine git config.
   const { stdout } = await execFileAsync(
     'git',
     ['-C', root, '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', ...args],
@@ -129,20 +146,35 @@ async function check(root: string, base: string) {
       ...process.env,
       PACKAGE_VERSION_BUMP_ROOT: root,
       PACKAGE_VERSION_BUMP_BASE: base,
-      // Hermetic: a fixture with no release tag would otherwise fall back to the
-      // real registry, where these package names ARE published, and every
-      // fixture version would be measured against a stranger's release.
-      PACKAGE_VERSION_BUMP_REGISTRY: '0',
+      // Served fixtures exercise npm over HTTP; offline fixtures retain the conservative baseline.
+      PACKAGE_VERSION_BUMP_REGISTRY: registries.get(root)?.versions.size ? '1' : '0',
     },
   })
 }
 
-/** Mark a fixture commit as released, the way `publish.yml` marks a real one. */
-async function tag(root: string, name: string): Promise<void> {
+async function publish(root: string, name: string): Promise<void> {
   await git(root, 'tag', name)
+  const versions = registries.get(root)?.versions
+  if (!versions) return
+  for (const path of ['package.json', 'bench/package.json']) {
+    const manifest = JSON.parse(await git(root, 'show', `HEAD:${path}`))
+    versions.set(manifest.name, [
+      ...new Set([...(versions.get(manifest.name) ?? []), manifest.version]),
+    ])
+  }
 }
 
 afterEach(async () => {
+  await Promise.all(
+    [...registries.values()].map(
+      ({ server }) =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections()
+          server.close(() => resolve())
+        }),
+    ),
+  )
+  registries.clear()
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
@@ -210,8 +242,6 @@ describe('consumer-visible change requires a version bump', () => {
     })
     await commit(root, 'move only the catalog pin')
 
-    // This is the shape that shipped 0.119.0 twice: the specifier string never
-    // changes, so a manifest diff shows nothing while the resolved version moves.
     expect((await git(root, 'diff', base, 'HEAD', '--', 'package.json')).trim()).toBe('')
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain(
@@ -511,8 +541,6 @@ describe('a change to the exported symbols requires a version bump', () => {
     })
     await commit(root, 'add an export')
 
-    // The shape that shipped PursuitProjection into no published version: the
-    // manifest never moves, so the manifest comparison sees nothing at all.
     expect((await git(root, 'diff', base, 'HEAD', '--', 'package.json')).trim()).toBe('')
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('export added: . PursuitProjection')
@@ -579,8 +607,6 @@ describe('a change to the exported symbols requires a version bump', () => {
     await commit(root, 'move to a 0.x version')
     const base = (await git(root, 'rev-parse', 'HEAD')).trim()
 
-    // A consumer window is `>=0.140.0 <0.141.0`, so a patch already reaches an
-    // addition and a break has to leave the window at the minor.
     await writeManifests(root, {
       version: '0.140.1',
       evalPeer: '>=0.140.1 <0.141.0',
@@ -641,8 +667,6 @@ describe('a change to the exported symbols requires a version bump', () => {
     })
     await commit(root, 'remove a field from AgentSpec')
 
-    // The name set is byte-identical, which is why the manifest comparison and
-    // a name-only record both answer "consumer surface unchanged".
     await expect(check(root, base)).rejects.toMatchObject({
       stderr: expect.stringContaining(
         'export shape changed: . AgentSpec: shape 9a8b7c6d5e4f -> 0011223344ff',
@@ -675,22 +699,10 @@ describe('a change to the exported symbols requires a version bump', () => {
   })
 })
 
-/**
- * The version a change is measured against is the LAST PUBLISHED one, not the
- * base branch's.
- *
- * Reading the base branch instead made an unreleased version behave like a
- * released one. Measured 2026-09-01 on agent-runtime: main declared 0.190.0
- * while the registry's newest was 0.189.0, and two export-adding pull requests
- * open against that main were each refused for adding exports to a version no
- * consumer could yet resolve. One unpublished bump absorbs every consumer-visible
- * change until it ships; a published version still buys nothing.
- */
 describe('the baseline is the last published version, not the base branch', () => {
-  /** Release `v1.0.0`, then put an unshipped `1.0.1` on the base. */
   async function repoWithUnpublishedBump(): Promise<{ root: string; base: string }> {
     const root = await createRepo()
-    await tag(root, 'v1.0.0')
+    await publish(root, 'v1.0.0')
     await writeManifests(root, {
       version: '1.0.1',
       evalPeer: '>=0.140.1 <0.141.0',
@@ -698,6 +710,7 @@ describe('the baseline is the last published version, not the base branch', () =
       benchVersion: '0.4.9',
     })
     await commit(root, 'prepare 1.0.1')
+    await git(root, 'tag', 'v1.0.1') // An unserved immutable tag cannot establish publication.
     return { root, base: (await git(root, 'rev-parse', 'HEAD')).trim() }
   }
 
@@ -708,16 +721,13 @@ describe('the baseline is the last published version, not the base branch', () =
     })
     await commit(root, 'add an export under the unshipped 1.0.1')
 
-    // 1.0.1 is not on the registry, so it is still paying for its own contents.
     const result = await check(root, base)
     expect(result.stdout).toContain('paid for by 1.0.0 -> 1.0.1 (patch)')
-    expect(result.stdout).toContain('1.0.0 is the last published version (v1.0.0)')
+    expect(result.stdout).toContain('1.0.0 is the last published version (the npm registry)')
   })
 
   it('accepts a SECOND change under the same unshipped bump — the release-train case', async () => {
     const { root, base } = await repoWithUnpublishedBump()
-    // The first change already landed on the base; this is the one that used to
-    // be told to open a version of its own.
     await writeSurface(root, '.', '@tangle-network/agent-runtime', {
       '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
     })
@@ -735,15 +745,13 @@ describe('the baseline is the last published version, not the base branch', () =
 
   it('still refuses added exports when the base version IS published', async () => {
     const root = await createRepo()
-    await tag(root, 'v1.0.0')
+    await publish(root, 'v1.0.0')
     const base = (await git(root, 'rev-parse', 'HEAD')).trim()
     await writeSurface(root, '.', '@tangle-network/agent-runtime', {
       '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
     })
     await commit(root, 'add an export under the published 1.0.0')
 
-    // The defect this file exists for is unchanged: npm already holds 1.0.0, and
-    // publish.yml skips a version already on the registry.
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('still declares 1.0.0')
     expect(failure.stderr).toContain('export added: . supervise')
@@ -751,7 +759,7 @@ describe('the baseline is the last published version, not the base branch', () =
 
   it('names the published baseline in the refusal when the base is ahead but still short', async () => {
     const root = await createRepo()
-    await tag(root, 'v1.0.0')
+    await publish(root, 'v1.0.0')
     await writeManifests(root, {
       version: '1.0.1',
       evalPeer: '>=0.140.1 <0.141.0',
@@ -760,15 +768,13 @@ describe('the baseline is the last published version, not the base branch', () =
     })
     await commit(root, 'prepare 1.0.1')
     const base = (await git(root, 'rev-parse', 'HEAD')).trim()
-    // A removed export needs a MAJOR, and the unshipped bump is only a patch, so
-    // the absorbing case applies and still falls short.
     await writeSurface(root, '.', '@tangle-network/agent-runtime', { '.': { runAgent: 'value' } })
     await commit(root, 'remove an export under the unshipped 1.0.1')
 
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('moves 1.0.0 -> 1.0.1, only a patch bump')
     expect(failure.stderr).toContain(
-      'measured against the last published version 1.0.0 (v1.0.0); the base declares 1.0.1, ' +
+      'measured against the last published version 1.0.0 (the npm registry); the base declares 1.0.1, ' +
         'which is not published yet',
     )
   })
@@ -783,7 +789,7 @@ describe('the baseline is the last published version, not the base branch', () =
     })
   })
 
-  it('orders release tags semantically, so v0.100.0 outranks v0.99.0', async () => {
+  it('orders served versions semantically, so 0.100.0 outranks 0.99.0', async () => {
     const root = await createRepo()
     await writeManifests(root, {
       version: '0.99.0',
@@ -792,7 +798,7 @@ describe('the baseline is the last published version, not the base branch', () =
       benchVersion: '0.4.9',
     })
     await commit(root, 'release 0.99.0')
-    await tag(root, 'v0.99.0')
+    await publish(root, 'v0.99.0')
     await writeManifests(root, {
       version: '0.100.0',
       evalPeer: '>=0.140.1 <0.141.0',
@@ -800,7 +806,7 @@ describe('the baseline is the last published version, not the base branch', () =
       benchVersion: '0.4.9',
     })
     await commit(root, 'release 0.100.0')
-    await tag(root, 'v0.100.0')
+    await publish(root, 'v0.100.0')
     await writeManifests(root, {
       version: '0.101.0',
       evalPeer: '>=0.140.1 <0.141.0',
@@ -814,17 +820,14 @@ describe('the baseline is the last published version, not the base branch', () =
     })
     await commit(root, 'add an export')
 
-    // Lexically v0.99.0 is the larger string. Picking it would measure against a
-    // version two releases stale.
     await expect(check(root, base)).resolves.toMatchObject({
       stdout: expect.stringContaining('paid for by 0.100.0 -> 0.101.0'),
     })
   })
 
-  it('reads each package own released version at the tag, never the root one', async () => {
+  it('reads each package own served version, never the root one', async () => {
     const root = await createRepo()
-    await tag(root, 'v1.0.0')
-    // The root ships an unpublished bump; bench does not move at all.
+    await publish(root, 'v1.0.0')
     await writeManifests(root, {
       version: '1.1.0',
       evalPeer: '>=0.140.1 <0.141.0',
@@ -838,8 +841,6 @@ describe('the baseline is the last published version, not the base branch', () =
     })
     await commit(root, 'add a bench export')
 
-    // bench released 0.4.9 and still declares 0.4.9, so the root's unshipped
-    // 1.1.0 pays nothing for it.
     const failure = await check(root, base).catch((error) => error)
     expect(failure.stderr).toContain('bench/package.json (@tangle-network/agent-bench)')
     expect(failure.stderr).toContain('still declares 0.4.9')
@@ -847,7 +848,6 @@ describe('the baseline is the last published version, not the base branch', () =
 })
 
 describe('a shape change is classified from the declarations it was built from', () => {
-  /** Record built declarations with the real generator and commit them as `version`. */
   async function build(root: string, version: string, declarations: string): Promise<string> {
     await mkdir(join(root, 'dist'), { recursive: true })
     await writeFile(
@@ -877,7 +877,7 @@ describe('a shape change is classified from the declarations it was built from',
       roots.push(root)
       await git(root, 'init', '--quiet', '--initial-branch=main')
       const released = await build(root, '1.0.0', options(''))
-      await tag(root, 'v1.0.0')
+      await publish(root, 'v1.0.0')
 
       await build(root, '1.0.1', options('  readonly journalRoot?: string;\n'))
       await expect(check(root, released)).resolves.toMatchObject({

@@ -93,8 +93,6 @@ const superviseOptionKeys = [
   'stopRule',
   'watchWorkers',
   'continuation',
-  'workerRetry',
-  'onWorkerRetry',
   'workerSlots',
   'recoverExecutor',
 ] as const
@@ -207,7 +205,6 @@ const superviseExecutableOptionKeys = [
   'onCoordinationEvent',
   'onDriverAttempt',
   'onProgressStop',
-  'onWorkerRetry',
   'recoverExecutor',
   'resolveDeliverable',
   'resolveDriveHarness',
@@ -301,7 +298,10 @@ function assertNoUncapturedExecutableOption(decisionData: Readonly<Record<string
  * Service internals intentionally remain live, while replacing a callback/service on the caller's
  * mutable options object can no longer change an in-flight run. */
 
-export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
+export function captureSuperviseOptions(
+  opts: SuperviseOptions,
+  mode: 'execution' | 'control' = 'execution',
+): SuperviseOptions {
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
@@ -313,7 +313,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     watchWorkers,
     analysts,
     continuation,
-    workerRetry,
     ...rest
   } = opts
   const references: Record<string, unknown> = {}
@@ -337,9 +336,9 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
             ...(onControlReady === undefined ? {} : { onControlReady }),
           })
         })()
-  const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
+  const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend, mode)
   const capturedDriverBackend =
-    driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
+    driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend, mode)
   // A string names a registry entry; it is resolved (and the resolved spec validated) by
   // `resolveNamed` before anything is built or spent.
   const capturedDeliverable =
@@ -380,36 +379,6 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
             ? {}
             : { detectors: Object.freeze([...watchWorkers.detectors]) }),
         })
-  // A RegExp does not survive a JSON snapshot, so the policy's numbers are snapshot and its
-  // signatures are copied as the exact values the caller selected.
-  const capturedWorkerRetry =
-    workerRetry === undefined
-      ? undefined
-      : Object.freeze({
-          ...detachedSnapshot(
-            {
-              ...(workerRetry.enabled === undefined ? {} : { enabled: workerRetry.enabled }),
-              ...(workerRetry.maxTotalMs === undefined
-                ? {}
-                : { maxTotalMs: workerRetry.maxTotalMs }),
-              ...(workerRetry.initialBackoffMs === undefined
-                ? {}
-                : { initialBackoffMs: workerRetry.initialBackoffMs }),
-              ...(workerRetry.maxBackoffMs === undefined
-                ? {}
-                : { maxBackoffMs: workerRetry.maxBackoffMs }),
-            },
-            'supervise worker-retry configuration',
-          ),
-          ...(workerRetry.additionalPreSpawnSignatures === undefined
-            ? {}
-            : {
-                additionalPreSpawnSignatures: Object.freeze([
-                  ...workerRetry.additionalPreSpawnSignatures,
-                ]),
-              }),
-        })
-
   // Rebuilt field by field so a caller's mutable registry object cannot be held live. EVERY
   // callable field must be listed: an omitted one is silently dropped at intake and the capability
   // it carries disappears from every manager in the tree with no type error, because the field is
@@ -448,6 +417,5 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(capturedWatchWorkers === undefined ? {} : { watchWorkers: capturedWatchWorkers }),
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(capturedContinuation === undefined ? {} : { continuation: capturedContinuation }),
-    ...(capturedWorkerRetry === undefined ? {} : { workerRetry: capturedWorkerRetry }),
   }) as SuperviseOptions
 }

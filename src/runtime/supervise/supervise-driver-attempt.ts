@@ -80,7 +80,9 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   if (!(scope.view.inFlight > 0)) {
     const spent =
       exhaustedBudgetChannels(scope.budget, input.now()) ??
-      (scope.budget.iterationsLeft <= 0 ? 'iterations: none left' : undefined)
+      (scope.budget.iterationsCapped !== false && scope.budget.iterationsLeft <= 0
+        ? 'iterations: none left'
+        : undefined)
     if (spent)
       throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
   }

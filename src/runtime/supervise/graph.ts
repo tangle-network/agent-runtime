@@ -448,8 +448,6 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'selectSeat',
   'driverRetry',
   'onDriverAttempt',
-  'workerRetry',
-  'onWorkerRetry',
   'continuation',
   'childSettleGraceMs',
   'teardownConfirmMs',

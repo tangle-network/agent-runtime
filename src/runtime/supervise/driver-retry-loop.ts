@@ -96,8 +96,8 @@ function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptSto
   // A dollar-capped pool that has seen an unknown-cost turn closes admission permanently: a retry
   // could only reproduce the same refusal.
   const exhausted =
-    budget.tokensLeft <= 0 ||
-    budget.iterationsLeft <= 0 ||
+    (budget.tokensCapped !== false && budget.tokensLeft <= 0) ||
+    (budget.iterationsCapped !== false && budget.iterationsLeft <= 0) ||
     (budget.usdCapped && (budget.usdLeft <= 0 || budget.usdKnown === false)) ||
     Object.values(budget.resources ?? {}).some((r) => !r.known || r.remaining <= 0)
   return exhausted ? 'budget-exhausted' : undefined
@@ -459,6 +459,8 @@ export class DriverRetryLoop {
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure
+    const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
+    const rotatingSeat = run.seatChain === true && unavailableSignal === 'subscription-usage-limit'
     if (progressed) this.barrenReentries = 0
     const stop = ((): DriverAttemptStop | undefined => {
       if (run.signal.aborted) return abortStop(run.signal)
@@ -468,9 +470,12 @@ export class DriverRetryLoop {
       // A reset after the deadline is a refusal now, so the parent acts instead of a child that
       // holds its slot for days (zro-w4a16-hopper-20261104b s4 paused toward 2026-11-10).
       const deadline = run.budget().deadlineMs
-      return deadline > 0 && (reportedResetAt(error) ?? 0) >= deadline ? 'deadline' : undefined
+      return !rotatingSeat &&
+        deadline > 0 &&
+        (reportedResetAt(error, limits.now()) ?? 0) >= deadline
+        ? 'deadline'
+        : undefined
     })()
-    const unavailableSignal = upstreamUnavailableSignal(error) ?? 'unavailable'
     if (stop !== undefined) {
       await this.stopOrPause(error, stop, { ...this.failureRecord(failure), unavailableSignal })
       return
@@ -480,10 +485,13 @@ export class DriverRetryLoop {
     // A refusal that names its reset holds until then, never past the run's deadline: probing a
     // 5-hour plan window every 300 s spent 219 of magnetar-rust-20261018b's 324 attempts.
     const pausedAt = limits.now()
-    const resetAt = unavailableResumeAt(reportedResetAt(error), pausedAt)
+    const resetAt = rotatingSeat
+      ? undefined
+      : unavailableResumeAt(reportedResetAt(error, limits.now()), pausedAt)
     const deadlineMs = run.budget().deadlineMs
-    const pause =
-      resetAt === undefined
+    const pause = rotatingSeat
+      ? 0
+      : resetAt === undefined
         ? jitteredMs(unavailablePauseMs(this.consecutivePauses, limits.policy), limits.random)
         : Math.max(1_000, Math.min(resetAt, deadlineMs > 0 ? deadlineMs : resetAt) - pausedAt)
     const exitCode = undispatchedCredentialExit(error)
@@ -558,8 +566,9 @@ export class DriverRetryLoop {
   private failureStop(failure: DriverFailure, failedAt: number): DriverAttemptStop | undefined {
     const { run, limits } = this
     const { error, classification, progressed, before, after } = failure
+    const kind = classification === 'transient' ? transientFailureKind(error) : undefined
     const idle =
-      classification === 'transient' &&
+      kind === 'infra' &&
       !progressed &&
       after.poolTokensSpent === before.poolTokensSpent &&
       after.settledCount === before.settledCount
@@ -577,7 +586,6 @@ export class DriverRetryLoop {
     // One streak of alike failures with nothing gained, read through the pending wrapper. An
     // abandonable pending invocation keeps its own bound (pending-unresolved) and leaves the streak
     // as it was; a content-filter refusal keeps its own count.
-    const kind = classification === 'transient' ? transientFailureKind(error) : undefined
     if (progressed || kind === undefined || isContentFilterRefusal(error)) this.sameIdle = undefined
     else if (failure.pending === undefined) this.sameIdle = extend(this.sameIdle, error, failedAt)
     const sameIdle = this.sameIdle

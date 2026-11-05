@@ -8,7 +8,11 @@ import {
 } from '../supervise/materialization'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { Spend, UsageEvent } from '../supervise/types'
-import { unavailablePauseMs } from '../supervise/upstream-unavailable'
+import {
+  reportedResetAt,
+  unavailablePauseMs,
+  unavailableResumeAt,
+} from '../supervise/upstream-unavailable'
 import { sleep } from '../util'
 import type { ProviderExecutorScope } from './provider-executor-state'
 import {
@@ -240,7 +244,12 @@ async function pauseForContinuation(
   // The same pause rule a driver follows: doubling per refusal in a row, restarting after a
   // refused turn that still did work. Only the deadline, cancellation and budget end it.
   const refusalsInARow = ended.madeProgress ? 1 : refusalsBefore + 1
-  const pauseMs = unavailablePauseMs(refusalsInARow, options.unavailablePause || {})
+  const now = Date.now()
+  const reset = unavailableResumeAt(reportedResetAt(refusal, now), now)
+  const pauseMs =
+    reset === undefined
+      ? unavailablePauseMs(refusalsInARow, options.unavailablePause || {})
+      : Math.max(1_000, reset - now)
   await invocation.retention?.onPause?.({
     attempt,
     signal: refusal.signal,

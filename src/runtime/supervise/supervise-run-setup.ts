@@ -83,37 +83,64 @@ import {
   type SupervisorProfile,
 } from './supervisor-agent'
 
-export function prepareSuperviseRun(
+/** Canonical root identity is needed for control operations before executable admission. */
+export function prepareSuperviseIdentity(
   profile: SupervisorProfile,
   task: unknown,
   opts: SuperviseOptions,
-  testBrain?: ToolLoopChat,
+  mode: 'execution' | 'control' = 'execution',
 ) {
-  const options = captureSuperviseOptions(opts)
-  assertSqlRunOptions(options)
-  assertValidBudget(options.budget, 'supervise budget')
-  // Fail loud before any compute: every configured model must be in `allowedModels` (when set).
+  const options = captureSuperviseOptions(opts, mode)
   const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
   const { applyTraceTools, composeSpawnProfile } = traceToolPolicy(options, guidanceComposer)
-  const peerAuditFor = peerAuditRegistry(options)
-  // The recorded root profile fixes the run's identity; a segment only alters what it executes.
   const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))
   if (options.segment !== undefined) admitSegment(options.segment)
   const canonicalProfile =
     options.segment === undefined
       ? registeredProfile
       : withRootSegment(registeredProfile, options.segment)
-  if (!testBrain || !isRuntimeFlowBrain(testBrain))
-    assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   const canonicalTask = freezeDetached(task)
-  assertWorkerSeams(options)
-  const authorizeDownFor = downMessageAuthorizer(options)
   const rootExecution = canonicalExecution(
     registeredProfile,
     canonicalTask,
     options.execution,
     'supervise root',
   )
+  return {
+    options,
+    guidanceComposer,
+    applyTraceTools,
+    composeSpawnProfile,
+    registeredProfile,
+    canonicalProfile,
+    canonicalTask,
+    rootExecution,
+  }
+}
+
+export function prepareSuperviseRun(
+  profile: SupervisorProfile,
+  task: unknown,
+  opts: SuperviseOptions,
+  testBrain?: ToolLoopChat,
+) {
+  const {
+    options,
+    guidanceComposer,
+    applyTraceTools,
+    composeSpawnProfile,
+    registeredProfile,
+    canonicalProfile,
+    canonicalTask,
+    rootExecution,
+  } = prepareSuperviseIdentity(profile, task, opts)
+  assertSqlRunOptions(options)
+  assertValidBudget(options.budget, 'supervise budget')
+  const peerAuditFor = peerAuditRegistry(options)
+  if (!testBrain || !isRuntimeFlowBrain(testBrain))
+    assertExecutableAgentProfile(canonicalProfile, 'supervise root')
+  assertWorkerSeams(options)
+  const authorizeDownFor = downMessageAuthorizer(options)
   assertRunModelsAllowed(canonicalProfile, options)
   const { deliverable, finalizer, analysts, profileTable } = resolveRunRegistry(options)
   assertCoordinationBinding(options.coordination)
@@ -308,11 +335,6 @@ function assertWorkerSeams(options: SuperviseOptions): void {
       'supervise: makeWorkerAgent replaces the worker path and makeLeafAgent overrides a leaf inside it; pass one',
     )
   }
-  if (options.makeWorkerAgent && (options.workerRetry || options.onWorkerRetry)) {
-    throw new ValidationError(
-      'supervise: workerRetry applies only to backend-derived workers; compose withWorkerSpawnRetry onto a caller-owned makeWorkerAgent explicitly',
-    )
-  }
   if (options.makeWorkerAgent && options.resolveDeliverable) {
     throw new ValidationError(
       'supervise: resolveDeliverable applies only to backend-derived workers; wrap a caller-owned makeWorkerAgent with its completion checks explicitly',
@@ -488,10 +510,20 @@ function managerDriverPlan(
   // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
   // its mount and receives the profile unchanged.
   const spawnPreflight = composeSpawnPreflights(
-    modelSettingsSpawnPreflight(
-      options.makeWorkerAgent === undefined,
-      options.backend?.backend === 'provider' ? 'provider' : 'router',
-    ),
+    async (profile, context) => {
+      const external = isExternalSupervisor(profile)
+      const manager =
+        declaredRuntimeToolNames(profile).length > 0 ||
+        (external && authoredSeatStages(profile) !== undefined)
+      const custom = manager
+        ? external && hasCustomDriveHarness
+        : options.makeLeafAgent !== undefined
+      const backend = manager ? (external ? managerBackend : undefined) : options.backend
+      return modelSettingsSpawnPreflight(
+        options.makeWorkerAgent === undefined && !custom,
+        backend?.backend === 'provider' ? 'provider' : 'router',
+      )?.(profile, context)
+    },
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
       options.resolveSupervisorTools !== undefined,

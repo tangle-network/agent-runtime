@@ -62,15 +62,7 @@ async function run(mode: string) {
   expect(stderr.includes('TimeoutOverflowWarning')).toBe(false)
   const result = JSON.parse(stdout.trim().split('\n').at(-1)!)
   if (result.resultKind === 'no-winner' || result.rejected)
-    console.error(
-      JSON.stringify({
-        mode,
-        kind: result.resultKind,
-        reason: result.resultReason,
-        failure: result.failureText,
-        protocol: result.protocolFailures,
-      }),
-    )
+    console.error(mode, result.failureText, result.protocolFailures)
   return result
 }
 
@@ -269,6 +261,7 @@ it('keeps the replaced bearer valid after an acknowledged rekey, so a holder tha
     mcpAccepted: true,
     noRawCreate: true,
     handoverOverlap: true,
+    unrelatedDeclarationPreserved: true,
     issuerPolicyPreserved: true,
     rootLifetimeOutlivesLease: true,
     priorListsToolsAfterRenewal: true,

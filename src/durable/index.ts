@@ -132,6 +132,7 @@ export {
   runDirectoryHolderIsLive,
 } from './run-lock'
 export type { RunReopen } from './run-reopen'
+export { type RunState, readRunState } from './run-state'
 export { durableRunToolSpans } from './run-tool-spans'
 export {
   type DurableFailureRecord,
@@ -139,6 +140,13 @@ export {
   readSettleRecord,
   SettledRunDirectoryError,
 } from './settle-record'
+export {
+  readSpawnJournal,
+  type SpawnJournalCursor,
+  type SpawnJournalReadOptions,
+  type SpawnJournalReadRecord,
+  type SpawnJournalReadResult,
+} from './spawn-journal/read'
 export {
   type SupervisedPursuitResult,
   type SuperviseGraphPursuitOptions,

@@ -1,3 +1,13 @@
+## 5.0.0
+
+A pending file-backed cancellation uses an available matching provider control to release prior resources without starting a turn. Partial workspace captures stay retained and report unconfirmed cleanup; complete captures require an actual teardown receipt before cancellation acknowledges clean settlement. Retained observation also keeps reading after slow consumer persistence, so a ready interaction is not mistaken for provider silence.
+
+A file-backed cancellation before execution keeps the standard root model evidence explicitly unknown with no observed attempts, preserving the supervision result contract.
+
+Spawn preflight follows the actual manager or leaf execution owner, preserving credential intent for caller-owned native materializers while retaining Runtime executor validation. A subscription quota refusal advances an available maintained seat chain before applying a seat-specific reset; the chain owns its exhausted-seat wait, bounded by the run's deadline and cancellation. A pending durable cancellation settles before native transport or model credential admission, retaining unconfirmed custody for prior resources until cleanup evidence proves otherwise.
+
+Budget token and iteration ceilings are optional; omitted channels reserve no capacity while measured spend remains conserved. Runtime provides committed journal and run-state readers. Unused experimental worker-spawn retry APIs are removed; use the existing driver attempt policy. Publication accepts trusted, tree-bound local qualification while preserving exact-archive admission, provenance and registry verification. Live HTTP snapshots retain file changes arriving during another run's read. Runtime preserves the paired Interface and Provider failure contracts through execution outcomes and retry decisions, including structured capacity reset hints.
+
 ## 4.0.0
 
 Adds `workspace-checkpoint-refused` to the exported `SpawnEvent` union so checkpoint failures retain the provider's refusal. Consumers with exhaustive journal-event switches must handle this event before upgrading.

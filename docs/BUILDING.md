@@ -47,6 +47,10 @@ the repository's compiler-AST test helpers require the JavaScript compiler API.
 TypeScript 7.0.2 removes that API, so `typescript-consumer` keeps an exact 7.0.2
 alias for packed-consumer compatibility checks without breaking local tooling.
 
+Optimizer verification reads its Python requirement from [.python-version](../.python-version).
+Normal Beelink gates provision the complete precompiled interpreter through [mise.toml](../mise.toml);
+GitHub's Python setup reads the same version file. `PYTHON` remains an explicit local override.
+
 One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
 They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
 such as `--check` still reach the same maintained generator.
@@ -76,9 +80,25 @@ remaining boilerplate is irreducible.
 
 ## Documentation Placement
 
-`release:tag <version> --commit <full-sha>` tags a qualified release already merged into
-`origin/main` while later source work continues. Omitting `--commit` selects the fetched main
-tip. The selected commit must carry the requested version; existing tags are always refused.
+`release:prepare --amend-unpublished` absorbs pending notes into the current prepared
+version only after a definite npm 404, absent local/remote tag, and matching published
+predecessor. It regenerates derived files; the release gate still admits the archive's
+actual compatibility and CHANGELOG before merge.
+
+`release:tag <version> --commit <merged-sha> --gate <gated-sha>` reads the maintained
+Beelink receipt for exactly `pnpm run release:check`. Only the latest normal/install,
+detached, successful receipt can attest `gate/release-check` through `gh-drew`.
+The selected commit must already be merged into `origin/main` and carry the version;
+its tree must equal the gated tree, including after a squash merge. Existing tags
+are refused. Omitting `--commit` selects fetched main; omitting `--gate` requires full
+qualification at publication. No receipt file or caller-authored status is accepted.
+
+The frozen tag selects its reusable qualification workflow. Reviewed main owns release
+line and gate-proof policy. Qualification reuses only the latest tree-bound status
+issued by `drewstone`; missing, untrusted or mismatching evidence runs `release:check`.
+A matching tree builds and qualifies exact archives without rerunning the source suite.
+Optimizer and benchmark checks run in the local release gate. Publication retains cohort
+compatibility, SHA256 locking, provenance, isolated npm authority and registry byte checks.
 
 To verify an unpublished Sandbox SDK, pass its archive after the Runtime and Knowledge archive arguments to `scripts/verify-package-exports.mjs`.
 Use an empty Knowledge argument to keep the installed release.

@@ -5,9 +5,11 @@ import {
   canonicalCandidateDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { AgentIdentity } from '@tangle-network/agent-trace-contract'
 import { ValidationError } from '../../errors'
 import { snapshotProviderObservations } from '../provider-observation-snapshot'
+import type { OwnerState } from './retained-owner-state'
 import { detachedSnapshot } from './snapshot'
 import type {
   ExecutionBindingReceipt,
@@ -48,7 +50,14 @@ const runtimeOwnedExecutorMaterializations = new WeakMap<
   object,
   RuntimeOwnedExecutorMaterializationRef
 >()
-const runtimeOwnedScopeOwners = new WeakMap<object, Runtime>()
+interface ScopeOwnerControl {
+  readonly provider: AgentEnvironmentProvider
+  readonly checkpointCapture?: OwnerState['checkpointCapture']
+}
+const runtimeOwnedScopeOwners = new WeakMap<
+  object,
+  { runtime: Runtime; control?: ScopeOwnerControl }
+>()
 const runtimeOwnedExecutorProviderEvidenceState = new WeakMap<
   object,
   {
@@ -237,15 +246,24 @@ export function runtimeOwnedDeferredExecutorRuntime<Out>(
 }
 
 /** Propagate trust from a built-in driver adapter to the Agent and recursive executor it owns. */
-export function attestRuntimeOwnedScopeOwner<T extends object>(owner: T, runtime: Runtime): T {
-  runtimeOwnedScopeOwners.set(owner, runtime)
+export function attestRuntimeOwnedScopeOwner<T extends object>(
+  owner: T,
+  runtime: Runtime,
+  control?: ScopeOwnerControl,
+): T {
+  runtimeOwnedScopeOwners.set(owner, { runtime, ...(control === undefined ? {} : { control }) })
   return owner
+}
+
+/** A trusted owner's existing provider control remains available before any execution turn. */
+export function runtimeOwnedScopeOwnerControl(owner: object): ScopeOwnerControl | undefined {
+  return runtimeOwnedScopeOwners.get(owner)?.control
 }
 
 /** Return a built-in scope owner's expected concrete leaf runtime; caller-owned functions/Agents
  * deliberately have no entry even if they add lookalike fields. */
 export function runtimeOwnedScopeOwnerRuntime(owner: object): Runtime | undefined {
-  return runtimeOwnedScopeOwners.get(owner)
+  return runtimeOwnedScopeOwners.get(owner)?.runtime
 }
 
 /** Mark one provider inference attempt on a Runtime-owned executor. */

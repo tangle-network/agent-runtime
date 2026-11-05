@@ -4187,7 +4187,7 @@ Return whether a measured surface can be delivered through an agent profile.
 
 ##### surface
 
-`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"prompt"` \| `"code"` \| `"agent-profile"` \| `"memory"` \| `"rollout-policy"`
+`"tools"` \| `"mcp"` \| `"subagents"` \| `"skills"` \| `"knowledge"` \| `"hooks"` \| `"code"` \| `"prompt"` \| `"agent-profile"` \| `"memory"` \| `"rollout-policy"`
 
 #### Returns
 

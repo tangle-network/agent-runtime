@@ -56,7 +56,6 @@ import type {
   SpawnJournal,
 } from './types'
 import type { ManagerWakePolicy } from './wake'
-import type { WorkerSpawnRetryAttempt, WorkerSpawnRetryPolicy } from './worker-retry'
 import type { WorkerSlots } from './worker-slots'
 
 export interface SuperviseOptions {
@@ -258,29 +257,6 @@ export interface SuperviseOptions {
   /** Per-attempt record for every external driver in the tree — what makes "failed after N
    *  attempts, last cause X" visible instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
-  /**
-   * How a BACKEND-DERIVED WORKER whose spawn was refused before it ran is re-entered, instead of
-   * settling dead with a slot free seconds later.
-   *
-   * `driverRetry` guards the root only. A worker that dies is typed into a `down` settlement,
-   * which is the right shape when the worker RAN — and the wrong shape for
-   * `host-executor: acquire timeout after 60000ms (in_flight=4/4, queued=1)`, a queue refusal the
-   * bridge emits before any harness child exists. Measured 2026-08-22 on discovery-lab cells
-   * oscnp s2/s3: ten live agents on one bridge that admits four, and every worker refused at the
-   * 60 s acquire deadline was lost for the whole run.
-   *
-   * Fail-closed on two proofs that the attempt did no work: the error carries a pre-spawn
-   * signature, AND the attempt yielded no execution event. An attempt that streamed anything may
-   * have metered usage, so a blind re-run would double-spend and stays fatal.
-   *
-   * Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
-   * a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
-   * {@link runtime.withWorkerSpawnRetry} itself.
-   */
-  readonly workerRetry?: WorkerSpawnRetryPolicy
-  /** Per-re-entry record for every retried worker spawn — what makes a saturated executor visible
-   *  as waiting rather than as a worker that silently took longer. */
-  readonly onWorkerRetry?: (attempt: WorkerSpawnRetryAttempt) => void
   /**
    * How an EXTERNAL-harness manager with a completion check is sent back when its turn ends with
    * the check unmet: `maxBarren`, an optional deadline, and the continuation note's profile and

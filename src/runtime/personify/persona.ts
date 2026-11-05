@@ -209,8 +209,12 @@ function resolveShapeBudget(root: Budget, over?: Partial<ShapeBudget>): ShapeBud
             ]),
           ),
         }),
-    maxIterations: Math.max(1, Math.floor(root.maxIterations / fanout)),
-    maxTokens: Math.max(1, Math.floor(root.maxTokens / fanout)),
+    ...(root.maxIterations === undefined
+      ? {}
+      : { maxIterations: Math.max(0, Math.floor(root.maxIterations / fanout)) }),
+    ...(root.maxTokens === undefined
+      ? {}
+      : { maxTokens: Math.max(0, Math.floor(root.maxTokens / fanout)) }),
     ...(root.maxUsd !== undefined ? { maxUsd: root.maxUsd / fanout } : {}),
     ...(root.deadlineMs !== undefined ? { deadlineMs: root.deadlineMs } : {}),
   }

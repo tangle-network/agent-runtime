@@ -18,7 +18,6 @@ import { DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY } from './supervise-profile-ad
 import type { prepareSuperviseRun } from './supervise-run-setup'
 import { workerFromBackend } from './supervise-worker-backend'
 import type { ExecutorFactory } from './types'
-import { withWorkerSpawnRetry } from './worker-retry'
 
 export function createSuperviseWorkers(
   setup: ReturnType<typeof prepareSuperviseRun>,
@@ -101,17 +100,8 @@ export function createSuperviseWorkers(
         'supervise: provide opts.backend (where workers run), opts.makeLeafAgent, or opts.makeWorkerAgent',
       )
     }
-    // A caller-owned leaf factory slots in here under the same authorization and classification as
-    // every backend-derived leaf; `backend` is then needed only for a per-spawn deliverable. The
-    // retry seam wraps it, so a spawn refused BEFORE the worker ran is re-entered, not settled dead;
-    // it sits inside the authorized path and re-runs the executor object the kernel admitted.
-    const withRetry = (make: MakeWorkerAgent): MakeWorkerAgent =>
-      withWorkerSpawnRetry(make, options.workerRetry, {
-        ...(options.onWorkerRetry ? { onRetry: options.onWorkerRetry } : {}),
-      })
-    const makeLeaf = withRetry(
-      options.makeLeafAgent ?? workerFromBackend(options.backend as ExecutorConfig, deliverable),
-    )
+    const makeLeaf =
+      options.makeLeafAgent ?? workerFromBackend(options.backend as ExecutorConfig, deliverable)
     makeWorkerAgent = recursiveWorkerFactoryFor(
       {
         setup,
@@ -119,7 +109,6 @@ export function createSuperviseWorkers(
         graphSubtasks,
         graphOverlayFor,
         recoveryFactories,
-        withRetry,
         makeLeaf,
         securityPolicy: options.profileSecurity ?? DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY,
       },

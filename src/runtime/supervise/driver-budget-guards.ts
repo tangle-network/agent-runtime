@@ -1,11 +1,7 @@
 import type { Budget, Scope } from './types'
 
-/** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
- *  await. A long-horizon driver bounded by the conserved pool stops here instead of spinning (the
- *  in-loop budget guard the turn cap alone never provided). Checks BOTH conserved channels: tokens
- *  (can't afford a worker) and usd (a usd-capped pool whose ceiling the driver's own metered
- *  inference has drained — `meter` debits usd, so without this a huge-token/small-usd pool would
- *  overspend usd up to the turn tripwire). */
+/** Stop when no work is in flight and a capped channel cannot fund another worker.
+ * Owner inference also debits the pool, so a turn limit alone cannot enforce its ceilings. */
 export function poolStarved(
   scope: Scope<unknown>,
   perWorker: Budget,
@@ -13,8 +9,13 @@ export function poolStarved(
 ): boolean {
   const b = scope.budget
   if (scope.view.inFlight > 0) return false
-  const tokenStarved = preserveOwnerTurns ? b.tokensLeft <= 0 : b.tokensLeft < perWorker.maxTokens
-  const iterationStarved = b.iterationsLeft <= 0
+  const tokenStarved =
+    b.tokensCapped !== false &&
+    (b.tokensLeft <= 0 ||
+      (!preserveOwnerTurns &&
+        perWorker.maxTokens !== undefined &&
+        b.tokensLeft < perWorker.maxTokens))
+  const iterationStarved = b.iterationsCapped !== false && b.iterationsLeft <= 0
   const usdStarved =
     b.usdCapped &&
     (b.usdLeft <= 0 ||
@@ -50,7 +51,7 @@ export function ownTurnsUnbounded(
 ): boolean {
   const b = scope.budget
   if (maxTurns !== undefined || b.deadlineMs > 0) return false
-  if (poolTokens > 0 && b.tokensLeft < -poolTokens) return true
+  if (b.tokensCapped !== false && poolTokens > 0 && b.tokensLeft < -poolTokens) return true
   return !b.tokensKnown && !b.usdCapped && turns > UNMETERED_DRIVER_TURNS
 }
 

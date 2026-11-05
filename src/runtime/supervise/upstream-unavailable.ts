@@ -1,23 +1,9 @@
+import type { AgentTurnFailure } from '@tangle-network/agent-interface/environment-provider'
 import { causeChain } from './error-message'
-/**
- * An upstream that cannot serve NOW: how Runtime recognizes one, and how long an agent waits for it.
- *
- * A model provider's exhausted quota, a rate limit, an overload, or the router's own refused
- * credential is not a fault in the agent: the same request succeeds when capacity returns. A
- * driver that meets one re-enters after a pause (`runDriverWithRetry`), and a leaf continues in
- * its environment after the same pause (`providerAsExecutor`). Both read the refusal and the pause
- * from here, so an outage costs a director and its workers the same number of turns.
- *
- * This module imports nothing, so the provider executor can read it without the error classes of
- * `../../errors`.
- */
+import { turnFailureOf, turnFailurePolicy } from './executor-outcome'
+/** Shared capacity recognition and pause policy for drivers and retained leaves. */
 
-/**
- * Machine codes that say the upstream cannot serve now rather than that the request is wrong.
- * Each is a code an upstream publishes, not prose: the router's
- * (`lib/model-substitution.ts`, `lib/upstream-error-triage.ts`) and the OpenAI- and Anthropic-shaped
- * error types a relayed body carries.
- */
+/** Legacy capacity codes for producers without the canonical failure contract. */
 export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'provider_quota_exhausted', // router: the upstream account has no remaining quota (429)
   'provider_quota_exceeded', // router: the earlier spelling, on the 2026-09-20 fleet corpus
@@ -40,12 +26,7 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
 /** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */
 export const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([429, 503, 529])
 
-/**
- * A harness that flattens the router's JSON body into its own failure text leaves the router's
- * code in that text: `opencode execution failed: No provider served model "..."
- * (provider_quota_exhausted)`. The code is matched as a whole token, and a status only in the
- * `status code <n>` framing a harness prints, so prose that merely mentions a quota does not match.
- */
+/** Legacy text fallback reads whole code tokens and explicitly framed HTTP statuses. */
 export function unavailableSignalInText(text: string): string | undefined {
   for (const token of text.toLowerCase().matchAll(/[a-z_]+/gu)) {
     if (UNAVAILABLE_CODES.has(token[0])) return token[0]
@@ -60,13 +41,7 @@ export const printedStatus = (text: string): number | undefined => {
   return status === undefined ? undefined : Number(status)
 }
 
-/**
- * Sandbox's 409 `NO_HOST_FITS_SHAPE` for a shape that fits its host's ceiling: no exceeded
- * dimension, only `its room is held placeable on <sku>`. It is sent by mistake for "no room now"
- * while new hosts cannot be planned, and the create lands within one autoscaler purchase. Four
- * nodes of Discovery run magnetar-rust-sandbox-20261101a went down on it. A shape over the ceiling
- * names the dimension it exceeds instead, and stays refused.
- */
+/** Held room for an otherwise placeable shape is temporary capacity; oversized shapes stay refused. */
 const HELD_ROOM_REFUSAL = /\bits room is held placeable\b/u
 
 /**
@@ -79,7 +54,11 @@ export function unavailableSignalOfFailure(failure: {
   readonly error: string
   readonly errorCode?: string
   readonly statusCode?: number
+  readonly failure?: AgentTurnFailure
 }): string | undefined {
+  const typed = turnFailureOf(failure)
+  if (typed)
+    return turnFailurePolicy(typed).classification === 'unavailable' ? typed.code : undefined
   const code = failure.errorCode?.toLowerCase()
   if (code !== undefined && UNAVAILABLE_CODES.has(code)) return code
   if (code === 'no_host_fits_shape' && HELD_ROOM_REFUSAL.test(failure.error))
@@ -132,13 +111,15 @@ const MAX_RESET_HOLD_MS = 6 * 60 * 60_000
 /** How often a refusal whose reset is beyond {@link MAX_RESET_HOLD_MS} is probed again. */
 const FAR_RESET_PROBE_MS = 60 * 60_000
 
-/**
- * When a capacity refusal says its quota resets, as epoch ms: the `resetAt` field (ISO string or
- * epoch ms) on the error or a cause, as agent-provider-tangle's `TangleCredentialCapacityError`
- * carries it. Text is never read: zro-game-20261104b's children re-probed every 183 s against a
- * seat whose structured reset was 2026-11-10T12:00Z, because only the message was parsed.
- */
-export function reportedResetAt(error: unknown): number | undefined {
+/** Read canonical reset/retry-after before legacy structured reset fields; never parse text. */
+export function reportedResetAt(error: unknown, nowMs = Date.now()): number | undefined {
+  const typed = turnFailureOf(error)
+  if (typed)
+    return typed.resetAt !== undefined
+      ? Date.parse(typed.resetAt)
+      : typed.retryAfterMs !== undefined
+        ? nowMs + typed.retryAfterMs
+        : undefined
   for (const cause of causeChain(error)) {
     let value: unknown
     try {

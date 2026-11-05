@@ -16,6 +16,7 @@ import type { RetainedRunHandle } from '../retained-run-types'
 import { extractTransportEventIdentity } from '../sandbox-transport-events'
 import { armDeadlineTimer } from '../supervise/deadline'
 import { causeChain } from '../supervise/error-message'
+import { turnFailureOf } from '../supervise/executor-outcome'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
@@ -64,6 +65,7 @@ function exactQuotaRefusal(error: unknown) {
         Reflect.get(cause, 'code') === 'provider_quota_exhausted',
     )
     if (refusal === undefined) return undefined
+    const failure = turnFailureOf(refusal)
     const resetAt: unknown = Reflect.get(refusal, 'resetAt')
     return {
       text: '',
@@ -71,6 +73,13 @@ function exactQuotaRefusal(error: unknown) {
       error: `Subscription account capacity is unavailable${typeof resetAt === 'string' ? ` until ${resetAt}` : ''}`,
       errorCode: 'provider_quota_exhausted',
       statusCode: 429,
+      failure: failure ?? {
+        kind: 'capacity' as const,
+        code: 'provider_quota_exhausted',
+        ...(typeof resetAt === 'string' && Number.isFinite(Date.parse(resetAt))
+          ? { resetAt: new Date(resetAt).toISOString() }
+          : {}),
+      },
     }
   } catch {
     return undefined
@@ -203,6 +212,7 @@ export class RetainedObservation {
         finalText: result.text,
         success: result.success,
         ...(result.error ? { error: result.error } : {}),
+        ...(result.failure === undefined ? {} : { failure: result.failure }),
         ...(result.errorCode ? { errorCode: result.errorCode, statusCode: result.statusCode } : {}),
         usageMode: 'cumulative',
         ...(this.failure === undefined
@@ -266,7 +276,10 @@ export class RetainedObservation {
             const flowing = this.sawTerminal
               ? 0
               : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastObservedAt)
-            if (flowing <= 0) return resolve({ kind: 'exact-result' })
+            if (flowing <= 0) {
+              wake = setImmediate(() => resolve({ kind: 'exact-result' }))
+              return
+            }
             grace = setTimeout(() => {
               wake = setImmediate(() => resolve({ kind: 'exact-result' }))
             }, flowing)
@@ -396,7 +409,11 @@ export class RetainedObservation {
         }
         this.pendingRead = undefined
         if (observed.value.done) break
-        if (this.acceptFrame(observed.value.value)) yield observed.value.value
+        if (this.acceptFrame(observed.value.value)) {
+          yield observed.value.value
+          // Consumer persistence is backpressure, not silence on the provider connection.
+          this.lastObservedAt = Date.now()
+        }
       }
     } finally {
       // Cleanup proves nothing about readiness; a provider may never resolve return().

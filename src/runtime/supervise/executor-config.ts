@@ -61,7 +61,10 @@ export type ExecutorConfig =
  * model, process, limits, or backend behavior is detached and deeply frozen.
  * Explicit service/function fields remain live by reference because they are executable ports,
  * not portable configuration. */
-export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
+export function snapshotExecutorConfig(
+  config: ExecutorConfig,
+  mode: 'execution' | 'control' = 'execution',
+): ExecutorConfig {
   switch (config.backend) {
     case 'router-tools': {
       const {
@@ -149,7 +152,10 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
       // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
       // retain the resulting provider instance, never the registry lookup for later execution.
-      const resolvedProvider = resolveAgentEnvironmentProvider(provider, registry)
+      const resolvedProvider =
+        mode === 'control' && typeof provider === 'string'
+          ? (registry?.get(provider) ?? provider)
+          : resolveAgentEnvironmentProvider(provider, registry)
       return Object.freeze({
         ...snapshot,
         provider: resolvedProvider,

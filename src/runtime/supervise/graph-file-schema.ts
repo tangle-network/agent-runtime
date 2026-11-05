@@ -48,8 +48,8 @@ export const graphFileSchema = z.strictObject({
   edges: z.array(z.record(z.string(), z.unknown())),
   gates: z.array(z.unknown()).optional(),
   budget: z.strictObject({
-    maxIterations: nonnegativeInteger,
-    maxTokens: nonnegativeInteger,
+    maxIterations: nonnegativeInteger.optional(),
+    maxTokens: nonnegativeInteger.optional(),
     maxUsd: z.number().finite().nonnegative().optional(),
     deadlineMs: nonnegativeInteger.optional(),
     resources: z

@@ -7,6 +7,7 @@ import {
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
+  AgentTurnFailure,
 } from '@tangle-network/agent-interface/environment-provider'
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import type { ProviderWorkspaceCaptureProvenance } from '../provider-workspace-retention'
@@ -136,7 +137,11 @@ export interface StreamProviderExecutorArgs {
 
 export interface ProviderInvocationEnd {
   /** The upstream refused the turn for capacity, and the environment was kept to continue in. */
-  readonly unavailable?: { readonly signal: string; readonly cause: string }
+  readonly unavailable?: {
+    readonly signal: string
+    readonly cause: string
+    readonly failure?: AgentTurnFailure
+  }
   /** The execution's spend so far, this invocation included. */
   readonly spent?: Spend
   /** Whether this invocation itself spent anything before it ended. */

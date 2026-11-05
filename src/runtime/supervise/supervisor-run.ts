@@ -4,7 +4,10 @@ import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import type { BudgetPool } from './budget'
 import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer, ROOT_DEADLINE_REASON } from './deadline'
 import { runTree } from './finalizer'
+import { runtimeOwnedScopeOwnerControl } from './materialization'
 import {
+  bindScopeRetainedOwnerProvider,
+  bindScopeRetainedOwnerWorkspaceRetention,
   retainedOwnerWorkspaceRetentionSeamKey,
   scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerSettled,
@@ -80,6 +83,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       const scope = createRootScope<Out>(intake, opened, journal, now)
       // The supervisor never `spawn`s on it, so the readout and join barrier are `Out`-agnostic.
       const openScope = scope as unknown as Scope<unknown>
+      const ownerControl = runtimeOwnedScopeOwnerControl(root)
+      if (ownerControl !== undefined) {
+        bindScopeRetainedOwnerProvider(
+          openScope,
+          ownerControl.provider,
+          ownerControl.checkpointCapture,
+        )
+        bindScopeRetainedOwnerWorkspaceRetention(
+          openScope,
+          ownerControl.checkpointCapture !== undefined,
+        )
+      }
 
       // Bind any attached RootHandle to THIS live run; detached again in the finally barrier.
       if (rootLease) {
@@ -330,9 +345,17 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
   let executionAborted = controller.signal.aborted
   let allChildrenDownAtSettle = false
   let parked = false
+  let rootStarted = false
   try {
     await startScopeRecoveries(scope)
-    const out = (await runAbortable(root.run, controller.signal, 'supervisor aborted')) as Out
+    const out = (await runAbortable(
+      () => {
+        rootStarted = true
+        return root.run()
+      },
+      controller.signal,
+      'supervisor aborted',
+    )) as Out
     actOutcome = { ok: true, out }
   } catch (error) {
     if (error instanceof RunParkedError && error.runId === opts.runId) {
@@ -369,7 +392,7 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
       } catch (error) {
         if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
       }
-      if (!persistence.failed) {
+      if (rootStarted && !persistence.failed) {
         try {
           await finalizeScopeOwnerMaterialization(scope)
         } catch (error) {
