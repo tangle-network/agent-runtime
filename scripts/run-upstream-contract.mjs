@@ -20,8 +20,10 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import { readReleaseCohort } from './release-cohort.mjs'
 import { UPSTREAM_CONTRACTS } from './lib/upstream-contract.mjs'
+import { requiredPackedDevelopmentDependency, requiredPackedPeerCandidateVersion } from './lib/packed-package-test.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const sourcePackage = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
 const runtimeName = '@tangle-network/agent-runtime'
 const exactChecks = Object.keys(UPSTREAM_CONTRACTS)
 const args = process.argv.slice(2)
@@ -35,6 +37,7 @@ const { values } = parseArgs({
     'release-tag': { type: 'string' },
     'tag-commit': { type: 'string' },
     'cohort-manifest': { type: 'string' },
+    candidate: { type: 'boolean', default: false },
     'keep-temp': { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -45,47 +48,46 @@ if (values.help) {
   process.stdout.write(
     [
       'Usage: node scripts/run-upstream-contract.mjs --check UP-02 --tarball <archive> --output <report>',
-      '',
-      'The archive must be the one package produced by the release workflow.',
-      'The consumer is installed outside this repository with strict peer checks.',
-      '',
+      'Default: require --release-tag and --tag-commit; exact released source/archive only.',
+      '--candidate --check all: local pre-tag qualification; never emits release attestation.',
     ].join('\n'),
   )
   process.exit(0)
 }
 
 const check = values.check
-if (!exactChecks.includes(check)) {
+if (!exactChecks.includes(check) && !(values.candidate && check === 'all')) {
   throw new Error(`--check must be one of ${exactChecks.join(', ')}`)
 }
 if (!values.tarball) throw new Error('--tarball is required')
 if (!values.output) throw new Error('--output is required')
-if (!values['release-tag']) throw new Error('--release-tag is required')
-if (!values['tag-commit']) throw new Error('--tag-commit is required')
-
 const archive = resolve(values.tarball)
 const output = resolve(values.output)
 const releaseTag = values['release-tag']
 const tagCommit = values['tag-commit']
 if (!existsSync(archive) || !statSync(archive).isFile()) throw new Error(`archive is not a file: ${archive}`)
-if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(releaseTag)) {
-  throw new Error(`release tag must be an existing v* version tag: ${releaseTag}`)
-}
-if (!/^[a-f0-9]{40}$/u.test(tagCommit)) throw new Error(`tag commit must be a full commit SHA: ${tagCommit}`)
-
 const archiveSha256 = sha256File(archive)
-const archivedPackage = readTarPackageJson(archive)
+const archivedPackage = JSON.parse(run('tar', ['-xOzf', archive, 'package/package.json']))
 if (archivedPackage.name !== runtimeName) {
   throw new Error(`archive contains ${archivedPackage.name}, expected ${runtimeName}`)
 }
-const expectedVersion = releaseTag.slice(1)
-if (archivedPackage.version !== expectedVersion) {
-  throw new Error(`release tag/version mismatch: ${releaseTag} vs ${archivedPackage.version}`)
+const head = run('git', ['rev-parse', 'HEAD'], repoRoot).trim()
+if (values.candidate) {
+  if (releaseTag !== undefined || tagCommit !== undefined) throw new Error('candidate evidence cannot name a release tag or tag commit')
+  if (archivedPackage.version !== sourcePackage.version) throw new Error('candidate archive/version mismatch')
+} else {
+  if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(releaseTag ?? ''))
+    throw new Error('release tag must name an existing v* version tag')
+  if (!/^[a-f0-9]{40}$/u.test(tagCommit ?? '')) throw new Error('tag commit must be a full commit SHA')
+  if (archivedPackage.version !== releaseTag.slice(1)) throw new Error('release tag/archive version mismatch')
+  if (head !== tagCommit) throw new Error(`checkout ${head} does not match tag commit ${tagCommit}`)
+  const tagTarget = run('git', ['rev-parse', `${releaseTag}^{}`], repoRoot).trim()
+  if (tagTarget !== tagCommit) throw new Error(`${releaseTag} resolves to ${tagTarget}, not ${tagCommit}`)
 }
-const head = runGit(['rev-parse', 'HEAD'], repoRoot).trim()
-if (head !== tagCommit) throw new Error(`checkout ${head} does not match tag commit ${tagCommit}`)
-const tagTarget = runGit(['rev-parse', `${releaseTag}^{}`], repoRoot).trim()
-if (tagTarget !== tagCommit) throw new Error(`${releaseTag} resolves to ${tagTarget}, not ${tagCommit}`)
+const sandboxName = '@tangle-network/sandbox'
+const sandboxVersion = requiredPackedPeerCandidateVersion(archivedPackage, sandboxName, {
+  name: sandboxName, version: requiredPackedDevelopmentDependency(archivedPackage, sandboxName),
+})
 
 const cohort = readReleaseCohort(values['cohort-manifest'])
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-upstream-contract-'))
@@ -94,14 +96,15 @@ mkdirSync(join(consumer, 'lib'), { recursive: true })
 
 try {
   writeConsumerFiles(consumer, archive, cohort)
-  runPnpm(['install', '--lockfile-only', '--ignore-scripts'], consumer)
-  runPnpm(['install', '--frozen-lockfile', '--ignore-scripts'], consumer)
+  run('pnpm', ['install', '--lockfile-only', '--ignore-scripts'], consumer)
+  run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], consumer)
+  run('pnpm', ['peers', 'check'], consumer)
   const installed = readInstalledPackages(consumer, [
     runtimeName,
     cohort.packages.agentInterface.name,
     cohort.packages.agentEval.name,
     cohort.packages.agentKnowledge.name,
-    '@tangle-network/sandbox',
+    sandboxName,
   ])
   assertInstalledCohort(installed, archivedPackage, cohort)
   const dependencyResolution = inspectDependencyResolution(
@@ -110,17 +113,19 @@ try {
     archive,
     installed,
   )
-  const contract = runConsumer(check, consumer)
+  const contract = check === 'all'
+    ? Object.fromEntries(exactChecks.map((name) => [name, runConsumer(name, consumer)]))
+    : runConsumer(check, consumer)
   const result = {
-    schema: 'agent-runtime/upstream-contract-attestation/v1',
+    schema: `agent-runtime/upstream-contract-${values.candidate ? 'candidate' : 'attestation'}/v1`,
     requirement: check,
     package: {
       name: archivedPackage.name,
       version: archivedPackage.version,
       tarball: basename(archive),
       tarballSha256: archiveSha256,
-      releaseTag,
-      sourceCommit: tagCommit,
+      ...(values.candidate ? {} : { releaseTag }),
+      sourceCommit: head,
     },
     cohort: Object.fromEntries(
       Object.values(cohort.packages).map((entry) => [
@@ -129,7 +134,7 @@ try {
       ]),
     ),
     consumer: {
-      packageManager: runPnpm(['--version'], consumer).trim(),
+      packageManager: run('pnpm', ['--version'], consumer).trim(),
       installRoot: 'clean-consumer-outside-runtime-repository',
       installed,
       dependencyResolution,
@@ -139,7 +144,7 @@ try {
   }
   mkdirSync(dirname(output), { recursive: true })
   writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`)
-  process.stdout.write(`Upstream contract ${check} passed for ${runtimeName}@${archivedPackage.version}.\n`)
+  process.stdout.write(`Upstream ${values.candidate ? 'candidate' : 'contract'} ${check} passed for ${runtimeName}@${archivedPackage.version}.\n`)
   process.stdout.write(`Archive sha256: ${archiveSha256}\n`)
   process.stdout.write(`Evidence: ${output}\n`)
 } finally {
@@ -156,12 +161,13 @@ function writeConsumerFiles(consumerRoot, archivePath, releaseCohort) {
     version: '1.0.0',
     private: true,
     type: 'module',
+    packageManager: sourcePackage.packageManager,
     dependencies: {
       [runtimeName]: `file:${archivePath}`,
       [releaseCohort.packages.agentInterface.name]: releaseCohort.packages.agentInterface.version,
       [releaseCohort.packages.agentEval.name]: releaseCohort.packages.agentEval.version,
       [releaseCohort.packages.agentKnowledge.name]: releaseCohort.packages.agentKnowledge.version,
-      '@tangle-network/sandbox': '0.34.0',
+      [sandboxName]: sandboxVersion,
     },
   }
   writeFileSync(join(consumerRoot, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`)
@@ -169,14 +175,12 @@ function writeConsumerFiles(consumerRoot, archivePath, releaseCohort) {
     join(consumerRoot, 'pnpm-workspace.yaml'),
     [
       'packages: []',
+      'autoInstallPeers: false',
+      'strictPeerDependencies: true',
       'overrides:',
       ...Object.entries(exactCohortVersions).map(([name, version]) => `  '${name}': '${version}'`),
       '',
     ].join('\n'),
-  )
-  writeFileSync(
-    join(consumerRoot, '.npmrc'),
-    ['auto-install-peers=false', 'strict-peer-dependencies=true', 'ignore-scripts=true', ''].join('\n'),
   )
   copyFileSync(join(repoRoot, 'scripts', 'upstream-contract-consumer.mjs'), join(consumerRoot, 'consumer.mjs'))
   copyFileSync(join(repoRoot, 'scripts', 'lib', 'upstream-contract.mjs'), join(consumerRoot, 'lib', 'upstream-contract.mjs'))
@@ -187,19 +191,8 @@ function writeConsumerFiles(consumerRoot, archivePath, releaseCohort) {
 }
 
 function runConsumer(check, consumerRoot) {
-  const result = spawnSync(process.execPath, ['consumer.mjs', check], {
-    cwd: consumerRoot,
-    encoding: 'utf8',
-    env: { ...process.env, FORCE_COLOR: '0' },
-  })
-  if (result.status !== 0) {
-    throw new Error(
-      [`packed contract ${check} failed`, result.stdout.trim(), result.stderr.trim()]
-        .filter(Boolean)
-        .join('\n'),
-    )
-  }
-  const lines = result.stdout.trim().split('\n').filter(Boolean)
+  const lines = run(process.execPath, ['consumer.mjs', check], consumerRoot,
+    { ...process.env, FORCE_COLOR: '0' }).trim().split('\n').filter(Boolean)
   const json = lines.at(-1)
   if (!json) throw new Error(`packed contract ${check} produced no JSON result`)
   return JSON.parse(json)
@@ -239,14 +232,14 @@ function assertInstalledCohort(installed, archivedPackage, releaseCohort) {
       throw new Error(`consumer installed the wrong ${entry.name} version`)
     }
   }
-  if (installed['@tangle-network/sandbox']?.version !== '0.34.0') {
+  if (installed[sandboxName]?.version !== sandboxVersion) {
     throw new Error('consumer installed the wrong @tangle-network/sandbox version')
   }
 }
 
 function inspectDependencyResolution(consumerRoot, names, archivePath, expectedPackages) {
   const dependencyTree = JSON.parse(
-    runPnpm(['list', '--json', '--depth', 'Infinity'], consumerRoot),
+    run('pnpm', ['list', '--json', '--depth', 'Infinity'], consumerRoot),
   )
   const resolution = {}
   for (const name of names) {
@@ -311,32 +304,18 @@ function resolutionSource(resolved, archivePath) {
   return 'other'
 }
 
-function readTarPackageJson(archivePath) {
-  const result = spawnSync('tar', ['-xOzf', archivePath, 'package/package.json'], {
-    encoding: 'utf8',
-  })
-  if (result.status !== 0) throw new Error(`could not inspect Runtime archive: ${result.stderr.trim()}`)
-  return JSON.parse(result.stdout)
-}
-
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex')
 }
 
-function runPnpm(command, cwd) {
-  const result = spawnSync('pnpm', command, { cwd, encoding: 'utf8' })
+function run(program, args, cwd, env = process.env) {
+  const result = spawnSync(program, args, { cwd, env, encoding: 'utf8' })
   if (result.status !== 0) {
     throw new Error(
-      [`pnpm ${command.join(' ')} failed`, result.stdout.trim(), result.stderr.trim()]
+      [`${program} ${args.join(' ')} failed`, result.error?.message, result.stdout?.trim(), result.stderr?.trim()]
         .filter(Boolean)
         .join('\n'),
     )
   }
-  return result.stdout
-}
-
-function runGit(command, cwd) {
-  const result = spawnSync('git', command, { cwd, encoding: 'utf8' })
-  if (result.status !== 0) throw new Error(`git ${command.join(' ')} failed: ${result.stderr.trim()}`)
   return result.stdout
 }
