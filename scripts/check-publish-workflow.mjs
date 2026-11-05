@@ -13,6 +13,13 @@ const qualificationPath = resolve(process.argv[3] || resolve(repoRoot, '.github/
 const qualification = readWorkflow(qualificationPath, 'qualification')
 const qualifierJobs = qualification.jobs
 if (!qualifierJobs || typeof qualifierJobs !== 'object') throw new Error('qualification workflow has no jobs')
+const evidencePath = resolve(process.argv[4] || resolve(repoRoot, '.github/workflows/upstream-evidence.yml'))
+const evidence = readWorkflow(evidencePath, 'evidence')
+// Evidence gates npm publication from inside Publish: no tag push of its own, and publish-npm needs it.
+assertEqual(Object.keys(evidence.on ?? {}).join(','), 'workflow_call', 'evidence workflow triggers')
+const evidenceCall = requireJob('evidence')
+assertEqual(evidenceCall.uses, './.github/workflows/upstream-evidence.yml', 'evidence workflow call')
+assertEqual(evidenceCall.with?.package_sha256, '${{ needs.qualify.outputs.runtime-package-sha256 }}', 'evidence tests the qualified archive')
 const qualifier = requireJob('qualify')
 assertEqual(qualifier.uses, './.github/workflows/qualify-release.yml', 'qualification body frozen with the release workflow')
 assertEqual(qualifier.with?.release_tag, '${{ inputs.release_tag }}', 'qualification release tag')
@@ -30,14 +37,12 @@ for (const [prefix, jobName] of [['runtime', 'verify'], ['bench', 'verify-agent-
 }
 const consumer = requireJob('verify-publication')
 assertEqual(consumer.if, "!cancelled() && needs.qualify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')", 'publication verifier success gating')
-assertEqual(consumer.needs?.join(','), 'qualify,publish-npm,publish-agent-bench', 'publication verifier dependencies')
+assertEqual(consumer.needs?.join(','), 'qualify,evidence,publish-npm,publish-agent-bench', 'publication verifier dependencies')
 assertEqual(consumer.env?.EXPECTED_SHA256,
   "${{ startsWith(github.ref, 'refs/tags/agent-bench-v') && needs.qualify.outputs.bench-package-sha256 || needs.qualify.outputs.runtime-package-sha256 }}", 'publication verifier qualified hash')
 const consumerCommand = requireSteps('verify-publication', consumer).find((step) => step.run)?.run ?? ''
 if (!consumerCommand.includes('node scripts/check-npm-publication.mjs "$RUNNER_TEMP/publication-package" --require-published') || !consumerCommand.includes('[ "$status" -eq 3 ] || exit "$status"'))
   throw new Error('publication verifier must require actual bytes and fail closed on mismatches')
-if (!consumer.steps.some((step) => step.if === "env.PACKAGE == 'agent-runtime'" && step.run?.includes('workflows/upstream-evidence.yml/runs')))
-  throw new Error('publication verifier must fail a Runtime release whose tag started no upstream evidence run')
 const releaseCohort = readReleaseCohort()
 
 const publishJobs = {
@@ -48,7 +53,7 @@ const publishJobs = {
 for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   const job = requireJob(jobName)
   assertEqual(job.permissions?.['id-token'], 'write', `${jobName} id-token permission`)
-  assertEqual(job.needs, 'qualify', `${jobName} qualification dependency`)
+  assertEqual([job.needs].flat().join(','), jobName === 'publish-npm' ? 'qualify,evidence' : 'qualify', `${jobName} dependencies`)
   const prefix = requiredJob === 'verify' ? 'runtime' : 'bench'
   for (const [variable, output] of [['EXPECTED_VERSION', 'release-version'], ['EXPECTED_SHA256', 'package-sha256']]) {
     assertEqual(job.env?.[variable], `\${{ needs.qualify.outputs.${prefix}-${output} }}`, `${jobName} ${variable}`)
@@ -110,7 +115,7 @@ for (const [jobName, requiredJob] of Object.entries(publishJobs)) {
   }
 }
 
-for (const [group, defaults] of [[jobs, workflow.permissions], [qualifierJobs, qualification.permissions]]) {
+for (const [group, defaults] of [[jobs, workflow.permissions], [qualifierJobs, qualification.permissions], [evidence.jobs, evidence.permissions]]) {
   for (const [jobName, job] of Object.entries(group)) {
     const permissions = job.permissions === undefined && job !== qualifier ? defaults : job.permissions
     const publisher = group === jobs && jobName in publishJobs

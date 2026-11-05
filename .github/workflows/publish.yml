@@ -1,5 +1,8 @@
 name: Publish
 
+# A retry carries its tag in the title, so adopt-stack finds the run that evidenced it.
+run-name: Publish ${{ inputs.release_tag || github.ref_name }}
+
 on:
   push:
     tags:
@@ -31,8 +34,19 @@ jobs:
     with:
       release_tag: ${{ inputs.release_tag }}
 
-  publish-npm:
+  # npm publication needs this: a failed contract publishes nothing. agent-eval adopt-stack reads these jobs.
+  evidence:
     needs: qualify
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/upstream-evidence.yml
+    permissions:
+      contents: read
+    with:
+      release_tag: ${{ inputs.release_tag || github.ref_name }}
+      package_sha256: ${{ needs.qualify.outputs.runtime-package-sha256 }}
+
+  publish-npm:
+    needs: [qualify, evidence]
     if: (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.qualify.outputs.runtime-publication-pending == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -138,7 +152,7 @@ jobs:
         run: *publish-exact
   # A frozen tag can skip publishing from metadata alone; qualified bytes still need verification.
   verify-publication:
-    needs: [qualify, publish-npm, publish-agent-bench]
+    needs: [qualify, evidence, publish-npm, publish-agent-bench]
     if: "!cancelled() && needs.qualify.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')"
     runs-on: ubuntu-latest
     permissions: { contents: read, actions: read }
@@ -164,15 +178,3 @@ jobs:
           done
           echo '::error::Qualified archive is not served by the registry after the propagation wait.'
           exit 1
-      # The same tag push starts upstream-evidence.yml; consumers adopt a Runtime release only
-      # after that run passes (agent-eval adopt-stack), so a release without one fails here.
-      - name: Require the tag's upstream evidence run
-        if: env.PACKAGE == 'agent-runtime'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
-        run: |
-          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/upstream-evidence.yml/runs?branch=$RELEASE_TAG&event=push&per_page=100" \
-            --jq '[.workflow_runs[] | select(.head_branch == env.RELEASE_TAG)] | max_by(.id) // empty | "\(.html_url) \(.status) \(.conclusion)"')
-          [ -n "$run" ] || { echo "::error::$RELEASE_TAG started no upstream evidence run; no consumer adopts it until one passes."; exit 1; }
-          echo "::notice::$RELEASE_TAG upstream evidence: $run"

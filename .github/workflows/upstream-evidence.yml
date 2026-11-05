@@ -1,59 +1,42 @@
 name: Runtime upstream evidence
 
+# Publish calls this between qualification and npm publication, so a failed contract
+# publishes nothing. It runs only what qualification does not: the public contracts, each
+# against the exact qualified archive. Source, suite, exports and cohort were qualified once.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+      package_sha256:
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 jobs:
-  package:
+  contract:
+    name: ${{ matrix.check }}
     runs-on: [self-hosted, ci-public]
-    timeout-minutes: 30
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-      sha256: ${{ steps.package.outputs.sha256 }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [UP-02, UP-03, UP-04, UP-10, UP-11, UP-12, UP-13]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: refs/tags/${{ inputs.release_tag }}
           persist-credentials: false
-
-      - name: Verify tagged source and package version
-        id: release
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          TAG_COMMIT: ${{ github.sha }}
-        run: |
-          if [[ "$RELEASE_TAG" != v* ]] || ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
-            echo "::error::Expected a v* release tag, got '$RELEASE_TAG'."
-            exit 1
-          fi
-          git fetch --force --no-tags --depth=1 origin \
-            "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-          tag_commit=$(git rev-parse "$RELEASE_TAG^{}")
-          checkout_commit=$(git rev-parse HEAD)
-          if [ "$checkout_commit" != "$tag_commit" ] || [ "$tag_commit" != "$TAG_COMMIT" ]; then
-            echo "::error::Tag source mismatch: checkout=$checkout_commit tag=$tag_commit event=$TAG_COMMIT."
-            exit 1
-          fi
-          version=$(node -p "require('./package.json').version")
-          if [ "${RELEASE_TAG#v}" != "$version" ]; then
-            echo "::error::Tag/version mismatch: tag=${RELEASE_TAG#v} package=$version."
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Release source locked: $RELEASE_TAG at $tag_commit"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           package-manager-cache: false
 
-      - &package-manager
-        name: Activate repository package manager
+      - name: Activate repository package manager
         run: |
           manager_dir=$(mktemp -d "$RUNNER_TEMP/upstream-pnpm.XXXXXX")
           export COREPACK_HOME="$manager_dir/corepack" PNPM_CONFIG_STORE_DIR="$manager_dir/store"
@@ -64,82 +47,31 @@ jobs:
           echo "$manager_dir/bin" >> "$GITHUB_PATH"
           "$manager_dir/bin/pnpm" --version
 
-      - name: Install package set
-        run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-runtime-package
+          path: ${{ runner.temp }}/agent-runtime-package
 
-      - name: Verify package exports and build
-        run: pnpm run verify:package
-
-      - name: Run the Runtime test suite
-        run: pnpm run test
-
-      - name: Pack the exact Runtime archive
-        id: package
+      - name: Run public contract on the qualified archive
+        env:
+          CHECK: ${{ matrix.check }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SHA256: ${{ inputs.package_sha256 }}
         run: |
-          package_dir="$RUNNER_TEMP/agent-runtime-upstream-tarball"
-          mkdir -p "$package_dir"
-          npm_config_ignore_scripts=true pnpm pack --pack-destination "$package_dir"
-          mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name '*.tgz' -print)
+          mapfile -t packages < <(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -type f -name '*.tgz' -print)
           if [ "${#packages[@]}" -ne 1 ]; then
             echo "::error::Expected one Runtime archive, found ${#packages[@]}."
             exit 1
           fi
-          package="${packages[0]}"
-          node scripts/verify-package-exports.mjs "$package"
-          sha256=$(sha256sum "$package" | cut -d' ' -f1)
-          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
-          echo "Runtime archive locked: $package ($sha256)"
-
-      - name: Upload exact Runtime archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: agent-runtime-upstream-tarball
-          path: ${{ runner.temp }}/agent-runtime-upstream-tarball/*.tgz
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
-
-  contract:
-    name: ${{ matrix.check }}
-    needs: package
-    runs-on: [self-hosted, ci-public]
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        check: [UP-02, UP-03, UP-04, UP-10, UP-11, UP-12, UP-13]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.ref }}
-          persist-credentials: false
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          package-manager-cache: false
-
-      - *package-manager
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: agent-runtime-upstream-tarball
-          path: ${{ runner.temp }}/agent-runtime-upstream-tarball
-
-      - name: Run public contract
-        env:
-          CHECK: ${{ matrix.check }}
-        run: |
-          mapfile -t packages < <(find "$RUNNER_TEMP/agent-runtime-upstream-tarball" -maxdepth 1 -type f -name '*.tgz' -print)
-          if [ "${#packages[@]}" -ne 1 ]; then
-            echo "::error::Expected one Runtime archive, found ${#packages[@]}."
+          if [ "$(sha256sum "${packages[0]}" | cut -d' ' -f1)" != "$EXPECTED_SHA256" ]; then
+            echo '::error::Archive digest mismatch: this is not the qualified archive.'
             exit 1
           fi
           node scripts/run-upstream-contract.mjs \
             --check "$CHECK" \
             --tarball "${packages[0]}" \
-            --release-tag "$GITHUB_REF_NAME" \
-            --tag-commit "$GITHUB_SHA" \
+            --release-tag "$RELEASE_TAG" \
+            --tag-commit "$(git rev-parse HEAD)" \
             --cohort-manifest release/cohort.json \
             --output "$RUNNER_TEMP/upstream-evidence/$CHECK.json"
 
