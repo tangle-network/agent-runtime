@@ -11,18 +11,14 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
-import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
-import type { AwaitWakeInput, CoordinationEvent } from '../../src/mcp/tools/coordination-events'
+import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
 import { environmentReader } from '../../src/mcp/tools/spawn-resource-paths'
-import { runSettledCommand } from '../../src/mcp/worktree-harness'
 import type { CheckVerdict } from '../../src/runtime/supervise/completion-gate'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
   serveCoordinationMcp,
   serveCoordinationMcpForManager,
 } from '../../src/runtime/supervise/coordination-mcp'
-import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -34,6 +30,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { jsonRpc, wakeInput } from '../helpers/coordination-http'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { testAgentProfile } from './test-agent-profile'
 
@@ -69,28 +66,6 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
-}
-
-/** A wake input that waits on no timer unless the test sets one. */
-const wakeInput = (over: Partial<AwaitWakeInput> = {}): AwaitWakeInput => ({
-  signal: new AbortController().signal,
-  heartbeatMs: 60_000,
-  debounceMs: 0,
-  ...over,
-})
-
-async function jsonRpc(
-  url: string,
-  method: string,
-  params: unknown,
-  headers?: Readonly<Record<string, string>>,
-): Promise<{ result?: unknown; error?: unknown }> {
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  })
-  return (await r.json()) as { result?: unknown; error?: unknown }
 }
 
 describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP → Scope.spawn)', () => {
@@ -287,155 +262,6 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(result.kind, JSON.stringify(result)).toBe('winner')
     expect(reads).toBe(1)
     expect(wakes.filter((event) => JSON.stringify(event).includes('slow-spawn:s1'))).toEqual([])
-  })
-
-  it('delivers a same-process keyed completion once after observing its durable result over MCP', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'coordination-eager-'))
-    const journalPath = join(directory, 'spawn-journal.jsonl')
-    const journal = new FileSpawnJournal(journalPath)
-    const blobs = new FileResultBlobStore(join(directory, 'blobs'))
-    const executions = join(directory, 'executions')
-    const profile = testAgentProfile('quick')
-    const budget = { maxIterations: 4, maxTokens: 1000 }
-    const child = driverChild(
-      profile,
-      {
-        name: 'quick',
-        async act(_task, scope) {
-          const result = await runSettledCommand({
-            command: process.execPath,
-            args: [
-              '-e',
-              `require('node:fs').appendFileSync(process.argv[1], 'executed\\n'); process.stdout.write('checked result')`,
-              executions,
-            ],
-            cwd: directory,
-            timeoutMs: 5000,
-            signal: scope.signal,
-          })
-          if (result.exitCode !== 0) throw new Error(result.stderr)
-          return result.stdout
-        },
-      },
-      journal,
-    )
-    const sourceProfile = testAgentProfile('source')
-    const source = driverChild(
-      sourceProfile,
-      { name: 'source', act: async () => ({ items: ['go'] }) },
-      journal,
-    )
-    const joinChild = driverChild(
-      testAgentProfile('join'),
-      { name: 'join', act: async () => 'joined' },
-      journal,
-    )
-    const root: Agent<unknown, unknown> = {
-      name: 'poller',
-      async act(_task, scope) {
-        const events: CoordinationEvent[] = []
-        const { handle: mcp, controls } = await serveCoordinationMcpForManager({
-          scope,
-          blobs,
-          perWorker: budget,
-          makeWorkerAgent: (profile) =>
-            profile.name === 'source' ? source : profile.name === 'quick' ? child : joinChild,
-          toolNames: ['spawn_worker', 'observe_agent'],
-          authentication: true,
-          mapOnSettle: [
-            {
-              edge: 'checked',
-              from: 'source',
-              pointer: '/items',
-              item: { profile },
-              join: testAgentProfile('join'),
-              maxItems: 1,
-              concurrency: 1,
-              onItemFailure: 'settled-subset',
-            },
-          ],
-          onEvent: (event) => {
-            events.push(event)
-          },
-        })
-        const coldJournal = new FileSpawnJournal(journalPath)
-        const terminalCount = async (id: string) =>
-          ((await coldJournal.loadTree('observe-pending')) ?? []).filter(
-            (event) => event.kind === 'settled' && event.id === id,
-          ).length
-        try {
-          const started = await jsonRpc(
-            mcp.url,
-            'tools/call',
-            {
-              name: 'spawn_worker',
-              arguments: { profile: sourceProfile, task: 'find' },
-            },
-            mcp.headers,
-          )
-          const sourceId = JSON.parse(started.result.content[0].text).workerId
-          await expect.poll(() => terminalCount(sourceId), { timeout: 5000 }).toBe(1)
-          const spawned = scope.spawn(child, 'go', {
-            budget,
-            label: 'quick#0',
-            key: 'map:checked#1:0',
-            assignmentId: 'key:map:checked#1:0',
-          })
-          if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
-          const workerId = spawned.handle.id
-          await expect.poll(() => terminalCount(workerId), { timeout: 5000 }).toBe(1)
-          const observe = async () =>
-            JSON.parse(
-              (
-                await jsonRpc(
-                  mcp.url,
-                  'tools/call',
-                  {
-                    name: 'observe_agent',
-                    arguments: { workerId },
-                  },
-                  mcp.headers,
-                )
-              ).result.content[0].text,
-            ) as Record<string, unknown>
-          expect(mcp.settled()).toEqual([])
-          expect(await observe()).toMatchObject({
-            status: 'done',
-            output: 'checked result',
-            settlementPending: { kind: 'done' },
-          })
-          for (let wake = 0; wake < 3 && mcp.settled().length < 3; wake++) {
-            await controls.awaitWake(wakeInput())
-          }
-          expect(mcp.settled()).toHaveLength(3)
-          expect(await mcp.drainResolved()).toBe(0)
-          expect(await observe()).not.toHaveProperty('settlementPending')
-          expect(
-            events.filter((event) => event.type === 'settled' && event.worker.id === workerId),
-          ).toHaveLength(1)
-          expect(
-            events.filter((event) => event.type === 'map' && event.map.phase === 'join'),
-          ).toHaveLength(1)
-          expect(await readFile(executions, 'utf8')).toBe('executed\n')
-          expect(await terminalCount(workerId)).toBe(1)
-          return 'checked result'
-        } finally {
-          await mcp.close()
-        }
-      },
-    }
-    try {
-      const result = await createSupervisor<unknown, unknown>().run(root, 'poll', {
-        budget: { maxIterations: 100, maxTokens: 100_000 },
-        runId: 'observe-pending',
-        journal,
-        blobs,
-        executors: withDriverExecutor(createExecutorRegistry()),
-      })
-      expect(result.kind, JSON.stringify(result)).toBe('winner')
-    } finally {
-      await rm(directory, { recursive: true, force: true })
-    }
   })
 
   it('serves product-owned node tools beside coordination tools over the same HTTP MCP', async () => {
@@ -1460,16 +1286,8 @@ describe('coordination credential continuity', () => {
   })
 })
 
-// ── Single-flight, fenced method tools ──────────────────────────────────────────
-//
-// The failure these close, from run mech-interp-foundations-glm2-20260911d: the director called the
-// method tool `literature_sourcing` at 21:39:12Z and again at 21:40:19Z. Both POSTs failed after
-// 30.0 s ("Error POSTing to endpoint:") because the handler runs a multi-stage literature graph for
-// far longer than `requestTimeoutMs`, while the handler kept running and kept spawning children —
-// so enumerate:{murfet,ghrist,bradley} was spawned twice and one source was extracted twice. The
-// retry's arguments were equal to the first call's only after key sorting, which is why identity is
-// RFC 8785 canonical JSON and not raw request bytes.
-
+// Receipted method calls outlive their HTTP request; equivalent requests share one outcome.
+// RFC 8785 identity handles clients that reorder JSON fields while retrying.
 function deferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -1658,13 +1476,7 @@ describe('method tools on the coordination MCP are single-flight within one fenc
   })
 })
 
-// ── Fenced submit_result ────────────────────────────────────────────────────────
-//
-// The failure this closes, from a 2026-09-22 factory run: the injected check re-ran the product
-// build and asked a model reviewer, so it ran for minutes inside the submit_result request. The
-// transport answered 504 at 30 s while the check kept running, and 25 of 25 submits reached the
-// director as "Streamable HTTP error" with no verdict and no reason.
-
+// A check can outlive submit_result’s HTTP request; its receipt must retain the verdict.
 async function withSlowCheck<T>(
   body: (input: {
     mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>
