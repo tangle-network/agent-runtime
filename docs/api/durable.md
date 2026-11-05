@@ -2290,7 +2290,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-35)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
 
 ##### execution?
 
@@ -3702,7 +3702,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-35)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
 
 ##### execution?
 
@@ -6121,7 +6121,7 @@ that did.
 
 ### readRootStream()
 
-> **readRootStream**(`runDir`): `Promise`\<[`RootStreamRecord`](#rootstreamrecord)[] \| `undefined`\>
+> **readRootStream**(`runDir`, `options?`): `Promise`\<[`RootStreamRecord`](#rootstreamrecord)[] \| `undefined`\>
 
 Every committed line of the root stream, in order, or `undefined` when there is no file. A
  torn final line from a process that died mid-write is not a record and is left out.
@@ -6129,6 +6129,12 @@ Every committed line of the root stream, in order, or `undefined` when there is 
 #### Parameters
 
 ##### runDir
+
+`string`
+
+##### options?
+
+###### nodeId?
 
 `string`
 

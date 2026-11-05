@@ -1384,16 +1384,8 @@ Conserved spend so far for this node.
 
 > `readonly` `optional` **settlementPending?**: `object`
 
-The node's executor has FINISHED and its settlement is queued for the manager to drain with
-its next wake/`next()`, but `status` still reads as it did while running because the settle
-transition happens at drain time. Present only in that window; absent once drained or while
-the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
-can tell "still working" from "finished, waiting for you to read it".
-
-Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children finished 30 s after
-dispatch; the manager polled `observe_agent` eleven times over 56 minutes, read `running`
-each time, stopped draining because the status said work was in flight, and recorded the
-opposite of the truth about its own experiment. agent-runtime#1279.
+Finished execution whose result the manager has not read. Terminal status/failure are
+published after durable settlement, independently of this delivery marker.
 
 ###### kind
 
@@ -3596,12 +3588,6 @@ through them when the driver plans N tasks. Mutually exclusive with
 
 > **ctx**: [`ExecCtx`](#execctx)
 
-##### evidenceRetention?
-
-> `optional` **evidenceRetention?**: [`SandboxEvidenceRetentionPort`](#sandboxevidenceretentionport)
-
-Durable Sandbox evidence capture required before any worker box cleanup.
-
 ##### maxIterations?
 
 > `optional` **maxIterations?**: `number`
@@ -5643,14 +5629,6 @@ shared validator can apply a root-only contract without applying it to nested ma
 The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
 back to its own settle verdict.
 
-##### workspaceRetention?
-
-> `optional` **workspaceRetention?**: [`ProviderWorkspaceRetentionPort`](#providerworkspaceretentionport)
-
-**`Experimental`**
-
-Capture and verify a portable executable workspace before Runtime destroys the environment.
-
 ##### profileForCreate?
 
 > `optional` **profileForCreate?**: (`profile`) => `AgentProfile`
@@ -5714,8 +5692,7 @@ the leaf's deadline, cancellation and budget end it. Each pause is journaled as 
 spawn event, and each continuation as the node's next `execution-input`.
 
 Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
-that declares `retainedControl`. Workspace retention verifies each invocation separately;
-failed capture or required incomplete coverage preserves the source and stops continuation.
+that declares `retainedControl`.
 `false` ends the execution on the refused turn.
 
 ***
@@ -5863,52 +5840,6 @@ Legacy Sandbox client adapter options.
 **`Experimental`**
 
 Require declared live continuation plus concrete session controls.
-
-##### workspaceRetention?
-
-> `optional` **workspaceRetention?**: [`ProviderWorkspaceRetentionPort`](#providerworkspaceretentionport)
-
-**`Experimental`**
-
-Verified workspace capture before every environment delete, including steerable sessions.
-
-##### retentionIdentity?
-
-> `optional` **retentionIdentity?**: `object`
-
-**`Experimental`**
-
-Supervised identity assigned before the environment is created.
-
-###### executionId
-
-> **executionId**: `string`
-
-###### profile
-
-> **profile**: `AgentProfile`
-
-###### node?
-
-> `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
-
-##### onWorkspaceCaptured?
-
-> `optional` **onWorkspaceCaptured?**: (`receipt`) => `void` \| `Promise`\<`void`\>
-
-**`Experimental`**
-
-Called after verification and before deletion so the run result can retain the exact join.
-
-###### Parameters
-
-###### receipt
-
-[`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)
-
-###### Returns
-
-`void` \| `Promise`\<`void`\>
 
 ##### mapCreateOptions?
 
@@ -9561,163 +9492,6 @@ Caller-declared execution placement. Matching never changes the authored profile
 
 ***
 
-### ProviderWorkspaceRetentionPort
-
-The caller-owned boundary used to retain an executable provider workspace.
-
-#### Properties
-
-##### timeoutMs
-
-> `readonly` **timeoutMs**: `number`
-
-Maximum wall-clock time Runtime gives queueing, capture, and verification.
-
-##### maxConcurrentCaptures?
-
-> `readonly` `optional` **maxConcurrentCaptures?**: `number`
-
-Maximum simultaneous captures and verifications using this exact port object, including
-recursive children. Omit for no admission bound. Share the port to share the bound.
-Timed-out callbacks keep their slot until they settle, even if they ignore cancellation.
-
-##### limits?
-
-> `readonly` `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
-
-Same explicit archive bounds used by the capture callback.
-
-##### requireCompleteProvenance?
-
-> `readonly` `optional` **requireCompleteProvenance?**: `boolean`
-
-Refuse cleanup while any native session or workspace coverage remains missing.
-
-##### artifacts
-
-> `readonly` **artifacts**: [`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
-
-Reads the durable manifest and archive after capture returns.
-
-##### liveIntervalMs?
-
-> `readonly` `optional` **liveIntervalMs?**: `number`
-
-Time between live workspace captures. Omit to leave live capture disabled.
-
-##### liveTimeoutMs?
-
-> `readonly` `optional` **liveTimeoutMs?**: `number`
-
-Bound on one live capture and verification, including queue wait. Defaults to timeoutMs.
-
-##### nativeIntervalMs?
-
-> `readonly` `optional` **nativeIntervalMs?**: `number`
-
-Milliseconds between native captures of a running turn. Default 120,000.
-
-##### nativeTimeoutMs?
-
-> `readonly` `optional` **nativeTimeoutMs?**: `number`
-
-Bound on one native capture, including its queue wait. Default 120,000.
-
-#### Methods
-
-##### capture()
-
-> **capture**(`context`): `Promise`\<`AgentCandidateWorkspaceSnapshotEvidence` \| [`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
-
-Capture the live environment into the standard candidate workspace evidence shape.
-
-###### Parameters
-
-###### context
-
-[`ProviderWorkspaceRetentionContext`](#providerworkspaceretentioncontext)
-
-###### Returns
-
-`Promise`\<`AgentCandidateWorkspaceSnapshotEvidence` \| [`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
-
-##### captureNative()?
-
-> `optional` **captureNative**(`context`): `Promise`\<[`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
-
-Capture only the harness's native session evidence, without the workspace, into the same
-durable artifacts, reporting `workspaceScope: 'none'`.
-
-Runtime calls it every [nativeIntervalMs](#nativeintervalms) while a turn runs and once more on every way
-the turn ends: settled, failed, and an abort or deadline that closes the stream without
-reaching either. A crash, deadline, credential renewal, reap or coordinator loss then loses
-at most one interval of the session, and a workspace too large to capture no longer costs
-the session. Measured before this existed: 85 of the 116 Discovery nodes that ran on Runtime
-0.297.x kept no session because their turn ended on an abort path, which never captured.
-
-When a deadline or an explicit cancellation ends a retained turn, Runtime stops its harness
-and waits for the provider to report it stopped, within a 30 s bound, before the failure
-capture and the final native copy, so both read a session that has stopped changing.
-
-Its captures use their own queue and bound, so they never wait behind workspace captures.
-
-###### Parameters
-
-###### context
-
-[`ProviderWorkspaceRetentionContext`](#providerworkspaceretentioncontext)
-
-###### Returns
-
-`Promise`\<[`ProviderWorkspaceCaptureResult`](#providerworkspacecaptureresult)\>
-
-##### captureCheckpoint()?
-
-> `optional` **captureCheckpoint**(`context`): `Promise`\<[`AgentCandidateWorkspaceTree`](candidate-execution.md#agentcandidateworkspacetree)\>
-
-Store one workspace checkpoint's files in the run's content-addressed store, before Runtime
-deletes the checkpoint. Return what `captureAgentCandidateWorkspaceTreeToArtifacts` returns
-for the files the environment holds, written to [artifacts](#artifacts).
-
-A checkpoint is a provider snapshot that Runtime takes while a director works and deletes
-once two newer ones exist. Its files are read from a fork Runtime creates from the snapshot
-for this call alone: the fork holds exactly the checkpoint's workspace and runs no harness,
-so the capture has no session to copy. Runtime verifies the tree against the store and the
-checkpoint's marker file, journals its digest, and destroys the fork. Without this method, or
-when a capture fails, Runtime keeps the checkpoint: on Discovery Lab run
-terraform-dc-tokens-20261006d, 76 of the first 101 checkpoint deletions removed the only copy
-of a director's workspace at that moment.
-
-Captures run on their own queue of [maxConcurrentCaptures](#maxconcurrentcaptures) slots, under [timeoutMs](#timeoutms-5).
-
-###### Parameters
-
-###### context
-
-[`ProviderCheckpointCaptureContext`](#providercheckpointcapturecontext)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateWorkspaceTree`](candidate-execution.md#agentcandidateworkspacetree)\>
-
-##### captureLive()?
-
-> `optional` **captureLive**(`context`): `Promise`\<[`AgentCandidateWorkspaceTree`](candidate-execution.md#agentcandidateworkspacetree)\>
-
-Capture a running environment's workspace without waiting for its turn to settle.
-
-###### Parameters
-
-###### context
-
-[`ProviderWorkspaceRetentionContext`](#providerworkspaceretentioncontext)
-
-###### Returns
-
-`Promise`\<[`AgentCandidateWorkspaceTree`](candidate-execution.md#agentcandidateworkspacetree)\>
-
-***
-
 ### ProviderWorkspaceEntryMetadata
 
 Source inventory metadata for a workspace entry.
@@ -9918,114 +9692,7 @@ Where the port's own capture spent its time, in the port's names and units (ms, 
 
 ***
 
-### ProviderWorkspaceRetentionContext
-
-The exact live execution facts supplied to a retention callback.
-
-#### Properties
-
-##### environment
-
-> `readonly` **environment**: `AgentEnvironment`
-
-##### executionId
-
-> `readonly` **executionId**: `string`
-
-Runtime invocation identity used by the artifact store; never a provider session coordinate.
-
-##### controlRef?
-
-> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
-
-Exact admitted provider execution, available even before the harness emits its session id.
-
-##### node?
-
-> `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)
-
-Exact supervised tree identity, when a supervisor created this execution.
-
-##### providerSessionId?
-
-> `readonly` `optional` **providerSessionId?**: `string` \| `null`
-
-Sandbox/provider session used for this turn; null means no session id was observed.
-
-##### nativeSessionId?
-
-> `readonly` `optional` **nativeSessionId?**: `string` \| `null`
-
-The harness's own session identity is unknown until a provider reports it.
-
-##### profile
-
-> `readonly` **profile**: `AgentProfile`
-
-The exact profile used to create the provider environment.
-
-##### outcome?
-
-> `readonly` `optional` **outcome?**: `AgentRunOutcome`
-
-The provider-derived outcome, when one was available before cleanup.
-
-##### phase?
-
-> `readonly` `optional` **phase?**: [`ProviderNativeCapturePhase`](#providernativecapturephase)
-
-Set on native captures only: whether the turn was still running or how it ended.
-
-##### signal
-
-> `readonly` **signal**: `AbortSignal`
-
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-5).
-
-***
-
-### ProviderCheckpointCaptureContext
-
-What [ProviderWorkspaceRetentionPort.captureCheckpoint](#capturecheckpoint) receives.
-
-#### Properties
-
-##### environment
-
-> `readonly` **environment**: `AgentEnvironment`
-
-A fork of the checkpoint, created for this capture alone. It holds the checkpoint's
- workspace and runs no harness.
-
-##### checkpoint
-
-> `readonly` **checkpoint**: `WorkspaceCheckpointRef`
-
-The checkpoint the fork was created from.
-
-##### executionId
-
-> `readonly` **executionId**: `string`
-
-Runtime artifact identity of this capture: `<node>:checkpoint:<checkpoint id>`.
-
-##### profile
-
-> `readonly` **profile**: `AgentProfile`
-
-The owner's profile; its harness names what the fork's source ran.
-
-##### signal
-
-> `readonly` **signal**: `AbortSignal`
-
-A fresh signal bounded by [ProviderWorkspaceRetentionPort.timeoutMs](#timeoutms-5).
-
-***
-
 ### ProviderWorkspaceCaptureReceipt
-
-Durable join from one provider box to the verified bytes retained before cleanup.
 
 #### Properties
 
@@ -10541,7 +10208,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-4)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment-2)
 
 ##### interactiveIdempotencyKey
 
@@ -11338,7 +11005,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-6)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-4)
 
 ##### existingEnvironmentId?
 
@@ -12518,42 +12185,6 @@ Sleep override for deterministic tests.
 
 `Promise`\<`void`\>
 
-##### onAcquire?
-
-> `optional` **onAcquire?**: (`box`) => `void`
-
-**`Experimental`**
-
-Register the live source before readiness polling can destroy it.
-
-###### Parameters
-
-###### box
-
-`SandboxInstance`
-
-###### Returns
-
-`void`
-
-##### beforeDelete?
-
-> `optional` **beforeDelete?**: (`box`) => `Promise`\<`void`\>
-
-**`Experimental`**
-
-Capture and persist evidence before failed-readiness cleanup.
-
-###### Parameters
-
-###### box
-
-`SandboxInstance`
-
-###### Returns
-
-`Promise`\<`void`\>
-
 ***
 
 ### SandboxServedBackend
@@ -12658,89 +12289,9 @@ RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 ***
 
-### SandboxEvidenceRetentionPort
-
-One durable capture before a Sandbox box is removed.
-
-#### Properties
-
-##### timeoutMs
-
-> `readonly` **timeoutMs**: `number`
-
-##### limits?
-
-> `readonly` `optional` **limits?**: `Partial`\<[`AgentCandidateWorkspaceArchiveLimits`](#agentcandidateworkspacearchivelimits)\>
-
-##### artifacts
-
-> `readonly` **artifacts**: [`AgentCandidateArtifactPort`](candidate-execution.md#agentcandidateartifactport)
-
-#### Methods
-
-##### capture()
-
-> **capture**(`context`): `Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; `provenance`: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance); \}\>
-
-###### Parameters
-
-###### context
-
-[`SandboxEvidenceContext`](#sandboxevidencecontext) & `object`
-
-###### Returns
-
-`Promise`\<\{ `snapshot`: `AgentCandidateWorkspaceSnapshotEvidence`; `provenance`: [`ProviderWorkspaceCaptureProvenance`](#providerworkspacecaptureprovenance); \}\>
-
-##### record()
-
-> **record**(`receipt`): `Promise`\<`void`\>
-
-Must durably record this exact verified receipt before returning.
-
-###### Parameters
-
-###### receipt
-
-[`SandboxEvidenceReceipt`](#sandboxevidencereceipt)
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### SandboxEvidenceContext
-
-#### Properties
-
-##### box
-
-> `readonly` **box**: `SandboxInstance`
-
-##### executionId
-
-> `readonly` **executionId**: `string`
-
-##### profile
-
-> `readonly` **profile**: `AgentProfile`
-
-##### sandboxSessionIds
-
-> `readonly` **sandboxSessionIds**: readonly `string`[]
-
-##### nativeSessionIds?
-
-> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
-
-##### sessionExecutionIds
-
-> `readonly` **sessionExecutionIds**: `Readonly`\<`Record`\<`string`, `ReadonlyArray`\<`string`\>\>\>
-
-***
-
 ### SandboxEvidenceReceipt
+
+Historical receipt written by the retired client capture port.
 
 #### Properties
 
@@ -15975,9 +15526,8 @@ Absent on historical tickets, whose reserved amounts remain their ceilings.
 
 > `readonly` `optional` **usdBudgeted?**: `boolean`
 
-Whether the child's `Budget` declared `maxUsd`. `reserved.usd` is `0` for both an undeclared
-ceiling (real dollars are committed as OBSERVED spend) and a declared `$0` (a breach is
-fail-loud). An absent flag is read as `true`, the fail-closed reading.
+Distinguishes an undeclared USD ceiling (observed cost) from a declared zero cap.
+Historical absent flags default to capped.
 
 ***
 
@@ -16101,8 +15651,7 @@ How a caller asks for a reservation.
 
 > `readonly` `optional` **wait?**: `boolean`
 
-Wait for budget instead of failing, when the reservations still open would return enough.
- The reservation then holds nothing until it is granted.
+Queue an existing invocation until actual settlements fund it; hold nothing meanwhile.
 
 ##### keep?
 
@@ -16114,12 +15663,8 @@ Leave this owner share free after the reservation, less what `observe` already c
 
 ### ReservationShortfall
 
-One channel a `budget-exhausted` reservation could not fit. A refusal lists every such channel
-so shrinking one request is not met by a second refusal (a director whose 100-iteration child
-was refused spent a probe worker to learn the pool admitted 3). `free` is a snapshot, and a
-driver's metered turns draw from the same pool, so only `iterations` can be requested at exactly
-`free`. `closedByUnknownSpend`: unmeasured usage ran under that enforced limit, so the channel
-refuses every reservation for the rest of the run.
+Every unfunded channel in one refusal. `free` is a live snapshot, not a future refund.
+Unknown enforced usage closes that channel to new reservations for the rest of the run.
 
 #### Properties
 
@@ -16139,8 +15684,7 @@ refuses every reservation for the rest of the run.
 
 > `readonly` `optional` **held?**: `number`
 
-What open reservations hold on this channel, when they hold any. A request of at most
- `free + held` can wait for them to settle; a larger one never fits.
+What open reservations hold now; this is not a prediction of future refunds.
 
 ##### closedByUnknownSpend?
 
@@ -16150,10 +15694,7 @@ What open reservations hold on this channel, when they hold any. A request of at
 
 ### BudgetPoolRestore
 
-State recovered from a prior process before new work is admitted. `committed` is measured spend
-already present in the durable journal. Each `uncertainReservation` is a child that was recorded
-as started but never recorded as settled: its full declared ceiling is charged conservatively,
-while the public readout remains explicitly unknown.
+Durable spend, unknown-work ceilings and remaining backing restored before new admission.
 
 #### Properties
 
@@ -16171,6 +15712,12 @@ The part of `committed` the owner's own work spent, charged against its kept sha
 
 > `readonly` `optional` **uncertainReservations?**: readonly [`Budget`](#budget-10)[]
 
+##### heldReservations?
+
+> `readonly` `optional` **heldReservations?**: readonly [`Budget`](#budget-10)[]
+
+Precisely journaled remaining liabilities, separate from historical unmeasured ceilings.
+
 ***
 
 ### BudgetPool
@@ -16181,13 +15728,9 @@ The part of `committed` the owner's own work spent, charged against its kept sha
 
 > **reserve**(`b`, `holder?`, `options?`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); `granted?`: `Promise`\<`void`\>; \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); `shortfalls?`: readonly [`ReservationShortfall`](#reservationshortfall)[]; \}
 
-Atomically reserve a child's full ceiling from the free balance; fails closed
-({ ok: false }) when the pool can't cover standard or named channels.
-
-With `wait`, a request that could fit once open reservations return is admitted as a WAITING
-ticket: `granted` resolves when reserved and rejects with `ReservationWaitRefused` once
-nothing open could return enough. A waiting ticket reserves nothing; reconciling it withdraws
-it. New waiting requests queue behind existing waiters, so asking order is grant order.
+Reserve a complete ceiling from current funds. `wait` holds nothing while funded
+tickets remain open; `granted` resolves after actual refunds, or rejects when none
+can fund it. Unfunded reservations retain asking order and reconcile withdraws them.
 
 ###### Parameters
 
@@ -16232,10 +15775,9 @@ Name (or rename) who holds an open reservation, merging into what `reserve` reco
 
 > **reconcile**(`ticket`, `spent`): [`BudgetViolation`](#budgetviolation-2) \| `undefined`
 
-Release a reservation: commit the actual `spent`, refund the remainder. Throws on an unknown
-or already-reconciled ticket (a double refund would break conservation). Returns the
-overspend, after committing it; throws, also after committing, when the spend cannot be
-verified (unknown dollars under a cap, unknown or overflowing enforced-resource usage).
+Close the ticket, commit actual cost and refund unused capacity. Unknown/double
+tickets throw. Overspend is returned after commit; unverifiable capped usage throws.
+Scope-owned custody backing survives execution until its acknowledged release.
 
 ###### Parameters
 
@@ -16281,12 +15823,10 @@ The current readout, reflecting all outstanding reservations.
 
 > **observe**(`spend`, `options?`): `void`
 
-Record OBSERVED spend outside reserve/reconcile — the driver's OWN inference. A direct
-`free → committed` debit preserving the invariant; `free` may go negative on overspend.
-Unknown enforced resource usage is recorded before throwing; partial increments defer
-completeness checks until the terminal spend. Unknown dollars under a cap are refused, unless
-`alreadySpent` says the work finished with no caller left to refuse (that closes dollar
-admission instead). The DURABLE record is the journal's `metered` event (`Scope.meter`).
+Debit observed owner work; overspend may leave free capacity negative. Unknown
+resources are recorded before throwing; partial observations defer completeness.
+Unknown capped dollars are refused unless `alreadySpent` requires recording them
+and closing admission. `Scope.meter` supplies the corresponding durable record.
 
 ###### Parameters
 
@@ -16312,7 +15852,7 @@ admission instead). The DURABLE record is the journal's `metered` event (`Scope.
 
 > **assertNoOpenTickets**(): `void`
 
-Fail loud if any reservation is still open — the leak detector, called at the join barrier.
+Reject open execution tickets at join; confirmed custody liabilities may remain backed.
 
 ###### Returns
 
@@ -19406,16 +18946,8 @@ Conserved spend so far for this node.
 
 > `readonly` `optional` **settlementPending?**: `object`
 
-The node's executor has FINISHED and its settlement is queued for the manager to drain with
-its next wake/`next()`, but `status` still reads as it did while running because the settle
-transition happens at drain time. Present only in that window; absent once drained or while
-the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
-can tell "still working" from "finished, waiting for you to read it".
-
-Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children finished 30 s after
-dispatch; the manager polled `observe_agent` eleven times over 56 minutes, read `running`
-each time, stopped draining because the status said work was in flight, and recorded the
-opposite of the truth about its own experiment. agent-runtime#1279.
+Finished execution whose result the manager has not read. Terminal status/failure are
+published after durable settlement, independently of this delivery marker.
 
 ###### kind
 
@@ -20168,7 +19700,7 @@ Cancel the live tree. Unsupported signals from older callers throw a validation 
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle).[`signal`](#signal-29)
+[`RootHandle`](#roothandle).[`signal`](#signal-27)
 
 ##### abort()
 
@@ -21037,6 +20569,12 @@ One attempt's record, emitted per attempt so an operator sees each legible failu
 > `readonly` `optional` **error?**: `string`
 
 Absent when the attempt completed.
+
+##### failure?
+
+> `readonly` `optional` **failure?**: `object`
+
+Validated producer attribution, including its reset hint when supplied.
 
 ##### classification?
 
@@ -22813,7 +22351,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-35)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-33)
 
 ##### execution?
 
@@ -24210,6 +23748,10 @@ Stable input available to key and holder functions.
 
 ### SupervisorSpanOptions
 
+#### Extends
+
+- `Pick`\<[`RuntimeTelemetryOptions`](index.md#runtimetelemetryoptions), `"includeMetadata"` \| `"includeEvalDetails"`\>
+
 #### Properties
 
 ##### runId
@@ -24277,6 +23819,26 @@ Injectable clock; used only for the root span's start/end. Default `Date.now`.
 ###### Returns
 
 `number`
+
+##### includeMetadata?
+
+> `optional` **includeMetadata?**: `boolean`
+
+Include task metadata. Off by default because metadata may carry IDs or policy internals.
+
+###### Inherited from
+
+[`RuntimeTelemetryOptions`](index.md#runtimetelemetryoptions).[`includeMetadata`](index.md#includemetadata)
+
+##### includeEvalDetails?
+
+> `optional` **includeEvalDetails?**: `boolean`
+
+Include eval detail/evidence strings. Off by default because validators may echo private input.
+
+###### Inherited from
+
+[`RuntimeTelemetryOptions`](index.md#runtimetelemetryoptions).[`includeEvalDetails`](index.md#includeevaldetails)
 
 ***
 
@@ -26300,16 +25862,6 @@ checkpoint/fork.
 
 Surface evidence capture failures from session cleanup.
 
-##### workspaceCaptures?
-
-> `optional` **workspaceCaptures?**: () => readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
-
-Verified provider captures collected before session teardown.
-
-###### Returns
-
-readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
-
 ##### loopCtx?
 
 > `optional` **loopCtx?**: `Partial`\<`Omit`\<[`ExecCtx`](#execctx), `"signal"` \| `"sandboxClient"`\>\>
@@ -26719,16 +26271,6 @@ back to its own settle verdict.
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`validator`](#validator-1)
 
-##### workspaceRetention?
-
-> `optional` **workspaceRetention?**: [`ProviderWorkspaceRetentionPort`](#providerworkspaceretentionport)
-
-Capture and verify a portable executable workspace before Runtime destroys the environment.
-
-###### Inherited from
-
-[`ProviderExecutorOptions`](#providerexecutoroptions).[`workspaceRetention`](#workspaceretention)
-
 ##### profileForCreate?
 
 > `optional` **profileForCreate?**: (`profile`) => `AgentProfile`
@@ -26794,8 +26336,7 @@ the leaf's deadline, cancellation and budget end it. Each pause is journaled as 
 spawn event, and each continuation as the node's next `execution-input`.
 
 Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
-that declares `retainedControl`. Workspace retention verifies each invocation separately;
-failed capture or required incomplete coverage preserves the source and stops continuation.
+that declares `retainedControl`.
 `false` ends the execution on the refused turn.
 
 ###### Inherited from
@@ -27141,14 +26682,6 @@ Same output projection used at capture and terminal publication.
 > `readonly` `optional` **failOnDestroyError?**: `boolean`
 
 Require capture failures at box cleanup to fail the supervised worker.
-
-##### workspaceCaptures?
-
-> `readonly` `optional` **workspaceCaptures?**: () => readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
-
-###### Returns
-
-readonly [`ProviderWorkspaceCaptureReceipt`](#providerworkspacecapturereceipt)[]
 
 ##### inbox
 
@@ -29373,7 +28906,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-21)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-18)
 
 ##### task
 
@@ -34329,14 +33862,6 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ***
 
-### ProviderNativeCapturePhase
-
-> **ProviderNativeCapturePhase** = `"running"` \| `"settled"` \| `"failed"` \| `"interrupted"`
-
-When [ProviderWorkspaceRetentionPort.captureNative](#capturenative) runs relative to its turn.
-
-***
-
 ### RetainedInteractiveEnvironmentInput
 
 > **RetainedInteractiveEnvironmentInput** = `Omit`\<`CreateAgentEnvironmentInput`, `"idempotencyKey"` \| `"profile"` \| `"signal"`\> & `object`
@@ -34639,9 +34164,8 @@ Where in the spawn lifecycle a reservation was last seen. `admitted` is the wind
 
 > **BudgetReadout** = `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensCapped?`: `boolean`; `committedTokens?`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `iterationsCapped?`: `boolean`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
-Post-reservation pool readout — the shape `Scope.budget` exposes. `deadlineMs` is the ABSOLUTE
- wall-clock deadline (0 when none). `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion
- from an uncapped pool (which always reads `usdLeft: 0`).
+`Scope.budget`: absolute deadline (0 when absent), current backing and committed cost.
+An uncapped USD channel reads 0; `usdCapped` distinguishes it from exhaustion.
 
 ***
 
@@ -34722,7 +34246,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### ExecutorProgressEvent
 
-> **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \} \| \{ `kind`: `"child_task"`; `event`: `ChildTaskEvent`; \} \| \{ `kind`: `"awaiting-result"`; `since`: `string`; \}
+> **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `status?`: `"ok"` \| `"error"`; `error?`: \{ `type`: `string`; `message`: `string`; \}; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \} \| \{ `kind`: `"child_task"`; `event`: `ChildTaskEvent`; \} \| \{ `kind`: `"awaiting-result"`; `since`: `string`; \}
 
 Live output observed while an executor runs, in Runtime's own vocabulary. It carries what the
 backend produced — text, reasoning, tool activity, an interaction request — and never carries
@@ -34751,7 +34275,7 @@ never meter a budget.
 
 ##### Type Literal
 
-\{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \}
+\{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `status?`: `"ok"` \| `"error"`; `error?`: \{ `type`: `string`; `message`: `string`; \}; \}
 
 ***
 
@@ -35519,13 +35043,13 @@ settles on the ordinary path and the recorded-result path writes no marker.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| `object` & `Omit`\<[`ExecutorResult`](#executorresult)\<`unknown`\>, `"out"` \| `"teardown"`\> \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-refused"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `idempotencyKey`: `string`; `message`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `attemptId?`: `string`; `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"admission-queued"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `gate`: `"budget"` \| `"slot"` \| `"seat"`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"admission-granted"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `deadlineArmedAt`: `string`; `deadlineAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| `object` & `Omit`\<[`ExecutorResult`](#executorresult)\<`unknown`\>, `"out"` \| `"teardown"`\> \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `reservation?`: [`Budget`](#budget-10); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-6); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-refused"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `idempotencyKey`: `string`; `message`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `attemptId?`: `string`; `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-6); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -35534,6 +35058,12 @@ settles on the ordinary path and the recorded-result path writes no marker.
 ###### id
 
 > **id**: [`NodeId`](#nodeid-5)
+
+###### attemptId?
+
+> `optional` **attemptId?**: `string`
+
+Kernel attempt identity also identifies grant-clock admission in crash prefixes.
 
 ###### parent?
 
@@ -35623,6 +35153,78 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
 > `optional` **modelSubstitution?**: [`SpawnModelSubstitution`](#spawnmodelsubstitution)
 
 Present when authorization ran this node on another model than its parent authored.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"admission-queued"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `gate`: `"budget"` \| `"slot"` \| `"seat"`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"admission-queued"`
+
+An admitted node waits on this gate; this is not provider dispatch evidence.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+###### attemptId
+
+> **attemptId**: `string`
+
+###### gate
+
+> **gate**: `"budget"` \| `"slot"` \| `"seat"`
+
+###### resumeAt?
+
+> `optional` **resumeAt?**: `string`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"admission-granted"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `deadlineArmedAt`: `string`; `deadlineAt?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"admission-granted"`
+
+The original execution grant and its one absolute deadline, preserved on recovery.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+###### attemptId
+
+> **attemptId**: `string`
+
+###### deadlineArmedAt
+
+> **deadlineArmedAt**: `string`
+
+###### deadlineAt?
+
+> `optional` **deadlineAt?**: `string`
 
 ###### seq
 
@@ -36307,7 +35909,7 @@ Present on the row a worker publishes when it starts waiting on its exact result
 
 ##### Type Literal
 
-\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `reservation?`: [`Budget`](#budget-10); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -36336,6 +35938,14 @@ A retained child's reservation was reconciled at the child-work floor its execut
 ###### spent
 
 > **spent**: [`Spend`](#spend-1)
+
+###### reservation?
+
+> `optional` **reservation?**: [`Budget`](#budget-10)
+
+Remaining backing of an active seat-paused allocation, including unacknowledged or
+unmeasured liabilities. Execution may already be terminal; only later custody/accounting
+evidence reduces this backing. It never grants execution.
 
 ###### harnessTranscript?
 
@@ -36564,8 +36174,8 @@ Why the last attempt before the window did not confirm destruction.
 
 > **kind**: `"teardown-confirmed"`
 
-A `teardown-pending` node whose teardown a retry inside the settlement window confirmed:
- the executor destroyed what it held. Informational, outside the cursor namespace.
+The executor confirmed its node cleanup, on the first pass or after a pending retry.
+Informational, outside the cursor namespace; no provider resource identity is inferred.
 
 ###### id
 
@@ -42457,16 +42067,6 @@ Run provenance recorder forwarded to every `prepareBox` the lineage runs
 
 A failed delete must surface and leave the box available for evidence recovery.
 
-###### beforeDelete?
-
-(`box`) => `Promise`\<`void`\>
-
-Capture and durably record evidence before the box is deleted.
-
-###### onAcquire?
-
-(`box`, `profile`) => `void`
-
 #### Returns
 
 [`SandboxLineage`](#sandboxlineage)
@@ -45998,7 +45598,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-38), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-36), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
