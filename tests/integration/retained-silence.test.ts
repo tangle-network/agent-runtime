@@ -29,7 +29,9 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
 })
 
-async function nativeRun(mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'probe' | 'replay') {
+async function nativeRun(
+  mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'probe' | 'replay' | 'replay-closed',
+) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-silence-'))
   const child = spawn(process.execPath, ['tests/helpers/retained-silence-native.cjs', directory], {
     stdio: ['pipe', 'pipe', 'inherit'],
@@ -91,7 +93,7 @@ async function nativeRun(mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'p
               .split('\n')
             for (const row of rows.slice(offset)) yield JSON.parse(row)
             offset = rows.length
-            if (mode === 'closed') return
+            if (mode === 'closed' || mode === 'replay-closed') return
             await delay(10, undefined, { signal: stop.signal })
           }
         },
@@ -314,31 +316,36 @@ it('accepts the exact result that arrives while a live-status read is outstandin
   }
 })
 
-it('replays advancing native cursors inside one driver attempt after each stalled read', async () => {
-  const fixture = await nativeRun('replay')
-  const records: DriverAttemptRecord[] = []
-  await observeWithRetry(fixture, records)
-  expect(records).toMatchObject([{ attempt: 1, stop: 'completed' }])
-  expect(fixture.dispatches()).toBe(1)
-  const observed = []
-  for await (const row of readCommittedJsonLines<AgentEnvironmentEvent>(fixture.journal))
-    observed.push(row)
-  expect(observed.filter((row) => row.type === 'message').map((row) => row.id)).toEqual([
-    'event-0',
-    'event-1',
-    'event-2',
-  ])
-  expect(observed.filter((row) => row.type === 'result')).toMatchObject([
-    { data: { success: true } },
-  ])
-  const protocol = (await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8'))
-    .trim()
-    .split('\n')
-    .map((row) => JSON.parse(row))
-  expect(protocol.filter((row) => row.op === 'observe').map((row) => row.since)).toEqual([
-    null,
-    'event-0',
-    'event-1',
-  ])
-  expect(protocol).not.toEqual(expect.arrayContaining([expect.objectContaining({ op: 'cancel' })]))
-})
+it.each(['replay', 'replay-closed'] as const)(
+  'replays advancing native cursors inside one driver attempt (%s)',
+  async (mode) => {
+    const fixture = await nativeRun(mode)
+    const records: DriverAttemptRecord[] = []
+    await observeWithRetry(fixture, records)
+    expect(records).toMatchObject([{ attempt: 1, stop: 'completed' }])
+    expect(fixture.dispatches()).toBe(1)
+    const observed = []
+    for await (const row of readCommittedJsonLines<AgentEnvironmentEvent>(fixture.journal))
+      observed.push(row)
+    expect(observed.filter((row) => row.type === 'message').map((row) => row.id)).toEqual([
+      'event-0',
+      'event-1',
+      'event-2',
+    ])
+    expect(observed.filter((row) => row.type === 'result')).toMatchObject([
+      { data: { success: true } },
+    ])
+    const protocol = (await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    const subscriptions = protocol.filter((row) => row.op === 'observe').map((row) => row.since)
+    expect([
+      [null, 'event-0', 'event-1'],
+      [null, 'event-0', 'event-1', 'event-2'],
+    ]).toContainEqual(subscriptions)
+    expect(protocol).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ op: 'cancel' })]),
+    )
+  },
+)

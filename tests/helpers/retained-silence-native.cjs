@@ -32,7 +32,12 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         }
       }, input.quietMs / 2)
     }
-  } else if (op === 'observe' && mode === 'replay' && input.since) {
+  } else if (
+    op === 'observe' &&
+    mode.startsWith('replay') &&
+    input.since &&
+    !fs.existsSync(path.join(directory, 'result'))
+  ) {
     const sequence = Number(input.since.slice('event-'.length)) + 1
     write('events.jsonl', frame(sequence))
     if (sequence === 2) fs.writeFileSync(path.join(directory, 'result'), 'finished')
