@@ -19,6 +19,7 @@ agent-runtime owns release and adoption rules for published `@tangle-network/*` 
 | Every archive pays its compatibility bump; a major needs a named break; no minor on 1.x+ | `check-version-bump.mjs --archive <tgz> --consumer <who>` | local release gate and exact archive publication admission |
 | Installed versions meet every declared peer floor | `agent-app-peer-check` | each app's adopt gate and release preflight |
 | One copy of each first-party package in an app | `pnpm dedupe` in `adopt-stack` | the daily refresh |
+| A Runtime release adopts only after its tag's `upstream-evidence.yml` run passed; a release whose tag started none fails `Publish` | agent-eval `adopt-stack`; `verify-publication` in `publish.yml` | every adoption; every Runtime publication |
 
 ## Releasing a library
 
@@ -26,5 +27,5 @@ Prepare release/adoption source in a lifecycle-owned workspace; use `wt-new`/`wt
 
 1. Merge the change with a patch bump. `check:version-bump` in the merge gate names the level it needs; its historical source records remain conservative, not reconstructed archive baselines.
 2. Run `node scripts/check-version-bump.mjs --archive <qualified.tgz> --consumer <who>` before publishing the exact admitted archive. Admission regenerates both actual archive surfaces with the same current OXC emitter and refuses incompatible patch releases. Runtime also requires a nonempty CHANGELOG entry for the archive version in its local release gate. Historical consumers pinned to the retired admission action keep its reviewed implementation at that Git revision.
-3. Apps pick it up at the next daily refresh. For a fix that cannot wait a day, open the adoption by hand: `pnpm add --save-exact <pkg>@<version>`, then `pnpm dedupe`, gated with the app's adopt gate from `.github/workflows/adopt-stack.yml`.
+3. Apps pick it up at the next daily refresh. For a fix that cannot wait a day, run agent-eval `scripts/adopt-stack.mjs --packages <pkg>@<version> --gate '<the app adopt gate>'` in the app, so the hand adoption keeps the plan, gate and evidence rule.
 4. For a named break, publish the major and open one adoption PR per consumer the same day. The existing required consumer gate decides: verified candidates may merge; a failed gate leaves an owned draft with its failure for a person. Never bypass peer constraints or claim an untested major.
