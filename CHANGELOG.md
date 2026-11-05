@@ -1,3 +1,7 @@
+## 6.0.2
+
+Qualify upstream contracts with the SDK declared by the exact Runtime archive and verify all seven contracts before tagging. Local candidate evidence remains distinct from tagged release attestation.
+
 ## 6.0.1
 
 Remove `ProviderWorkspaceRetentionPort`, `SandboxEvidenceRetentionPort` and their client writer configuration/cleanup callbacks, carrying the unpublished major change forward. Stop local retained subscriptions without cancelling execution or exact-result reads. Qualify the exact packed consumer before publication and bootstrap upstream evidence with the repository package-manager pin in an owned workspace.
