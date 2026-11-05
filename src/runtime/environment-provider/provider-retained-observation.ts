@@ -13,28 +13,23 @@ import {
 } from '../retained-run-binding'
 import type { RetainedRunHandle } from '../retained-run-types'
 import { extractTransportEventIdentity } from '../sandbox-transport-events'
+import { linkAbort } from '../supervise/abortable'
 import { armDeadlineTimer } from '../supervise/deadline'
 import { causeChain } from '../supervise/error-message'
 import { turnFailureOf } from '../supervise/executor-outcome'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
-// Publish the wait, then bound observation of an unchanged invocation. Silence never proves death.
 const RETAINED_AWAITING_RESULT_AFTER_MS = 8 * 60_000
-// A status read that fails, outlasts this, or finds the run ended leaves the turn pending.
 const RETAINED_STATUS_READ_MS = 60_000
 
-// Bound observation work, not elapsed provider latency. AsyncIterable has no buffered frontier.
-// Past this many frames after a settled exact result the rest are dropped and the result stands.
-// An owner's later reconciliation of the execution subscribes after the last position read.
+// Bound post-result work; later reconciliation resumes after the last position read.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
-/** After its exact result, a stream owing its terminal frame reads on while each frame comes this
- *  soon after the result or the last frame: a provider sends the two on separate connections. */
+// The result and terminal frame may arrive on separate connections.
 const RETAINED_TAIL_FLOW_MS = 100
 
-/** Runtime's own mark, beside the provider's frames, that a retained turn now waits on its exact
- *  result. The executor publishes it as an `awaiting-result` progress row; it is never a frame. */
+/** Runtime progress while awaiting the exact result; never a provider frame. */
 export interface RetainedAwaitingResult {
   readonly awaitingResultSince: string
 }
@@ -44,11 +39,9 @@ type FrameRead =
   | { kind: 'exact-result' }
   | { kind: 'quiet' }
 
-/** The event stream stopped short: a transport fact the retry policy reads by this name. */
 const streamFailure = (message: string) =>
   Object.assign(new Error(message), { name: 'RetainedStreamError' })
 
-/** Why the event stream stopped short, as bounded redacted text for the settlement reason. */
 function observationFailureText({ error }: { readonly error: unknown }): string {
   const text = error instanceof Error ? error.message : String(error)
   return String(defaultRedactor(text)).slice(0, 2_048)
@@ -84,10 +77,8 @@ function exactQuotaRefusal(error: unknown) {
   }
 }
 
-/** Everything one retained dispatch has observed of its event stream and exact result. */
 export class RetainedObservation {
   private failure: { error: unknown } | undefined
-  // Where a reconnect resumes: the last frame that carried a replay position.
   private lastReplayPosition: string | undefined
   private readonly resumedFrom: string | undefined
   private sawTerminal = false
@@ -101,8 +92,7 @@ export class RetainedObservation {
   // One reaction on the run-long exact result; a reaction per read kept every drained event alive.
   private readonly exactWakers = new Set<() => void>()
   private readonly seenEvents = new Map<string, string>()
-  // A read that lost a race to the awaiting mark stays the stream's next read: a second
-  // `next()` would queue behind it and drop the frame it delivers.
+  // Reuse the losing read: another next() would queue behind it and drop its frame.
   private pendingRead: Promise<FrameRead> | undefined
 
   constructor(
@@ -116,7 +106,6 @@ export class RetainedObservation {
       this.lastReplayPosition = this.resumedFrom = observed.replayPosition
   }
 
-  /** Stream the provider's frames, resume once after a break, then yield the exact result. */
   async *observe(
     session: AgentSession,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult> {
@@ -145,7 +134,6 @@ export class RetainedObservation {
     yield await this.resultFrame()
   }
 
-  /** True once the exact result settles, false once a quiet interval passes first. */
   private exactOrQuiet(): Promise<boolean> {
     let unwatch = [() => {}]
     return new Promise<boolean>((resolve) => {
@@ -226,8 +214,6 @@ export class RetainedObservation {
     }
   }
 
-  // Give an immediately available frame its binding check before reading the exact result.
-  // A quiet first read starts the same result read at the next scheduler turn instead.
   private readExactResult(): Promise<AgentTurnResult> {
     if (this.exactResult === undefined) {
       this.exactResult = awaitAbortable(
@@ -259,15 +245,13 @@ export class RetainedObservation {
     return { awaitingResultSince: new Date(since).toISOString() }
   }
 
-  /** Read the stream's next frame, or learn first that the wait should publish or the result won. */
   private async raceNextRead(iterator: AsyncIterator<AgentEnvironmentEvent>): Promise<FrameRead> {
     let wake: ReturnType<typeof setImmediate> | undefined
     let grace: ReturnType<typeof setTimeout> | undefined
     let unwatch: (() => void) | undefined
     let clearQuiet: (() => void) | undefined
     try {
-      // Give this read one scheduler turn before an exact result closes a quiet subscription; one
-      // owing its terminal frame reads on for the rest of the RETAINED_TAIL_FLOW_MS window.
+      // Give ready frames one scheduler turn, then wait out the terminal-frame flow window.
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
@@ -303,7 +287,6 @@ export class RetainedObservation {
     }
   }
 
-  /** Bind a frame to its run and drop an exact replay; false when it carries no new evidence. */
   private acceptFrame(event: AgentEnvironmentEvent): boolean {
     this.observedFrames += 1
     if (this.exactResultSettled) this.framesAfterResult += 1
@@ -350,11 +333,11 @@ export class RetainedObservation {
     return true
   }
 
-  /** Yield one subscription's new frames; false when the stream failed rather than ended. */
   private async *drain(
     session: AgentSession,
     since?: string,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult, boolean> {
+    const subscription = linkAbort(this.signal)
     let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
     let failed = false
     try {
@@ -362,10 +345,11 @@ export class RetainedObservation {
         .events({
           executionId: this.handle.controlRef.executionId,
           ...(since === undefined ? {} : { since }),
-          signal: this.signal,
+          signal: subscription.signal,
         })
         [Symbol.asyncIterator]()
     } catch (error) {
+      subscription.abort()
       if (this.signal.aborted) throw error
       this.failure = { error }
       return false
@@ -417,7 +401,9 @@ export class RetainedObservation {
         }
       }
     } finally {
-      // Cleanup proves nothing about readiness; a provider may never resolve return().
+      subscription.abort()
+      this.pendingRead = undefined
+      // A pending read must stop before return(), which queues behind it.
       void Promise.resolve()
         .then(() => iterator?.return?.())
         .catch(() => undefined)

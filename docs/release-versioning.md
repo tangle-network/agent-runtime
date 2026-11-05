@@ -1,8 +1,6 @@
 # Release versioning
 
-How every published `@tangle-network/*` library picks its next version, and how apps take it.
-agent-runtime owns the rules and the checks that enforce them (`scripts/lib/api-surface.mjs`, `scripts/check-version-bump.mjs`).
-Other repositories run those checks from a sparse checkout, so the rules here hold everywhere.
+agent-runtime owns release and adoption rules for published `@tangle-network/*` libraries and their checks (`scripts/lib/api-surface.mjs`, `scripts/check-version-bump.mjs`).
 
 ## The rules
 
@@ -23,6 +21,8 @@ Other repositories run those checks from a sparse checkout, so the rules here ho
 | One copy of each first-party package in an app | `pnpm dedupe` in `adopt-stack` | the daily refresh |
 
 ## Releasing a library
+
+Prepare release/adoption source in a lifecycle-owned workspace; use `wt-new`/`wt-remove` for worktrees. A producer owns cleanup of a `mktemp` clone and preserves uncommitted or unpublished bytes through custody on failure. Finish when its workspace is retired or its exact custody receipt is recorded; leave no permanent release/adoption clone in `~/scratch`.
 
 1. Merge the change with a patch bump. `check:version-bump` in the merge gate names the level it needs; its historical source records remain conservative, not reconstructed archive baselines.
 2. Run `node scripts/check-version-bump.mjs --archive <qualified.tgz> --consumer <who>` before publishing the exact admitted archive. Admission regenerates both actual archive surfaces with the same current OXC emitter and refuses incompatible patch releases. Runtime also requires a nonempty CHANGELOG entry for the archive version in its local release gate. Historical consumers pinned to the retired admission action keep its reviewed implementation at that Git revision.

@@ -1,12 +1,5 @@
 #!/usr/bin/env node
-/**
- * Prepare one release from the feature notes already merged on main.
- *
- * Feature PRs do not choose a version and do not edit CHANGELOG.md. They add a
- * .release-notes/*.md file. This command chooses the next version from the
- * highest pending note, consumes the notes, and regenerates every versioned or
- * derived artifact in one release-only change.
- *
+/** Prepare merged feature notes and derived artifacts for one release.
  * Usage: pnpm run release:prepare [--amend-unpublished]
  */
 import { execFileSync } from 'node:child_process'
@@ -111,6 +104,6 @@ console.log(
     `Prepared ${version}. Next:`,
     '  git add -A && git commit -m "chore(release): prepare <version>"',
     '  open the release PR, gate it with `pnpm run release:check`, merge it, then tag the main tip:',
-    `  pnpm run release:tag ${version} --commit <merged-sha> --gate <gated-sha>`,
+    `  node scripts/tag-release.mjs ${version} --commit <merged-sha> --gate <gated-sha>`,
   ].join('\n'),
 )

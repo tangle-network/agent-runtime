@@ -116,7 +116,15 @@ export async function verifyRemoteSupervisorConsumer(kernel) {
           assert.deepEqual(next.events.entries, [])
           const reset = await reader.observe(ids[0], { epoch: 'previous-process', next: 0 })
           assert.equal(reset.events.reset, true)
-          assert.equal((await reader.observe(ids[1])).events.status, 'unavailable', 'one-shot code does not invent live events')
+          const oneShot = await reader.observe(ids[1])
+          assert.equal(oneShot.events.status, 'available')
+          assert.deepEqual(oneShot.events.entries, [], 'one-shot code does not invent live events')
+          assert.equal(oneShot.events.cursor.next, 0)
+          assert.equal(oneShot.events.remaining, 0)
+          assert.equal(oneShot.agent.runtime, 'inline')
+          assert.deepEqual((await reader.observe(ids[1], oneShot.events.cursor)).events, {
+            ...oneShot.events, reset: false,
+          })
           await assert.rejects(() => reader.observe('foreign-worker'))
           const readMcp = await attach(access.url, { ...access.headers })
           assert.deepEqual((await readMcp.listTools()).tools.map(tool => tool.name).sort(), ['observe_agent', 'read_journal'])
