@@ -1,3 +1,7 @@
+## 6.0.3
+
+Preserve Runtime failure classification and bounded provider codes in MCP tool error data without exposing command diagnostics or changing JSON-RPC error codes. The existing test command now builds and checks types and lint before the full suite; release qualification reuses that complete source check.
+
 ## 6.0.2
 
 Qualify upstream contracts with the SDK declared by the exact Runtime archive and verify all seven contracts before tagging. Local candidate evidence remains distinct from tagged release attestation.
