@@ -250,7 +250,8 @@ describe('nested retained owner journal isolation', () => {
             throw parseErrorResponse(
               502,
               JSON.stringify({
-                error: "Capability discovery returned a malformed 'nativeSessionCaptureHarnesses' group",
+                error:
+                  "Capability discovery returned a malformed 'nativeSessionCaptureHarnesses' group",
                 code: 'INVALID_CAPABILITY_DOCUMENT',
               }),
               { path: '/capabilities' },

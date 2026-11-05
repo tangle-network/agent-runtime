@@ -650,7 +650,10 @@ describe('supervisePursuit root stream', () => {
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
     const progress: string[] = []
-    for await (const event of executor.execute('read and ask', signal) as AsyncIterable<UsageEvent>) {
+    for await (const event of executor.execute(
+      'read and ask',
+      signal,
+    ) as AsyncIterable<UsageEvent>) {
       if (event.kind !== 'progress') continue
       progress.push(event.progress.kind)
       if (event.progress.kind === 'tool_result') {

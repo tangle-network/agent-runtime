@@ -9,11 +9,11 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { ProxySecretReceiptSchema } from '@tangle-network/agent-interface'
 import {
   createTangleProvider,
   defaultTangleSandboxCapabilities,
 } from '@tangle-network/agent-provider-tangle'
-import { ProxySecretReceiptSchema } from '@tangle-network/agent-interface'
 import { supervise } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 
