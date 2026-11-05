@@ -94,7 +94,15 @@ it.each(['done', 'down'] as const)(
     )
     try {
       const scope = await ready
-      await expect.poll(() => scope.workerCapacity.working, { timeout: 5000 }).toBe(0)
+      await expect
+        .poll(
+          () =>
+            scope.observeTree().nodes.find((node) => node.label === 'process-child')
+              ?.settlementPending?.kind,
+          { timeout: 5000 },
+        )
+        .toBe(kind)
+      expect(scope.workerCapacity.working).toBe(0)
       const id = scope.observeTree().nodes.find((entry) => entry.label === 'process-child')!.id
       const coldJournal = new FileSpawnJournal(journalPath)
       await expect

@@ -1286,16 +1286,8 @@ describe('coordination credential continuity', () => {
   })
 })
 
-// ── Single-flight, fenced method tools ──────────────────────────────────────────
-//
-// The failure these close, from run mech-interp-foundations-glm2-20260911d: the director called the
-// method tool `literature_sourcing` at 21:39:12Z and again at 21:40:19Z. Both POSTs failed after
-// 30.0 s ("Error POSTing to endpoint:") because the handler runs a multi-stage literature graph for
-// far longer than `requestTimeoutMs`, while the handler kept running and kept spawning children —
-// so enumerate:{murfet,ghrist,bradley} was spawned twice and one source was extracted twice. The
-// retry's arguments were equal to the first call's only after key sorting, which is why identity is
-// RFC 8785 canonical JSON and not raw request bytes.
-
+// Receipted method calls outlive their HTTP request; equivalent requests share one outcome.
+// RFC 8785 identity handles clients that reorder JSON fields while retrying.
 function deferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -1484,13 +1476,7 @@ describe('method tools on the coordination MCP are single-flight within one fenc
   })
 })
 
-// ── Fenced submit_result ────────────────────────────────────────────────────────
-//
-// The failure this closes, from a 2026-09-22 factory run: the injected check re-ran the product
-// build and asked a model reviewer, so it ran for minutes inside the submit_result request. The
-// transport answered 504 at 30 s while the check kept running, and 25 of 25 submits reached the
-// director as "Streamable HTTP error" with no verdict and no reason.
-
+// A check can outlive submit_result’s HTTP request; its receipt must retain the verdict.
 async function withSlowCheck<T>(
   body: (input: {
     mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>
