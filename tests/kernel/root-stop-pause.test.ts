@@ -214,9 +214,7 @@ describe('an opted-in root pauses where it used to stop', () => {
     expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 2 })
   }, 60_000)
 
-  it('pauses on a pending invocation it cannot resolve and stays open until a cancel', async () => {
-    // The `:797` case of supervise-retained-owner-pending.test.ts, opted in: the first turn
-    // commits, every replacement stays unresolvable at the provider, and the abandonments run out.
+  it('settles an unchanged pending invocation even when root pauses are enabled', async () => {
     const dir = await runDirectory()
     const proxy = await coordinationProxy()
     proxies.push(proxy)
@@ -270,7 +268,6 @@ describe('an opted-in root pauses where it used to stop', () => {
     const rows: Paused[] = []
     const journal = pacedJournal(runDir, (row) => {
       rows.push(row)
-      cancelRun(runDir, 'stop-pending', { operator: 'test-operator', reason: 'inspect it' })
     })
     const result = (await supervise(
       testAgentProfile('pending-root', {
@@ -310,27 +307,13 @@ describe('an opted-in root pauses where it used to stop', () => {
       },
     )) as SupervisedResult<unknown>
     const events = ((await journal.loadTree(runId)) ?? []).filter((event) => event.id === runId)
-    // The real retained-owner path abandoned each replacement before the stop became a pause.
-    expect(events.filter((event) => event.kind === 'execution-abandoned').length).toBeGreaterThan(0)
-    expect(rows).toEqual([
-      expect.objectContaining({
-        replacesStop: 'pending-unresolved',
-        signal: 'pending-unresolved',
-        streak: 1,
-        pauseMs: 5 * 60_000,
-      }),
-    ])
-    expect(result).toMatchObject({
-      kind: 'no-winner',
-      reason: 'cancelled',
-      operator: 'test-operator',
-    })
-    expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 1 })
+    expect(events.filter((event) => event.kind === 'execution-abandoned')).toHaveLength(1)
+    expect(rows).toEqual([])
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(result.continuation).toMatchObject({ ended: 'pending-unresolved', stopPauses: 0 })
   }, 60_000)
 
-  it('pauses a Discovery root at its 8th content-filter refusal in a row, naming the refusal', async () => {
-    // magnetar-rust-sandbox-20261031f's root met the refusal, then passed on a later attempt, so
-    // the bound never ends a root: an opted-in root pauses with the refusal on its record.
+  it('settles an unchanged content-filter refusal and names it instead of pausing the root', async () => {
     const dir = await runDirectory()
     const proxy = await coordinationProxy()
     proxies.push(proxy)
@@ -378,7 +361,6 @@ describe('an opted-in root pauses where it used to stop', () => {
     const rows: Paused[] = []
     const journal = pacedJournal(runDir, (row) => {
       rows.push(row)
-      cancelRun(runDir, 'stop-refused', { operator: 'test-operator', reason: 'reword the play' })
     })
     const result = (await supervise(
       testAgentProfile('refused-root', {
@@ -417,22 +399,13 @@ describe('an opted-in root pauses where it used to stop', () => {
         },
       },
     )) as SupervisedResult<unknown>
-    expect(dispatches).toBe(8)
-    expect(rows).toEqual([
-      expect.objectContaining({
-        replacesStop: 'repeated-failure',
-        cause: expect.stringContaining('This content was flagged for possible cybersecurity risk'),
-        streak: 1,
-        pauseMs: 5 * 60_000,
-      }),
-    ])
-    // The pause held the run open for its operator; nothing ended it on the refusals.
-    expect(result).toMatchObject({
-      kind: 'no-winner',
-      reason: 'cancelled',
-      operator: 'test-operator',
-    })
-    expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 1 })
+    expect(dispatches).toBe(2)
+    expect(rows).toEqual([])
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(JSON.stringify(result)).toContain(
+      'This content was flagged for possible cybersecurity risk',
+    )
+    expect(result.continuation).toMatchObject({ ended: 'repeated-failure', stopPauses: 0 })
   }, 60_000)
 
   it.each([false, true])(

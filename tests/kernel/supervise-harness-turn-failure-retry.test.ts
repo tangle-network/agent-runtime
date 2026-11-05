@@ -11,7 +11,7 @@ import {
   createCommandModelCredentialResolver,
   TangleCredentialCapacityError,
 } from '@tangle-network/agent-provider-tangle/node'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
@@ -370,37 +370,22 @@ describe('a root harness turn that ends with a failed outcome', () => {
     ])
   })
 
-  it('pauses on an unavailable upstream, journals the pause, and never spends an attempt', async () => {
+  it('settles an unchanged unavailable upstream after three drives without spending failure allowances', async () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-upstream-quota',
-      failures: (dispatch) => (dispatch <= 4 ? { error: ROUTER_QUOTA } : undefined),
+      failures: () => ({ error: ROUTER_QUOTA }),
     })
-    // One failure of any other kind would end this run.
     const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
-    const events = await fixture.events()
-
-    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
-    expect(fixture.dispatches()).toBe(5)
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(fixture.dispatches()).toBe(3)
     expect(attempts.map((attempt) => [attempt.classification, attempt.stop])).toEqual([
       ['unavailable', undefined],
       ['unavailable', undefined],
-      ['unavailable', undefined],
-      ['unavailable', undefined],
-      [undefined, 'completed'],
+      ['unavailable', 'repeated-failure'],
     ])
-    // Each pause is on the run's own record, against the root, as infrastructure time.
-    const pauses = ofKind(events, 'paused')
-    expect(pauses).toHaveLength(4)
-    expect(pauses.map((pause) => [pause.id, pause.attempt, pause.signal, pause.seq])).toEqual([
-      ['harness-failure-upstream-quota', 1, 'provider_quota_exhausted', 0],
-      ['harness-failure-upstream-quota', 2, 'provider_quota_exhausted', 1],
-      ['harness-failure-upstream-quota', 3, 'provider_quota_exhausted', 2],
-      ['harness-failure-upstream-quota', 4, 'provider_quota_exhausted', 3],
-    ])
-    expect(pauses[0]?.cause).toContain('provider_quota_exhausted')
-    expect(pauses.every((pause) => pause.pauseMs === 0 && pause.attemptMs >= 0)).toBe(true)
-    // The refused turns keep their own records and the environment is reused throughout.
-    expect(ofKind(events, 'execution-result')).toHaveLength(5)
+    const events = await fixture.events()
+    expect(ofKind(events, 'paused')).toHaveLength(2)
+    expect(ofKind(events, 'execution-result')).toHaveLength(3)
     expect(fixture.creates()).toBe(1)
     expect(fixture.destroys()).toBe(1)
   })
@@ -506,56 +491,32 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(fixture.destroys()).toBe(1)
   })
 
-  // test-acceptance-canary-20261015c (2026-10-15) met 26 credential command failures in 2.2
-  // minutes, each before any execution existed, and each counted toward the pending-unresolved
-  // stop: 306 such attempts stopped 10 nodes and lost 7 runs from 2026-10-12 to 2026-10-19.
-  it('H13: pauses, never stops, while the credential command fails before any dispatch', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    try {
-      const startedAt = Date.now()
-      let refusals = 0
-      const fixture = await harnessFailureFixture({
-        runId: 'harness-credential-unavailable',
-        failures: () => undefined,
-        deadlineMs: 60 * 60_000,
-        createFailure: async () => {
-          if (Date.now() - startedAt >= 10 * 60_000) return undefined
-          refusals += 1
-          // The provider process: agent-provider-tangle's own credential resolver running a
-          // command that exits 1, which the next attempt meets one fake minute later. The real
-          // resolver pins the failure's shape, so a reworded message fails this test instead of
-          // silently counting toward pending-unresolved again.
-          vi.setSystemTime(Date.now() + 60_000)
-          return credentialCommandExit1()
-        },
-      })
-      const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 3 })
-      expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
-      expect(refusals).toBe(10)
-      const paused = attempts.slice(0, -1)
-      expect(paused).toHaveLength(10)
-      for (const attempt of paused) {
-        expect(attempt).toMatchObject({
-          classification: 'unavailable',
-          unavailableSignal: 'credential-unavailable',
-          exitCode: 1,
-          resumeAt: expect.any(String),
-        })
-        expect(attempt.stop).toBeUndefined()
-        expect(attempt.error).toContain('Tangle credential command failed (exit 1)')
-      }
-      expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
-      expect(attempts.some((attempt) => attempt.stop === 'pending-unresolved')).toBe(false)
-      const events = await fixture.events()
-      // Each pause is on the run's record, as infrastructure time.
-      expect(ofKind(events, 'paused').map((pause) => pause.signal)).toEqual(
-        Array.from({ length: 10 }, () => 'credential-unavailable'),
-      )
-      expect(ofKind(events, 'execution-abandoned')).toHaveLength(0)
-      expect(fixture.dispatches()).toBe(1)
-    } finally {
-      vi.useRealTimers()
-    }
+  it('settles three identical credential command refusals before any dispatch', async () => {
+    let refusals = 0
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-credential-unavailable',
+      failures: () => undefined,
+      createFailure: async () => {
+        refusals++
+        return credentialCommandExit1()
+      },
+    })
+    const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 3 })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(refusals).toBe(3)
+    expect(attempts.at(-1)).toMatchObject({
+      classification: 'unavailable',
+      stop: 'repeated-failure',
+    })
+    expect(
+      attempts.every((attempt) =>
+        attempt.error?.includes('Tangle credential command failed (exit 1)'),
+      ),
+    ).toBe(true)
+    const events = await fixture.events()
+    expect(ofKind(events, 'paused')).toHaveLength(2)
+    expect(ofKind(events, 'execution-abandoned')).toHaveLength(0)
+    expect(fixture.dispatches()).toBe(0)
   })
 
   it('keeps an accepted submission when the turn that submitted it then fails', async () => {

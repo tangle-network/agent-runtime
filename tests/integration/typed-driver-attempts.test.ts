@@ -384,7 +384,7 @@ it('links a managed native driver attempt to its real execution binding after du
   }
 }, 15000)
 
-it.each(['same', 'changing', 'progress'] as const)(
+it.each(['same', 'infra', 'changing', 'text', 'progress'] as const)(
   'bounds native repeated work failures while %s evidence earns the correct retries',
   async (mode) => {
     const directory = await mkdtemp(join(tmpdir(), 'native-retry-bound-'))
@@ -425,9 +425,10 @@ it.each(['same', 'changing', 'progress'] as const)(
             return nativeFailure(
               driver,
               directory,
-              'work',
+              mode === 'infra' ? 'infra' : 'work',
               mode === 'changing' ? `work-failure-${calls}` : 'work-failure',
               mode === 'progress',
+              mode === 'text' ? `cause text ${calls}` : undefined,
             )
           },
           onDriverAttempt(record) {
@@ -440,7 +441,8 @@ it.each(['same', 'changing', 'progress'] as const)(
         .trim()
         .split('\n')
         .map((line) => JSON.parse(line))
-      expect(calls).toBe(mode === 'same' ? 2 : 4)
+      const bounded = mode === 'same' || mode === 'infra'
+      expect(calls).toBe(mode === 'same' ? 2 : mode === 'infra' ? 3 : 4)
       expect(emitted).toHaveLength(calls)
       expect(new Set(emitted.map((receipt) => receipt.pid)).size).toBe(calls)
       const events = (await new FileSpawnJournal(join(runDir, 'spawn-journal.jsonl')).loadTree(
@@ -455,7 +457,7 @@ it.each(['same', 'changing', 'progress'] as const)(
       expect(records.map((record) => record.madeProgress)).toEqual(
         Array(calls).fill(mode === 'progress'),
       )
-      if (mode === 'same') expect(records.at(-1)?.stop).toBe('repeated-failure')
+      if (bounded) expect(records.at(-1)?.stop).toBe('repeated-failure')
       else expect(records.some((record) => record.stop === 'repeated-failure')).toBe(false)
       expect(records.map((record) => record.failure?.code)).toEqual(
         emitted.map((receipt) => receipt.outcome.failure.code),

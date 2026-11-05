@@ -4,19 +4,19 @@
  *
  * Runtime refusals and cancellation stay terminal. Canonical producer failures distinguish caller,
  * capacity, infrastructure and work; legacy transport/harness evidence remains a fallback.
- * Capacity pauses do not consume failure allowances. A seat-bearing drive first lets its existing
- * chain rotate; the chain owns its exhausted-seat wait, while the run's bounds still apply.
+ * Capacity pauses do not consume failure allowances. Three unchanged failures without progress
+ * settle even an opted-in root; a different cause or progress resets that streak.
  *
- * Only idle infrastructure failures earn an outage window. Repeated deterministic failures with
- * no progress stop inside that window; work failures consume the normal attempt/barren bounds.
+ * Only idle infrastructure failures earn an outage window, still bounded by the unchanged cause.
+ * Repeated deterministic failures stop sooner; work failures consume the normal attempt bounds.
  * With a declared check, progress means delivery or an improved verdict, not spend alone.
  *
  * Completed drives with an unmet contract continue with Runtime's note. Barren continuations
  * wait with increasing backoff; progress resets their streak. A resumed run first receives its
  * open workers, and counts barren drives only after a model event in this process.
  *
- * Opted-in root stop-pauses alarm and wait instead of settling recoverable stops. Cancellation
- * ends the wait; a steer wakes it but grants no admission. The next attempt rechecks the budget.
+ * Root stop-pauses wait on recoverable stops; they cannot reset an unchanged failure streak.
+ * Cancellation ends the wait; a steer wakes it but grants no admission.
  */
 
 import { ValidationError } from '../../errors'
@@ -247,8 +247,7 @@ function assertContinuationPolicy(continuation: DriverContinuationPolicy | undef
  * `deadline` when a deadline cut it and `aborted` otherwise, never `terminal-error`. Throws
  * `DriverAttemptsExhaustedError` (cause = the last real failure) when a FAILURE ends the loop; a
  * completed drive returns, met contract or not, because deciding what an undelivered run is worth
- * belongs to the finalizer, not to this loop. With `stopPause`, every stop but `completed`,
- * `aborted` and a declared `deadline` pauses instead (STOP-PAUSE in the header).
+ * belongs to the finalizer. Root stop-pauses never override the unchanged-failure ceiling.
  */
 export async function runDriverWithRetry(run: DriverRetryRun): Promise<void> {
   const limits = driverRetryLimits(run)
