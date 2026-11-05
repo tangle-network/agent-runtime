@@ -1,39 +1,19 @@
-/**
- * Supervisor tree → OTLP spans. OPT-IN, off by default.
- *
- * WHY. A supervised tree is legible only by parsing this package's own spawn journal; a span
- * carrying `parent_span_id` IS a tree, so emitting spans makes the supervisor readable by the same
- * viewer as every other multi-agent shape, with no per-system reader.
- *
- * NOT the record of truth. The spawn journal remains the sole durable ledger for replay/resume and
- * cost; nothing here is read back, and a run whose export fails is unaffected.
- *
- * HOW. A pure `RuntimeHooks` observer over events `Scope` ALREADY emits — `agent.spawn` (node
- * opened), `agent.child` (node settled), `agent.turn` (driver turn metered). It adds no event,
- * mutates no journal, changes no result. `Scope` re-seeds the hooks into every nested scope
- * (`makeNestedScopeSeam`), so one observer sees the WHOLE recursion.
- *
- * SHAPE. One span per node, opened at spawn, closed at settle, parented to its parent node's
- * span; the run root is the trace. Driver inference rides as an `LLM` child span under the node
- * that metered it. Attributes reuse the stack's vocabulary (`openinference.span.kind`,
- * `agent.name`, `llm.token_count.*`, `llm.cost_usd`, `tangle.cost.usd`), consumed by
- * `@tangle-network/agent-eval`'s `src/trace/attribute-vocabulary.ts`.
- *
- * UNKNOWN IS NEVER ZERO. `tokensKnown === false` / `usdKnown === false` spans OMIT the token/cost
- * attribute and set `tangle.supervise.tokens_known` / `cost_known` to `false`.
- */
+/** Best-effort supervisor spans; the spawn journal owns replay and accounting. */
 
 import { isRecord } from '@tangle-network/agent-core'
 import {
   type AgentIdentity,
   ATTR,
   agentIdentityAttributes,
+  LINK_KIND_ATTR,
 } from '@tangle-network/agent-trace-contract'
 import { msToUnixNano, toOtlpAttributes } from '@tangle-network/agent-trace-contract/otlp'
 import { contentAddress } from '../../durable/content-address'
 import type { OtelExportConfig, OtelExporter, OtelExportStats, OtelSpan } from '../../otel-export'
 import { createOtelExporter, generateSpanId } from '../../otel-export'
+import { defaultRedactor } from '../../redact'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
+import type { RuntimeTelemetryOptions } from '../../sanitize'
 import type { Budget, Spend, SupervisedResult } from './types'
 import type { TraceContext, WorkerTraceResolver } from './worker-trace'
 
@@ -50,7 +30,8 @@ export type SupervisorSpanAttributes = Record<string, string | number | boolean>
 
 type Attrs = SupervisorSpanAttributes
 
-export interface SupervisorSpanOptions {
+export interface SupervisorSpanOptions
+  extends Pick<RuntimeTelemetryOptions, 'includeMetadata' | 'includeEvalDetails'> {
   /** The supervised run id (`SupervisorOpts.runId`): roots the trace and is the parent key of every depth-0 spawn. */
   readonly runId: string
   /** Bring your own exporter: FLUSHED but never shut down by `finish()`. Takes precedence over `exportConfig`. */
@@ -114,6 +95,7 @@ interface OpenNode {
 
 /** The state one recorder keeps about a run's span tree; the functions below are its transitions. */
 interface RunTrace {
+  readonly telemetry: RuntimeTelemetryOptions
   readonly runId: string
   readonly traceId: string
   readonly rootSpanId: string
@@ -122,6 +104,7 @@ interface RunTrace {
   readonly rootIdentity: Attrs
   /** Who acted, per span: the root's identity, and each opened node's own. A turn whose node this
    *  recorder never opened names no one rather than borrowing the root's. */
+  readonly modeledAttempts: Set<string>
   readonly identityOf: Map<string, Attrs>
   /** Node id → its open span. */
   readonly open: Map<string, OpenNode>
@@ -139,6 +122,7 @@ interface SpanSpec {
   readonly attrs: Attrs
   readonly status: number
   readonly message?: string | undefined
+  readonly links?: OtelSpan['links']
 }
 
 function otelSpan(traceId: string, spec: SpanSpec): OtelSpan {
@@ -151,6 +135,7 @@ function otelSpan(traceId: string, spec: SpanSpec): OtelSpan {
     startTimeUnixNano: msToUnixNano(spec.startMs),
     endTimeUnixNano: msToUnixNano(Math.max(spec.startMs, spec.endMs)),
     attributes: toOtlpAttributes(spec.attrs),
+    ...(spec.links ? { links: spec.links } : {}),
     status: { code: spec.status, ...(spec.message ? { message: spec.message } : {}) },
   }
 }
@@ -203,9 +188,13 @@ function settleNode(t: RunTrace, event: RuntimeHookEvent): OtelSpan | undefined 
     name: node.name,
     startMs: node.startMs,
     endMs: event.timestamp,
-    attrs: settledAttributes(node.attrs, event),
+    attrs: settledAttributes(node.attrs, event, t.telemetry),
     status: down ? STATUS_ERROR : STATUS_OK,
-    message: down ? (str(p.reason) ?? 'child down') : undefined,
+    message: down
+      ? t.telemetry.includeEvalDetails
+        ? truncate(str(p.reason) ?? 'child down')
+        : 'child down'
+      : undefined,
   })
 }
 
@@ -225,16 +214,91 @@ function turnSpan(t: RunTrace, event: RuntimeHookEvent): OtelSpan {
   }
   if (parentId) attrs['tangle.supervise.node.id'] = parentId
   const p = record(event.payload)
-  assignTurnDetail(attrs, p)
+  assignTurnDetail(attrs, p, t.telemetry)
   const spend = assignSpend(attrs, p.spend)
   return otelSpan(t.traceId, {
     spanId: generateSpanId(),
     parentSpanId: parent.spanId,
     name: 'gen_ai.client.inference',
-    startMs: event.timestamp,
-    endMs: event.timestamp + (spend?.ms ?? 0),
+    startMs: event.timestamp - (spend?.ms ?? 0),
+    endMs: event.timestamp,
     attrs,
     status: STATUS_OK,
+  })
+}
+
+/** Runtime-owned metadata only: prompts, arguments, results and error messages stay private. */
+function observationSpan(t: RunTrace, event: RuntimeHookEvent): OtelSpan {
+  const p = record(event.payload)
+  const nodeId =
+    event.target === 'agent.steer' ? (str(p.nodeId) ?? t.runId) : (event.parentId ?? t.runId)
+  const parent = parentSpan(t, nodeId)
+  const attrs: Attrs = {
+    ...t.base,
+    ...(t.identityOf.get(nodeId) ?? {}),
+    [ATTR.parentConfidence]: parent.confidence,
+    'tangle.supervise.node.id': nodeId,
+  }
+  const attempt = str(p.attemptId)
+  if (attempt) attrs[ATTR.attemptId] = attempt
+  let name = event.target
+  let links: OtelSpan['links']
+  if (event.target === 'agent.model') {
+    attrs[ATTR.spanKind] = 'LLM'
+    name = 'gen_ai.client.inference'
+    if (attempt) t.modeledAttempts.add(`${nodeId}:${attempt}`)
+    const model = str(p.model)
+    if (model) attrs[ATTR.model] = model
+    for (const [field, key] of [
+      ['tokensIn', ATTR.inputTokens],
+      ['tokensOut', ATTR.outputTokens],
+      ['costUsd', ATTR.costUsd],
+    ] as const) {
+      if (typeof p[field] === 'number' && Number.isFinite(p[field])) attrs[key] = p[field]
+    }
+  } else if (event.target === 'agent.tool_call') {
+    attrs[ATTR.spanKind] = 'TOOL'
+    const tool = str(p.toolName)
+    if (tool) attrs[ATTR.toolName] = tool
+    const call = str(p.toolCallId)
+    if (call) attrs['tool.call_id'] = call
+    if (typeof p.durationKnown === 'boolean') attrs['tangle.tool.duration_known'] = p.durationKnown
+  } else {
+    attrs[ATTR.spanKind] = 'CHAIN'
+    if (event.target === 'agent.steer') {
+      const target = str(p.nodeId)
+      if (target) attrs['tangle.supervise.steer.node_id'] = target
+      const senderSpan = event.parentId === undefined ? undefined : t.spanIdOf.get(event.parentId)
+      if (senderSpan)
+        links = [
+          {
+            traceId: t.traceId,
+            spanId: senderSpan,
+            attributes: toOtlpAttributes({ [LINK_KIND_ATTR]: 'steered_by' }),
+          },
+        ]
+    } else {
+      const control = record(p.controlRef)
+      for (const key of ['provider', 'environmentId', 'executionId', 'sessionId'] as const) {
+        const value = str(control[key])
+        if (value) attrs[`tangle.execution.${key}`] = value
+      }
+      attrs['tangle.execution.phase'] = 'dispatched'
+    }
+  }
+  const failed = p.status === 'error'
+  if (typeof p.status === 'string') attrs['tangle.observation.status'] = p.status
+  const errorType = str(record(p.error).type)
+  if (errorType) attrs['error.type'] = truncate(errorType)
+  return otelSpan(t.traceId, {
+    spanId: generateSpanId(),
+    parentSpanId: parent.spanId,
+    name,
+    startMs: typeof p.startedAt === 'number' ? p.startedAt : event.timestamp,
+    endMs: typeof p.endedAt === 'number' ? p.endedAt : event.timestamp,
+    attrs,
+    status: failed ? STATUS_ERROR : p.status === 'ok' ? STATUS_OK : STATUS_UNSET,
+    ...(links ? { links } : {}),
   })
 }
 
@@ -270,12 +334,12 @@ function* closingSpans(
     startMs: t.rootStartMs,
     endMs,
     attrs: {
-      ...rootAttrs(t.base, opts.agentName ?? 'supervisor', outcome),
+      ...rootAttrs(t.base, opts.agentName ?? 'supervisor', outcome, opts),
       ...t.rootIdentity,
       ...(opts.parentSpanId ? { [ATTR.parentConfidence]: 'explicit' } : {}),
     },
     status: rootStatus(outcome),
-    message: rootMessage(outcome),
+    message: rootMessage(outcome, opts),
   })
 }
 
@@ -294,6 +358,7 @@ export function createSupervisorSpanRecorder(
   const rootStartMs = now()
   const rootIdentity = agentIdentityAttributes(opts.agentIdentity)
   const trace: RunTrace = {
+    telemetry: opts,
     runId: opts.runId,
     traceId,
     rootSpanId,
@@ -306,6 +371,7 @@ export function createSupervisorSpanRecorder(
       ...(opts.attributes ?? {}),
     },
     rootIdentity,
+    modeledAttempts: new Set(),
     identityOf: new Map<string, Attrs>([[opts.runId, rootIdentity]]),
     open: new Map<string, OpenNode>(),
     spanIdOf: new Map<string, string>([[opts.runId, rootSpanId]]),
@@ -330,7 +396,17 @@ export function createSupervisorSpanRecorder(
         else if (event.target === 'agent.child') {
           const settled = settleNode(trace, event)
           if (settled) emit(settled)
-        } else if (event.target === 'agent.turn') emit(turnSpan(trace, event))
+        } else if (event.target === 'agent.turn') {
+          const attempt = str(record(event.payload).attemptId)
+          if (!attempt || !trace.modeledAttempts.has(`${event.parentId}:${attempt}`))
+            emit(turnSpan(trace, event))
+        } else if (
+          event.target === 'agent.model' ||
+          event.target === 'agent.tool_call' ||
+          event.target === 'agent.execution' ||
+          event.target === 'agent.steer'
+        )
+          emit(observationSpan(trace, event))
       } catch {
         // A telemetry defect, never a run failure, whoever calls the hook.
       }
@@ -401,10 +477,15 @@ function spawnAttributes(base: Attrs, event: RuntimeHookEvent, identity: Attrs):
 }
 
 /** A node span's attributes at `agent.child`: the spawn-time ones plus how it settled. */
-function settledAttributes(opened: Attrs, event: RuntimeHookEvent): Attrs {
+function settledAttributes(
+  opened: Attrs,
+  event: RuntimeHookEvent,
+  telemetry: RuntimeTelemetryOptions,
+): Attrs {
   const p = record(event.payload)
   const status = str(p.status)
   const attrs: Attrs = { ...opened, 'tangle.supervise.node.status': status ?? 'done' }
+  assignFailure(attrs, p.failure)
   if (typeof event.stepIndex === 'number') attrs['tangle.supervise.node.seq'] = event.stepIndex
   if (typeof p.outRef === 'string') attrs['tangle.supervise.node.out_ref'] = p.outRef
   if (typeof p.valid === 'boolean') attrs['tangle.supervise.verdict.valid'] = p.valid
@@ -412,7 +493,7 @@ function settledAttributes(opened: Attrs, event: RuntimeHookEvent): Attrs {
   if (status === 'down') {
     attrs['error.type'] = p.infra === true ? 'infra' : 'child-down'
     const reason = str(p.reason)
-    if (reason) attrs['error.message'] = truncate(reason)
+    if (reason && telemetry.includeEvalDetails) attrs['error.message'] = truncate(reason)
     if (typeof p.infra === 'boolean') attrs['tangle.supervise.node.infra'] = p.infra
   }
   // A wait node settles with its outcome instead of a spend — free by construction, not by
@@ -425,7 +506,11 @@ function settledAttributes(opened: Attrs, event: RuntimeHookEvent): Attrs {
 
 /** Free-form `Scope.meter` detail: named keys get the canonical attribute, the rest ride
  *  namespaced and bounded so a caller's extra context survives without unbounded span growth. */
-function assignTurnDetail(attrs: Attrs, payload: Record<string, unknown>): void {
+function assignTurnDetail(
+  attrs: Attrs,
+  payload: Record<string, unknown>,
+  telemetry: RuntimeTelemetryOptions,
+): void {
   for (const [key, value] of Object.entries(payload)) {
     if (key === 'spend') continue
     if (key === 'driver' && typeof value === 'string') {
@@ -437,6 +522,7 @@ function assignTurnDetail(attrs: Attrs, payload: Record<string, unknown>): void 
       attrs['llm.model_name'] = value
       continue
     }
+    if (!telemetry.includeMetadata) continue
     if (Array.isArray(value)) {
       const scalars = value.filter((v) => typeof v === 'string' || typeof v === 'number')
       if (scalars.length > 0) {
@@ -451,7 +537,20 @@ function assignTurnDetail(attrs: Attrs, payload: Record<string, unknown>): void 
   }
 }
 
-function rootAttrs(base: Attrs, agentName: string, outcome?: SupervisorSpanOutcome): Attrs {
+function assignFailure(attrs: Attrs, value: unknown): void {
+  const failure = record(value)
+  for (const key of ['owner', 'code', 'providerCode'] as const) {
+    const field = str(failure[key])
+    if (field) attrs[`tangle.failure.${key}`] = field
+  }
+}
+
+function rootAttrs(
+  base: Attrs,
+  agentName: string,
+  outcome: SupervisorSpanOutcome | undefined,
+  telemetry: RuntimeTelemetryOptions,
+): Attrs {
   const attrs: Attrs = {
     ...base,
     [ATTR.spanKind]: 'AGENT',
@@ -468,7 +567,8 @@ function rootAttrs(base: Attrs, agentName: string, outcome?: SupervisorSpanOutco
       attrs['tangle.supervise.down_count'] = result.downCount
       if (result.reason === 'driver-failed') {
         attrs['error.type'] = result.error.name
-        attrs['error.message'] = truncate(result.error.message)
+        assignFailure(attrs, result.error.failure)
+        if (telemetry.includeEvalDetails) attrs['error.message'] = truncate(result.error.message)
       }
     }
     assignSpend(attrs, result.spentTotal)
@@ -477,7 +577,8 @@ function rootAttrs(base: Attrs, agentName: string, outcome?: SupervisorSpanOutco
     attrs['tangle.supervise.result'] = 'error'
     const err = outcome.error
     attrs['error.type'] = err instanceof Error ? err.name : typeof err
-    attrs['error.message'] = truncate(err instanceof Error ? err.message : String(err))
+    if (telemetry.includeEvalDetails)
+      attrs['error.message'] = truncate(err instanceof Error ? err.message : String(err))
   }
   return attrs
 }
@@ -488,8 +589,11 @@ function rootStatus(outcome?: SupervisorSpanOutcome): number {
   return outcome.result.kind === 'winner' ? STATUS_OK : STATUS_ERROR
 }
 
-function rootMessage(outcome?: SupervisorSpanOutcome): string | undefined {
-  if (outcome?.error !== undefined) {
+function rootMessage(
+  outcome: SupervisorSpanOutcome | undefined,
+  telemetry: RuntimeTelemetryOptions,
+): string | undefined {
+  if (outcome?.error !== undefined && telemetry.includeEvalDetails) {
     return truncate(outcome.error instanceof Error ? outcome.error.message : String(outcome.error))
   }
   const result = outcome?.result
@@ -539,8 +643,15 @@ function assignBudget(attrs: Attrs, value: unknown): void {
   }
   if (typeof budget.maxIterations === 'number') {
     attrs['tangle.supervise.budget.max_iterations'] = budget.maxIterations
+    attrs[ATTR.maxIterations] = budget.maxIterations
   }
   if (typeof budget.maxUsd === 'number') attrs['tangle.supervise.budget.max_usd'] = budget.maxUsd
+  if (typeof budget.deadlineMs === 'number')
+    attrs['tangle.supervise.budget.deadline_ms'] = budget.deadlineMs
+  for (const [name, cap] of Object.entries(budget.resources ?? {})) {
+    attrs[`tangle.supervise.budget.resource.${name}.limit`] = cap.limit
+    attrs[`tangle.supervise.budget.resource.${name}.unit`] = cap.unit
+  }
 }
 
 /** A trace id is 32 hex chars: a valid caller-supplied one is used verbatim, anything else (and the
@@ -564,5 +675,6 @@ function str(value: unknown): string | undefined {
 }
 
 function truncate(value: string): string {
+  value = String(defaultRedactor(value))
   return value.length > MAX_DETAIL_CHARS ? `${value.slice(0, MAX_DETAIL_CHARS)}…` : value
 }

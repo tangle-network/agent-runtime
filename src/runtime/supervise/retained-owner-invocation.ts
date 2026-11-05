@@ -4,6 +4,7 @@ import { stopRetainedNativeExecution } from '../retained-native-stop'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
 import { errMessage, errorText } from './error-message'
+import { notifyExecutionAdmitted } from './executor-observation'
 import { executorFailureReason } from './executor-outcome'
 import {
   executorEvidenceWriter,
@@ -15,11 +16,10 @@ import { restoreBefore, restoreCapable } from './retained-owner-environment-reco
 import {
   abandonInputAdmittedIntoDebt,
   reconcileOwnerWorkspaceBeforeReuse,
-  retryOwnerEvidence,
   unusableEnvironmentIds,
 } from './retained-owner-evidence'
 import { type OwnerRegistration, type OwnerState, owners } from './retained-owner-state'
-import { ownerCaptureWriter, preemptRotationCaptures } from './retained-owner-turn-lifecycle'
+import { preemptRotationCaptures } from './retained-owner-turn-lifecycle'
 import { detachedSnapshot } from './snapshot'
 import { assertValidSpend } from './spend-validation'
 import { traceRootWriter } from './trace-root'
@@ -43,7 +43,6 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   const state: OwnerState = {
     args,
     admissions,
-    workspaceRetention: false,
     nextSequence: () => ++sequence,
     ...(taskEvent?.kind === 'execution-input'
       ? { taskRef: taskEvent.taskRef, inputSequence: taskEvent.seq }
@@ -106,6 +105,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         })
         scope.signal.throwIfAborted()
         admissions.push(detachedSnapshot(admission, 'retained owner admission'))
+        notifyExecutionAdmitted(args.hooks, args.rootId, args.nodeId, admission, args.now)
       },
       onEvidence: executorEvidenceWriter({
         journal: args.journal,
@@ -116,12 +116,6 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         now: args.now,
         traceRoots,
       }),
-      onWorkspaceCapture: (capture) => ownerCaptureWriter(state).onWorkspaceCapture(capture),
-      // The turn's own capture goes first: it cuts short the captures a checkpoint rotation runs.
-      onWorkspaceCaptureStarted: (capture) => {
-        preemptRotationCaptures(state)
-        return ownerCaptureWriter(state).onWorkspaceCaptureStarted(capture)
-      },
       onEndOfTurnWork: (work) => {
         // The handed-over work starts with the turn's final session copy, before its workspace
         // capture: on test-acceptance-canary-20261019m (Runtime 0.331.0) that copy ran 77 s beside
@@ -277,8 +271,7 @@ export async function prepareScopeRetainedOwnerTask(
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)
-  // A restarted supervisor resumes the capture retries of evidence this node may still owe.
-  if (owned.some((event) => event.kind === 'evidence-pending')) retryOwnerEvidence(state)
+  // Restore the exact invocation and its historical evidence obligations.
   const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
   if (latestInput?.kind === 'execution-input') {
     const attempt = owned.slice(owned.indexOf(latestInput))
@@ -418,7 +411,6 @@ export async function prepareScopeRetainedOwnerTask(
     kind: 'execution-input',
     id: args.nodeId,
     taskRef,
-    ...(state.workspaceRetention ? { workspaceRetention: true } : {}),
     seq: inputSequence,
     at: new Date(args.now()).toISOString(),
   })

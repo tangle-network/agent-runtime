@@ -25,6 +25,7 @@ import type {
   DriverRetryRun,
 } from './driver-retry'
 import { causeChain, errMessage } from './error-message'
+import { turnFailureOf } from './executor-outcome'
 import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
@@ -168,7 +169,9 @@ type Streak = { error: string; code?: string | undefined; count: number; since: 
 function extend(streak: Streak | undefined, error: unknown, at: number): Streak {
   const chain = causeChain(error)
   const root = chain.find((cause) => !(cause instanceof RetainedExecutionPendingError)) ?? error
-  const code = chain.find((cause) => cause instanceof HarnessTurnFailedError)?.errorCode
+  const code =
+    turnFailureOf(error)?.code ??
+    chain.find((cause) => cause instanceof HarnessTurnFailedError)?.errorCode
   const text = (code ? errMessage(root).replace(` (${code})`, '') : errMessage(root))
     .replace(/\d{4}-\d\d-\d\dT[\d:.]+Z?/gu, '<time>')
     .replace(/\b(?=[\da-f-]*\d)[\da-f]{8,}(?:-[\da-f]{4,})*\b/giu, '<id>')
@@ -387,10 +390,12 @@ export class DriverRetryLoop {
   }
 
   private failureRecord(failure: DriverFailure) {
+    const producerFailure = turnFailureOf(failure.error)
     return {
       attempt: failure.attempt,
       durationMs: failure.durationMs,
       error: errMessage(failure.error),
+      ...(producerFailure === undefined ? {} : { failure: producerFailure }),
       classification: failure.classification,
       ...(failure.classification === 'transient'
         ? { failureKind: transientFailureKind(failure.error) }
@@ -734,10 +739,10 @@ export class DriverRetryLoop {
     this.refusals = 0
     this.abandonments = 0
     const durationMs = this.limits.now() - startedAt
-    const after = run.progress()
+    let after = run.progress()
     const progressed = madeProgress(before, after)
-    const contract = contractOf(after)
-    const completed = {
+    let contract = contractOf(after)
+    let completed = {
       attempt,
       durationMs,
       madeProgress: progressed,
@@ -755,8 +760,18 @@ export class DriverRetryLoop {
     ) {
       this.barrenReentries += 1
     }
-    if (run.wait !== undefined && contract !== 'met' && (await this.wake(attempt, completed)))
-      return true
+    if (run.wait !== undefined && contract !== 'met') {
+      const waited = await this.wake(attempt, completed, after)
+      if (waited.reentered) return true
+      after = waited.progress
+      contract = contractOf(after)
+      completed = {
+        attempt,
+        durationMs,
+        madeProgress: madeProgress(before, after),
+        ...(contract === 'none' ? {} : { contract }),
+      }
+    }
     if (contract === 'unmet' && continuation !== undefined) {
       let decision = await this.decideContinuation(continuation, attempt, after)
       // An opted-in root pauses on a spent budget and reads the bounds again once it ends.
@@ -799,8 +814,9 @@ export class DriverRetryLoop {
   private async wake(
     attempt: number,
     completed: Pick<DriverAttemptRecord, 'attempt' | 'durationMs' | 'madeProgress' | 'contract'>,
+    beforeWait: DriverProgressMark,
     held?: { readonly input: string; readonly idleMs: number },
-  ): Promise<boolean> {
+  ): Promise<{ readonly reentered: boolean; readonly progress: DriverProgressMark }> {
     const { run } = this
     const wait = run.wait
     if (
@@ -809,22 +825,31 @@ export class DriverRetryLoop {
       run.signal.aborted ||
       !wait.open()
     ) {
-      return false
+      return { reentered: false, progress: beforeWait }
     }
     const stop = budgetStop(run.budget(), this.limits.now())
     // A deadline ends the wait; an opted-in root pauses on a spent pool, where a steer reaches it.
-    if (stop === 'deadline' || (stop !== undefined && this.pausesStop(stop))) return false
+    if (stop === 'deadline' || (stop !== undefined && this.pausesStop(stop)))
+      return { reentered: false, progress: beforeWait }
     const woken = await wait.wake(attempt + 1)
-    if (woken === undefined || run.signal.aborted) return false
+    const afterWait = run.progress()
+    // Coordination can deliver checked work while the manager waits between native turns.
+    if (madeProgress(beforeWait, afterWait)) {
+      completed = { ...completed, madeProgress: true }
+      this.barrenReentries = 0
+      this.stopPauses = 0
+      this.lastProgressAt = this.limits.now()
+    }
+    if (woken === undefined || run.signal.aborted) return { reentered: false, progress: afterWait }
     const input = held ? `${held.input}\n\n${woken.input}` : woken.input
     const idleMs = woken.idleMs + (held?.idleMs ?? 0)
     // A spent pool buys no turn, but a wait spends nothing: the running workers hold reservations
     // the pool granted, so hold until a refund buys the turn, which then reads what arrived.
     if (budgetStop(run.budget(), this.limits.now()) !== undefined)
-      return this.wake(attempt, completed, { input, idleMs })
+      return this.wake(attempt, completed, afterWait, { input, idleMs })
     this.wakes += 1
     await this.emit({ ...completed, waitedMs: idleMs, retryInMs: 0 })
     this.reentry = { reason: 'wake', input, wake: this.wakes }
-    return true
+    return { reentered: true, progress: afterWait }
   }
 }

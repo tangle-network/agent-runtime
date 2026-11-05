@@ -221,7 +221,6 @@ async function deleteOldestUncapturable(
   environmentId: string,
   signal: AbortSignal,
 ): Promise<boolean> {
-  if (state.checkpointCapture?.port.captureCheckpoint !== undefined) return false
   const events = (await state.args.journal.loadTree(state.args.rootId)) ?? []
   const oldest = pendingCheckpoints(events, state)
     .filter((event) => event.environmentId === environmentId)

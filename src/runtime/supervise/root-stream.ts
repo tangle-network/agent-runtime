@@ -246,8 +246,18 @@ export async function readRootStreamReceipt(
 
 /** Every committed line of the root stream, in order, or `undefined` when there is no file. A
  *  torn final line from a process that died mid-write is not a record and is left out. */
-export async function readRootStream(runDir: string): Promise<RootStreamRecord[] | undefined> {
-  const path = resolve(runDir, ROOT_STREAM_FILE)
+export async function readRootStream(
+  runDir: string,
+  options: { readonly nodeId?: string } = {},
+): Promise<RootStreamRecord[] | undefined> {
+  if (options.nodeId !== undefined && options.nodeId.trim().length === 0)
+    throw new TypeError('node stream: nodeId must be non-empty')
+  const dir = resolve(runDir)
+  const path = resolve(
+    dir,
+    options.nodeId === undefined ? ROOT_STREAM_FILE : nodeStreamFile(options.nodeId),
+  )
+  assertNoSymlinkDescendant(dir, path, 'node stream')
   const records: RootStreamRecord[] = []
   try {
     for await (const record of readCommittedJsonLines<RootStreamRecord>(path)) records.push(record)

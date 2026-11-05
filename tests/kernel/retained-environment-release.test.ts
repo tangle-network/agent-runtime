@@ -1221,12 +1221,7 @@ describe('retained environments at root settlement', () => {
     expect(result.fleetYield.done + result.fleetYield.down).toBe(2)
   })
 
-  it('closes a nested manager that settled retained-pending though its teardown answered destroyed', async () => {
-    // A director whose own retained execution cannot be reconciled settles retained-pending, and
-    // its executor answers teardown `destroyed: true` once its descendants are confirmed, while
-    // its own owner environment is still held. Neither the release sweep nor the final close
-    // reached it, so it kept only its `reconciled` floor. Measured 2026-10-15: 38 such directors
-    // over 45 Discovery runs, every one counted never-settled (#1189).
+  it('closes a local retained-pending manager after confirming its owned descendants', async () => {
     const context = createInMemoryRunContext({ withDriver: true })
     const manager = driverChild(
       testAgentProfile('manager'),
@@ -1259,14 +1254,15 @@ describe('retained environments at root settlement', () => {
     const events = (await context.journal.loadTree('root')) ?? []
     const floor = events.find(
       (event): event is Extract<SpawnEvent, { kind: 'reconciled' }> =>
-        event.kind === 'reconciled' && event.id === 'root:s0',
+        event.kind === 'reconciled' && event.id === 'root:s0' && event.settledSeq !== undefined,
     )
     expect(floor?.retainedPendingCause).toBe('nested-recovery')
+    expect(events.filter((event) => event.kind === 'environment-teardown')).toEqual([])
     expect(terminalRecords(events, 'root:s0')).toMatchObject([
       {
         kind: 'settled',
         status: 'down',
-        retainedExecution: 'release-unconfirmed',
+        retainedExecution: 'released',
         retainedPendingCause: 'nested-recovery',
         seq: floor?.settledSeq,
       },
@@ -1274,10 +1270,11 @@ describe('retained environments at root settlement', () => {
     expect(result.fleetYield).toMatchObject({
       spawned: 1,
       neverSettled: 0,
-      releaseUnconfirmed: 1,
+      releaseUnconfirmed: 0,
+      releasedUnrecovered: 1,
     })
     expect(await replaySpawnTree(context.journal, context.blobs, 'root')).toMatchObject([
-      { kind: 'down', retainedExecution: 'release-unconfirmed' },
+      { kind: 'down', retainedExecution: 'released' },
     ])
   })
 
@@ -1871,6 +1868,18 @@ describe('a crash between the receipt and the released record heals on the next 
     // The manager settled on the ordinary path in the root tree: nothing there to restore.
     const rootBefore = (await firstContext.journal.loadTree('root')) ?? []
     expect(terminalRecords(rootBefore, 'root:s0')).toHaveLength(1)
+    expect(terminalRecords(rootBefore, 'root:s0')).toMatchObject([
+      {
+        kind: 'settled',
+        status: 'down',
+        reason: expect.stringContaining('Nested executor cleanup is unconfirmed: root:s0:s0'),
+        failure: {
+          code: 'unknown',
+          owner: 'unknown',
+          cause: expect.stringContaining('executor teardown reported destroyed=false'),
+        },
+      },
+    ])
 
     fleet.state.resultLost = false
     const restarted = createFileRunContext(runDirectory, { withDriver: true })
@@ -1908,11 +1917,11 @@ describe('a crash between the receipt and the released record heals on the next 
       parentId: 'root:s0',
       target: 'agent.child',
     })
-    // The grandchild was released when its manager finished, so the manager's own teardown answered.
+    // Later destruction cannot rewrite the parent's earlier unconfirmed teardown receipt.
     expect(resumed.fleetYield).toEqual({
       spawned: 2,
-      done: 1,
-      down: 1,
+      done: 0,
+      down: 2,
       cancelled: 0,
       neverSettled: 0,
       releasedUnrecovered: 1,

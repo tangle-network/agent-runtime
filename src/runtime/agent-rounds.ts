@@ -37,10 +37,6 @@ import {
   setUpLineage,
 } from './iteration-sandboxes'
 import { readPromptOptions } from './prompt-options'
-import {
-  type SandboxEvidenceRetentionPort,
-  SandboxEvidenceTracker,
-} from './sandbox-evidence-retention'
 import { assertExecutableAgentProfile } from './supervise/model-policy'
 import type {
   AgentRunSpec,
@@ -75,8 +71,6 @@ export interface RunAgentRoundsOptions<Task, Output, Decision> {
   validator?: Validator<Output>
   task: Task
   ctx: ExecCtx
-  /** Durable Sandbox evidence capture required before any worker box cleanup. */
-  evidenceRetention?: SandboxEvidenceRetentionPort
   /** Default 10. Hard cap on total iterations across all `plan()` rounds. */
   maxIterations?: number
   /** Default 4. In-flight worker cap within a single `plan()` batch. */
@@ -172,15 +166,6 @@ export async function runAgentRounds<Task, Output, Decision>(
   )
   const now = options.now ?? Date.now
   const runId = options.runId ?? `loop-${randomSuffix()}`
-  if (options.evidenceRetention !== undefined && options.onWorkerBox !== undefined) {
-    throw new ValidationError(
-      'runAgentRounds: evidenceRetention cannot cover sessions dispatched through onWorkerBox',
-    )
-  }
-  const evidenceTracker =
-    options.evidenceRetention === undefined
-      ? undefined
-      : new SandboxEvidenceTracker(options.evidenceRetention, runId)
   const loopStart = now()
   const driverName = options.driver.name ?? 'driver'
   const iterations: Iteration<Task, Output>[] = []
@@ -207,13 +192,7 @@ export async function runAgentRounds<Task, Output, Decision>(
   // box+session handles so a refine continues the parent session and a fanout
   // branches the parent box. Both flags off ⇒ lineage stays undefined and
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
-  const lineageState = await setUpLineage(
-    options,
-    maxConcurrency,
-    recordMount,
-    promptOptions,
-    evidenceTracker,
-  )
+  const lineageState = await setUpLineage(options, maxConcurrency, recordMount, promptOptions)
 
   emitRunLoopHook(options, {
     target: 'agent.run',
@@ -326,14 +305,7 @@ export async function runAgentRounds<Task, Output, Decision>(
       // a fresh box per iteration (today's path). With lineage it may continue
       // the parent session (refine) or branch the parent box (fanout).
       const lineagePlan = lineageState
-        ? planLineageRound(
-            lineageState,
-            specs,
-            slice,
-            parentIndex,
-            controller.signal,
-            evidenceTracker !== undefined,
-          )
+        ? planLineageRound(lineageState, specs, slice, parentIndex, controller.signal)
         : undefined
 
       await runBatch({
@@ -354,7 +326,6 @@ export async function runAgentRounds<Task, Output, Decision>(
         collectBox,
         lineagePlan,
         lineageState,
-        evidenceTracker,
         recordMount,
         ...(promptOptions === undefined ? {} : { promptOptions }),
       })
@@ -413,11 +384,7 @@ export async function runAgentRounds<Task, Output, Decision>(
     // large fanout's deletes don't serialize, and bound each so a hung platform
     // delete cannot wedge loop return after the caller aborted.
     const cleanup = await Promise.allSettled(
-      ownedBoxes.map((box) =>
-        evidenceTracker === undefined
-          ? destroySandboxSafe(box, options.ctx.traceEmitter, runId, now)
-          : evidenceTracker.destroy(box),
-      ),
+      ownedBoxes.map((box) => destroySandboxSafe(box, options.ctx.traceEmitter, runId, now)),
     )
     if (options.onWorkerBox) options.onWorkerBox(undefined)
     let lineageFailure: unknown

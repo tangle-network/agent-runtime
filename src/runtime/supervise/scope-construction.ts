@@ -1,14 +1,11 @@
 import { ValidationError } from '../../errors'
+import { refreshBudgetLease } from './budget'
 import { checkInIdleMs } from './deadline'
 import { freeSlots } from './dispatch'
 import { errorText } from './error-message'
 import { isTerminalNodeStatus } from './node-status'
 import { owners } from './retained-owner-state'
-import {
-  bindScopeRetainedOwnerWorkspaceRetention,
-  registerScopeRetainedOwner,
-  retainedOwnerWorkspaceRetentionSeamKey,
-} from './retained-scope-owner'
+import { registerScopeRetainedOwner } from './retained-scope-owner'
 import {
   admissionSeals,
   barrenPauseRecorders,
@@ -50,7 +47,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const ownerFloor = reservationOwnerFloor(args)
   const now = args.now ?? Date.now
   const workers = new ScopeWorkers(args, children, now)
-  const meter = new ScopeOwnerMeter(args, now)
+  const meter = new ScopeOwnerMeter(
+    args,
+    now,
+    () => ownerMaterializationStates.get(scope)?.attemptId,
+  )
   const { releaseHeld, heldReleases } = createHeldChildRelease(args, now)
   const { spawn, recordKeyedSettlement } = createScopeSpawner<Out>({
     args,
@@ -62,6 +63,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     isAdmissionClosed: () => admissionClosed,
     checkInAtTimeBox: workers.checkInAtTimeBox,
     releaseHeld,
+    publishSettlement: async (child, settlement): Promise<unknown> => {
+      const published = await cursor.publish(child, settlement)
+      await refreshBudgetLease(args.pool)
+      return published
+    },
   })
   const cursor = new ScopeSettlementCursor<Out>(args, children, now, recordKeyedSettlement)
 
@@ -150,6 +156,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   }
   bindChildTeardown(scope, args, children, now)
   registerScopeRetainedOwner(scope as Scope<unknown>, {
+    ...(args.hooks ? { hooks: args.hooks } : {}),
     rootId: args.root,
     executionRootId: args.ownerMaterialization?.journalRoot ?? args.root,
     nodeId: args.parentId,
@@ -159,10 +166,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     priorEvents: args.resumeFrom?.events ?? [],
     now,
   })
-  bindScopeRetainedOwnerWorkspaceRetention(
-    scope as Scope<unknown>,
-    args.seams[retainedOwnerWorkspaceRetentionSeamKey] === true,
-  )
   return scope
 }
 

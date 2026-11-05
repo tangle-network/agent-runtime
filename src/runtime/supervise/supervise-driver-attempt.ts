@@ -13,6 +13,7 @@ import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { isAsyncIterable, zeroSpend } from '../util'
 import { coordinationBindingHost } from './coordination-mcp'
 import { type DriverAttemptIdentity, DriverExecutionAttempt } from './driver-execution-attempt'
+import { executorObservationSeamKey } from './executor-observation'
 import { seatProviderProfile } from './manager-drive-session'
 import { runtimeOwnedPendingExecutorMaterialization } from './materialization'
 import { assertExecutableAgentProfile } from './model-policy'
@@ -31,6 +32,7 @@ import {
   createExecutor,
 } from './runtime'
 import { scopeOwnerExecutorNodeContext } from './scope'
+import { scopeOwnerExecutionObservation } from './scope-owner-materialization'
 import type { ActiveSeat } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
 import { exhaustedBudgetChannels } from './supervise-budget'
@@ -113,10 +115,15 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   const factory =
     reusedAttemptFactory(input) ??
     (await providerAttemptFactory(input, identity.providerProfile.harness))
+  const observation = scopeOwnerExecutionObservation(scope, (event) => {
+    input.rootStream?.append(event)
+    input.noteDriveProgress(event)
+  })
   const executor = factory(spec, {
     signal: scope.signal,
     node: scopeOwnerExecutorNodeContext(scope),
     seams: {
+      [executorObservationSeamKey]: observation,
       ...(retainedOwner
         ? {
             [retainedExecutorSeamKey]: {
@@ -161,7 +168,8 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     const run = retainedOwner?.admissions.length
       ? executor.recover!(input.originalTask, scope.signal)
       : executor.execute(input.originalTask, scope.signal)
-    if (isAsyncIterable<UsageEvent>(run)) await attempt.drainStream(run, input)
+    if (isAsyncIterable<UsageEvent>(run))
+      await attempt.drainStream(run, { ...input, observeProgress: observation.progress })
     else await attempt.settleReturned(await run)
     await attempt.publishAcknowledgement(pending)
     attempt.completed = true

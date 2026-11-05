@@ -238,8 +238,6 @@ export function createSandboxLineage(
     /** A failed delete must surface and leave the box available for evidence recovery. */
     failOnDestroyError?: boolean
     /** Capture and durably record evidence before the box is deleted. */
-    beforeDelete?: (box: SandboxInstance) => Promise<void>
-    onAcquire?: (box: SandboxInstance, profile: AgentProfile) => void
   } = {},
 ): SandboxLineage {
   if (!client || typeof client.create !== 'function') {
@@ -266,19 +264,14 @@ export function createSandboxLineage(
     const opts: CreateSandboxOptions = buildBackendOptions(spec.profile, spec.sandboxOverrides)
     const box = await acquireSandbox(client, opts, {
       signal,
-      ...(options.onAcquire === undefined
-        ? {}
-        : { onAcquire: (source: SandboxInstance) => options.onAcquire?.(source, spec.profile) }),
-      ...(options.beforeDelete === undefined ? {} : { beforeDelete: options.beforeDelete }),
     })
     owned.push(box)
     profiles.set(box, spec.profile)
-    options.onAcquire?.(box, spec.profile)
     try {
       await spec.prepareBox?.(box, { signal, recordMount })
     } catch (error) {
       try {
-        await destroyBounded(box, options.failOnDestroyError, options.beforeDelete)
+        await destroyBounded(box, options.failOnDestroyError)
         owned.splice(owned.indexOf(box), 1)
       } catch (captureError) {
         throw new AggregateError(
@@ -330,7 +323,6 @@ export function createSandboxLineage(
         if (inheritedProfile !== undefined) {
           for (const box of branched) {
             profiles.set(box, inheritedProfile)
-            options.onAcquire?.(box, inheritedProfile)
           }
         }
         if (branched.length !== prompts.length) {
@@ -344,7 +336,6 @@ export function createSandboxLineage(
           if (!spec) throw new ValidationError('SandboxLineage.fork: no AgentRunSpec for branch')
           if (inheritedProfile === undefined) {
             profiles.set(box, spec.profile)
-            options.onAcquire?.(box, spec.profile)
           }
           await spec.prepareBox?.(box, { signal, recordMount })
           const sessionId = mintSessionId()
@@ -377,7 +368,7 @@ export function createSandboxLineage(
       for (const box of owned) (keepBoxes.has(box) ? survivors : doomed).push(box)
       if (doomed.length === 0) return
       const results = await Promise.allSettled(
-        doomed.map((box) => destroyBounded(box, options.failOnDestroyError, options.beforeDelete)),
+        doomed.map((box) => destroyBounded(box, options.failOnDestroyError)),
       )
       const failed = results.flatMap((result, index) =>
         result.status === 'rejected' ? [doomed[index]!] : [],
@@ -396,7 +387,7 @@ export function createSandboxLineage(
     async teardown() {
       const boxes = owned.splice(0, owned.length)
       const results = await Promise.allSettled(
-        boxes.map((box) => destroyBounded(box, options.failOnDestroyError, options.beforeDelete)),
+        boxes.map((box) => destroyBounded(box, options.failOnDestroyError)),
       )
       const failed = results.flatMap((result, index) =>
         result.status === 'rejected' ? [boxes[index]!] : [],
@@ -470,15 +461,7 @@ async function assertSessionLive(box: SandboxInstance, sessionId: string): Promi
   }
 }
 
-async function destroyBounded(
-  box: SandboxInstance,
-  failOnError = false,
-  beforeDelete?: (box: SandboxInstance) => Promise<void>,
-): Promise<void> {
-  if (beforeDelete !== undefined) {
-    await beforeDelete(box)
-    return
-  }
+async function destroyBounded(box: SandboxInstance, failOnError = false): Promise<void> {
   if (failOnError) {
     await box.delete()
     return

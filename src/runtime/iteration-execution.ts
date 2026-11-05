@@ -18,7 +18,6 @@ import {
   createSandboxUsageLedger,
   notifySandboxEventObserver,
 } from './sandbox-events'
-import type { SandboxEvidenceTracker } from './sandbox-evidence-retention'
 import { promptEvents } from './sandbox-lineage'
 import { projectSandboxOutcome } from './sandbox-outcome'
 import { concreteProfileModel } from './supervise/model-policy'
@@ -35,7 +34,6 @@ import {
   addTokenUsage,
   isAbortError,
   promptCacheTokenClasses,
-  randomUuid,
   stringifySafe,
   throwAbort,
 } from './util'
@@ -72,7 +70,6 @@ interface RunBatchArgs<Task, Output> {
   /** The loop's lineage state; iterations record their handle here for the next
    *  round to descend from. Set iff `lineagePlan` is. */
   lineageState?: LineageState
-  evidenceTracker?: SandboxEvidenceTracker
   /** Sandbox streaming mode for the default fresh-box path. 'poll' fire-and-
    *  detaches + status-polls the terminal result (drop-resilient for long batch
    *  turns); 'sse' streams live (default). */
@@ -174,8 +171,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     // byte-identical when no lineage). The lineage path supplies a session id on
     // the stream; the fresh path passes none — preserving N-independent-boxes.
     let stream: AsyncIterable<SandboxEvent>
-    let sandboxSessionId: string | undefined
-    let dispatchedExecutionId: string | undefined
     const source = args.lineagePlan?.[args.item.index - args.baseIndex]
     if (source) {
       const acquired = await source.acquire()
@@ -183,18 +178,9 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       boxAcquiredAt = args.now()
       lineageOwned = true
       args.lineageState?.handles.set(args.item.index, acquired.handle)
-      args.evidenceTracker?.register(box, spec.profile, acquired.handle.sessionId)
       stream = acquired.events
-      sandboxSessionId = acquired.handle.sessionId
-      dispatchedExecutionId = acquired.executionId
     } else {
-      box = await createSandboxForSpec(
-        args.ctx.sandboxClient,
-        spec,
-        args.signal,
-        args.recordMount,
-        args.evidenceTracker,
-      )
+      box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal, args.recordMount)
       boxAcquiredAt = args.now()
       const prompt = spec.taskToPrompt(args.item.task)
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
@@ -202,37 +188,20 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // streams live — byte-identical to the prior path.
       // The caller's per-prompt SDK options ride every turn; the kernel's own
       // session id and signal are applied after them and always win.
-      const sandboxSessionIdForTurn = args.evidenceTracker === undefined ? undefined : randomUuid()
-      sandboxSessionId = sandboxSessionIdForTurn
-      dispatchedExecutionId = args.evidenceTracker === undefined ? undefined : randomUuid()
-      const promptOptions =
-        dispatchedExecutionId === undefined
-          ? args.promptOptions
-          : { ...(args.promptOptions ?? {}), executionId: dispatchedExecutionId }
       stream =
         args.streaming === 'poll'
           ? promptEvents(
               'poll',
               box,
               prompt,
-              sandboxSessionIdForTurn ?? `${args.runId}-i${args.item.index}`,
+              `${args.runId}-i${args.item.index}`,
               args.signal,
-              promptOptions,
+              args.promptOptions,
             )
           : box.streamPrompt(prompt, {
-              ...(promptOptions ?? {}),
-              ...(sandboxSessionIdForTurn === undefined
-                ? {}
-                : { sessionId: sandboxSessionIdForTurn }),
+              ...(args.promptOptions ?? {}),
               signal: args.signal,
             })
-    }
-    if (
-      box !== undefined &&
-      sandboxSessionId !== undefined &&
-      dispatchedExecutionId !== undefined
-    ) {
-      args.evidenceTracker?.recordDispatch(box, sandboxSessionId, dispatchedExecutionId)
     }
     const placement = describeSandboxPlacement(args.ctx.sandboxClient, box)
     await emitTrace(args.ctx.traceEmitter, {
@@ -268,12 +237,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     try {
       for await (const event of stream) {
         collector.push(event)
-        if (box !== undefined)
-          args.evidenceTracker?.observe(
-            box,
-            event,
-            source ? args.lineageState?.handles.get(args.item.index)?.sessionId : undefined,
-          )
         outcomeTracker.observe(event)
         // Tee each raw event to an optional host observer so a caller can stream
         // the agent's live output. Best-effort + isolated: the observer gets a
@@ -357,10 +320,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     } else if (args.collectBox && box) {
       args.collectBox(box)
     } else {
-      const teardown =
-        args.evidenceTracker === undefined || box === undefined
-          ? await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
-          : await args.evidenceTracker.destroy(box).then(() => 'deleted' as const)
+      const teardown = await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
       // The platform bills a box until it is deleted, so the lifetime closes on the delete, not on
       // the stream. A delete this loop could not prove leaves the number a floor: the box may have
       // outlived it.

@@ -1,7 +1,8 @@
 import { contentAddress } from '../../durable/content-address'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { settlementFailureCause } from '../failure-cause'
-import { subtreeSummaryOf } from './scope-capabilities'
+import { budgetLeases } from './budget'
+import { releaseManagerEnvironment, subtreeSummaryOf } from './scope-capabilities'
 import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'
 import { frozenHandle } from './scope-observation'
 import {
@@ -12,6 +13,7 @@ import {
   terminalDownEvent,
 } from './terminal-record'
 import type {
+  Budget,
   EnvironmentTeardownReceipt,
   HeldRelease,
   NodeId,
@@ -53,12 +55,14 @@ async function appendReconciledFloor(
   settlement: DownSettlement,
   settledSeq: number,
   at: string,
+  reservation?: Budget,
 ): Promise<void> {
   const seq = await nextPerNodeSeq(journal, root, 'reconciled', subject.id)
   await appendAcknowledged(journal, root, {
     kind: 'reconciled',
     id: subject.id,
     ...settlementFields(subject, settlement),
+    ...(reservation === undefined ? {} : { reservation }),
     ...(subject.cancellationReason === undefined
       ? {}
       : { cancellation: { source: subject.cancellationReason.source } }),
@@ -95,7 +99,7 @@ export async function appendEnvironmentTeardown(
 async function nextPerNodeSeq(
   journal: SpawnJournal,
   root: NodeId,
-  kind: 'metered' | 'reconciled' | 'environment-teardown',
+  kind: 'metered' | 'reconciled' | 'environment-teardown' | 'teardown-confirmed',
   id: NodeId,
 ): Promise<number> {
   const prior = (await journal.loadTree(root)) ?? []
@@ -107,7 +111,18 @@ async function nextPerNodeSeq(
   )
 }
 
-async function appendAcknowledged(
+/** An executor's acknowledged cleanup, including a child cancelled before it ran. */
+export async function appendTeardownConfirmation(
+  journal: SpawnJournal,
+  root: NodeId,
+  id: NodeId,
+  at: string,
+): Promise<void> {
+  const seq = await nextPerNodeSeq(journal, root, 'teardown-confirmed', id)
+  await journal.appendEvent(root, { kind: 'teardown-confirmed', id, seq, at })
+}
+
+export async function appendAcknowledged(
   journal: SpawnJournal,
   root: NodeId,
   event: Extract<SpawnEvent, { kind: 'metered' | 'reconciled' }>,
@@ -126,8 +141,7 @@ async function appendAcknowledged(
   }
 }
 
-/** Stamp the cursor `seq`, write the `settled` journal record, and project the
- *  `PreSeqSettled` into the frozen `Settled` the driver branches on. */
+/** Persist a completed child before publishing its terminal view and result. */
 export async function finalizeSettlement<Out>(
   child: LiveChild,
   settlement: PreSeqSettled,
@@ -135,48 +149,33 @@ export async function finalizeSettlement<Out>(
   args: ScopeArgs,
   now: () => number,
 ): Promise<Settled<Out>> {
-  const handle = frozenHandle<Out>(child)
   const nestedScope = child.readNestedScope?.()
   const subtree = nestedScope === undefined ? undefined : subtreeSummaryOf(nestedScope)
   if (subtree !== undefined) child.subtree = subtree
   const settledAt = now()
-  child.settledAt = settledAt
-  child.settledSeq = seq
   const at = new Date(settledAt).toISOString()
+  if (
+    child.cleanupConfirmed &&
+    !child.recoveryPending &&
+    child.held === undefined &&
+    nestedScope === undefined
+  ) {
+    await appendTeardownConfirmation(args.journal, args.root, child.id, at)
+    budgetLeases.get(args.pool)?.acknowledgeTeardown(child.admission.ticket)
+  }
   // A terminal cursor must never hide inference that has not reached the parent journal.
   if (settlement.metered) {
     await appendSettlementMetering(args.journal, args.root, child.id, settlement.metered, at)
   }
   if (settlement.kind === 'down') {
     settlement.failure ??= settlementFailureCause(settlement)
-    child.failure = settlement.failure
     const cancellation = child.cancellationReason
-    child.status = cancellation === undefined ? 'failed' : 'cancelled'
-    child.outRef = settlement.outRef
-    child.trace = settlement.trace
-    child.providerModel = settlement.providerModel
     const retainedPending = child.recoveryPending === true
     if (!retainedPending)
       await args.journal.appendEvent(args.root, terminalDownEvent(child, settlement, seq, at))
-    // A retained-pending node keeps its cursor slot open for recovery, so it carries no terminal
-    // record yet — but its reservation WAS reconciled, and a journal that says nothing about that
-    // leaves every reader (terminal accounting, a restored pool, the tree view) charging the
-    // ceiling the pool refunded: the reported `childWork` carried 4M per
-    // retained child against a metered 10 (#1190). The floor is journaled in the settlement's
-    // place, outside the cursor namespace, so the slot stays open and the ledgers agree. The
-    // slot closes in exactly three ways: a resume recovers the execution and settles it on the
-    // ordinary path; root settlement under `retainedAtSettlement: 'release'` destroys the
-    // environment and the release sweep (`retainedReleasers`, above) writes this settlement as
-    // the terminal record with `retainedExecution: 'released'`, under the seq stamped here; or
-    // the next resume's `healReleasedSlots` writes that same record from this reconciled record
-    // and the receipts, when the sweep's process died between them. The reconciled record
-    // therefore carries the settlement and `seq` in full: `spent` is the floor the pool committed
-    // (`live.spent` at the retained branch, the same object `child.spent` holds), the withheld
-    // overspend is `retainedViolation`, and `cancellationReason` is final because
-    // `recordCancellation` only assigns before `executorDone`.
+    // Retained work records its reconciled floor, never a terminal receipt. Recovery or
+    // acknowledged release closes the reserved seq; crash healing uses this same record.
     else {
-      child.retainedExecution = 'pending'
-      child.retainedPendingCause = settlement.retainedPendingCause
       if (settlement.reconciled !== undefined)
         await appendReconciledFloor(
           args.journal,
@@ -194,11 +193,22 @@ export async function finalizeSettlement<Out>(
           settlement,
           seq,
           at,
+          child.admission.reservation,
         )
     }
-    // The in-memory down and the first `agent.child` are the only surfaces that exist while the
-    // slot is open, so they are where `'pending'` lives; the journal states the same fact as the
-    // `reconciled` record and replay never yields it.
+    child.failure = settlement.failure
+    child.status = cancellation === undefined ? 'failed' : 'cancelled'
+    child.outRef = settlement.outRef
+    child.trace = settlement.trace
+    child.providerModel = settlement.providerModel
+    child.settledAt = settledAt
+    child.settledSeq = seq
+    if (retainedPending) {
+      child.retainedExecution = 'pending'
+      child.retainedPendingCause = settlement.retainedPendingCause
+    }
+    if (!retainedPending && nestedScope !== undefined)
+      void releaseManagerEnvironment(nestedScope).catch(() => undefined)
     const retainedExecution = retainedPending
       ? {
           retainedExecution: 'pending' as const,
@@ -233,7 +243,7 @@ export async function finalizeSettlement<Out>(
     )
     return {
       kind: 'down',
-      handle,
+      handle: frozenHandle<Out>(child),
       reason: settlement.reason,
       ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
       ...retainedExecution,
@@ -249,12 +259,6 @@ export async function finalizeSettlement<Out>(
     }
   }
 
-  child.failure = undefined
-  child.status = 'done'
-  child.outRef = settlement.outRef
-  child.spent = settlement.spent
-  child.trace = settlement.trace
-  child.providerModel = settlement.providerModel
   await args.journal.appendEvent(args.root, {
     kind: 'settled',
     id: child.id,
@@ -271,6 +275,16 @@ export async function finalizeSettlement<Out>(
     seq,
     at,
   })
+  child.failure = undefined
+  child.status = 'done'
+  child.outRef = settlement.outRef
+  child.spent = settlement.spent
+  child.trace = settlement.trace
+  child.providerModel = settlement.providerModel
+  child.settledAt = settledAt
+  child.settledSeq = seq
+  if (!child.recoveryPending && nestedScope !== undefined)
+    void releaseManagerEnvironment(nestedScope).catch(() => undefined)
   notifyRuntimeHookEvent(
     args.hooks,
     {
@@ -296,7 +310,7 @@ export async function finalizeSettlement<Out>(
   )
   return {
     kind: 'done',
-    handle,
+    handle: frozenHandle<Out>(child),
     out: settlement.out as Out,
     outRef: settlement.outRef,
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),

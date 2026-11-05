@@ -94,9 +94,6 @@ export function sandboxSessionOutput(run: SandboxSessionRun): unknown {
     // The reason behind a `false` `spent.tokensKnown` rides the settlement, not the verdict: SUCCEEDED
     // and MEASURED differ, and collapsing them would drop a correct worker from winner selection.
     ...(run.usageFailure === undefined ? {} : { tokensUnknownReason: run.usageFailure }),
-    ...(run.args.workspaceCaptures === undefined
-      ? {}
-      : { workspaceCaptures: run.args.workspaceCaptures() }),
     ...(run.preservationFailure === undefined
       ? {}
       : { preservationFailure: run.preservationFailure }),

@@ -203,7 +203,7 @@ describe('an opted-in root pauses where it used to stop', () => {
     // It stayed queued through the second pause: the turn the returned budget admitted is told it
     // waits, and the wake that turn ends in hands it over.
     expect(tasks).toHaveLength(3)
-    expect(tasks[1]).toContain('Events waiting for you: 1 (lead-message)')
+    expect(tasks[1]).toContain(`Events waiting for you: 2 (lead-message; settled from ${runId}:s0)`)
     expect(tasks[2]).toContain('"type":"lead-message"')
     expect(tasks[2]).toContain('raise it')
     expect(result).toMatchObject({

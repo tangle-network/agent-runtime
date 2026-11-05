@@ -11,14 +11,18 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
 } from '../../src/durable/in-memory-spawn-stores'
-import type { AwaitWakeInput } from '../../src/mcp/tools/coordination-events'
+import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import type { AwaitWakeInput, CoordinationEvent } from '../../src/mcp/tools/coordination-events'
 import { environmentReader } from '../../src/mcp/tools/spawn-resource-paths'
+import { runSettledCommand } from '../../src/mcp/worktree-harness'
 import type { CheckVerdict } from '../../src/runtime/supervise/completion-gate'
 import { coordinationHttpHandler } from '../../src/runtime/supervise/coordination-http'
 import {
   serveCoordinationMcp,
   serveCoordinationMcpForManager,
 } from '../../src/runtime/supervise/coordination-mcp'
+import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
@@ -285,115 +289,152 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(wakes.filter((event) => JSON.stringify(event).includes('slow-spawn:s1'))).toEqual([])
   })
 
-  it('observe_agent over the wire names a finished-but-undrained worker instead of calling it running', async () => {
-    // The state that cost a run. A child finishes; its settlement waits in the inbox; a manager
-    // polling observe_agent reads `running` because the status transition happens at drain time.
-    // Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children done 30 s after
-    // dispatch, eleven observations over 56 minutes, every one said running, and the manager
-    // stopped draining because the status told it work was in flight. agent-runtime#1279.
-    const blobs = new InMemoryResultBlobStore()
-    const seen: Array<Record<string, unknown>> = []
+  it('delivers a same-process keyed completion once after observing its durable result over MCP', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'coordination-eager-'))
+    const journalPath = join(directory, 'spawn-journal.jsonl')
+    const journal = new FileSpawnJournal(journalPath)
+    const blobs = new FileResultBlobStore(join(directory, 'blobs'))
+    const executions = join(directory, 'executions')
+    const profile = testAgentProfile('quick')
+    const budget = { maxIterations: 4, maxTokens: 1000 }
+    const child = driverChild(
+      profile,
+      {
+        name: 'quick',
+        async act(_task, scope) {
+          const result = await runSettledCommand({
+            command: process.execPath,
+            args: [
+              '-e',
+              `require('node:fs').appendFileSync(process.argv[1], 'executed\\n'); process.stdout.write('checked result')`,
+              executions,
+            ],
+            cwd: directory,
+            timeoutMs: 5000,
+            signal: scope.signal,
+          })
+          if (result.exitCode !== 0) throw new Error(result.stderr)
+          return result.stdout
+        },
+      },
+      journal,
+    )
+    const sourceProfile = testAgentProfile('source')
+    const source = driverChild(
+      sourceProfile,
+      { name: 'source', act: async () => ({ items: ['go'] }) },
+      journal,
+    )
+    const joinChild = driverChild(
+      testAgentProfile('join'),
+      { name: 'join', act: async () => 'joined' },
+      journal,
+    )
     const root: Agent<unknown, unknown> = {
       name: 'poller',
-      async act(_task, scope: Scope<unknown>) {
+      async act(_task, scope) {
+        const events: CoordinationEvent[] = []
         const { handle: mcp, controls } = await serveCoordinationMcpForManager({
           scope,
           blobs,
-          makeWorkerAgent: () => deliveringLeaf('quick', { answer: 1 }),
-          perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+          perWorker: budget,
+          makeWorkerAgent: (profile) =>
+            profile.name === 'source' ? source : profile.name === 'quick' ? child : joinChild,
           toolNames: ['spawn_worker', 'observe_agent'],
           authentication: true,
+          mapOnSettle: [
+            {
+              edge: 'checked',
+              from: 'source',
+              pointer: '/items',
+              item: { profile },
+              join: testAgentProfile('join'),
+              maxItems: 1,
+              concurrency: 1,
+              onItemFailure: 'settled-subset',
+            },
+          ],
+          onEvent: (event) => {
+            events.push(event)
+          },
         })
+        const coldJournal = new FileSpawnJournal(journalPath)
+        const terminalCount = async (id: string) =>
+          ((await coldJournal.loadTree('observe-pending')) ?? []).filter(
+            (event) => event.kind === 'settled' && event.id === id,
+          ).length
         try {
-          const spawned = await jsonRpc(
+          const started = await jsonRpc(
             mcp.url,
             'tools/call',
-            { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
+            {
+              name: 'spawn_worker',
+              arguments: { profile: sourceProfile, task: 'find' },
+            },
             mcp.headers,
           )
-          const workerId = (JSON.parse(spawned.result.content[0].text) as { workerId: string })
-            .workerId
-          // Let the leaf's executor promise settle. Nothing here drains it.
-          await new Promise((resolve) => setTimeout(resolve, 50))
+          const sourceId = JSON.parse(started.result.content[0].text).workerId
+          await expect.poll(() => terminalCount(sourceId), { timeout: 5000 }).toBe(1)
+          const spawned = scope.spawn(child, 'go', {
+            budget,
+            label: 'quick#0',
+            key: 'map:checked#1:0',
+            assignmentId: 'key:map:checked#1:0',
+          })
+          if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
+          const workerId = spawned.handle.id
+          await expect.poll(() => terminalCount(workerId), { timeout: 5000 }).toBe(1)
           const observe = async () =>
             JSON.parse(
               (
                 await jsonRpc(
                   mcp.url,
                   'tools/call',
-                  { name: 'observe_agent', arguments: { workerId } },
+                  {
+                    name: 'observe_agent',
+                    arguments: { workerId },
+                  },
                   mcp.headers,
                 )
               ).result.content[0].text,
             ) as Record<string, unknown>
-          seen.push(await observe())
-          await controls.awaitWake(wakeInput())
-          seen.push(await observe())
-          return undefined
+          expect(mcp.settled()).toEqual([])
+          expect(await observe()).toMatchObject({
+            status: 'done',
+            output: 'checked result',
+            settlementPending: { kind: 'done' },
+          })
+          for (let wake = 0; wake < 3 && mcp.settled().length < 3; wake++) {
+            await controls.awaitWake(wakeInput())
+          }
+          expect(mcp.settled()).toHaveLength(3)
+          expect(await mcp.drainResolved()).toBe(0)
+          expect(await observe()).not.toHaveProperty('settlementPending')
+          expect(
+            events.filter((event) => event.type === 'settled' && event.worker.id === workerId),
+          ).toHaveLength(1)
+          expect(
+            events.filter((event) => event.type === 'map' && event.map.phase === 'join'),
+          ).toHaveLength(1)
+          expect(await readFile(executions, 'utf8')).toBe('executed\n')
+          expect(await terminalCount(workerId)).toBe(1)
+          return 'checked result'
         } finally {
           await mcp.close()
         }
       },
     }
-    await createSupervisor<unknown, unknown>().run(root, 'poll', {
-      budget: { maxIterations: 100, maxTokens: 100_000 },
-      runId: 'observe-pending',
-      journal: new InMemorySpawnJournal(),
-      blobs,
-      executors: createExecutorRegistry(),
-      now: () => 0,
-    })
-    expect(seen).toHaveLength(2)
-    // Before the drain: status has not flipped, but the finished state is named with its kind and
-    // the manager is told which call resolves it, so a poller cannot mistake this for live work.
-    expect(seen[0]).toMatchObject({ status: 'running', settlementPending: { kind: 'done' } })
-    expect(String(seen[0]?.hint)).toContain('end your turn')
-    // After the drain: the window is closed, the output is there, nothing is pending.
-    expect(seen[1]).toMatchObject({ status: 'done', output: { answer: 1 } })
-    expect(seen[1]).not.toHaveProperty('settlementPending')
-    expect(seen[1]).not.toHaveProperty('hint')
-  })
-
-  it('hands the coordination tools to the caller BEFORE the listener opens', async () => {
-    // A node tool bound to `context.verbs` must work on the FIRST request. The hook therefore has
-    // to fire before listen; a bind moved after it would leave the first caller with no verbs.
-    let boundNames: ReadonlyArray<string> | undefined
-    let boundBeforeFirstCall: boolean | undefined
-    const scope = {
-      signal: new AbortController().signal,
-      view: { root: 'mcp-fixture', nodes: [], inFlight: 0 },
-    } as Scope<unknown>
-    const mcp = await serveCoordinationMcp({
-      scope,
-      blobs: new InMemoryResultBlobStore(),
-      makeWorkerAgent: () => deliveringLeaf('unused', {}),
-      perWorker: { maxIterations: 1, maxTokens: 1 },
-      toolNames: ['spawn_worker', 'read_binding'],
-      onCoordinationTools: (tools) => {
-        boundNames = tools.map((tool) => tool.name)
-      },
-      nodeTools: [
-        {
-          name: 'read_binding',
-          description: 'Report whether the coordination tools were bound before this call',
-          inputSchema: { type: 'object', properties: {} },
-          handler: async () => {
-            boundBeforeFirstCall = boundNames !== undefined
-            return { bound: boundBeforeFirstCall }
-          },
-        },
-      ],
-    })
     try {
-      const called = await jsonRpc(mcp.url, 'tools/call', {
-        name: 'read_binding',
-        arguments: {},
+      const result = await createSupervisor<unknown, unknown>().run(root, 'poll', {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'observe-pending',
+        journal,
+        blobs,
+        executors: withDriverExecutor(createExecutorRegistry()),
       })
-      expect(called.error).toBeUndefined()
-      expect(boundBeforeFirstCall).toBe(true)
-      expect(boundNames).toContain('spawn_worker')
+      expect(result.kind, JSON.stringify(result)).toBe('winner')
     } finally {
-      await mcp.close()
+      await rm(directory, { recursive: true, force: true })
     }
   })
 
@@ -862,7 +903,7 @@ describe('authenticated and bounded coordination HTTP', () => {
   })
 
   it('enforces expiration and audience, and does not leak bearer credentials into audit records', async () => {
-    const events: unknown[] = []
+    const events: CoordinationEvent[] = []
     await withBoundHttp(
       {
         authentication: { ttlMs: 900_000 },

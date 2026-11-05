@@ -1,6 +1,4 @@
 import { HARNESS_TRANSCRIPT_SETTLE_TIMEOUT_MS } from '../harness-transcript'
-import { workspaceCaptureWriter } from './retained-executor'
-import { stopOwnerEvidenceRetry } from './retained-owner-evidence'
 import { type OwnerState, owners } from './retained-owner-state'
 import type { Scope } from './types'
 
@@ -9,17 +7,6 @@ export function preemptRotationCaptures(state: OwnerState): void {
   state.rotationCaptures?.abort(
     new Error("the turn's end-of-turn capture goes first; checkpoint kept"),
   )
-}
-
-export function ownerCaptureWriter(state: OwnerState): ReturnType<typeof workspaceCaptureWriter> {
-  const { args } = state
-  return workspaceCaptureWriter({
-    journal: args.journal,
-    rootId: args.rootId,
-    nodeId: args.nodeId,
-    nextSequence: () => state.nextSequence(),
-    now: args.now,
-  })
 }
 
 /**
@@ -79,14 +66,11 @@ export async function scopeRetainedOwnerTurnEnded(scope: Scope<unknown>): Promis
   }
 }
 
-/** @internal Wait for everything this owner still has in flight: the drive ending its turn, the
- *  work that turn handed over, and a release. The run is settling, so its capture retries stop;
- *  a release retries once itself, and a resumed process starts them again. */
+/** @internal Join the owner's drive, end-of-turn work and any release already in progress. */
 export async function scopeRetainedOwnerSettled(scope: Scope<unknown>): Promise<void> {
   const state = owners.get(scope)
   if (state === undefined) return
   await ownerDriveEnded(state)
   await scopeRetainedOwnerTurnEnded(scope)
   await state.releasing?.catch(() => undefined)
-  await stopOwnerEvidenceRetry(state)
 }

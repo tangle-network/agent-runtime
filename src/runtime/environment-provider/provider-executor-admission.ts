@@ -10,10 +10,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import type { PromptOptions } from '@tangle-network/sandbox'
 import { type ProviderPlacement, selectProviderPlacement } from '../provider-placement'
-import type {
-  ProviderWorkspaceCaptureReceipt,
-  ProviderWorkspaceRetentionPort,
-} from '../provider-workspace-retention'
+import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import { detachedSnapshot } from '../supervise/snapshot'
 import type { ExecutorFactory, Runtime } from '../supervise/types'
 import type { UnavailablePausePolicy } from '../supervise/upstream-unavailable'
@@ -150,8 +147,6 @@ export interface ProviderExecutorOptions {
    * back to its own settle verdict.
    */
   validator?: Validator<ProviderLeafOut>
-  /** Capture and verify a portable executable workspace before Runtime destroys the environment. */
-  workspaceRetention?: ProviderWorkspaceRetentionPort
   /** Transform only the profile sent to `provider.create`. The original profile
    * remains the input to `taskToTurn`, so execution-only normalization cannot
    * rewrite the caller's task mapping. */
@@ -174,8 +169,7 @@ export interface ProviderExecutorOptions {
    * spawn event, and each continuation as the node's next `execution-input`.
    *
    * Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
-   * that declares `retainedControl`. Workspace retention verifies each invocation separately;
-   * failed capture or required incomplete coverage preserves the source and stops continuation.
+   * that declares `retainedControl`.
    * `false` ends the execution on the refused turn.
    */
   unavailablePause?: UnavailablePausePolicy | false

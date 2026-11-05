@@ -25,8 +25,6 @@ export type { OwnerRegistration, OwnerState } from './retained-owner-state'
 export {
   bindScopeRetainedOwnerEnvironmentId,
   bindScopeRetainedOwnerProvider,
-  bindScopeRetainedOwnerWorkspaceRetention,
-  retainedOwnerWorkspaceRetentionSeamKey,
   scopeRetainedOwnerContext,
   scopeRetainedOwnerJournalRoot,
 } from './retained-owner-state'

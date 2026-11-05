@@ -1,28 +1,23 @@
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { supervisePursuit } from '../../src/durable/supervise-pursuit'
-import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
+import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
-import { completeCapture, fileWorkspaceArtifacts } from './complete-workspace-capture'
 import { testContinuation } from './continuation'
-import { durableRetainedProvider } from './durable-retained-provider'
+import { nativeSeatProvider } from './native-seat-provider'
 
 const [directory, phase] = process.argv.slice(2)
-if (!directory || !phase)
-  throw new Error('usage: retained-capture-resume-child.ts <directory> <phase>')
-const seat = phase.startsWith('seat-')
+if (!directory || !phase) throw new Error('expected directory and phase')
 const runId = 'retained-capture-restart'
 const note = (event: object) =>
   appendFileSync(join(directory, 'moments.jsonl'), `${JSON.stringify({ phase, ...event })}\n`)
 const context = createFileRunContext(join(directory, 'run'))
-const base = durableRetainedProvider(join(directory, 'provider.json'))
+const base = nativeSeatProvider(directory, { success: phase !== 'kill-failed', recordOutput: true })
 const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
   ...environment,
   async dispatch(turn) {
@@ -34,7 +29,6 @@ const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     await environment.destroy?.()
   },
 })
-let lookups = 0
 const provider: AgentEnvironmentProvider = {
   ...base,
   capabilities: async () => ({
@@ -43,95 +37,12 @@ const provider: AgentEnvironmentProvider = {
   }),
   create: async (input) => wrap(await base.create(input)),
   get: async (id) => {
-    lookups += 1
-    if (phase === 'lookup-hang' && lookups === 2) await new Promise<never>(() => {})
     const environment = await base.get!(id)
     return environment ? wrap(environment) : null
   },
 }
-const artifacts = fileWorkspaceArtifacts(join(directory, 'artifacts'))
-const retention: ProviderWorkspaceRetentionPort = {
-  timeoutMs: phase === 'lookup-hang' ? 100 : 10_000,
-  requireCompleteProvenance: true,
-  artifacts,
-  async capture(captureContext) {
-    note({
-      what: 'capture-started',
-      environmentId: captureContext.environment.id,
-      executionId: captureContext.executionId,
-      node: captureContext.node,
-      profileDigest: canonicalAgentProfileDigest(captureContext.profile),
-      profile: captureContext.profile,
-    })
-    if (phase === 'kill' || phase === 'seat-kill') process.kill(process.pid, 'SIGKILL')
-    if (phase === 'reject' || phase === 'live-reject')
-      throw new Error('capture storage unavailable')
-    if (phase === 'gate') {
-      while (!existsSync(join(directory, 'capture-open'))) {
-        await new Promise((resolve) => setTimeout(resolve, 10))
-        captureContext.signal.throwIfAborted()
-      }
-    }
-    const captured = await completeCapture(captureContext, artifacts)
-    note({
-      what: 'capture-finished',
-      environmentId: captureContext.environment.id,
-      executionId: captureContext.executionId,
-      node: captureContext.node,
-      profileDigest: canonicalAgentProfileDigest(captureContext.profile),
-    })
-    if (phase === 'partial')
-      return {
-        ...captured,
-        provenance: {
-          ...captured.provenance,
-          workspace: { ...captured.provenance.workspace!, complete: false },
-        },
-      }
-    if (phase === 'foreign')
-      return {
-        ...captured,
-        provenance: { ...captured.provenance, executionId: 'foreign-execution' },
-      }
-    return captured
-  },
-  async captureNative(captureContext) {
-    if (phase === 'kill-native' && captureContext.phase === 'settled') {
-      note({
-        what: 'native-started',
-        environmentId: captureContext.environment.id,
-        executionId: captureContext.executionId,
-        node: captureContext.node,
-        profileDigest: canonicalAgentProfileDigest(captureContext.profile),
-      })
-      process.kill(process.pid, 'SIGKILL')
-    }
-    const { snapshot } = await captureAgentCandidateWorkspaceFiles(
-      [{ path: 'native.jsonl', mode: 0o600, bytes: new TextEncoder().encode('{}\n') }],
-      {
-        artifactPersistence: {
-          executionId: captureContext.executionId,
-          outputArtifacts: artifacts,
-        },
-      },
-    )
-    return {
-      snapshot,
-      provenance: {
-        status: 'reported',
-        environmentId: captureContext.environment.id,
-        executionId: captureContext.executionId,
-        workspaceScope: 'none',
-        missing: [],
-      },
-    }
-  },
-}
-const backend = {
-  backend: 'provider' as const,
-  provider,
-  ...(phase === 'no-retention' ? {} : { workspaceRetention: retention }),
-}
+const backend = { backend: 'provider' as const, provider }
+const seat = phase.startsWith('seat-')
 const operator = new AbortController()
 try {
   const result = await supervisePursuit(
@@ -163,17 +74,17 @@ try {
       pursuitId: runId,
       runId,
       runDir: join(directory, 'run'),
-      // The director never delivers, and a barren streak only pauses the run: the operator stops
-      // it at the first `barren-pause` row.
       signal: operator.signal,
       journal: {
         beginTree: context.journal.beginTree.bind(context.journal),
         loadTree: context.journal.loadTree.bind(context.journal),
         async appendEvent(root, event) {
           await context.journal.appendEvent(root, event)
-          if (event.kind === 'barren-pause') operator.abort(new Error('operator stopped the run'))
-          if (phase === 'kill-after-evidence' && event.kind === 'execution-evidence')
-            process.kill(process.pid, 'SIGKILL')
+          if (event.kind === 'execution-result') {
+            if (['kill', 'kill-failed', 'seat-kill'].includes(phase))
+              process.kill(process.pid, 'SIGKILL')
+            operator.abort(new RunCancellationReason('operator', 'cold receipt proof complete'))
+          }
           if (
             (phase === 'kill-before-input' && event.kind === 'execution-input') ||
             (phase === 'kill-before-dispatch' &&
@@ -197,21 +108,27 @@ try {
                 : { seat: 'test-seat', backend },
           }
         : {}),
-      budget: { maxIterations: 8, maxTokens: 1_000, deadlineMs: 60_000 },
-      driverRetry: { enabled: false },
+      budget: { maxIterations: 8, maxTokens: 1000, deadlineMs: 10_000 },
+      driverRetry: {
+        maxAttempts: 3,
+        maxConsecutiveFailures: 2,
+        transientOutageMs: 0,
+        initialBackoffMs: 0,
+        maxBackoffMs: 0,
+        pauseRootStops: false,
+      },
       retainedAtSettlement: 'release',
-      wake: { deadlineWarningMs: 0, debounceMs: 20 },
+      teardownConfirmMs: 0,
+      wake: { deadlineWarningMs: 0, debounceMs: 0 },
       deliverable: { check: () => false },
       continuation: testContinuation({ maxBarren: 2 }),
       coordination: {
-        authentication: {
-          signingKeys: { activeKeyId: 'test', keys: { test: 'test-secret-'.repeat(4) } },
-        },
+        authentication: true,
         publicUrl: (address) => `http://127.0.0.1:${address.port}/manager`,
       },
     },
   )
-  process.stdout.write(`${JSON.stringify({ kind: result.result.kind })}\n`)
+  process.stdout.write(`${JSON.stringify(result.result)}\n`)
 } catch (error) {
   process.stdout.write(
     `${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n`,

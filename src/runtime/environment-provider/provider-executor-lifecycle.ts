@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
-import { assertProviderWorkspaceRetentionPort } from '../provider-workspace-retention'
 import { bridgeStopSignalKey } from '../supervise/bridge-config'
 import type { TeardownAnswer } from '../supervise/deadline'
 import { readOptionalAbortSignal } from '../supervise/executor-seams'
@@ -29,11 +28,7 @@ import { runProviderExecution } from './provider-execution-loop'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
 import { type ProviderExecutorScope, ProviderExecutorState } from './provider-executor-state'
 import { providerMaterialization } from './provider-materialization'
-import {
-  admittedControlRef,
-  createProviderCaptureMirrors,
-  createProviderNativeControl,
-} from './provider-retention-lifecycle'
+import { admittedControlRef, createProviderNativeControl } from './provider-retention-lifecycle'
 import { ValidationError } from './provider-validation-error'
 
 export function createProviderExecutor(
@@ -43,12 +38,6 @@ export function createProviderExecutor(
   options: ProviderExecutorOptions,
   placement?: { id: string; digest: string },
 ): Executor<unknown> {
-  if (options.workspaceRetention !== undefined) {
-    assertProviderWorkspaceRetentionPort(
-      options.workspaceRetention,
-      `providerAsExecutor(${provider.name})`,
-    )
-  }
   const node = detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
   if (
@@ -95,7 +84,6 @@ export function createProviderExecutor(
     state,
     controller: new AbortController(),
     nativeControl: createProviderNativeControl(provider, retention, managerStop, state),
-    mirrors: createProviderCaptureMirrors(options, createProfile, node, state),
     trace: createPushTraceSource({ runId: executionId }),
     materialization: providerMaterialization(
       provider,
@@ -181,7 +169,7 @@ async function cancelExecution(
 }
 
 async function teardownExecution(scope: ProviderExecutorScope): Promise<TeardownAnswer> {
-  const { state, options } = scope
+  const { state } = scope
   scope.controller.abort()
   // Held for a continuation: the scope releases it (hold ceiling, cancel_worker, join barrier)
   // or hands it to the successor; an ordinary teardown must not destroy it underneath them.
@@ -195,14 +183,6 @@ async function teardownExecution(scope: ProviderExecutorScope): Promise<Teardown
   // rather than at root release. Not awaited: teardown acknowledges within a short window,
   // and the release awaits this same stop before it records what it kept.
   if (state.pending && state.cancelledExplicitly()) void scope.nativeControl.stopNativeExecution()
-  if (options.workspaceRetention !== undefined && state.workspaceRunActive) {
-    return {
-      destroyed: false,
-      detail: state.harnessStopped
-        ? 'provider workspace retention: source preserved while the stopped execution writes its failure capture'
-        : 'provider workspace retention: source preserved while the execution is still active',
-    }
-  }
   if (state.pending) {
     return {
       destroyed: false,
@@ -226,8 +206,7 @@ function heldEnvironments(scope: ProviderExecutorScope): ReadonlyArray<HeldEnvir
     admittedEnvironmentId(scope.retention)
   if (environmentId === undefined) return []
   // A source that workspace retention preserved is evidence, kept on purpose.
-  const preserved =
-    state.workspacePreservationRequired || state.workspaceCaptureFailure !== undefined
+  const preserved = state.workspacePreservationRequired
   return [
     {
       provider: scope.provider.name,

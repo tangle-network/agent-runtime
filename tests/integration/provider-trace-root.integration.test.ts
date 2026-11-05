@@ -45,7 +45,7 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
         (await fixture.events()).some((row) => row.kind === 'execution-result'),
       )
       if (scenario === 'trace-owner-evidence') {
-        await fixture.wait('full host capture held', async () =>
+        await fixture.wait('historical post-result evidence held', async () =>
           (await fixture.state()).requests.some(
             (row) =>
               row.kind === 'successful-attempt-observer-barrier' &&
@@ -56,16 +56,9 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
         expect(
           (await fixture.state()).requests.filter((row) => row.kind === 'delete'),
         ).toHaveLength(0)
-        const blobs = new FileResultBlobStore(join(fixture.directory, 'run', 'blobs'))
-        for (const row of (await fixture.events()).filter(
-          (row) => row.kind === 'execution-evidence',
-        )) {
-          const out = object(await blobs.get(row.outRef))
-          expect(object(out.workspaceCapture).provenance).not.toHaveProperty(
-            'workspaceScope',
-            'environment',
-          )
-        }
+        expect(
+          (await fixture.events()).filter((row) => row.kind === 'execution-evidence'),
+        ).toHaveLength(0)
         await fixture.control({ finish: true })
       }
       if (scenario !== 'trace-owner-cancel')
@@ -165,11 +158,7 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
               (event) => event.kind === 'execution-admitted' && event.admission.phase === 'intent',
             )
             const bound = events.find((event) => event.kind === 'execution-bound')
-            if (
-              intent?.kind !== 'execution-admitted' ||
-              intent.admission.phase !== 'intent' ||
-              bound?.kind !== 'execution-bound'
-            )
+            if (intent?.kind !== 'execution-admitted' || intent.admission.phase !== 'intent')
               throw new Error('actual retained admission missing')
             const capture = readRecords(join(fixture.directory, 'capture-attempts.jsonl')).at(-1)!
             expect(receipt.executionId).toBe(capture.executionId)
@@ -185,12 +174,14 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
               throw new Error('actual dispatched reference missing')
             expect(receipt.controlRef).toEqual(dispatched.admission.controlRef)
             expect(receipt.profileDigest).toBe(intent.admission.requestedProfileDigest)
-            expect(receipt.node).toMatchObject({
-              rootId: committed.id,
-              nodeId: committed.id,
-              depth: 0,
-              attemptId: bound.binding.attemptId,
-            })
+            if (bound?.kind === 'execution-bound') {
+              expect(receipt.node).toMatchObject({
+                rootId: committed.id,
+                nodeId: committed.id,
+                depth: 0,
+                attemptId: bound.binding.attemptId,
+              })
+            } else expect(receipt).not.toHaveProperty('node')
             expect(provenance.status).toBe('unavailable')
             expect(provenance.missing).toContain(
               'local process fixture has no native harness capture',

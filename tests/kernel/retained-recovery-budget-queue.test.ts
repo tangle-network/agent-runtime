@@ -75,7 +75,7 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
           for (const name of ['first', 'second']) {
             const child = scope.spawn(manager(name), 'same task', {
               key: name,
-              budget: { maxIterations: 4, maxTokens: 8 },
+              budget: { maxIterations: 4, maxTokens: 8, deadlineMs: 10_000 },
             })
             expect(child.ok).toBe(true)
             expect((await scope.next())?.kind).toBe('down')
@@ -89,7 +89,9 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
     )
     expect(fresh).toEqual(['first', 'second'])
     const before = (await context.journal.loadTree('root'))!
-    expect(before.filter((e) => e.kind === 'reconciled')).toHaveLength(2)
+    expect(
+      before.filter((e) => e.kind === 'reconciled' && e.settledSeq !== undefined),
+    ).toHaveLength(2)
     expect(before.filter((e) => e.kind === 'settled')).toHaveLength(0)
     recovering = true
     let parentActed = false
@@ -111,7 +113,7 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
             expect(
               scope.spawn(manager('first'), 'same task', {
                 key: 'first',
-                budget: { maxIterations: 4, maxTokens: 8 },
+                budget: { maxIterations: 4, maxTokens: 8, deadlineMs: 10_000 },
               }),
             ).toMatchObject({ ok: false, reason: 'duplicate-key' })
             let factories = 0
@@ -164,6 +166,21 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
       )
       const after = (await context.journal.loadTree('root'))!
       expect(after.filter((e) => e.kind === 'spawned' && e.parent === 'root')).toHaveLength(2)
+      expect(
+        after.some((event) => event.kind === 'admission-queued' && event.gate === 'budget'),
+      ).toBe(true)
+      for (const original of before) {
+        if (original.kind !== 'admission-granted') continue
+        const grants = after.filter(
+          (event) => event.kind === 'admission-granted' && event.id === original.id,
+        )
+        expect(grants.length).toBe(original.id === 'root:s0' || outcome === 'complete' ? 2 : 1)
+        for (const grant of grants)
+          expect(grant).toMatchObject({
+            deadlineArmedAt: original.deadlineArmedAt,
+            deadlineAt: original.deadlineAt,
+          })
+      }
       expect(after.slice(0, before.length)).toEqual(before)
       expect(after.filter((e) => e.kind === 'settled')).toHaveLength(
         outcome === 'complete' ? 2 : outcome === 'exhaust' ? 1 : 0,

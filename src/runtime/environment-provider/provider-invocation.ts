@@ -1,16 +1,9 @@
-import {
-  type AgentCandidateWorkspaceSnapshotEvidence,
-  type AgentExactRunControlRef,
-  type AgentProfile,
-  canonicalCandidateDigest,
-} from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
   AgentTurnFailure,
 } from '@tangle-network/agent-interface/environment-provider'
-import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
-import type { ProviderWorkspaceCaptureProvenance } from '../provider-workspace-retention'
 import type { RetainedRunHandle } from '../retained-run-types'
 import { recordRuntimeOwnedProviderAttemptStart } from '../supervise/materialization'
 import { concreteProfileModel } from '../supervise/model-policy'
@@ -72,14 +65,12 @@ export async function* streamProviderExecutor(
   const source = await providerExecutionSource(args, turn, args.signal)
   const environment = source.environment
   args.onEnvironment(environment)
-  args.scope.mirrors.startNativeMirror(environment)
   const usage = new ProviderUsageAccount(args, turn.model)
   const observer = new ProviderTurnObserver(args, usage, source.retained, turn.model)
   const settlement = new ProviderTurnSettlement(
     args,
     environment,
     source.retained,
-    turn.sessionId ?? null,
     observer,
     usage,
     started,
@@ -125,14 +116,6 @@ export interface StreamProviderExecutorArgs {
   scope: ProviderExecutorScope
   onRetained: (handle: RetainedRunHandle) => void
   onEnvironment: (environment: AgentEnvironment) => void
-  onPublishedSnapshot: (snapshot: AgentCandidateWorkspaceSnapshotEvidence | undefined) => void
-  captureWorkspace: (
-    environment: AgentEnvironment,
-    outcome: AgentRunOutcome | undefined,
-  ) => Promise<AgentCandidateWorkspaceSnapshotEvidence | undefined>
-  workspaceControlRef: () => AgentExactRunControlRef | undefined
-  workspaceProvenance: () => ProviderWorkspaceCaptureProvenance | undefined
-  workspaceCoverage: () => { complete: boolean; incompleteReason?: string }
 }
 
 export interface ProviderInvocationEnd {

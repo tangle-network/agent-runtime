@@ -258,6 +258,7 @@ export {
 } from './runtime/isolated-check-result'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
+  RuntimeExecutionAdmittedPayload,
   RuntimeHookContext,
   RuntimeHookErrorContext,
   RuntimeHookEvent,

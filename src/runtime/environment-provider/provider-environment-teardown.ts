@@ -1,13 +1,11 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import { captureHarnessTranscript } from '../harness-transcript'
 import { environmentGone } from '../retained-interactive-lifecycle'
-import { awaitAbortable, freezeControlRef } from '../retained-run-binding'
+import { awaitAbortable } from '../retained-run-binding'
 import type { TeardownAnswer } from '../supervise/deadline'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { EnvironmentTeardownReceipt } from '../supervise/types'
 import type { ProviderExecutorScope } from './provider-executor-state'
-import { admittedControlRef } from './provider-retention-lifecycle'
-import { captureExecutorWorkspace } from './provider-workspace-capture'
 
 /** The environment id the latest durable admission names, when creation got that far. */
 export function admittedEnvironmentId(
@@ -23,21 +21,12 @@ export function admittedEnvironmentId(
 const destroyFailed = (scope: ProviderExecutorScope, error: unknown): string =>
   `providerAsExecutor(${scope.provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`
 
-function workspaceFailureDetail(scope: ProviderExecutorScope): string {
-  const { workspaceCaptureFailure } = scope.state
-  const reason =
-    workspaceCaptureFailure instanceof Error
-      ? workspaceCaptureFailure.message
-      : String(workspaceCaptureFailure ?? 'capture was not accepted')
-  return `providerAsExecutor(${scope.provider.name}): workspace retention failed — ${reason}; source environment preserved`
-}
-
 /** Destroy the environment once, however many callers ask; a failed attempt may be retried. */
 export async function destroyExecutorEnvironment(
   scope: ProviderExecutorScope,
   cleanupSignal?: AbortSignal,
 ): Promise<TeardownAnswer> {
-  const { state, options } = scope
+  const { state } = scope
   if (state.workspaceCleanupPromise !== undefined) return await state.workspaceCleanupPromise
   const cleanupPromise = attemptDestroy(scope, cleanupSignal)
   let cleanupReference!: Promise<TeardownAnswer>
@@ -48,15 +37,8 @@ export async function destroyExecutorEnvironment(
     if (
       !result.destroyed &&
       state.workspaceCleanupPromise === cleanupReference &&
-      !state.workspacePreservationRequired &&
-      state.workspaceCaptureFailure === undefined
+      !state.workspacePreservationRequired
     ) {
-      // The live workspace may have changed while the provider rejected the delete. A retry
-      // must capture the current bytes instead of reusing the prior receipt as authority.
-      if (options.workspaceRetention !== undefined) {
-        state.workspaceSnapshot = undefined
-        state.workspaceCapturePromise = undefined
-      }
       state.workspaceCleanupPromise = undefined
     }
     return result
@@ -69,36 +51,14 @@ async function attemptDestroy(
   scope: ProviderExecutorScope,
   cleanupSignal: AbortSignal | undefined,
 ): Promise<TeardownAnswer> {
-  const { state, options, provider } = scope
+  const { state, provider } = scope
   const target = state.environment
   if (target === undefined) return { destroyed: true }
   if (state.workspacePreservationRequired) {
     return {
       destroyed: false,
-      detail:
-        state.workspaceIncompleteReason ??
-        'provider workspace retention: source preserved because execution failed before a retrievable settled workspace receipt existed',
+      detail: 'provider native stop was not confirmed; source environment preserved',
       permanent: true,
-    }
-  }
-  if (options.workspaceRetention !== undefined) {
-    try {
-      const currentSnapshot = await captureExecutorWorkspace(scope, target, state.workspaceOutcome)
-      if (
-        state.workspacePublishedSnapshot !== undefined &&
-        currentSnapshot !== undefined &&
-        currentSnapshot.digest !== state.workspacePublishedSnapshot.digest
-      ) {
-        state.workspacePreservationRequired = true
-        return {
-          destroyed: false,
-          detail:
-            'provider workspace retention: live workspace changed after the published receipt; source preserved',
-          permanent: true,
-        }
-      }
-    } catch {
-      return { destroyed: false, detail: workspaceFailureDetail(scope), permanent: true }
     }
   }
   if (state.destroyed) return { destroyed: true }
@@ -122,7 +82,7 @@ export async function releaseRetainedExecution(
   scope: ProviderExecutorScope,
   signal: AbortSignal | undefined,
 ): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
-  const { state, options, provider, retention } = scope
+  const { state, provider, retention } = scope
   scope.controller.abort()
   // `teardown` keeps a pending retained execution alive so a resumed process can reconcile the
   // paid work inside it. The supervisor calls this once no process will: the root has settled.
@@ -145,14 +105,6 @@ export async function releaseRetainedExecution(
     ...(detail === undefined ? {} : { detail }),
     ...(permanent === true ? { permanent } : {}),
   })
-  if (options.workspaceRetention !== undefined && state.workspaceRunActive) {
-    return [
-      receipt(
-        false,
-        'provider workspace retention: source preserved while execution is still active',
-      ),
-    ]
-  }
   if (state.retainedReleasePromise !== undefined) return await state.retainedReleasePromise
   const releasePromise = releaseReceipts(scope, environmentId, signal, receipt)
   let releaseReference!: Promise<ReadonlyArray<EnvironmentTeardownReceipt>>
@@ -160,8 +112,7 @@ export async function releaseRetainedExecution(
     if (
       state.retainedReleasePromise === releaseReference &&
       !receipts.every((entry) => entry.destroyed) &&
-      !state.workspacePreservationRequired &&
-      state.workspaceCaptureFailure === undefined
+      !state.workspacePreservationRequired
     ) {
       state.retainedReleasePromise = undefined
     }
@@ -234,15 +185,11 @@ async function captureBeforeDestroy(
   target: AgentEnvironment,
   signal: AbortSignal | undefined,
 ): Promise<void> {
-  const { state, options, mirrors, retention } = scope
+  const { state } = scope
   // Only a capture replaces the earlier receipt; a second failure keeps the reason the first one
   // named. One try per executor: the read shares the release's bound, and a retry of a refused
   // destroy must not wait on a box that already failed to answer.
-  if (
-    options.workspaceRetention === undefined &&
-    state.harnessTranscript.status !== 'captured' &&
-    !state.releaseReadTried
-  ) {
+  if (state.harnessTranscript.status !== 'captured' && !state.releaseReadTried) {
     state.releaseReadTried = true
     const capture = await captureHarnessTranscript(
       target as Parameters<typeof captureHarnessTranscript>[0],
@@ -250,24 +197,5 @@ async function captureBeforeDestroy(
       signal,
     )
     if (capture.status === 'captured') state.harnessTranscript = capture
-  }
-  // A retained execution this process never streamed, such as one a resumed coordinator
-  // reconciles, has no stored copy of its session; its workspace capture below can still
-  // fail on size. Copy the session first, attributed by its durable admission.
-  if (
-    mirrors.nativePort !== undefined &&
-    state.harnessTranscript.status !== 'retained' &&
-    !state.releaseNativeTried
-  ) {
-    state.releaseNativeTried = true
-    const admitted = state.retained?.controlRef ?? admittedControlRef(retention)
-    await awaitAbortable(
-      mirrors.captureNative(
-        target,
-        'interrupted',
-        admitted === undefined ? undefined : freezeControlRef(admitted),
-      ),
-      signal,
-    ).catch(() => undefined)
   }
 }

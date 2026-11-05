@@ -3,8 +3,7 @@ import type { SpawnAdmission } from './coordination-contracts'
 
 /** What a keyed runtime spawn (a flow's entry or route, a map's item or join) became. */
 export type RuntimeSpawnOutcome =
-  /** `committed`: the key's done settlement is already on disk, so nothing ran and the caller
-   *  settles that result itself; no settlement drain will ever carry it. */
+  /** `committed`: the key already has a durable done result; no new execution ran. */
   | { readonly workerId: string; readonly committed: boolean }
   /** The key and its one replacement both have a prior worker started without a terminal receipt. */
   | { readonly inDoubt: true }

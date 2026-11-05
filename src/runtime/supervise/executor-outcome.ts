@@ -128,7 +128,6 @@ const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
   /is at its box cap/u, // seat capacity: 4
   /could not materialize the seat credential/u, // 3
   /OpenCode exited while a model step was still in progress/u, // tmpfs OOM, SIGKILL: 4
-  /the agent runtime restarted/u,
 ]
 
 /** Producer-owned classification first; legacy platform codes/messages otherwise leave attribution unknown. */

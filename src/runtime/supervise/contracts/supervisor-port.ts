@@ -169,8 +169,6 @@ export interface SupervisorOpts {
    * releases nothing under either value.
    */
   readonly retainedAtSettlement?: 'release' | 'keep'
-  /** @internal Whether provider-backed retained owner cleanup must preserve unreceipted sources. */
-  readonly ownerWorkspaceRetention?: boolean
   readonly now?: () => number
   readonly signal?: AbortSignal
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the

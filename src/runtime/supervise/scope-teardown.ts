@@ -73,23 +73,20 @@ export function bindChildTeardown<Out>(
   children: Map<NodeId, LiveChild>,
   now: () => number,
 ): void {
-  // Settled children whose cleanup is unconfirmed because they hold a retained execution
-  // themselves, or because a nested manager's descendants do: what a retained release reaches.
+  // Pending owned managers still need their own release even after descendants confirmed.
   const retainedHeld = (): LiveChild[] =>
     [...children.values()].filter(
       (child) =>
         isTerminalNodeStatus(child.status) &&
-        !child.cleanupConfirmed &&
+        (!child.cleanupConfirmed ||
+          (child.recoveryPending === true && child.ownedTreeRoot !== undefined)) &&
+        child.retainedExecution !== 'released' &&
         (child.recoveryPending === true || child.ownedTreeRoot !== undefined) &&
         child.teardownPermanent !== true &&
         child.releaseRetained !== undefined &&
         child.confirmTeardown !== undefined,
     )
-  // The children one settlement retry pass re-asks: settled, teardown unconfirmed, and not a
-  // retained execution (its executor answers `destroyed: false` by construction while a resume may
-  // still reconcile it; its release is `retainedReleasers`' job). A nested manager whose only
-  // unconfirmed descendants are such retained executions is skipped for the same reason: asking
-  // it again cannot change its answer.
+  // Ordinary cleanup retries skip retained executions; their continuation owns release.
   const retriableTeardowns = (): LiveChild[] =>
     [...children.values()].filter((child) => {
       if (
@@ -108,8 +105,7 @@ export function bindChildTeardown<Out>(
         hasRetriableTeardowns(nested, false)
       )
     })
-  // Of those a release reaches, the ones another release could still change: a retained
-  // execution, or a manager whose own tree still holds something a release or retry can change.
+  // Permanent refusals cannot change on another sweep.
   const releasable = (): LiveChild[] =>
     retainedHeld().filter((child) => {
       const nested = child.readNestedScope?.()
@@ -170,6 +166,7 @@ export function bindChildTeardown<Out>(
         async (
           child,
         ): Promise<{ child: LiveChild; receipts: ReadonlyArray<EnvironmentTeardownReceipt> }> => {
+          child.cleanupConfirmed = false
           const bound = new AbortController()
           const timer = setTimeout(
             () =>
@@ -211,8 +208,7 @@ export function bindChildTeardown<Out>(
         },
       ),
     )
-    // One tree read for the whole sweep: the duplicate guard below only needs the records that
-    // existed before it, and a 35-child release must not cost 35 full-tree reads.
+    // Snapshot duplicate guards once for the whole sweep.
     const prior = released.length > 0 ? ((await args.journal.loadTree(args.root)) ?? []) : []
     for (const { child, receipts } of released) {
       for (const receipt of receipts) {
@@ -224,21 +220,12 @@ export function bindChildTeardown<Out>(
           new Date(now()).toISOString(),
         )
       }
-      // A retained-pending child whose environment is now gone can never be recovered, so its
-      // cursor slot closes here with the settlement the driver already received, under the seq
-      // `next()` stamped on it. 0 of 35 reconciled children on one pursuit
-      // ever settled, and 185 of 223 lost sandbox children across 385 runs stopped at
-      // `reconciled` — every one read as `never-settled` and charged its ceiling by every
-      // journal reader although the pool had committed the floor. The gate is the same
-      // `cleanupConfirmed` the barrier reads: a `destroyed: false` receipt, an executor throw, an
-      // environment-less `[]` answer or a refused `confirmTeardown` do not make a release, because
-      // the environment may still exist and `[].every` would otherwise close it vacuously; the
-      // final close (`closeRetainedSlots`) states those as `'release-unconfirmed'` once no retry
-      // is left. A crash between the last receipt and this record no longer strands the slot:
-      // the reconciled record carries this settlement and the cursor seq, and `healReleasedSlots`
-      // (recover-executors.ts) writes this same record from it on the next resume, under the
-      // same seq. A manager settled on the ordinary path already has its record and never
-      // passes `recoveryPending`.
+      // Only acknowledged native receipts may reduce a paused child's remaining backing.
+      await child.admission.prepareAccounting?.()
+      // Close only after this pass's release and confirmation acknowledgements. A manager
+      // journals its native receipts inside its own tree and may return []; confirmation
+      // must still find no owner or descendant debt. Refusals remain unconfirmed.
+      // The durable floor retains the original settlement and cursor seq for crash healing.
       if (child.cleanupConfirmed) await closeRetainedSlot(child, 'released', prior)
     }
   })
@@ -282,9 +269,7 @@ export function bindChildTeardown<Out>(
     )
     child.retainedExecution = state
     const closedAt = now()
-    // A second `agent.child` for one node is already how a live-recovered child flips
-    // down→done, so the projection folds this in observed order; `settledAt` stays the
-    // settlement instant and `metered` is omitted so the driver's inference is not summed twice.
+    // Restate the settlement in hook order without metering inference twice.
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -307,11 +292,8 @@ export function bindChildTeardown<Out>(
       const nested = child.readNestedScope?.()
       if (nested !== undefined) await closeRetainedSlots(nested)
     }
-    // A confirmed release is the sweep's to record, and after a crash the resume heal's, so this
-    // pass writes only the unconfirmed state and never a second `released` record. It does not
-    // read `cleanupConfirmed`: a nested manager that settled retained-pending reports its teardown
-    // confirmed while its owner environment is held, so the sweep skipped it and the slot stayed
-    // open for good. 38 of 38 such directors over 45 runs, 0 closed.
+    // The sweep (or crash healing) owns confirmed release. Close remaining cursor slots
+    // as unconfirmed, independently of a stale descendant-only cleanup flag.
     const open = [...children.values()].filter(
       (child) =>
         child.recoveryPending === true &&

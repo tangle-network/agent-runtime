@@ -6,7 +6,6 @@ import {
   ManagerDriveSession,
   type ManagerSeatSelection,
   restoreAcceptedOwnerTurn,
-  seatProviderProfile,
 } from './manager-drive-session'
 import {
   attestRuntimeOwnedScopeOwner,
@@ -139,21 +138,15 @@ export function driveHarnessFromBackend(
 
 async function bindDriveRetainedOwner(
   manager: ManagerDriveSession,
-  { scope, profile, authoredProfile }: DriveArgs,
+  { scope }: DriveArgs,
 ): Promise<ReturnType<typeof scopeRetainedOwnerContext>> {
-  const { state, activeSeat } = manager
+  const { state } = manager
   const retainedOwner =
     state.boundBackend.backend === 'provider' ? scopeRetainedOwnerContext(scope) : undefined
   if (retainedOwner && state.boundBackend.backend === 'provider') {
     bindScopeRetainedOwnerProvider(
       scope,
       resolveAgentEnvironmentProvider(state.boundBackend.provider, state.boundBackend.registry),
-      state.boundBackend.workspaceRetention === undefined
-        ? undefined
-        : {
-            port: state.boundBackend.workspaceRetention,
-            profile: activeSeat ? seatProviderProfile(authoredProfile, activeSeat) : profile,
-          },
     )
     bindScopeRetainedOwnerEnvironmentId(scope, () => {
       if (state.activeExecutor === undefined) return undefined

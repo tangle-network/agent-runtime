@@ -14,9 +14,7 @@ import type { ManagerState } from './coordination-manager-state'
 import type { createSettlementDrain } from './coordination-settlement-drain'
 import type { createWorkerObservation } from './coordination-worker-observation'
 
-// A manager with nothing to do ends its turn, and Runtime waits for it. A bounded poll spent 18 of
-// 88 model turns on waiting alone (two Discovery roots); this wait blocks on the bus
-// and spends no model turn.
+// Wait on the event bus without spending manager model turns.
 
 type WaitingEnv = {
   readonly opts: CoordinationToolsOptions
@@ -49,8 +47,7 @@ function ensureDrain({ state, settlements }: WaitingEnv): Promise<boolean> {
 }
 
 async function settledWithoutDrain({ state, settlements }: WaitingEnv): Promise<void> {
-  // Move children that already settled onto the bus. Only when no blocking drain holds the
-  // cursor: that drain publishes whatever it takes itself.
+  // A blocking drain owns whatever it takes from the cursor.
   if (state.inFlightDrain) return
   state.inFlightDrain = (async () => {
     let drained = false
@@ -93,9 +90,7 @@ function liveWorkersProgressing({ workers }: WaitingEnv): boolean {
   )
 }
 
-// A question one of this manager's workers raised wakes it: a child manager still working would
-// otherwise wait for the heartbeat, or for that child to settle and so never need the answer.
-// The manager's own ask_parent is recorded on the same bus and wakes nothing.
+// Child questions wake the manager; its own ask_parent is record-only.
 const isWorkerQuestion = ({ nodeForWorker }: WaitingEnv, event: CoordinationEvent): boolean =>
   event.type === 'question' && nodeForWorker(event.question.from) !== undefined
 
@@ -200,8 +195,7 @@ async function waitForWakeCondition(
     const outside = (input.alsoWakeOn ?? new Promise<never>(() => undefined)).then(() => {
       outsideWake = true
     })
-    // Set once the cursor reports no child it can wait on, so a node it does not drain cannot
-    // turn this loop into a spin.
+    // Stop retrying an idle cursor while other event sources remain open.
     let cursorIdle = false
     for (;;) {
       while (
@@ -211,10 +205,12 @@ async function waitForWakeCondition(
         !input.signal.aborted &&
         Date.now() < wakeAt
       ) {
-        const running = !cursorIdle && workers.openWork().running.length > 0
-        // A live worker can only reach the bus through the blocking drain. With none live, the
-        // open work is a question or a tool outcome, which publishes itself.
-        const drained = running ? ensureDrain(env) : new Promise<boolean>(() => undefined)
+        const { running, unqueued } = workers.openWork()
+        // Both executing and completed-but-unread children still need cursor delivery.
+        const drained =
+          !cursorIdle && (running.length > 0 || unqueued.length > 0)
+            ? ensureDrain(env)
+            : new Promise<boolean>(() => undefined)
         const done = await Promise.race([
           drained.then((value) => (value ? 'drained' : 'idle')),
           queuedEvent.then(() => 'queued' as const),

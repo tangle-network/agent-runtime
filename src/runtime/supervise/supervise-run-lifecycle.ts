@@ -13,7 +13,6 @@ import {
   runtimeOwnedDriveHarnessProviderEvidence,
 } from './materialization'
 import { createSupervisorSpanRecorder, type SupervisorSpanRecorder } from './otel-spans'
-import { providerVisibleProfile } from './provider-visible-profile'
 import { ROOT_STREAM_FILE } from './root-stream'
 import type { RunCancelRequest } from './run-cancellation'
 import {
@@ -179,14 +178,6 @@ function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts:
           root?.kind === 'spawned' ? root.runtime : provider.name,
           {
             provider,
-            ...(backend.workspaceRetention === undefined
-              ? {}
-              : {
-                  checkpointCapture: {
-                    port: backend.workspaceRetention,
-                    profile: providerVisibleProfile(canonicalProfile),
-                  },
-                }),
           },
         )
     }
@@ -455,7 +446,7 @@ function rootRunOptions(
   recorder: SupervisorSpanRecorder | undefined,
 ): SupervisorOpts {
   const { setup, workers } = run
-  const { options, ctx, registeredProfile, managerBackend, rootOwnerRuntime } = setup
+  const { options, ctx, registeredProfile, rootOwnerRuntime } = setup
   // A caller-supplied recovery factory wins: it owns the worker seam, so only it can rebuild an
   // interrupted child's executor. The derived registration serves backend-built recursive managers.
   const recoverExecutor =
@@ -502,8 +493,6 @@ function rootRunOptions(
     ...(options.retainedAtSettlement !== undefined
       ? { retainedAtSettlement: options.retainedAtSettlement }
       : {}),
-    ownerWorkspaceRetention:
-      managerBackend?.backend === 'provider' && managerBackend.workspaceRetention !== undefined,
     ...(options.workerSlots !== undefined ? { workerSlots: options.workerSlots } : {}),
     ...(options.reservationPolicy ? { reservationPolicy: options.reservationPolicy } : {}),
     ...(options.deadlineCheckIn === undefined ? {} : { deadlineCheckIn: options.deadlineCheckIn }),

@@ -57,7 +57,10 @@ export async function readRunState(runDir: string): Promise<RunState | undefined
             ? 'down'
             : undefined
   const root = settle?.tree.nodes?.find((node) => node.id === settle.tree.root)
-  const failureCode = root?.failure?.code
+  const failureCode =
+    (settle?.kind === 'no-winner' && settle.reason === 'driver-failed'
+      ? settle.error?.failure?.code
+      : undefined) ?? root?.failure?.code
   let latest: number | undefined
   const observe = (at: string | number | undefined): void => {
     const timestamp = at === undefined ? undefined : new Date(at).getTime()

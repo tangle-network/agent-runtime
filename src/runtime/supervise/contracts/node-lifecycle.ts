@@ -267,18 +267,8 @@ export interface NodeSnapshot {
   readonly spawnedAt?: number
   /** Conserved spend so far for this node. */
   readonly spent: Spend
-  /**
-   * The node's executor has FINISHED and its settlement is queued for the manager to drain with
-   * its next wake/`next()`, but `status` still reads as it did while running because the settle
-   * transition happens at drain time. Present only in that window; absent once drained or while
-   * the executor is still live. Carries the terminal kind so a manager polling `observe_agent`
-   * can tell "still working" from "finished, waiting for you to read it".
-   *
-   * Measured 2026-09-17 (discovery-lab sandbox-a-20260917h): two children finished 30 s after
-   * dispatch; the manager polled `observe_agent` eleven times over 56 minutes, read `running`
-   * each time, stopped draining because the status said work was in flight, and recorded the
-   * opposite of the truth about its own experiment. agent-runtime#1279.
-   */
+  /** Finished execution whose result the manager has not read. Terminal status/failure are
+   * published after durable settlement, independently of this delivery marker. */
   readonly settlementPending?: { readonly kind: 'done' | 'down' }
   /** Provider model evidence persisted separately from the execution plan. */
   readonly providerModel?: ProviderModelExecutionEvidence

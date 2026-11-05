@@ -85,15 +85,25 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   // An open node's reconciled floor is its child-work base until a terminal record replaces it: a
   // retained-pending child stays `pending` here, and a view that showed zero for a node the ledger
   // charges would be a second ledger. The latest record wins; a settled node ignores it.
-  for (const ev of [...events]
-    .filter(
-      (event): event is Extract<SpawnEvent, { kind: 'reconciled' }> => event.kind === 'reconciled',
+  for (const ev of events) {
+    if (
+      ev.kind !== 'reconciled' &&
+      ev.kind !== 'admission-queued' &&
+      ev.kind !== 'admission-granted'
     )
-    .sort((a, b) => a.seq - b.seq)) {
+      continue
     const node = requireNode(nodes, ev.id)
-    if (node.status === 'pending') {
-      node.spent = cloneSpend(ev.spent)
-      node.failure = ev.failure
+    if (node.status === 'pending' || node.status === 'queued' || node.status === 'acquiring') {
+      node.status =
+        ev.kind === 'reconciled'
+          ? 'pending'
+          : ev.kind === 'admission-queued'
+            ? 'queued'
+            : 'acquiring'
+      if (ev.kind === 'reconciled') {
+        node.spent = cloneSpend(ev.spent)
+        node.failure = ev.failure
+      }
     }
   }
   // Driver inference: a separate pass so it accumulates ONTO the settled child-work base (no
@@ -107,7 +117,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   return {
     root: root ?? snapshots[0]?.id ?? '',
     nodes: snapshots,
-    inFlight: snapshots.filter((n) => n.status === 'running' || n.status === 'acquiring').length,
+    inFlight: snapshots.filter((n) => ['queued', 'running', 'acquiring'].includes(n.status)).length,
   }
 }
 

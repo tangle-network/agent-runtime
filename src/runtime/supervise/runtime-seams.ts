@@ -5,15 +5,12 @@ import type { WorktreeCheckRunner } from '../../mcp/worktree-harness'
 import type { CodeModeStore, CodeModeToolContext, CodeModeToolsOptions } from '../code-mode'
 import type { ProviderExecutorOptions } from '../environment-provider/provider-executor-admission'
 import type { AgentEnvironmentProviderRegistry } from '../environment-provider/provider-registry'
-import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import type { RouterResponseReceipt } from '../router-http-transport'
 import type { RouterConfig, RouterRouting, ToolSpec } from '../router-request-body'
 import type { SandboxLeafOut } from '../sandbox-executor-output'
 import type { SharedBoxPlacement } from '../shared-box'
 import type { ExecCtx, SandboxClient, Validator } from '../types'
 import type { SandboxSteeringOptions } from './sandbox-session'
-
-export const sandboxCaptureOutputSeamKey = 'runtime.sandboxCaptureOutput'
 
 /**
  * Router/inline transport seam. The profile owns model, prompt, and generation behavior.
@@ -40,8 +37,6 @@ export interface SandboxSeam {
   sandboxClient: SandboxClient
   /** Surface evidence capture failures from session cleanup. */
   failOnDestroyError?: boolean
-  /** Verified provider captures collected before session teardown. */
-  workspaceCaptures?: () => ReadonlyArray<ProviderWorkspaceCaptureReceipt>
   /** Forwarded into the composed `runAgentRounds`'s `ctx` (trace emitter, run handle, etc.). */
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
   /** PR #150 `RunAgentRoundsOptions.lineage` passthrough — opaque; forwarded, not parsed. */

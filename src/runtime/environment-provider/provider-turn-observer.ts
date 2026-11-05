@@ -57,7 +57,6 @@ export class ProviderTurnObserver {
         yield { kind: 'progress', progress: { kind: 'awaiting-result', since } }
         continue
       }
-      this.args.scope.mirrors.noteProviderEvent()
       this.archive.append(event)
       this.text += textFromEnvironmentEvent(event)
       const sandboxEvent = sandboxEventFromEnvironmentEvent(event)

@@ -96,11 +96,14 @@ describe('supervisor durable resume across a real process kill', () => {
     // kill can never leave a journaled ref pointing at a missing payload.
     const replayed = await replaySpawnTree(journal, blobs, runId)
     expect(replayed.map((s) => s.handle.label).sort()).toEqual(['a', 'b'])
-    // Nothing claims the still-running arm finished. (Its `spawned` record may or may not be on
-    // disk: `spawn` appends that one fire-and-forget while `settled` is awaited, so a hard kill
-    // can drop it. The tree stays coherent either way — replay reads settlements, not spawns.)
+    // A surviving grant records admission, never a fabricated terminal result. A kill may
+    // precede the third spawn receipt; replay still resumes only committed settlements.
     const crashView = materializeTreeView(crashed ?? [])
-    expect(crashView.nodes.find((n) => n.label === 'c')?.status ?? 'pending').toBe('pending')
+    const interrupted = crashView.nodes.find((node) => node.label === 'c')
+    const granted = crashed?.some(
+      (event) => event.kind === 'admission-granted' && event.id === interrupted?.id,
+    )
+    expect(interrupted?.status ?? 'pending').toBe(granted ? 'acquiring' : 'pending')
 
     // ── Phase 2: a brand-new process, same dir + runId ──────────────────────────────────────
     const second = await runPhase(dir, runId, '2')

@@ -25,7 +25,6 @@ import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../../errors'
 import { readPromptOptions } from '../prompt-options'
-import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import { assertSandboxServedModel, createSandboxUsageLedger } from '../sandbox-events'
 import { createSandboxLineage } from '../sandbox-lineage'
 import { projectSandboxOutcome } from '../sandbox-outcome'
@@ -85,7 +84,6 @@ export interface SteerableSandboxArgs {
   readonly sandboxClient: SandboxClient
   /** Require capture failures at box cleanup to fail the supervised worker. */
   readonly failOnDestroyError?: boolean
-  readonly workspaceCaptures?: () => ReadonlyArray<ProviderWorkspaceCaptureReceipt>
   readonly inbox: Inbox
   readonly taskToPrompt: (task: unknown) => string
   readonly options?: SandboxSteeringOptions

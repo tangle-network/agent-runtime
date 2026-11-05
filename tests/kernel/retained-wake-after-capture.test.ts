@@ -1,12 +1,4 @@
-/**
- * A retained root's next turn starts only after its previous turn's workspace capture, so the wake
- * it receives must describe the run as it is at dispatch, not as it was when the wait ended.
- *
- * Discovery run test-retained-root-wake-20261014c (2026-10-14): the root's wake was composed at
- * 10:43Z from a lead message, then held 43 minutes behind a 1,549 s workspace capture. Its child
- * settled at 11:00:36Z, yet the 11:26Z turn said "Workers running: <child>" and omitted the child's
- * result, so the root kept waiting and the run settled before another wake.
- */
+/** A retained wake must include child completions received while its exact result is delayed. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,11 +7,8 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { supervisePursuit } from '../../src/durable/supervise-pursuit'
-import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
-import { completeCapture, fileWorkspaceArtifacts } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
@@ -29,8 +18,8 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
-describe('retained root wake held behind its workspace capture', () => {
-  it('delivers a child that settled during the capture and does not report it running', {
+describe('retained root wake after a slow exact result', () => {
+  it('delivers a child that settled during the exact result read without reporting it running', {
     timeout: 40_000,
   }, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'retained-wake-capture-'))
@@ -45,7 +34,7 @@ describe('retained root wake held behind its workspace capture', () => {
     const childMayFinish = new Promise<void>((resolve) => {
       releaseChild = resolve
     })
-    let rootCaptures = 0
+    let rootResults = 0
     // A settled event names the worker and its status; the worker's answer is read separately.
     const childSettledEvent = `\\"settled\\":\\"${runId}:s0\\",\\"status\\":\\"done\\"`
     const worker = testAgentProfile('delay', {
@@ -89,6 +78,19 @@ describe('retained root wake held behind its workspace capture', () => {
         }
         const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
           ...environment,
+          session(id, options) {
+            const session = environment.session!(id, options)
+            return {
+              ...session,
+              async result() {
+                if (role === 'root' && ++rootResults === 1) {
+                  releaseChild()
+                  await expect.poll(childSettled, { timeout: 15_000 }).toBe(true)
+                }
+                return session.result()
+              },
+            }
+          },
           async dispatch(turn) {
             const result = await environment.dispatch!(turn)
             if (role === 'root') {
@@ -115,44 +117,7 @@ describe('retained root wake held behind its workspace capture', () => {
         return environment && wrap ? wrap(environment) : environment
       },
     }
-    const artifacts = fileWorkspaceArtifacts(join(directory, 'artifacts'))
-    const retention: ProviderWorkspaceRetentionPort = {
-      timeoutMs: 20_000,
-      requireCompleteProvenance: true,
-      artifacts,
-      async capture(captureContext) {
-        if (roles.get(captureContext.environment.id) === 'root' && ++rootCaptures === 1) {
-          // Hold the root's first end-of-turn capture past its 50 ms heartbeat wake, and let the
-          // child settle before it ends, as run c's 25.8-minute capture did.
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          releaseChild()
-          await expect.poll(childSettled, { timeout: 15_000 }).toBe(true)
-        }
-        return completeCapture(captureContext, artifacts)
-      },
-      async captureNative(captureContext) {
-        const { snapshot } = await captureAgentCandidateWorkspaceFiles(
-          [{ path: 'native.jsonl', mode: 0o600, bytes: new TextEncoder().encode('{}\n') }],
-          {
-            artifactPersistence: {
-              executionId: captureContext.executionId,
-              outputArtifacts: artifacts,
-            },
-          },
-        )
-        return {
-          snapshot,
-          provenance: {
-            status: 'reported',
-            environmentId: captureContext.environment.id,
-            executionId: captureContext.executionId,
-            workspaceScope: 'none',
-            missing: [],
-          },
-        }
-      },
-    }
-    const backend = { backend: 'provider' as const, provider, workspaceRetention: retention }
+    const backend = { backend: 'provider' as const, provider }
     const { result } = await supervisePursuit(
       testAgentProfile('root', {
         harness: 'claude-code',
@@ -185,8 +150,8 @@ describe('retained root wake held behind its workspace capture', () => {
         },
       },
     )
-    expect(rootCaptures).toBeGreaterThanOrEqual(1)
-    // The turn dispatched after the held capture carries the child's settlement and no stale worker.
+    expect(rootResults).toBeGreaterThanOrEqual(1)
+    // The turn dispatched after the delayed exact result carries the child's settlement and no stale worker.
     const second = rootTurns[1]
     expect(second).toBeDefined()
     expect(second).toContain(childSettledEvent)

@@ -7,23 +7,12 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  type AgentCandidateOutputArtifactPort,
-  captureAgentCandidateWorkspaceFiles,
-} from '../../src/candidate-execution'
-import { sha256Bytes } from '../../src/candidate-execution/digest'
-import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
-import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
-
-// Discovery Lab run terraform-economics-20261005f: five nodes whose submit_result was accepted
-// settled `down` because their deadlines fell while their turns waited on the end-of-turn
-// workspace capture, and each root's sandbox was billed after its run settled.
 
 const directories: string[] = []
 afterEach(async () => {
@@ -39,13 +28,7 @@ type Role = 'root' | 'director'
 
 interface Moment {
   readonly at: number
-  readonly what:
-    | 'dispatched'
-    | 'capture-started'
-    | 'capture-finished'
-    | 'native-started'
-    | 'native-finished'
-    | 'destroyed'
+  readonly what: 'dispatched' | 'destroy-started' | 'destroyed'
   readonly role: Role
   readonly environmentId: string
 }
@@ -65,33 +48,9 @@ function ofKind<K extends SpawnEvent['kind']>(
   return events.filter((event): event is Extract<SpawnEvent, { kind: K }> => event.kind === kind)
 }
 
-function inMemoryArtifacts(): AgentCandidateOutputArtifactPort {
-  const bytes = new Map<string, Uint8Array>()
-  return {
-    async put({ bytes: input }) {
-      const digest = sha256Bytes(input)
-      bytes.set(digest, Uint8Array.from(input))
-      return {
-        locator: { kind: 's3', bucket: 'accepted-result-test', key: digest.slice(7) },
-        sha256: digest,
-        byteLength: input.byteLength,
-      }
-    },
-    async read(reference) {
-      const stored = bytes.get(reference.sha256)
-      if (stored === undefined) throw new Error('artifact is unavailable')
-      return Uint8Array.from(stored)
-    },
-  }
-}
-
 interface TreeOptions {
-  /** Hold the director's workspace capture until the test opens the gate. */
-  readonly gateDirectorCapture?: boolean
-  /** Hold the director's settled native copy until the test opens the gate. */
-  readonly gateDirectorNative?: boolean
-  /** Hold the root's first, non-submitting turn capture until the test opens the gate. */
-  readonly gateRootFirstCapture?: boolean
+  /** Delay the exact native environment's cleanup acknowledgement. */
+  readonly gateDirectorDestroy?: boolean
   /** Hold the end of the director's turn (its event stream) this long after its dispatch. */
   readonly directorTurnEndsAfterMs?: number
   /** Hold the end of the root's accepting turn until this instant. */
@@ -105,8 +64,7 @@ interface TreeOptions {
 /**
  * A provider-placed root that spawns one provider-placed director and, woken by its settlement,
  * submits the run's answer. The director submits its own answer in its first turn. Both are
- * retained owners whose capture port copies the native session on its own queue, as Discovery
- * Lab's does.
+ * retained owners using native provider custody, without a client capture writer.
  */
 async function acceptedTree(runId: string, options: TreeOptions = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'accepted-result-settles-'))
@@ -219,8 +177,10 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
           }
         },
         destroy: async () => {
-          note('destroyed', environment.id)
+          note('destroy-started', environment.id)
+          if (role === 'director' && options.gateDirectorDestroy) await gate
           await environment.destroy?.()
+          note('destroyed', environment.id)
         },
       })
       wrappers.set(created.id, wrap)
@@ -232,67 +192,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
       return environment && wrap ? wrap(environment) : environment
     },
   }
-  const artifacts = inMemoryArtifacts()
-  const workspaceRetention: ProviderWorkspaceRetentionPort = {
-    timeoutMs: 30_000,
-    maxConcurrentCaptures: 2,
-    requireCompleteProvenance: true,
-    artifacts,
-    async capture(captureContext) {
-      const environmentId = captureContext.environment.id
-      note('capture-started', environmentId)
-      if (options.gateDirectorCapture && roles.get(environmentId) === 'director') await gate
-      if (
-        options.gateRootFirstCapture &&
-        roles.get(environmentId) === 'root' &&
-        moments.filter((moment) => moment.role === 'root' && moment.what === 'capture-started')
-          .length === 1
-      )
-        await gate
-      const captured = await completeCapture(captureContext, artifacts)
-      note('capture-finished', environmentId)
-      // The port's own stage split, as the Lab reports it; a non-number entry is dropped.
-      return {
-        ...captured,
-        stages: { exportMs: 12, archiveStoreMs: 3, offloadMs: 5, label: 'x' } as never,
-      }
-    },
-    async captureNative(captureContext) {
-      if (
-        captureContext.phase === 'settled' &&
-        roles.get(captureContext.environment.id) === 'director'
-      ) {
-        note('native-started', captureContext.environment.id)
-        if (options.gateDirectorNative) await gate
-      }
-      const { snapshot } = await captureAgentCandidateWorkspaceFiles(
-        [{ path: 'native.jsonl', mode: 0o600, bytes: Uint8Array.from(Buffer.from('{}\n')) }],
-        {
-          artifactPersistence: {
-            executionId: captureContext.executionId,
-            outputArtifacts: artifacts,
-          },
-        },
-      )
-      if (
-        captureContext.phase === 'settled' &&
-        roles.get(captureContext.environment.id) === 'director'
-      ) {
-        note('native-finished', captureContext.environment.id)
-      }
-      return {
-        snapshot,
-        provenance: {
-          status: 'reported',
-          environmentId: captureContext.environment.id,
-          executionId: captureContext.executionId,
-          workspaceScope: 'none',
-          missing: [],
-        },
-      }
-    },
-  }
-  const backend = { backend: 'provider' as const, provider, workspaceRetention }
+  const backend = { backend: 'provider' as const, provider }
   const startedAt = Date.now()
   const deadlineMs = options.deadlineMs ?? 60_000
   const settling = supervise(
@@ -369,145 +269,44 @@ function lastMomentOf(moments: readonly Moment[], what: Moment['what'], role: Ro
 }
 
 describe('an accepted submit_result settles its node', () => {
-  it('settles a retained director before its slow final native copy, and captures beside it', async () => {
-    const tree = await acceptedTree('accepted-before-native', { gateDirectorNative: true })
+  it('settles an accepted director before its delayed native cleanup acknowledgement', async () => {
+    const tree = await acceptedTree('accepted-before-destroy', { gateDirectorDestroy: true })
     try {
       await expect
         .poll(
-          () =>
-            tree.moments.some(
-              (moment) => moment.role === 'director' && moment.what === 'native-started',
-            ),
-          { timeout: 10_000, interval: 50 },
-        )
-        .toBe(true)
-      await expect
-        .poll(
           async () =>
-            ofKind(await tree.rootEvents(), 'settled').some(
-              (event) => event.id !== 'accepted-before-native' && event.status === 'done',
+            ofKind(await tree.rootEvents(), 'settled').find(
+              (event) => event.id !== 'accepted-before-destroy' && event.status === 'done',
             ),
-          { timeout: 2_000, interval: 50 },
+          { timeout: 20_000 },
+        )
+        .toBeDefined()
+      const settled = ofKind(await tree.rootEvents(), 'settled').find(
+        (event) => event.id !== 'accepted-before-destroy',
+      )!
+      expect(await tree.blobs.get(settled.outRef!)).toEqual(ACCEPTED)
+      await expect
+        .poll(() =>
+          tree.moments.some(
+            (moment) => moment.role === 'director' && moment.what === 'destroy-started',
+          ),
         )
         .toBe(true)
       expect(
-        tree.moments.some(
-          (moment) => moment.role === 'director' && moment.what === 'native-finished',
-        ),
-      ).toBe(false)
-      // The workspace capture does not wait for the final copy: on canary
-      // test-acceptance-canary-20261019o it started 59-66 s after the turn's result, behind it.
-      await expect
-        .poll(
-          () =>
-            tree.moments.some(
-              (moment) => moment.role === 'director' && moment.what === 'capture-started',
-            ),
-          { timeout: 5_000, interval: 50 },
-        )
-        .toBe(true)
-    } finally {
-      tree.openGate()
-      await tree.settling
-    }
-    expect(momentOf(tree.moments, 'capture-started', 'director')).toBeLessThan(
-      momentOf(tree.moments, 'native-finished', 'director'),
-    )
-    expect(momentOf(tree.moments, 'capture-finished', 'director')).toBeLessThanOrEqual(
-      momentOf(tree.moments, 'destroyed', 'director'),
-    )
-  }, 40_000)
-
-  it('journals a retained non-submitting turn before its slow workspace capture', async () => {
-    const tree = await acceptedTree('ordinary-before-capture', { gateRootFirstCapture: true })
-    try {
-      await expect
-        .poll(
-          () =>
-            tree.moments.some(
-              (moment) => moment.role === 'root' && moment.what === 'capture-started',
-            ),
-          { timeout: 10_000, interval: 50 },
-        )
-        .toBe(true)
-      await expect
-        .poll(
-          async () =>
-            (await tree.rootEvents()).some(
-              (event) =>
-                event.kind === 'execution-result' && event.id === 'ordinary-before-capture',
-            ),
-          { timeout: 2_000, interval: 50 },
-        )
-        .toBe(true)
-      expect(
-        tree.moments.some((moment) => moment.role === 'root' && moment.what === 'capture-finished'),
+        tree.moments.some((moment) => moment.role === 'director' && moment.what === 'destroyed'),
       ).toBe(false)
     } finally {
       tree.openGate()
-      await tree.settling
     }
-  }, 40_000)
-
-  it('settles an accepted director before its slow end-of-turn capture, which still precedes the destroy', async () => {
-    const tree = await acceptedTree('accepted-before-capture', { gateDirectorCapture: true })
-
-    // The director's node settles while its workspace capture is still held.
-    let settled: Extract<SpawnEvent, { kind: 'settled' }> | undefined
-    await expect
-      .poll(
-        async () => {
-          settled = ofKind(await tree.rootEvents(), 'settled').find(
-            (event) => event.id !== 'accepted-before-capture',
-          )
-          return settled
-        },
-        { timeout: 20_000, interval: 50 },
-      )
-      .toBeDefined()
-    expect(settled).toMatchObject({ status: 'done' })
-    expect(await tree.blobs.get(settled!.outRef!)).toEqual(ACCEPTED)
-    expect(tree.moments.some((m) => m.role === 'director' && m.what === 'destroyed')).toBe(false)
-    const directorCaptures = tree.moments.filter(
-      (m) => m.role === 'director' && m.what === 'capture-finished',
-    )
-    expect(directorCaptures).toHaveLength(0)
-
-    tree.openGate()
-    const result = await tree.settling
-    expect(result).toMatchObject({ kind: 'winner', out: ACCEPTED })
-
-    // The capture the director handed over finished before its environment was destroyed.
-    const captured = momentOf(tree.moments, 'capture-finished', 'director')
-    const destroyed = momentOf(tree.moments, 'destroyed', 'director')
-    expect(captured).toBeLessThanOrEqual(destroyed)
-
-    const { events: nested } = await tree.directorTree()
-    // Its result was committed first, and the capture's receipt reached the journal after it.
-    const result0 = nested.findIndex((event) => event.kind === 'execution-result')
-    const evidence = nested.findIndex((event) => event.kind === 'execution-evidence')
-    expect(result0).toBeGreaterThanOrEqual(0)
-    expect(evidence).toBeGreaterThan(result0)
-    expect(ofKind(nested, 'environment-teardown')).toEqual([
+    expect(await tree.settling).toMatchObject({ kind: 'winner', out: ACCEPTED })
+    const { events } = await tree.directorTree()
+    expect(ofKind(events, 'environment-teardown')).toEqual([
       expect.objectContaining({ destroyed: true }),
     ])
-    // The capture's queue wait and its own duration, on the node's own record.
-    const timings = ofKind(nested, 'workspace-capture')
-    expect(timings).toEqual([
-      expect.objectContaining({
-        outcome: 'captured',
-        ahead: expect.any(Number),
-        queuedMs: expect.any(Number),
-        captureMs: expect.any(Number),
-        archiveBytes: expect.any(Number),
-        stages: { exportMs: 12, archiveStoreMs: 3, offloadMs: 5 },
-      }),
-    ])
-    expect(timings[0]!.archiveBytes).toBeGreaterThan(0)
-    // The turn's usage was metered exactly, not marked unknown because the turn returned early.
-    const metered = ofKind(nested, 'metered')
+    const metered = ofKind(events, 'metered')
     expect(metered.reduce((sum, event) => sum + event.spend.tokens.input, 0)).toBe(3)
     expect(metered.some((event) => event.spend.tokensKnown === false)).toBe(false)
+    expect(ofKind(events, 'workspace-capture')).toEqual([])
   }, 40_000)
 
   it('settles a director done with its output when its deadline falls while the accepted turn ends', async () => {
@@ -544,16 +343,14 @@ describe('an accepted submit_result settles its node', () => {
     expect(rootTurns).toHaveLength(2)
     const destroyed = momentOf(tree.moments, 'destroyed', 'root')
     expect(destroyed).toBeGreaterThan(rootTurns[1]!.at)
-    expect(destroyed).toBeGreaterThanOrEqual(lastMomentOf(tree.moments, 'capture-finished', 'root'))
     const events = await tree.rootEvents()
     expect(
       ofKind(events, 'environment-teardown').filter((event) => event.id === 'root-released'),
     ).toEqual([expect.objectContaining({ destroyed: true })])
     expect(result.teardownUnconfirmed ?? []).toEqual([])
-    // Both root turns' captures are on its record.
     expect(
       ofKind(events, 'workspace-capture').filter((event) => event.id === 'root-released'),
-    ).toHaveLength(2)
+    ).toHaveLength(0)
   }, 40_000)
 
   it('settles a winner when the root deadline falls while its accepted turn ends', async () => {
@@ -572,7 +369,7 @@ describe('an accepted submit_result settles its node', () => {
 })
 
 describe("a root's environment at run settlement", () => {
-  it('is destroyed after the capture of the turn its deadline ended, not kept until it is suspended', async () => {
+  it('acknowledges native cleanup after a deadline ends its turn', async () => {
     const deadlineMs = 3_000
     let deadlineAt = 0
     const tree = await acceptedTree('root-deadline-mid-turn', {
@@ -582,18 +379,16 @@ describe("a root's environment at run settlement", () => {
     deadlineAt = tree.deadlineAt
     const result = await tree.settling
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'deadline' })
-    // The turn the deadline ended has no result; the capture it handed over is its receipt.
+    // A deadline supplies no invented terminal result or client capture receipt.
     const events = (await tree.rootEvents()).filter(
       (event) => event.id === 'root-deadline-mid-turn',
     )
     expect(ofKind(events, 'execution-result')).toHaveLength(0)
-    expect(ofKind(events, 'execution-evidence')).toHaveLength(1)
+    expect(ofKind(events, 'execution-evidence')).toHaveLength(0)
     expect(ofKind(events, 'environment-teardown')).toEqual([
       expect.objectContaining({ destroyed: true }),
     ])
-    expect(momentOf(tree.moments, 'destroyed', 'root')).toBeGreaterThanOrEqual(
-      momentOf(tree.moments, 'capture-finished', 'root'),
-    )
+    expect(momentOf(tree.moments, 'destroyed', 'root')).toBeGreaterThanOrEqual(tree.deadlineAt)
     expect(result.teardownUnconfirmed ?? []).toEqual([])
   }, 40_000)
 })

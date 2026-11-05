@@ -12,15 +12,11 @@ import {
   TangleCredentialCapacityError,
 } from '@tangle-network/agent-provider-tangle/node'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
-import type { ProviderWorkspaceRetentionPort } from '../../src/runtime/provider-workspace-retention'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type { SpawnEvent } from '../../src/runtime/supervise/types'
-import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
-import { completeCapture } from '../helpers/complete-workspace-capture'
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
@@ -73,21 +69,8 @@ interface DriverRetry {
 async function harnessFailureFixture(options: {
   readonly runId: string
   readonly failures: (dispatch: number) => TurnFailure | undefined
-  /** `'timeout'` retains through a capture that outlives its deadline. `'expired'` refuses the
-   *  first environment's first `captureFailures` captures as an expired Platform key does. */
-  readonly workspaceRetention?: boolean | 'timeout' | 'expired'
-  readonly captureFailures?: number
-  /** With `'expired'`: the first environment's captures are refused for this long on the run's
-   *  clock from the first refusal, instead of `captureFailures` times. */
-  readonly captureRefusedForMs?: number
-  /** A turn that completes without submitting, leaving the contract unmet. */
-  readonly withholdsSubmit?: (dispatch: number) => boolean
-  /** Explicit caller cancellation arrives after capture recovery failed, during source cleanup. */
-  readonly cancelDuringTeardown?: boolean
   /** Thrown by environment creation, before any dispatch: a provider command that failed. */
   readonly createFailure?: () => Error | undefined | Promise<Error | undefined>
-  /** Awaited by a dispatched turn before it submits the deliverable. */
-  readonly beforeSubmit?: (dispatch: number) => Promise<void>
   readonly deadlineMs?: number
   /** Milliseconds from now to the continuation deadline alone; defaults to `deadlineMs`, then
    *  one hour. A director that never submits is only paused by its barren streak, and this
@@ -108,10 +91,6 @@ async function harnessFailureFixture(options: {
   let creates = 0
   let destroys = 0
   let dispatches = 0
-  let captureResumed = false
-  let refusedCaptures = 0
-  let sourceCaptures = 0
-  let refusedSince: number | undefined
   let port = 0
   let token = ''
 
@@ -168,8 +147,6 @@ async function harnessFailureFixture(options: {
         failedExecutions.set(dispatched.controlRef!.executionId!, failure)
         if (!failure.afterSubmit) return dispatched
       }
-      if (options.withholdsSubmit?.(dispatch)) return dispatched
-      await options.beforeSubmit?.(dispatch)
       const response = await fetch(`http://127.0.0.1:${port}/manager`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -207,62 +184,6 @@ async function harnessFailureFixture(options: {
       return environment ? wrap(environment) : null
     },
   }
-  const workspaceRetention: ProviderWorkspaceRetentionPort | undefined =
-    options.workspaceRetention !== undefined && options.workspaceRetention !== false
-      ? (() => {
-          const { outputArtifacts } = createCandidateOutputFixture()
-          const timesOut = options.workspaceRetention === 'timeout'
-          const expires = options.workspaceRetention === 'expired'
-          return {
-            timeoutMs: timesOut ? 50 : 5_000,
-            artifacts: outputArtifacts,
-            async capture(context) {
-              if (expires) {
-                if (context.environment.id === environmentIds[0]) {
-                  sourceCaptures += 1
-                  const refuses =
-                    options.captureRefusedForMs === undefined
-                      ? refusedCaptures < (options.captureFailures ?? Number.POSITIVE_INFINITY)
-                      : Date.now() - (refusedSince ?? Date.now()) < options.captureRefusedForMs
-                  if (refuses) {
-                    refusedSince ??= Date.now()
-                    refusedCaptures += 1
-                    // Discovery run magnetar-rust-20261016d's capture refusal.
-                    throw new Error('This Platform key has expired')
-                  }
-                }
-                return completeCapture(context, outputArtifacts)
-              }
-              // A multi-GB transfer that is still running when its deadline aborts it.
-              if (timesOut && !captureResumed)
-                await new Promise((_, reject) =>
-                  context.signal.addEventListener('abort', () => reject(context.signal.reason), {
-                    once: true,
-                  }),
-                )
-              if (timesOut) return completeCapture(context, outputArtifacts)
-              return (
-                await captureAgentCandidateWorkspaceFiles(
-                  [
-                    {
-                      path: 'failed-turn.txt',
-                      mode: 0o644,
-                      bytes: Uint8Array.from(Buffer.from('failed turn\n')),
-                    },
-                  ],
-                  {
-                    artifactPersistence: {
-                      executionId: context.executionId,
-                      outputArtifacts,
-                    },
-                  },
-                )
-              ).snapshot
-            },
-          }
-        })()
-      : undefined
-
   const run = async (
     driverRetry: DriverRetry,
     retainedAtSettlement: 'release' | 'keep' = 'release',
@@ -280,28 +201,16 @@ async function harnessFailureFixture(options: {
       {
         runDir: join(directory, 'run'),
         runId: options.runId,
-        journal: options.cancelDuringTeardown
-          ? {
-              beginTree: context.journal.beginTree.bind(context.journal),
-              loadTree: context.journal.loadTree.bind(context.journal),
-              async appendEvent(root, event) {
-                await context.journal.appendEvent(root, event)
-                if (event.kind === 'teardown-unconfirmed')
-                  abort.abort(new Error('operator cancelled during capture cleanup'))
-              },
-            }
-          : context.journal,
+        journal: context.journal,
         blobs: context.blobs,
         signal: abort.signal,
         backend: {
           backend: 'provider',
           provider,
-          ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
         },
         driverBackend: {
           backend: 'provider',
           provider,
-          ...(workspaceRetention === undefined ? {} : { workspaceRetention }),
         },
         budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: options.deadlineMs ?? 60_000 },
         driverRetry: {
@@ -349,11 +258,6 @@ async function harnessFailureFixture(options: {
     creates: () => creates,
     destroys: () => destroys,
     dispatches: () => dispatches,
-    resumeCapture: () => {
-      captureResumed = true
-    },
-    sourceCaptures: () => sourceCaptures,
-    refusedSince: () => refusedSince,
   }
 }
 
@@ -551,33 +455,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     },
   )
 
-  it('preserves an unreceipted failed owner source through terminal release', async () => {
-    const fixture = await harnessFailureFixture({
-      runId: 'harness-failure-unreceipted-retention',
-      failures: () => ({ error: 'provider stream failed', streamFailure: true }),
-      workspaceRetention: true,
-    })
-    const { result } = await fixture.run({ enabled: false }, 'release')
-    const events = await fixture.events()
-
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
-    expect(fixture.destroys()).toBe(0)
-    expect(ofKind(events, 'execution-result')).toHaveLength(0)
-    expect(ofKind(events, 'environment-teardown')).toMatchObject([
-      {
-        destroyed: false,
-        detail: expect.stringContaining('no verified workspace receipt'),
-      },
-    ])
-    expect(ofKind(events, 'teardown-unconfirmed')).toHaveLength(1)
-    expect(result.teardownUnconfirmed).toHaveLength(1)
-    // The preserved source is evidence: named as kept, never as an environment a sweeper deletes.
-    expect(result.teardownUnconfirmed?.[0]).not.toHaveProperty('environments')
-    expect(result.teardownUnconfirmed?.[0]?.kept).toMatchObject([
-      { environmentId: fixture.environmentIds[0], keptFor: 'evidence' },
-    ])
-  })
-
   it('stops with no-progress once failed outcomes exceed maxConsecutiveFailures', async () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-repeated',
@@ -629,156 +506,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(fixture.destroys()).toBe(1)
   })
 
-  // magnetar-rust-20261016b/d (2026-10-16): an accepted root turn whose workspace capture failed
-  // ("This Platform key has expired") exited the supervisor, and each restart met the same
-  // failure: 66 supervisor starts in 17 runs, 76.7 wall-hours with nothing driving the run. The
-  // failure is evidence debt on the node: the run continues, the source is never mutated, and the
-  // owner retries the capture on backoff until one lands.
-  async function evidenceDebt(
-    events: readonly SpawnEvent[],
-    blobs: Awaited<ReturnType<typeof harnessFailureFixture>>['blobs'],
-    source: string,
-  ) {
-    const receipts = await Promise.all(
-      ofKind(events, 'execution-evidence').map(
-        async (event) =>
-          (await blobs.get(event.outRef)) as {
-            readonly workspaceCapture?: { readonly environmentId?: string }
-          },
-      ),
-    )
-    return {
-      rows: ofKind(events, 'evidence-pending'),
-      receipts: receipts.filter((output) => output.workspaceCapture?.environmentId === source),
-    }
-  }
-
-  it('keeps the supervisor up and the result evidence-incomplete while every capture fails', async () => {
-    const fixture = await harnessFailureFixture({
-      runId: 'harness-retention-expired-kept',
-      failures: () => undefined,
-      // The first turn is accepted without a submission, so the node continues.
-      withholdsSubmit: (dispatch) => dispatch === 1,
-      workspaceRetention: 'expired',
-    })
-    const { result, attempts } = await fixture.run({})
-    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
-    expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
-    expect(fixture.dispatches()).toBe(2)
-    const source = fixture.environmentIds[0]!
-    // The continuation never ran in the uncaptured source.
-    expect(fixture.environmentIds[1]).not.toBe(source)
-    const events = await fixture.events()
-    expect(ofKind(events, 'execution-abandoned')).toHaveLength(0)
-    const { rows, receipts } = await evidenceDebt(events, fixture.blobs, source)
-    expect(rows).toEqual([
-      expect.objectContaining({
-        id: 'harness-retention-expired-kept',
-        environmentId: source,
-        error: expect.stringContaining('This Platform key has expired'),
-        since: expect.any(String),
-      }),
-    ])
-    expect(receipts).toHaveLength(0)
-    // Still owed at release: the settled result names the source kept for evidence.
-    expect(result.teardownUnconfirmed).toEqual([
-      expect.objectContaining({
-        kept: [expect.objectContaining({ environmentId: source, keptFor: 'evidence' })],
-      }),
-    ])
-    expect(fixture.destroys()).toBe(1)
-  })
-
-  it('pays the evidence debt when the sixth capture lands after five expired-key refusals', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    try {
-      const fixture: Awaited<ReturnType<typeof harnessFailureFixture>> =
-        await harnessFailureFixture({
-          runId: 'harness-retention-expired-paid',
-          failures: () => undefined,
-          withholdsSubmit: (dispatch) => dispatch === 1,
-          workspaceRetention: 'expired',
-          captureFailures: 5,
-          deadlineMs: 24 * 60 * 60_000,
-          // The second turn runs while the owner retries; it submits once the capture landed. The
-          // clock moves 15 fake seconds per 50 ms, so each retry's backoff elapses within a tick.
-          beforeSubmit: async (dispatch) => {
-            if (dispatch !== 2) return
-            while (fixture.sourceCaptures() < 6) {
-              vi.setSystemTime(Date.now() + 15_000)
-              await new Promise((resolve) => setTimeout(resolve, 50))
-            }
-          },
-        })
-      const { result, attempts } = await fixture.run({})
-      expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
-      expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
-      expect(fixture.dispatches()).toBe(2)
-      expect(fixture.sourceCaptures()).toBe(6)
-      const source = fixture.environmentIds[0]!
-      expect(fixture.environmentIds[1]).not.toBe(source)
-      const { rows, receipts } = await evidenceDebt(await fixture.events(), fixture.blobs, source)
-      // One row for the debt, however many captures failed, and the receipt that paid it.
-      expect(rows).toHaveLength(1)
-      expect(rows[0]?.error).toContain('This Platform key has expired')
-      expect(receipts).toHaveLength(1)
-      // Nothing is owed at release: no source is kept and both environments are destroyed.
-      expect(result.teardownUnconfirmed).toBeUndefined()
-      expect(fixture.destroys()).toBe(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  }, 30_000)
-
-  // H23-store-refuses (durability contract): the evidence target refuses for 10 minutes. The run
-  // reads "durable copy behind since T" from the one `evidence-pending` row, the node finishes
-  // meanwhile, and once the target answers the capture lands, so no source is left only on the box.
-  it('H23: holds one row behind since the first refusal and leaves 0 sources host-only', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    try {
-      const fixture: Awaited<ReturnType<typeof harnessFailureFixture>> =
-        await harnessFailureFixture({
-          runId: 'harness-retention-store-refuses',
-          failures: () => undefined,
-          withholdsSubmit: (dispatch) => dispatch === 1,
-          workspaceRetention: 'expired',
-          captureRefusedForMs: 10 * 60_000,
-          deadlineMs: 24 * 60 * 60_000,
-          beforeSubmit: async (dispatch) => {
-            if (dispatch !== 2) return
-            const paid = async () =>
-              (
-                await evidenceDebt(
-                  await fixture.events(),
-                  fixture.blobs,
-                  fixture.environmentIds[0]!,
-                )
-              ).receipts.length > 0
-            while (!(await paid())) {
-              vi.setSystemTime(Date.now() + 15_000)
-              await new Promise((resolve) => setTimeout(resolve, 50))
-            }
-          },
-        })
-      const { result } = await fixture.run({})
-      expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
-      const source = fixture.environmentIds[0]!
-      expect(fixture.environmentIds[1]).not.toBe(source)
-      const { rows, receipts } = await evidenceDebt(await fixture.events(), fixture.blobs, source)
-      const since = fixture.refusedSince()!
-      expect(rows).toHaveLength(1)
-      expect(rows[0]?.since).toBe(new Date(since).toISOString())
-      // The durable copy landed only after the target answered again.
-      expect(receipts).toHaveLength(1)
-      expect(Date.now() - since).toBeGreaterThanOrEqual(10 * 60_000)
-      // 0 host-only: nothing is kept for evidence and both environments are destroyed.
-      expect(result.teardownUnconfirmed).toBeUndefined()
-      expect(fixture.destroys()).toBe(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  }, 30_000)
-
   // test-acceptance-canary-20261015c (2026-10-15) met 26 credential command failures in 2.2
   // minutes, each before any execution existed, and each counted toward the pending-unresolved
   // stop: 306 such attempts stopped 10 nodes and lost 7 runs from 2026-10-12 to 2026-10-19.
@@ -829,39 +556,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('honors explicit cancellation during failed-capture cleanup while keeping the accepted source', async () => {
-    const fixture = await harnessFailureFixture({
-      runId: 'harness-retention-cancel-cleanup',
-      failures: () => undefined,
-      withholdsSubmit: () => true,
-      workspaceRetention: 'timeout',
-      cancelDuringTeardown: true,
-      // The director never submits: a barren streak only pauses it, and the continuation
-      // deadline ends the run.
-      continuationDeadlineMs: 5_000,
-    })
-    const { result } = await fixture.run({})
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled', source: 'signal' })
-    // Every turn's capture timed out, so each continued in a new environment and every source,
-    // never mutated after its turn, is kept for evidence.
-    const sources = [...new Set(fixture.environmentIds)]
-    expect(sources).toHaveLength(fixture.dispatches())
-    expect(result.teardownUnconfirmed?.[0]?.kept).toEqual(
-      sources.map((environmentId) =>
-        expect.objectContaining({ environmentId, keptFor: 'evidence' }),
-      ),
-    )
-    const events = await fixture.events()
-    expect(ofKind(events, 'execution-result')).toHaveLength(fixture.dispatches())
-    expect(ofKind(events, 'execution-abandoned')).toHaveLength(0)
-    for (const event of ofKind(events, 'execution-evidence')) {
-      expect(await fixture.blobs.get(event.outRef)).toMatchObject({
-        workspaceCaptureFailure: expect.stringContaining('timed out after 50ms'),
-      })
-    }
-    expect(fixture.destroys()).toBe(0)
   })
 
   it('keeps an accepted submission when the turn that submitted it then fails', async () => {

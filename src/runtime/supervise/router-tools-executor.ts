@@ -4,6 +4,7 @@ import type { CodeModeToolsOptions } from '../code-mode'
 import { assertRouterAutoDeclaration } from '../router-auto-evidence'
 import { linkAbort } from './abortable'
 import { localAbortCancellation } from './executor-local-cancellation'
+import { executorObservation } from './executor-observation'
 import { readSeam } from './executor-seams'
 import { createInbox } from './inbox'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
@@ -117,6 +118,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         artifact = await runRouterToolLoop(
           {
             seam,
+            observation: executorObservation(ctx),
             spec,
             model,
             profileExecution,

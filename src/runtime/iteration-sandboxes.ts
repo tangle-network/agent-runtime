@@ -1,11 +1,9 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import type { RunAgentRoundsOptions } from './agent-rounds'
 import { emitTrace } from './iteration-events'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
-import type { SandboxEvidenceTracker } from './sandbox-evidence-retention'
 import {
   createSandboxLineage,
   type SandboxLineage,
@@ -20,7 +18,7 @@ import type {
   MountRecorder,
   SandboxClient,
 } from './types'
-import { deleteBoxSafe, randomUuid, throwAbort, withTimeout } from './util'
+import { deleteBoxSafe, throwAbort, withTimeout } from './util'
 
 /**
  * Per-loop lineage state: the backend-blind lineage, the caller's opt-in flags,
@@ -56,7 +54,6 @@ export async function setUpLineage<Task, Output, Decision>(
   maxConcurrency: number,
   recordMount: MountRecorder,
   promptOptions: Omit<PromptOptions, 'signal' | 'sessionId'> | undefined,
-  evidenceTracker?: SandboxEvidenceTracker,
 ): Promise<LineageState | undefined> {
   const lineageOpts = options.lineage
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
@@ -70,14 +67,6 @@ export async function setUpLineage<Task, Output, Decision>(
       maxConcurrency,
       streaming: lineageOpts.streaming,
       recordMount,
-      ...(evidenceTracker === undefined
-        ? {}
-        : {
-            failOnDestroyError: true,
-            onAcquire: (box: SandboxInstance, profile: AgentProfile) =>
-              evidenceTracker.register(box, profile),
-            beforeDelete: (box: SandboxInstance) => evidenceTracker.destroy(box),
-          }),
     }),
     options: lineageOpts,
     ...(promptOptions === undefined ? {} : { promptOptions }),
@@ -97,7 +86,6 @@ interface LineageStreamSource {
   acquire(): Promise<{
     events: AsyncIterable<SandboxEvent>
     handle: SandboxLineageHandle
-    executionId?: string
   }>
 }
 
@@ -124,13 +112,7 @@ export function planLineageRound<Task>(
   slice: Task[],
   parentIndex: number | undefined,
   signal: AbortSignal,
-  retainEvidence: boolean,
 ): LineageRoundPlan {
-  const executionIds = retainEvidence ? slice.map(() => randomUuid()) : []
-  const promptForOffset = (offset: number) =>
-    retainEvidence
-      ? { ...(state.promptOptions ?? {}), executionId: executionIds[offset] }
-      : state.promptOptions
   const lineage = state.lineage
   const parent = parentIndex !== undefined ? state.handles.get(parentIndex) : undefined
   const promptFor = (offset: number): string => {
@@ -152,13 +134,12 @@ export function planLineageRound<Task>(
     return [
       {
         async acquire() {
-          const events = await lineage.continue(parent, promptFor(0), signal, promptForOffset(0))
+          const events = await lineage.continue(parent, promptFor(0), signal, state.promptOptions)
           // Continuation threads the SAME handle forward — later rounds keep
           // descending from this box's evolving session.
           return {
             events,
             handle: parent,
-            ...(retainEvidence ? { executionId: executionIds[0] } : {}),
           }
         },
       },
@@ -173,14 +154,7 @@ export function planLineageRound<Task>(
     const childSpecs = slice.map((_, offset) => specAt(offset))
     let forked: Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
     const ensureForked = () => {
-      forked ??= lineage.fork(
-        parent,
-        prompts,
-        childSpecs,
-        signal,
-        state.promptOptions,
-        retainEvidence ? executionIds : undefined,
-      )
+      forked ??= lineage.fork(parent, prompts, childSpecs, signal, state.promptOptions)
       return forked
     }
     return slice.map((_, offset) => ({
@@ -189,7 +163,7 @@ export function planLineageRound<Task>(
         const branch = branches[offset]
         if (!branch)
           throw new ValidationError('runAgentRounds: lineage fork produced no branch for offset')
-        return { ...branch, ...(retainEvidence ? { executionId: executionIds[offset] } : {}) }
+        return branch
       },
     }))
   }
@@ -202,9 +176,9 @@ export function planLineageRound<Task>(
         specAt(offset),
         promptFor(offset),
         signal,
-        promptForOffset(offset),
+        state.promptOptions,
       )
-      return { ...started, ...(retainEvidence ? { executionId: executionIds[offset] } : {}) }
+      return started
     },
   }))
 }
@@ -346,7 +320,6 @@ export async function createSandboxForSpec<Task>(
   spec: AgentRunSpec<Task>,
   signal: AbortSignal,
   recordMount?: MountRecorder,
-  evidenceTracker?: SandboxEvidenceTracker,
 ): Promise<SandboxInstance> {
   const opts = buildBackendOptions(spec.profile, spec.sandboxOverrides)
   // Cold-start-resilient acquire: a slow scale-from-zero create (node boot +
@@ -355,19 +328,11 @@ export async function createSandboxForSpec<Task>(
   if (signal.aborted) throwAbort()
   const box = await acquireSandbox(client, opts, {
     signal,
-    ...(evidenceTracker === undefined
-      ? {}
-      : {
-          onAcquire: (source: SandboxInstance) => evidenceTracker.register(source, spec.profile),
-          beforeDelete: (source: SandboxInstance) => evidenceTracker.destroy(source),
-        }),
   })
-  evidenceTracker?.register(box, spec.profile)
   try {
     await invokePrepareBox(spec, box, signal, recordMount)
   } catch (error) {
-    if (evidenceTracker === undefined) await deleteBoxSafe(box)
-    else await evidenceTracker.destroy(box)
+    await deleteBoxSafe(box)
     throw error
   }
   return box

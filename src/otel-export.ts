@@ -173,6 +173,20 @@ function toOpenInferenceLine(span: OtelSpan): Record<string, unknown> {
     resource: { attributes: resource },
     scope: { name: 'agent-runtime', version: '' },
     attributes,
+    ...(span.links
+      ? {
+          links: span.links.map((link) => ({
+            trace_id: link.traceId,
+            span_id: link.spanId,
+            ...(link.traceState === undefined ? {} : { trace_state: link.traceState }),
+            ...(link.flags === undefined ? {} : { flags: link.flags }),
+            attributes: decodeOtlpAttributes(link.attributes ?? []),
+            ...(link.droppedAttributesCount === undefined
+              ? {}
+              : { dropped_attributes_count: link.droppedAttributesCount }),
+          })),
+        }
+      : {}),
   }
 }
 

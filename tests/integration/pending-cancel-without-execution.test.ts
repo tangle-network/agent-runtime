@@ -20,7 +20,7 @@ it.each(['fresh', 'retained', 'retained-named-provider', 'released', 'confirmed'
   'settles pending native cancellation without execution ports (prior state=%s)',
   async (state) => {
     const retained = state !== 'fresh'
-    const unconfirmed = state === 'retained' || state === 'retained-named-provider'
+    const unconfirmed = retained && state !== 'released'
     const runDir = await mkdtemp(join(tmpdir(), 'cold-native-cancel-'))
     const runId = 'cold-root'
     const nestedTree = nestedDriverTreeRoot(runId, 'retained-child')
@@ -188,7 +188,22 @@ it.each(['fresh', 'retained', 'retained-named-provider', 'released', 'confirmed'
           (event) => event.kind === 'materialized' || event.kind === 'execution-bound',
         ),
       ).toHaveLength(0)
-      if (unconfirmed) {
+      if (state === 'confirmed') {
+        // A nested driver's generic confirmation covers descendants, not its owner environment.
+        const owner = expect.objectContaining({
+          id: 'retained-child',
+          kept: [
+            {
+              provider: 'retained-provider',
+              environmentId: 'retained-child-box',
+              keptFor: 'evidence',
+            },
+          ],
+        })
+        expect(settled.result.teardownUnconfirmed).toEqual([owner])
+        expect(settled.result.teardownUnconfirmed?.[0]?.environments ?? []).toEqual([])
+        expect(events?.filter((event) => event.kind === 'teardown-unconfirmed')).toEqual([owner])
+      } else if (unconfirmed) {
         expect(settled.result.teardownUnconfirmed).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ id: runId }),
@@ -200,6 +215,9 @@ it.each(['fresh', 'retained', 'retained-named-provider', 'released', 'confirmed'
         expect(settled.result.teardownUnconfirmed ?? []).toEqual([])
       }
       expect(readRunCancellation(runDir, 'cold-cancel')).toMatchObject({
+        operationId: 'cold-cancel',
+        operator: 'integration',
+        reason: 'stop before entry',
         effect: unconfirmed ? 'unknown' : 'cancelled',
       })
     } finally {

@@ -12,6 +12,8 @@
  * @experimental
  */
 
+import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
+
 export type RuntimeHookPhase = 'before' | 'after' | 'error' | 'event'
 
 export type RuntimeHookTarget =
@@ -22,6 +24,9 @@ export type RuntimeHookTarget =
   | 'agent.child'
   | 'agent.plan'
   | 'agent.decision'
+  | 'agent.execution'
+  | 'agent.model'
+  | 'agent.steer'
   | (string & {})
 
 export type RuntimeDecisionKind =
@@ -55,6 +60,13 @@ export interface RuntimeHookEvent<Payload = unknown> {
 
 export interface RuntimeHookContext {
   signal?: AbortSignal
+}
+
+/** A provider acknowledged this exact execution; planned and refused dispatches emit none. */
+export interface RuntimeExecutionAdmittedPayload {
+  readonly nodeId: string
+  readonly controlRef: AgentExactRunControlRef
+  readonly sessionId: string
 }
 
 export interface RuntimeDecisionEvidenceRef {
