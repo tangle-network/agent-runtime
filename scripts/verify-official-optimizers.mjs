@@ -47,8 +47,6 @@ const officialOptimizerEnv = {
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
-// Runtime's own declarations bound the installed development versions. A declaration
-// uses the workspace catalog only when it says catalog:; Bench may have another pin.
 assertCohortRange('@tangle-network/agent-eval', agentEvalVersion)
 assertCohortRange('@tangle-network/agent-interface', workspaceAgentInterfaceVersion)
 assertCohortRange('@tangle-network/sandbox', workspaceSandboxVersion)
@@ -230,15 +228,18 @@ function installSourceGepa(root) {
 }
 
 function createPythonVenv(root, name) {
-  const basePython = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
+  const expected = readFileSync(join(repoRoot, '.python-version'), 'utf8').trim()
+  const basePython = process.env.PYTHON ?? (process.env.MISE_DATA_DIR
+    ? run('mise', ['which', 'python'], repoRoot).trim()
+    : process.platform === 'win32' ? 'python' : 'python3')
   const version = run(
     basePython,
-    ['-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'],
+    ['-c', 'import platform; print(platform.python_version())'],
     repoRoot,
     { PYTHONNOUSERSITE: '1' },
   ).trim()
-  if (version !== '3.12') {
-    throw new Error(`official optimizer verification requires Python 3.12, found ${version}`)
+  if (version !== expected && !version.startsWith(`${expected}.`)) {
+    throw new Error(`official optimizer verification requires Python ${expected}, found ${version}`)
   }
 
   const venvDir = join(root, name)
@@ -364,8 +365,6 @@ function assertInstalledKnowledgeSharedPeer(packageJson, packageName, appDir) {
   if (packageJson.dependencies?.[packageName] !== undefined) {
     throw new Error(`installed Agent Knowledge must not nest ${packageName} as a runtime dependency`)
   }
-  // Knowledge owns its compatibility window. Both its tested pin and Runtime's selected
-  // version must remain inside that window, including support for earlier Eval minors.
   requiredPackedDevelopmentDependency(packageJson, packageName)
   assertPeerMatchesDevelopmentDependency(packageJson, packageName, {
     expectedRange: packageJson.peerDependencies?.[packageName],

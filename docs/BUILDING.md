@@ -47,6 +47,10 @@ the repository's compiler-AST test helpers require the JavaScript compiler API.
 TypeScript 7.0.2 removes that API, so `typescript-consumer` keeps an exact 7.0.2
 alias for packed-consumer compatibility checks without breaking local tooling.
 
+Optimizer verification reads its Python requirement from [.python-version](../.python-version).
+Normal Beelink gates provision the complete precompiled interpreter through [mise.toml](../mise.toml);
+GitHub's Python setup reads the same version file. `PYTHON` remains an explicit local override.
+
 One-shot fixture scripts use `node --import tsx` on the supported Node 22 runtime.
 They need TypeScript loading, not the tsx CLI supervisor or its IPC socket; arguments
 such as `--check` still reach the same maintained generator.
