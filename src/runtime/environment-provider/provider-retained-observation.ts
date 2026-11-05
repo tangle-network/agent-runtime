@@ -109,13 +109,18 @@ export class RetainedObservation {
   async *observe(
     session: AgentSession,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult> {
-    this.lastObservedAt = Date.now()
-    const completed = yield* this.drain(session, this.resumedFrom)
-    if (!completed && !this.sawTerminal && this.lastReplayPosition !== undefined) {
-      // The terminal receipt carries the turn's usage: resume once; a second failure keeps the first.
-      const firstFailure = this.failure
+    let since = this.resumedFrom
+    let firstFailure: typeof this.failure
+    while (true) {
+      this.lastObservedAt = Date.now()
+      if ((yield* this.drain(session, since)) || this.sawTerminal) break
+      firstFailure ??= this.failure
+      if (this.lastReplayPosition === undefined || this.lastReplayPosition === since) {
+        this.failure = firstFailure
+        break
+      }
+      since = this.lastReplayPosition
       this.failure = undefined
-      if (!(yield* this.drain(session, this.lastReplayPosition))) this.failure = firstFailure
     }
     // An earlier attempt read the frames up to a resumed position, usage receipts among them.
     const resumed = this.resumedFrom && `retained provider stream resumed after ${this.resumedFrom}`
@@ -339,7 +344,6 @@ export class RetainedObservation {
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult, boolean> {
     const subscription = linkAbort(this.signal)
     let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
-    let failed = false
     try {
       iterator = session
         .events({
@@ -375,16 +379,14 @@ export class RetainedObservation {
         } catch (error) {
           if (this.signal.aborted) throw error
           this.failure = { error }
-          failed = true
           break
         }
         if (observed.kind === 'quiet') {
-          if (this.silenceHandledAt !== undefined) await this.stopQuietObservation(session)
-          else {
-            yield this.awaitingResult(this.lastObservedAt)
-            this.lastObservedAt = Date.now()
+          if (this.silenceHandledAt === undefined) yield this.awaitingResult(this.lastObservedAt)
+          this.failure ??= {
+            error: streamFailure('retained provider stream stalled before its exact result'),
           }
-          continue
+          return false
         }
         if (observed.kind === 'exact-result') {
           this.failure ??= {
@@ -408,6 +410,6 @@ export class RetainedObservation {
         .then(() => iterator?.return?.())
         .catch(() => undefined)
     }
-    return !failed
+    return this.sawTerminal || this.exactResultSettled
   }
 }

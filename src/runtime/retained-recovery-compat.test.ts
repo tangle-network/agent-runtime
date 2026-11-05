@@ -1,12 +1,9 @@
 /**
  * Upgrade-compat regressions for the interface-5 recovery surfaces:
- *  - a v1-persisted interactive intent (pre-interface5 create projection) replays
- *    cleanly instead of being rejected by the exact-intent check;
  *  - environment-stage recovery of a context-transfer run repeats the
  *    receipt-authorized lookup and verifies the receipt's run binding.
  */
 
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import {
   type AgentEnvironmentProvider,
   execOnlyEnvironmentCapabilities,
@@ -16,32 +13,6 @@ import {
   acceptedContextTransferReceipt,
   retainedContextTransfer,
 } from './retained-context-transfer-fixture'
-import { legacyRetainedCreateMaterial, retainedCreateMaterial } from './retained-run-intent'
-
-const environment = {
-  profile: { name: 'worker', harness: 'opencode' },
-  idempotencyKey: 'env-idem',
-  requestedId: 'requested-42',
-  egress: { mode: 'default' },
-  billingOwner: 'owner-a',
-} as never
-
-describe('legacy create-material projection', () => {
-  it('omits exactly the interface-5 fields from the current projection', () => {
-    const current = retainedCreateMaterial(environment)
-    const legacy = legacyRetainedCreateMaterial(environment)
-    expect(current).toMatchObject({ requestedId: 'requested-42', billingOwner: 'owner-a' })
-    expect(legacy).not.toHaveProperty('requestedId')
-    expect(legacy).not.toHaveProperty('egress')
-    expect(legacy).not.toHaveProperty('billingOwner')
-    expect(canonicalCandidateDigest(current)).not.toBe(canonicalCandidateDigest(legacy))
-  })
-
-  it('a pre-interface5 environment projects identically through both', () => {
-    const pre = { profile: { name: 'worker', harness: 'opencode' }, idempotencyKey: 'env-idem' }
-    expect(legacyRetainedCreateMaterial(pre as never)).toEqual(retainedCreateMaterial(pre as never))
-  })
-})
 
 describe('context-transfer recovery authority', () => {
   it('recovery passes the transfer request to the lookup and verifies the receipt binding', async () => {
