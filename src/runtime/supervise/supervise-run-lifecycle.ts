@@ -96,8 +96,7 @@ export function superviseInternal(
   })
 }
 
-/** A durable control request needs no executable transport or credentials. The kernel's aborted
- * entry still owns journal replay, accounting, the join barrier and unconfirmed resource custody. */
+/** The aborted kernel entry owns replay and resource custody without executable admission. */
 function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
   const runDir = opts.runDir
   if (runDir === undefined || opts.runContext?.durability === 'sql') return undefined
@@ -202,6 +201,7 @@ function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts:
     recordRunCancellationOutcome(runDir, result, now)
     return {
       ...result,
+      rootProviderModel: rootProviderModelEvidence([]),
       ...(rootExecution.ref === undefined ? {} : { execution: rootExecution.ref }),
     }
   })()
@@ -212,9 +212,7 @@ async function startSupervisedRun(run: SupervisedRun) {
   const { options, ctx, log, runId, rootOwnerId, canonicalTask } = setup
   if (ctx.durability === 'sql') await assertSqlRunProvider(options)
   await verifyProfilePromotions(setup.profileTable)
-  // The durable coordination side-log (file contexts only) loads prior questions, findings and
-  // instruction receipts and appends this process's evidence. The router arm gets all three in its
-  // resume brief; the external arm seeds prior questions. No prior instruction is auto-delivered.
+  // Replay recorded coordination evidence; instructions still require explicit delivery.
   const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
   const runDir = options.runDir === undefined ? undefined : resolve(options.runDir)
   const agent = rootSupervisorAgent(run, priorCoordination, runDir)
@@ -343,10 +341,7 @@ function rootSupervisorAgent(
               }),
         }
       : {}),
-    // A durable run's layout dir is the worker-cancel control surface: each router-arm manager's turn
-    // loop acknowledges the `cancelWorker` requests it OWNS (the root its direct children plus
-    // label/profile references, nested managers their direct-child ids) and the root also applies
-    // the run-scoped `cancelRun` through the one cascade controller.
+    // Managers own their worker cancels; the root also owns the run-cancel cascade.
     ...(runDir === undefined || runControl === undefined
       ? {}
       : {

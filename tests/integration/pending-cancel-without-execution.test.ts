@@ -170,6 +170,7 @@ it.each(['fresh', 'retained', 'released', 'confirmed'] as const)(
         kind: 'no-winner',
         reason: 'cancelled',
         operationId: 'cold-cancel',
+        rootProviderModel: { status: 'unknown', attempts: [], models: [] },
         tree: { root: runId },
       })
       expect(await readSettleRecord(runDir)).toEqual(settled.result)
