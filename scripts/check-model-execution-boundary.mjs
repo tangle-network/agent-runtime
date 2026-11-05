@@ -21,6 +21,8 @@ const dynamicNonModelFetchOwners = new Set([
   'src/runtime/supervise/coordination-preflight.ts',
   'scripts/prove-platform-oidc.mjs',
   'scripts/check-npm-publication.mjs',
+  'scripts/prepare-release.mjs',
+  'scripts/release-gate.mjs',
   'bench/src/search-tool.ts',
   'bench/src/benchmarks/aec-bench.ts',
   'bench/src/benchmarks/commit0.ts',
@@ -205,7 +207,6 @@ function scriptKindOf(path) {
   return ts.ScriptKind.JS
 }
 
-/** Index every initialized variable by name, so a call target can be traced to its value. */
 function collectInitializers(scan, node) {
   if (
     ts.isVariableDeclaration(node) &&
@@ -230,7 +231,6 @@ function initializerFor(scan, identifier) {
   return closest?.initializer
 }
 
-/** Record the names a module brings in that reach a model or launch a process. */
 function recordModuleBinding(scan, moduleName, imported, local) {
   if (
     moduleName !== undefined &&
