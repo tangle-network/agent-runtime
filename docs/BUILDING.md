@@ -91,8 +91,9 @@ The frozen tag selects its reusable qualification workflow. Reviewed main owns r
 line and gate-proof policy. Qualification reuses only the latest tree-bound status
 issued by `drewstone`; missing, untrusted or mismatching evidence runs `release:check`.
 A matching tree builds and qualifies exact archives without rerunning the source suite.
-The local release gate runs optimizer, benchmark and all seven upstream contracts on its archive.
-`scripts/run-upstream-contract.mjs --candidate --check all` emits local candidate evidence without
+The local release gate runs the source suite, optimizer and benchmark verification once. `Publish` runs
+the seven upstream contracts once, as its `evidence` job on the qualified archive; `publish-npm` needs it.
+`scripts/run-upstream-contract.mjs --candidate --check all` previews them before tagging without
 a release tag; default mode still requires exact tagged source. Publication retains cohort
 compatibility, SHA256 locking, provenance, isolated npm authority and registry byte checks.
 
