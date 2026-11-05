@@ -15,7 +15,6 @@ const qualifierJobs = qualification.jobs
 if (!qualifierJobs || typeof qualifierJobs !== 'object') throw new Error('qualification workflow has no jobs')
 const qualifier = requireJob('qualify')
 assertEqual(qualifier.uses, './.github/workflows/qualify-release.yml', 'qualification body frozen with the release workflow')
-assertEqual(qualifier.permissions?.statuses, 'read', 'qualification status permission')
 assertEqual(qualifier.with?.release_tag, '${{ inputs.release_tag }}', 'qualification release tag')
 for (const [name, job] of Object.entries(qualifierJobs)) {
   assertEqual(job['runs-on']?.group, 'public-app-production', `${name} trusted runner group`)
@@ -114,6 +113,7 @@ for (const [group, defaults] of [[jobs, workflow.permissions], [qualifierJobs, q
     const permissions = job.permissions === undefined && job !== qualifier ? defaults : job.permissions
     const publisher = group === jobs && jobName in publishJobs
     assertEqual(permissions?.contents, 'read', `${jobName} contents permission`)
+    if (job === qualifier) assertEqual(permissions?.statuses, 'read', 'qualification status permission')
     if (permissions?.['id-token'] === 'write' && !publisher)
       throw new Error(`unexpected job can mint a package identity token: ${jobName}`)
     for (const step of job.steps ?? []) {

@@ -689,26 +689,28 @@ describe('supervised root with a pending retained turn', () => {
     )
   }, 150_000)
 
-  it.each([false, true])(
-    'settles a dead run with a queued cancel as cancelled, with no turn or environment (stale acknowledgement=%s)',
-    async (staleAcknowledgement) => {
-      // queens21-h22-tree4-20261018a (2026-10-18): a cancel queued on a dead run made its resume
-      // throw on the aborted recovery, and the next resume re-ran its work to budget exhaustion.
-      await expect(
-        superviseRoot({ captureFailure: 'partial', submitOn: 2, crashOnInput: 2 }),
-      ).rejects.toThrow('supervisor process died')
+  it.each([
+    [false, true],
+    [true, true],
+    [false, false],
+    [true, false],
+  ] as const)(
+    'settles queued cancellation without dispatch and preserves uncaptured sources (stale acknowledgement=%s, partial capture=%s)',
+    async (staleAcknowledgement, partial) => {
+      const captureFailure = partial ? ('partial' as const) : undefined
+      await expect(superviseRoot({ captureFailure, submitOn: 2, crashOnInput: 2 })).rejects.toThrow(
+        'supervisor process died',
+      )
       const directory = directories.at(-1)!
       const runDir = join(directory, 'run')
       cancelRun(runDir, 'dead-cancel', { reason: 'operator', operator: 'test' })
-      // The process that acknowledged the request died before the run settled.
-      if (staleAcknowledgement) {
+      if (staleAcknowledgement)
         applyRunCancellation(
           runDir,
           () => {},
           () => new Date().toISOString(),
         )
-      }
-      const run = await superviseRoot({ captureFailure: 'partial', submitOn: 2, directory })
+      const run = await superviseRoot({ captureFailure, submitOn: 2, directory })
       expect(run.result).toMatchObject({
         kind: 'no-winner',
         reason: 'cancelled',
@@ -716,7 +718,34 @@ describe('supervised root with a pending retained turn', () => {
       })
       expect(run.dispatched).toHaveLength(0)
       expect(run.environments).toHaveLength(0)
-      expect(readRunCancellation(runDir, 'dead-cancel')?.effect).toBe('cancelled')
+      const source = run.events.find(
+        (event) => event.kind === 'execution-admitted' && event.admission.phase === 'environment',
+      )
+      if (source?.kind !== 'execution-admitted' || source.admission.phase !== 'environment')
+        throw new Error('missing admitted source')
+      if (partial) {
+        expect(run.result.teardownUnconfirmed).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: 'pending-root',
+              kept: expect.arrayContaining([
+                expect.objectContaining({
+                  provider: source.admission.provider,
+                  environmentId: source.admission.environmentId,
+                  keptFor: 'evidence',
+                }),
+              ]),
+            }),
+          ]),
+        )
+        expect(run.destroyed).not.toContain(source.admission.environmentId)
+      } else {
+        expect(run.result.teardownUnconfirmed ?? []).toEqual([])
+        expect(run.destroyed).toContain(source.admission.environmentId)
+      }
+      expect(readRunCancellation(runDir, 'dead-cancel')?.effect).toBe(
+        partial ? 'unknown' : 'cancelled',
+      )
     },
   )
 

@@ -217,6 +217,8 @@ it('the workflow checker enforces effective read permissions and authority isola
     const path = join(directory, 'publish.yml')
     const qualificationPath = join(directory, 'qualify.yml')
     for (const mutation of [
+      'statuses-write',
+      'statuses-none',
       'zero-read',
       'id-token',
       'npm-secret',
@@ -232,6 +234,9 @@ it('the workflow checker enforces effective read permissions and authority isola
       const workflow = parse(original)
       const qualification = parse(originalQualification)
       const job = workflow.jobs['verify-publication']
+      if (mutation.startsWith('statuses-'))
+        workflow.jobs.qualify.permissions.statuses =
+          mutation === 'statuses-write' ? 'write' : 'none'
       if (mutation === 'id-token') job.permissions['id-token'] = 'write'
       if (mutation === 'npm-secret') job.env.NPM_TOKEN = 'forbidden-fixture-reference'
       if (mutation === 'persist-credentials') job.steps[0].with['persist-credentials'] = true
@@ -252,8 +257,9 @@ it('the workflow checker enforces effective read permissions and authority isola
         qualification.permissions = { contents: 'read', 'id-token': 'write' }
       await writeFile(path, stringify(workflow))
       await writeFile(qualificationPath, stringify(qualification))
-      const refusal =
-        mutation === 'persist-credentials'
+      const refusal = mutation.startsWith('statuses-')
+        ? /qualification status permission/
+        : mutation === 'persist-credentials'
           ? /checkout credentials/
           : mutation === 'npm-secret'
             ? /must not receive publishing credentials/

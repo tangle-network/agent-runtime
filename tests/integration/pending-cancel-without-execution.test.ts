@@ -16,11 +16,11 @@ import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-
 import { superviseRootProfile } from '../../src/runtime/supervise/supervise-root-profile'
 import { nestedDriverTreeRoot } from '../../src/runtime/supervise/tree-key'
 
-it.each(['fresh', 'retained', 'released', 'confirmed'] as const)(
+it.each(['fresh', 'retained', 'retained-named-provider', 'released', 'confirmed'] as const)(
   'settles pending native cancellation without execution ports (prior state=%s)',
   async (state) => {
     const retained = state !== 'fresh'
-    const unconfirmed = state === 'retained'
+    const unconfirmed = state === 'retained' || state === 'retained-named-provider'
     const runDir = await mkdtemp(join(tmpdir(), 'cold-native-cancel-'))
     const runId = 'cold-root'
     const nestedTree = nestedDriverTreeRoot(runId, 'retained-child')
@@ -165,6 +165,9 @@ it.each(['fresh', 'retained', 'released', 'confirmed'] as const)(
         runId,
         runDir,
         budget,
+        ...(state === 'retained-named-provider'
+          ? { backend: { backend: 'provider' as const, provider: 'retained-provider' } }
+          : {}),
       })
       expect(settled.result).toMatchObject({
         kind: 'no-winner',

@@ -298,7 +298,10 @@ function assertNoUncapturedExecutableOption(decisionData: Readonly<Record<string
  * Service internals intentionally remain live, while replacing a callback/service on the caller's
  * mutable options object can no longer change an in-flight run. */
 
-export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
+export function captureSuperviseOptions(
+  opts: SuperviseOptions,
+  mode: 'execution' | 'control' = 'execution',
+): SuperviseOptions {
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
@@ -333,9 +336,9 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
             ...(onControlReady === undefined ? {} : { onControlReady }),
           })
         })()
-  const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
+  const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend, mode)
   const capturedDriverBackend =
-    driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
+    driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend, mode)
   // A string names a registry entry; it is resolved (and the resolved spec validated) by
   // `resolveNamed` before anything is built or spent.
   const capturedDeliverable =

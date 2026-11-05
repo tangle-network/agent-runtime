@@ -276,7 +276,10 @@ export class RetainedObservation {
             const flowing = this.sawTerminal
               ? 0
               : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastObservedAt)
-            if (flowing <= 0) return resolve({ kind: 'exact-result' })
+            if (flowing <= 0) {
+              wake = setImmediate(() => resolve({ kind: 'exact-result' }))
+              return
+            }
             grace = setTimeout(() => {
               wake = setImmediate(() => resolve({ kind: 'exact-result' }))
             }, flowing)
@@ -406,7 +409,11 @@ export class RetainedObservation {
         }
         this.pendingRead = undefined
         if (observed.value.done) break
-        if (this.acceptFrame(observed.value.value)) yield observed.value.value
+        if (this.acceptFrame(observed.value.value)) {
+          yield observed.value.value
+          // Consumer persistence is backpressure, not silence on the provider connection.
+          this.lastObservedAt = Date.now()
+        }
       }
     } finally {
       // Cleanup proves nothing about readiness; a provider may never resolve return().

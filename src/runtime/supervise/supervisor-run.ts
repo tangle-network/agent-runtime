@@ -4,7 +4,10 @@ import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import type { BudgetPool } from './budget'
 import { ACCEPTED_RESULT_GRACE_MS, armDeadlineTimer, ROOT_DEADLINE_REASON } from './deadline'
 import { runTree } from './finalizer'
+import { runtimeOwnedScopeOwnerControl } from './materialization'
 import {
+  bindScopeRetainedOwnerProvider,
+  bindScopeRetainedOwnerWorkspaceRetention,
   retainedOwnerWorkspaceRetentionSeamKey,
   scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerSettled,
@@ -80,6 +83,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       const scope = createRootScope<Out>(intake, opened, journal, now)
       // The supervisor never `spawn`s on it, so the readout and join barrier are `Out`-agnostic.
       const openScope = scope as unknown as Scope<unknown>
+      const ownerControl = runtimeOwnedScopeOwnerControl(root)
+      if (ownerControl !== undefined) {
+        bindScopeRetainedOwnerProvider(
+          openScope,
+          ownerControl.provider,
+          ownerControl.checkpointCapture,
+        )
+        bindScopeRetainedOwnerWorkspaceRetention(
+          openScope,
+          ownerControl.checkpointCapture !== undefined,
+        )
+      }
 
       // Bind any attached RootHandle to THIS live run; detached again in the finally barrier.
       if (rootLease) {

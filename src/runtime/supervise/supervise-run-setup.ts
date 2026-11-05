@@ -88,8 +88,9 @@ export function prepareSuperviseIdentity(
   profile: SupervisorProfile,
   task: unknown,
   opts: SuperviseOptions,
+  mode: 'execution' | 'control' = 'execution',
 ) {
-  const options = captureSuperviseOptions(opts)
+  const options = captureSuperviseOptions(opts, mode)
   const guidanceComposer = profileGuidanceComposer(options.profileGuidance)
   const { applyTraceTools, composeSpawnProfile } = traceToolPolicy(options, guidanceComposer)
   const registeredProfile = applyTraceTools(superviseRootProfile(profile, options.profileGuidance))

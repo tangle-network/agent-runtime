@@ -7,8 +7,13 @@ import { RunCancellationReason } from './abortable'
 import { CONTINUATIONS_DIR } from './continuation'
 import type { PriorCoordination } from './coordination-log'
 import type { DriverContinuationRecord } from './driver-attempt-evidence'
-import { authoredAgentIdentity, runtimeOwnedDriveHarnessProviderEvidence } from './materialization'
+import {
+  attestRuntimeOwnedScopeOwner,
+  authoredAgentIdentity,
+  runtimeOwnedDriveHarnessProviderEvidence,
+} from './materialization'
 import { createSupervisorSpanRecorder, type SupervisorSpanRecorder } from './otel-spans'
+import { providerVisibleProfile } from './provider-visible-profile'
 import { ROOT_STREAM_FILE } from './root-stream'
 import type { RunCancelRequest } from './run-cancellation'
 import {
@@ -105,7 +110,7 @@ function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts:
   const acknowledged = readRunCancellation(runDir, request.operationId)
   if (acknowledged !== undefined && acknowledged.effect !== 'cancel_requested') return undefined
   const { options, registeredProfile, canonicalProfile, canonicalTask, rootExecution } =
-    prepareSuperviseIdentity(profile, task, opts)
+    prepareSuperviseIdentity(profile, task, opts, 'control')
   const now = options.now ?? Date.now
   const controller = new AbortController()
   applyRunCancellation(
@@ -143,61 +148,94 @@ function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts:
       (root?.kind === 'spawned' ? root.budget : undefined)
     if (budget === undefined) throw new Error('cancelled run has no declared or recorded budget')
     assertValidBudget(budget, 'supervise budget')
-    const result = await createSupervisor<unknown, unknown>().run(
-      {
-        name: canonicalProfile.name ?? 'supervise',
-        async act() {
-          throw new Error('cancelled run cannot enter execution')
-        },
+    const rootAgent = {
+      name: canonicalProfile.name ?? 'supervise',
+      async act() {
+        throw new Error('cancelled run cannot enter execution')
       },
-      canonicalTask,
-      {
-        budget,
-        runId,
-        journal,
-        blobs: options.blobs ?? context.blobs,
-        executors: context.executors,
-        rootIdentity: rootExecution.identity,
-        rootMaterialization: {
-          runtime: root?.kind === 'spawned' ? root.runtime : 'inline',
-          declaration: 'deferred',
-          authoredProfile: registeredProfile,
-        },
-        ...(options.segment === undefined
-          ? {}
-          : {
-              rootSegment: {
-                registered: rootSegmentOf(registeredProfile),
-                current: {
-                  ...rootSegmentOf(canonicalProfile),
-                  ...(options.segment.stack === undefined
-                    ? {}
-                    : { stack: { ...options.segment.stack } }),
-                },
-                reason: options.segment.reason,
+    }
+    const backend =
+      options.driverBackend ??
+      (options.rootDriverFromBackend === false ? undefined : options.backend)
+    if (backend?.backend === 'provider' && !options.driveHarness && !options.resolveDriveHarness) {
+      const provider =
+        typeof backend.provider === 'string'
+          ? backend.registry?.get(backend.provider)
+          : backend.provider
+      const priorProviders = new Set(
+        (prior ?? []).flatMap((event) =>
+          event.id === runId && event.kind === 'execution-admitted'
+            ? [
+                event.admission.phase === 'dispatched'
+                  ? event.admission.controlRef.provider
+                  : event.admission.provider,
+              ]
+            : [],
+        ),
+      )
+      if (provider !== undefined && priorProviders.size === 1 && priorProviders.has(provider.name))
+        attestRuntimeOwnedScopeOwner(
+          rootAgent,
+          root?.kind === 'spawned' ? root.runtime : provider.name,
+          {
+            provider,
+            ...(backend.workspaceRetention === undefined
+              ? {}
+              : {
+                  checkpointCapture: {
+                    port: backend.workspaceRetention,
+                    profile: providerVisibleProfile(canonicalProfile),
+                  },
+                }),
+          },
+        )
+    }
+    const result = await createSupervisor<unknown, unknown>().run(rootAgent, canonicalTask, {
+      budget,
+      runId,
+      journal,
+      blobs: options.blobs ?? context.blobs,
+      executors: context.executors,
+      rootIdentity: rootExecution.identity,
+      rootMaterialization: {
+        runtime: root?.kind === 'spawned' ? root.runtime : 'inline',
+        declaration: 'deferred',
+        authoredProfile: registeredProfile,
+      },
+      ...(options.segment === undefined
+        ? {}
+        : {
+            rootSegment: {
+              registered: rootSegmentOf(registeredProfile),
+              current: {
+                ...rootSegmentOf(canonicalProfile),
+                ...(options.segment.stack === undefined
+                  ? {}
+                  : { stack: { ...options.segment.stack } }),
               },
-            }),
-        ...(options.recoverExecutor === undefined
-          ? {}
-          : { recoverExecutor: options.recoverExecutor }),
-        ...(options.reservationPolicy === undefined
-          ? {}
-          : { reservationPolicy: options.reservationPolicy }),
-        ...(options.workerSlots === undefined ? {} : { workerSlots: options.workerSlots }),
-        ...(options.teardownConfirmMs === undefined
-          ? {}
-          : { teardownConfirmMs: options.teardownConfirmMs }),
-        ...(context.resume === true || options.resume === true ? { resume: true } : {}),
-        retainedAtSettlement: options.retainedAtSettlement ?? 'release',
-        hooks: options.hooks,
-        now,
-        signal:
-          options.signal === undefined
-            ? controller.signal
-            : AbortSignal.any([controller.signal, options.signal]),
-        interactiveBindingDir: runDir,
-      },
-    )
+              reason: options.segment.reason,
+            },
+          }),
+      ...(options.recoverExecutor === undefined
+        ? {}
+        : { recoverExecutor: options.recoverExecutor }),
+      ...(options.reservationPolicy === undefined
+        ? {}
+        : { reservationPolicy: options.reservationPolicy }),
+      ...(options.workerSlots === undefined ? {} : { workerSlots: options.workerSlots }),
+      ...(options.teardownConfirmMs === undefined
+        ? {}
+        : { teardownConfirmMs: options.teardownConfirmMs }),
+      ...(context.resume === true || options.resume === true ? { resume: true } : {}),
+      retainedAtSettlement: options.retainedAtSettlement ?? 'release',
+      hooks: options.hooks,
+      now,
+      signal:
+        options.signal === undefined
+          ? controller.signal
+          : AbortSignal.any([controller.signal, options.signal]),
+      interactiveBindingDir: runDir,
+    })
     recordRunCancellationOutcome(runDir, result, now)
     return {
       ...result,

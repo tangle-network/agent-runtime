@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readRuntimeSupervisorRun } from '@tangle-network/agent-eval/supervisor-run'
@@ -32,6 +32,10 @@ import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
 import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination-contracts'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
+import {
+  type RetainedExecutorContext,
+  retainedExecutorSeamKey,
+} from '../../src/runtime/supervise/retained-executor'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import type {
   DriveHarness,
@@ -626,6 +630,44 @@ describe('supervisePursuit root stream', () => {
       },
     )
   }
+
+  it('keeps reading retained frames after a slow consumer persists progress', async () => {
+    const signal = new AbortController().signal
+    const admissions = join(runDir, 'admissions.jsonl')
+    const accepted = join(runDir, 'accepted.json')
+    const retention: RetainedExecutorContext = {
+      executionId: 'slow-consumer',
+      admissions: [],
+      onAdmission: async (admission) => {
+        await appendFile(admissions, `${JSON.stringify(admission)}\n`)
+      },
+      onResult: async (result) => {
+        await writeFile(accepted, JSON.stringify(result))
+      },
+    }
+    const executor = providerAsExecutor(rootProvider({}), { requireTerminalEvent: false })(
+      { profile: testAgentProfile('slow-consumer', { harness: 'codex' }), harness: 'codex' },
+      { signal, seams: { [retainedExecutorSeamKey]: retention } },
+    )
+    const progress: string[] = []
+    for await (const event of executor.execute('read and ask', signal) as AsyncIterable<UsageEvent>) {
+      if (event.kind !== 'progress') continue
+      progress.push(event.progress.kind)
+      if (event.progress.kind === 'tool_result') {
+        // A downstream consumer can take longer than the provider's 100 ms tail window.
+        await appendFile(join(runDir, 'consumed.jsonl'), `${JSON.stringify(event.progress)}\n`)
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+    }
+    expect(progress).toEqual([...rootProgress.map((event) => event.kind), 'interaction'])
+    expect(JSON.parse(await readFile(accepted, 'utf8')).out.content).toBe('durable result')
+    expect(
+      (await readFile(admissions, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line).phase),
+    ).toEqual(['intent', 'environment', 'dispatched'])
+  })
 
   it('journals the root stream as it arrives and references it from result.json apart from outRef', async () => {
     const seen: { duringTurn?: number } = {}

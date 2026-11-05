@@ -165,7 +165,10 @@ describe('nested retained owner journal isolation', () => {
         ...environment,
         dispatch: async (turn) => {
           if (mode === 'file-conflict-409')
-            throw new ServerError(TYPED_FILE_CONFLICT, 409, undefined, 'PROFILE_FILE_CONFLICT')
+            throw parseErrorResponse(
+              409,
+              JSON.stringify({ error: TYPED_FILE_CONFLICT, code: 'PROFILE_FILE_CONFLICT' }),
+            )
           if (mode === 'file-conflict') throw new ServerError(FILE_CONFLICT)
           if (mode === 'file-duplicate') throw new ServerError(DUPLICATE_TARGET)
           const effort = EFFORT_TURNS[mode]?.[attempts++]
@@ -244,16 +247,18 @@ describe('nested retained owner journal isolation', () => {
           if (mode === 'quota-past-deadline')
             throw Object.assign(capacityRefusal(0), { resetAt: '2099-01-01T00:00:00.000Z' })
           if (mode === 'capability-refused') {
-            throw new ServerError(
-              "Capability discovery returned a malformed 'nativeSessionCaptureHarnesses' group",
+            throw parseErrorResponse(
               502,
-              { origin: 'runtime', endpoint: '/capabilities' },
-              'INVALID_CAPABILITY_DOCUMENT',
+              JSON.stringify({
+                error: "Capability discovery returned a malformed 'nativeSessionCaptureHarnesses' group",
+                code: 'INVALID_CAPABILITY_DOCUMENT',
+              }),
+              { path: '/capabilities' },
             )
           }
           if (mode === 'same-failure') {
             skew += 40_000
-            throw new ServerError('Bad Gateway', 502)
+            throw parseErrorResponse(502, JSON.stringify({ error: 'Bad Gateway' }))
           }
           if (mode === 'capacity-waits' && creates < 3) throw shapeRefusal(HELD_ROOM)
           if (mode === 'capacity-503' && creates < 3) throw NO_HOSTS
