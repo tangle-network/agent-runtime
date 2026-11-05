@@ -14,6 +14,7 @@ import { createOtelExporter, generateSpanId } from '../../otel-export'
 import { defaultRedactor } from '../../redact'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../runtime-hooks'
 import type { RuntimeTelemetryOptions } from '../../sanitize'
+import { turnFailureOf, turnFailurePolicy } from './executor-outcome'
 import type { Budget, Spend, SupervisedResult } from './types'
 import type { TraceContext, WorkerTraceResolver } from './worker-trace'
 
@@ -302,6 +303,52 @@ function observationSpan(t: RunTrace, event: RuntimeHookEvent): OtelSpan {
   })
 }
 
+/** One acknowledged driver outcome is execution evidence, never another model call. */
+function attemptSpan(t: RunTrace, event: RuntimeHookEvent): OtelSpan | undefined {
+  const p = record(event.payload),
+    attempt = record(p.record)
+  const duration = attempt.durationMs
+  if (
+    !Number.isSafeInteger(attempt.attempt) ||
+    Number(attempt.attempt) < 1 ||
+    typeof duration !== 'number' ||
+    !Number.isFinite(duration) ||
+    duration < 0 ||
+    !Number.isFinite(event.timestamp)
+  )
+    return undefined
+  const nodeId = str(p.nodeId) ?? event.parentId ?? t.runId
+  const parent = parentSpan(t, nodeId)
+  const failure = turnFailureOf(attempt)
+  const failed = failure !== undefined || typeof attempt.error === 'string'
+  const attrs: Attrs = {
+    ...t.base,
+    ...(t.identityOf.get(nodeId) ?? {}),
+    [ATTR.spanKind]: 'CHAIN',
+    [ATTR.parentConfidence]: parent.confidence,
+    [ATTR.outcome]: failed ? 'error' : 'ok',
+    'tangle.supervise.node.id': nodeId,
+  }
+  const id = str(p.attemptId)
+  if (id) attrs[ATTR.attemptId] = id
+  if (typeof attempt.attempt === 'number') attrs['tangle.driver.attempt'] = attempt.attempt
+  for (const key of ['classification', 'failureKind', 'stop'] as const) {
+    const value = str(attempt[key])
+    if (value) attrs[`tangle.driver.${key}`] = value
+  }
+  if (failure) assignFailure(attrs, { ...turnFailurePolicy(failure), providerCode: failure.code })
+  if (failed) attrs['error.type'] = failure?.kind ?? 'driver-attempt'
+  return otelSpan(t.traceId, {
+    spanId: generateSpanId(),
+    parentSpanId: parent.spanId,
+    name: 'agent.execution',
+    startMs: event.timestamp - duration,
+    endMs: event.timestamp,
+    attrs,
+    status: failed ? STATUS_ERROR : STATUS_OK,
+  })
+}
+
 /** The spans that close a run, yielded one at a time. A node still open never settled: its span is
  *  closed UNSET and explicitly marked, never dropped or reported as clean. */
 function* closingSpans(
@@ -391,6 +438,11 @@ export function createSupervisorSpanRecorder(
     onEvent(event) {
       if (finished) return
       try {
+        if (event.target === 'agent.execution' && event.phase === 'event') {
+          const span = attemptSpan(trace, event)
+          if (span) emit(span)
+          return
+        }
         if (event.phase !== 'after') return
         if (event.target === 'agent.spawn') openNode(trace, event)
         else if (event.target === 'agent.child') {

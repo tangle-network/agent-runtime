@@ -210,6 +210,11 @@ it.each([false, true])(
         (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
       )!
       expect(admitted).toBeDefined()
+      const actualSpawn = beforeAck!.find(
+        (event) => event.kind === 'spawned' && event.id === admitted.id,
+      )
+      if (actualSpawn?.kind !== 'spawned' || !actualSpawn.attemptId)
+        throw new Error('native spawn omitted its real kernel attempt identity')
       admissionAck.release()
       await waitFor('completed work', workFinished.wait)
       expect(fixture.collectorAcknowledgements).toBe(0)
@@ -222,6 +227,7 @@ it.each([false, true])(
       expect(executionHooks).toHaveLength(1)
       expect(executionHooks[0]!.payload).toMatchObject({
         nodeId: admitted.id,
+        attemptId: actualSpawn.attemptId,
         controlRef: nativeReceipt.control,
         sessionId: nativeReceipt.control.sessionId,
       })
@@ -235,6 +241,9 @@ it.each([false, true])(
       const payload = JSON.stringify(bodies)
       expect(payload.includes(sentinel)).toBe(includeDetails)
       const spans = bodies.flatMap((body) => decodeOtlpTraceExport(body))
+      expect(
+        spans.find((span) => span.name === 'agent.execution')?.attributes[ATTR.attemptId],
+      ).toBe(actualSpawn.attemptId)
       expect(spans.filter((span) => span.attributes[ATTR.spanKind] === 'LLM')).toHaveLength(3)
       expect(
         spans.find((span) => span.attributes['tangle.supervise.node.id'] === cancelled)?.attributes,
@@ -253,10 +262,13 @@ it.each([false, true])(
           span.attributes[ATTR.spanKind] === 'LLM' &&
           span.attributes['tangle.supervise.node.id'] === 'live-trace',
       )!
-      expect(Number(rootInference.end_time_unix_nano) / 1e6).toBe(rootMeter.timestamp)
+      expect(rootInference.end_time_unix_nano).toBe(
+        (BigInt(rootMeter.timestamp) * 1_000_000n).toString(),
+      )
       expect(
-        (Number(rootInference.end_time_unix_nano) - Number(rootInference.start_time_unix_nano)) /
-          1e6,
+        Number(
+          BigInt(rootInference.end_time_unix_nano!) - BigInt(rootInference.start_time_unix_nano!),
+        ) / 1e6,
       ).toBeCloseTo(rootRequestMs, 2)
       const tools = spans.filter((span) => span.attributes[ATTR.spanKind] === 'TOOL')
       expect(tools).toHaveLength(1)

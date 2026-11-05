@@ -23,6 +23,7 @@ export function createChildRetention({
   controller,
   id,
   ordinal,
+  attemptId,
   identity,
   recovery,
   opts,
@@ -37,6 +38,7 @@ export function createChildRetention({
   controller: AbortController
   id: NodeId
   ordinal: number
+  attemptId: string
   identity: NodeExecutionIdentity | undefined
   recovery: RetainedChildRecovery | undefined
   opts: SpawnOpts
@@ -92,7 +94,7 @@ export function createChildRetention({
         at: new Date(now()).toISOString(),
       })
       admissions.push(detachedSnapshot(admission, 'retained admission'))
-      notifyExecutionAdmitted(args.hooks, args.root, id, admission, now)
+      notifyExecutionAdmitted(args.hooks, args.root, id, admission, now, attemptId)
       readLive().recoveryPending = true
       controller.signal.throwIfAborted()
     })

@@ -110,7 +110,17 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       expect(original.inputs).toHaveLength(1)
       expect(original.intents).toHaveLength(1)
       const firstState = await fixture.state()
-      const wire = firstState.requests.find((row) => row.kind === 'stream-http-request')!
+      const firstPosts = firstState.requests.filter((row) => row.kind === 'stream-http-request')
+      expect(firstPosts.length).toBeGreaterThan(0)
+      expect(new Set(firstPosts.map((row) => row.bodyDigest)).size).toBe(1)
+      expect(readRecords(join(fixture.directory, 'attempts.jsonl'))).toEqual([
+        expect.objectContaining({ attempt: 1, error: expect.any(String) }),
+      ])
+      if (scenario === 'dispatch-refused')
+        expect(firstState.requests.filter((row) => row.kind === 'dispatch-refused')).toHaveLength(
+          firstPosts.length,
+        )
+      const wire = firstPosts[0]!
       const requested = object(object(wire.input).runControlRef)
       expect(requested).toMatchObject({
         environmentId: 'box-1',
@@ -192,7 +202,7 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       expect(state.requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
       expect(state.requests.filter((row) => row.kind === 'native-result-ready')).toHaveLength(0)
       const posts = state.requests.filter((row) => row.kind === 'stream-http-request')
-      if (scenario === 'dispatch-refused') expect(posts).toHaveLength(2)
+      if (scenario === 'dispatch-refused') expect(posts).toHaveLength(firstPosts.length + 1)
       else {
         expect(posts.length).toBeGreaterThanOrEqual(1)
         expect(posts.length).toBeLessThanOrEqual(2)

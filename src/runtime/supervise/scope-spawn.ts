@@ -343,6 +343,7 @@ class ScopeSpawner<Out> {
       controller,
       id,
       ordinal: child.ordinal,
+      attemptId: child.attemptId,
       identity: child.identity,
       recovery,
       opts,

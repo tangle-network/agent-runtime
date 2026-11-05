@@ -64,6 +64,7 @@ export interface RuntimeHookContext {
 
 /** A provider acknowledged this exact execution; planned and refused dispatches emit none. */
 export interface RuntimeExecutionAdmittedPayload {
+  readonly attemptId?: string
   readonly nodeId: string
   readonly controlRef: AgentExactRunControlRef
   readonly sessionId: string

@@ -4118,6 +4118,10 @@ A provider acknowledged this exact execution; planned and refused dispatches emi
 
 #### Properties
 
+##### attemptId?
+
+> `readonly` `optional` **attemptId?**: `string`
+
 ##### nodeId
 
 > `readonly` **nodeId**: `string`

@@ -1,5 +1,9 @@
 import { defaultRedactor } from '../../redact'
-import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
+import {
+  notifyRuntimeHookEvent,
+  type RuntimeExecutionAdmittedPayload,
+  type RuntimeHooks,
+} from '../../runtime-hooks'
 import type { RetainedRunAdmission } from '../retained-run-types'
 import type { ExecutorContext, ExecutorNodeContext, ExecutorProgressEvent } from './types'
 
@@ -111,6 +115,7 @@ export function notifyExecutionAdmitted(
   nodeId: string,
   admission: RetainedRunAdmission,
   now: () => number,
+  attemptId?: string,
 ): void {
   if (admission.phase !== 'dispatched' || admission.controlRef.sessionId === undefined) return
   notifyRuntimeHookEvent(hooks, {
@@ -122,8 +127,9 @@ export function notifyExecutionAdmitted(
     timestamp: now(),
     payload: {
       nodeId,
+      ...(attemptId === undefined ? {} : { attemptId }),
       controlRef: { ...admission.controlRef },
       sessionId: admission.controlRef.sessionId,
-    },
+    } satisfies RuntimeExecutionAdmittedPayload,
   })
 }
