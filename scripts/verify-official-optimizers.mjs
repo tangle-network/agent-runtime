@@ -230,7 +230,7 @@ function installSourceGepa(root) {
 }
 
 function createPythonVenv(root, name) {
-  const basePython = process.env.PYTHON ?? 'python'
+  const basePython = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
   const version = run(
     basePython,
     ['-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'],
