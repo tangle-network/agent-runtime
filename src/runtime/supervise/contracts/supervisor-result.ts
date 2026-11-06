@@ -9,13 +9,10 @@ import type { TreeView } from './node-lifecycle'
 
 export type { SettledUsage } from '../settled-usage'
 
-/** Provider-observed model identity for the root manager's settled inference turns.
- * Runtime records this only from a Runtime-owned provider/bridge receipt; an authored profile
- * alias is never substituted when the provider omits the identity. */
+/** Provider receipts only; requested aliases never fill missing served identity. */
 export type RootProviderModelEvidence = ProviderModelExecutionEvidence
 
-/** Root executor progress retained in root-stream.jsonl; outRef instead names selected output.
- * Absent for caller-supplied harnesses or roots that never began a drive. */
+/** Root executor progress, when captured; outRef instead names selected output. */
 export interface RootStreamReceipt {
   /** `sha256:<hex>` over the file's bytes as they were when the receipt was taken. */
   readonly ref: string
@@ -23,9 +20,7 @@ export interface RootStreamReceipt {
   readonly events: number
 }
 
-/** One provider/harness inference attempt. An empty observation list means the attempt started but
- * no trusted served model identity arrived before it failed or ended, unless Router explicitly
- * proves that admission rejected it before provider dispatch. */
+/** An empty observation list is unknown served identity unless dispatch was proven not started. */
 export interface ProviderModelAttemptEvidence {
   readonly observations: ReadonlyArray<string>
   readonly identityConflict?: boolean
@@ -66,9 +61,7 @@ export interface FleetYield {
   /** `settled` records with `status: 'down'`, released records included. */
   readonly down: number
   readonly cancelled: number
-  /** Spawned with no terminal record: a crash-orphaned child, or a retained child of a run that
-   *  keeps its environments for a resume (`retainedAtSettlement: 'keep'`). Named after
-   *  `SpendGap`'s `never-settled`. */
+  /** Spawned without a terminal record: crash-orphaned or retained for resume. */
   readonly neverSettled: number
   /** Released without recovery; a subset of down + cancelled. */
   readonly releasedUnrecovered: number
@@ -76,65 +69,80 @@ export interface FleetYield {
   readonly releaseUnconfirmed: number
 }
 
-/** Evidence shared by every terminal outcome. Requested models never stand in for served models. */
-export interface SettledRunEvidence {
-  tree: TreeView
-  /** Recorded usage, with explicit completeness flags; ms is elapsed wall time. */
-  spentTotal: Spend
-  readonly usage?: SettledUsage
-  readonly rootProviderModel?: RootProviderModelEvidence
-  readonly rootStream?: RootStreamReceipt
-  readonly rootHarnessTranscript?: HarnessTranscriptEvidence
-  readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
-  readonly execution?: AgentExecutionRef
-  readonly providerModel?: ProviderModelExecutionEvidence
-  teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
-  spendGaps?: ReadonlyArray<SpendGap>
-  fleetYield: FleetYield
-}
-
-/** A no-winner never carries a best-effort output; only driver-failed carries an error. */
-export type SupervisedResult<Out> = SettledRunEvidence &
-  (
-    | {
-        kind: 'winner'
-        out: Out
-        outRef: string
-        verdict?: DefaultVerdict
-        /** Driver inference plus child work equals spentTotal; executor times may overlap. */
-        spentBreakdown?: { driverInference: Spend; childWork: Spend }
-      }
-    | ({
-        kind: 'no-winner'
-        downCount: number
-        /** Open reservations at settlement; usage remains the recorded lower bound. */
-        leakedReservations?: ReadonlyArray<import('../budget').LeakedReservation>
-        error?: never
-      } & (
-        | {
-            /** Lifecycle causes outrank a driver rejection. */
-            reason:
-              | 'all-children-down'
-              | 'no-children-spawned'
-              | 'no-result-selected'
-              | 'stopped'
-              | 'budget-exhausted'
-              | 'deadline'
-              | 'aborted'
-          }
-        | {
-            reason: 'cancelled'
-            readonly source: string
-            readonly cancellationReason: string
-            readonly operationId?: string
-            readonly operator?: string
-          }
-      ))
-    | {
-        kind: 'no-winner'
-        reason: 'driver-failed'
-        downCount: number
-        leakedReservations?: ReadonlyArray<import('../budget').LeakedReservation>
-        error: NoWinnerError
-      }
-  )
+/** Terminal receipt fields accompany every outcome; usage preserves measured lower bounds.
+ * The established union arms remain explicit for consumers of the public declaration. */
+export type SupervisedResult<Out> =
+  | {
+      kind: 'winner'
+      out: Out
+      outRef: string
+      verdict?: DefaultVerdict
+      tree: TreeView
+      spentTotal: Spend
+      readonly usage?: SettledUsage
+      readonly rootProviderModel?: RootProviderModelEvidence
+      readonly rootStream?: RootStreamReceipt
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
+      readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
+      readonly execution?: AgentExecutionRef
+      readonly providerModel?: ProviderModelExecutionEvidence
+      teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      spendGaps?: ReadonlyArray<SpendGap>
+      fleetYield: FleetYield
+      spentBreakdown?: { driverInference: Spend; childWork: Spend }
+    }
+  | ({
+      kind: 'no-winner'
+      tree: TreeView
+      downCount: number
+      spentTotal: Spend
+      readonly usage?: SettledUsage
+      readonly rootProviderModel?: RootProviderModelEvidence
+      readonly rootStream?: RootStreamReceipt
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
+      readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
+      readonly execution?: AgentExecutionRef
+      readonly providerModel?: ProviderModelExecutionEvidence
+      teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      leakedReservations?: ReadonlyArray<import('../budget').LeakedReservation>
+      spendGaps?: ReadonlyArray<SpendGap>
+      fleetYield: FleetYield
+      error?: never
+    } & (
+      | {
+          reason:
+            | 'all-children-down'
+            | 'no-children-spawned'
+            | 'no-result-selected'
+            | 'stopped'
+            | 'budget-exhausted'
+            | 'deadline'
+            | 'aborted'
+        }
+      | {
+          reason: 'cancelled'
+          readonly source: string
+          readonly cancellationReason: string
+          readonly operationId?: string
+          readonly operator?: string
+        }
+    ))
+  | {
+      kind: 'no-winner'
+      reason: 'driver-failed'
+      tree: TreeView
+      downCount: number
+      spentTotal: Spend
+      readonly usage?: SettledUsage
+      readonly rootProviderModel?: RootProviderModelEvidence
+      readonly rootStream?: RootStreamReceipt
+      readonly rootHarnessTranscript?: HarnessTranscriptEvidence
+      readonly continuation?: import('../driver-attempt-evidence').DriverContinuationRecord
+      readonly execution?: AgentExecutionRef
+      readonly providerModel?: ProviderModelExecutionEvidence
+      teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      leakedReservations?: ReadonlyArray<import('../budget').LeakedReservation>
+      spendGaps?: ReadonlyArray<SpendGap>
+      fleetYield: FleetYield
+      error: NoWinnerError
+    }
