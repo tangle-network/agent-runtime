@@ -89,12 +89,15 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
  * failure can enter this cleanup barrier and still be resumed, so any receipt refused before
  * reuse must also preserve its source here.
  */
+const UNVERIFIED_SOURCE =
+  'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
+
 export async function ownerWorkspaceRetentionFailures(
   events: readonly SpawnEvent[],
   owner: OwnerRegistration,
-): Promise<ReadonlySet<string>> {
+): Promise<ReadonlyMap<string, string>> {
   const attempts = ownerWorkspaceAttempts(events, owner.nodeId)
-  const failures = new Set<string>()
+  const failures = new Map<string, string>()
   for (const index of attempts.keys()) {
     const attempt = withLaterEvidence(attempts, index)
     if (attempt.workspaceRetention !== true) continue
@@ -103,12 +106,13 @@ export async function ownerWorkspaceRetentionFailures(
     // recovered attempt admitted more than one. Preserve every source until a later run can
     // establish a one-to-one receipt rather than guessing from a shared result.
     if (attempt.environmentIds.size > 1) {
-      for (const environmentId of attempt.environmentIds) failures.add(environmentId)
+      for (const environmentId of attempt.environmentIds)
+        failures.set(environmentId, UNVERIFIED_SOURCE)
       continue
     }
     const environmentId = [...attempt.environmentIds][0]!
-    const verified = await ownerAttemptHasCapture(attempt, environmentId, owner.blobs, owner)
-    if (!verified) failures.add(environmentId)
+    const reason = await ownerAttemptHasCapture(attempt, environmentId, owner.blobs, owner)
+    if (reason !== undefined) failures.set(environmentId, reason)
   }
   return failures
 }
@@ -124,13 +128,14 @@ function withLaterEvidence(attempts: readonly OwnerAttempt[], index: number): Ow
   return later.length === 0 ? attempt : { ...attempt, evidence: [...attempt.evidence, ...later] }
 }
 
+/** Undefined when a receipt authorizes destroying the source. Otherwise why it stays. */
 async function ownerAttemptHasCapture(
   attempt: OwnerAttempt,
   environmentId: string,
   blobs: ResultBlobStore,
   owner?: OwnerRegistration,
   allowPartialProcessCapture = false,
-): Promise<boolean> {
+): Promise<string | undefined> {
   const controlRef = attempt.controlByEnvironment.get(environmentId)
   const receipts = [
     ...(attempt.result === undefined || attempt.result.outputFormat === 'json'
@@ -138,29 +143,51 @@ async function ownerAttemptHasCapture(
       : [attempt.result.outRef]),
     ...attempt.evidence.map((event) => event.outRef),
   ]
+  const identity = owner === undefined ? undefined : ownerCaptureIdentity(attempt, owner)
   let verified = false
+  let nativeHold: string | undefined
   for (const outRef of receipts) {
     const output = await storedOutput(blobs, outRef)
     const snapshot =
       output !== null && typeof output === 'object'
         ? (output as { readonly workspaceSnapshot?: unknown }).workspaceSnapshot
         : undefined
-    if (
-      hasDurableWorkspaceCapture(
-        output,
-        snapshot,
-        environmentId,
-        attempt.executionId,
-        controlRef,
-        owner === undefined ? undefined : ownerCaptureIdentity(attempt, owner),
-        allowPartialProcessCapture,
-      )
-    ) {
-      verified = true
-      break
-    }
+    const capture =
+      output !== null && typeof output === 'object'
+        ? (output as { readonly workspaceCapture?: unknown }).workspaceCapture
+        : undefined
+    const receipt =
+      capture !== null && typeof capture === 'object'
+        ? (capture as Record<string, unknown>)
+        : undefined
+    const matches =
+      receipt !== undefined &&
+      receipt.environmentId === environmentId &&
+      receipt.executionId === attempt.executionId
+    const durable = hasDurableWorkspaceCapture(
+      output,
+      snapshot,
+      environmentId,
+      attempt.executionId,
+      controlRef,
+      identity,
+      allowPartialProcessCapture,
+    )
+    if (matches && receipt !== undefined) {
+      const hold = nativeSessionCopyHoldReason(receipt)
+      // The last copy of this execution decides. An earlier complete snapshot does not
+      // authorize destroying a later incomplete native store.
+      if (hold !== undefined) {
+        nativeHold = hold
+        verified = false
+      } else if (durable) {
+        nativeHold = undefined
+        verified = true
+      }
+    } else if (nativeHold === undefined && durable) verified = true
   }
-  return verified
+  if (nativeHold !== undefined) return nativeHold
+  return verified ? undefined : UNVERIFIED_SOURCE
 }
 
 function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
@@ -198,9 +225,11 @@ export async function reconcileOwnerWorkspaceBeforeReuse(
     if (attempt.workspaceRetention !== true || attempt.result === undefined) continue
     for (const environmentId of attempt.environmentIds) {
       if (!reusing.has(environmentId) || unusable.has(environmentId)) continue
-      // A verified workspace may continue in its retained environment even when Sandbox lost
-      // only raw process I/O. The partial receipt stays journaled and cleanup remains strict.
-      if (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args, true)) continue
+      // A verified workspace may continue when Sandbox lost only raw process I/O.
+      if (
+        (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args, true)) === undefined
+      )
+        continue
       signal.throwIfAborted()
       const failure = capturePendingMessage(
         attempt.executionId ?? args.nodeId,
@@ -310,8 +339,7 @@ function hasDurableWorkspaceCapture(
     !sameControlCoordinates(capturedControl.data, controlRef) ||
     receipt.environmentId !== environmentId ||
     receipt.executionId !== executionId ||
-    (receipt.coverageComplete !== true &&
-      !(allowPartialProcessCapture && hasOnlyRawProcessCaptureGap(receipt)))
+    !captureAuthorizesDestroy(receipt, allowPartialProcessCapture)
   )
     return false
   const linked = agentCandidateWorkspaceSnapshotEvidenceSchema.safeParse(receipt.snapshot)
@@ -323,16 +351,92 @@ function hasDurableWorkspaceCapture(
   )
 }
 
-/**
- * A process I/O gap does not invalidate a verified workspace archive or the live environment
- * that owns it. This narrow exception is for continuation only: release still requires complete
- * capture. The historical producer assembled this reason after identity, inventory,
- * and archive checks, so any other gap keeps the accepted turn pending.
- */
-function hasOnlyRawProcessCaptureGap(receipt: Record<string, unknown>): boolean {
+const NATIVE_STORE_GAP = /(?:^|\s)((?:over_bound|store_file_):[^\s;]+)/g
+const COVERAGE_GAP_PREFIX = 'provider workspace retention coverage incomplete: '
+const PROCESS_GAP = [
+  /^process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+  /^Sandbox session [\w-]+ declared partial raw capture$/,
+  /^Sandbox session [\w-]+ attempt [\w-]+\/\d+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+  /^Sandbox session [\w-]+ has no original process source: [\w-]+$/,
+  /^Sandbox session [\w-]+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+  /^Raw native session capture for Sandbox session [\w-]+ is unavailable: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+  /^Session [\w-]+ process streams incomplete$/,
+  /^Attempt [\w-]+\/\d+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
+]
+const EVENT_GAP = /(?:^|:\s)events_incomplete(?::[\w.-]+)?$/
+
+/** Keep the box when the final native copy is incomplete. Process I/O or event-log gaps do not. */
+function nativeSessionCopyHoldReason(receipt: Record<string, unknown>): string | undefined {
+  const provenance = receipt.provenance
+  if (provenance === null || typeof provenance !== 'object') return undefined
+  const reported = provenance as Record<string, unknown>
+  const sessions = Array.isArray(reported.sessions) ? reported.sessions : []
+  let incomplete = false
+  const tokens = new Set<string>()
+  const take = (value: unknown): void => {
+    const text = Array.isArray(value)
+      ? value.filter((item) => typeof item === 'string').join('; ')
+      : typeof value === 'string'
+        ? value
+        : ''
+    for (const match of text.matchAll(NATIVE_STORE_GAP)) tokens.add(match[1]!)
+  }
+  for (const session of sessions) {
+    if (session === null || typeof session !== 'object') continue
+    const row = session as Record<string, unknown>
+    const store = row.nativeStore
+    if (
+      store !== null &&
+      typeof store === 'object' &&
+      (store as { complete?: unknown }).complete === false
+    )
+      incomplete = true
+    take(row.nativeReason)
+    if (store !== null && typeof store === 'object')
+      take((store as { missingReasons?: unknown }).missingReasons)
+  }
+  take(reported.missing)
+  if (!incomplete && tokens.size === 0) return undefined
+  const detail = tokens.size > 0 ? [...tokens].join('; ') : 'nativeStore incomplete'
+  return `native session copy incomplete: ${detail}`
+}
+
+function captureAuthorizesDestroy(
+  receipt: Record<string, unknown>,
+  allowPartialProcessCapture: boolean,
+): boolean {
+  if (nativeSessionCopyHoldReason(receipt) !== undefined) return false
+  if (receipt.coverageComplete === true) return true
+  // Reuse accepts a process I/O gap only. Release also accepts an event-log gap alone.
+  return hasOnlyRawProcessCaptureGap(receipt, !allowPartialProcessCapture)
+}
+
+function captureGapTexts(receipt: Record<string, unknown>): string[] {
   const reason = receipt.incompleteReason
-  const prefix = 'provider workspace retention coverage incomplete: '
-  if (typeof reason !== 'string' || !reason.startsWith(prefix)) return false
+  const named =
+    typeof reason === 'string' && reason.startsWith(COVERAGE_GAP_PREFIX)
+      ? reason.slice(COVERAGE_GAP_PREFIX.length).split('; ')
+      : []
+  const provenance = receipt.provenance
+  const missing =
+    provenance !== null &&
+    typeof provenance === 'object' &&
+    Array.isArray((provenance as { missing?: unknown }).missing)
+      ? (provenance as { missing: unknown[] }).missing.filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : []
+  return [...named, ...missing].map((gap) => gap.trim()).filter((gap) => gap.length > 0)
+}
+
+/**
+ * A process I/O gap does not invalidate a verified workspace. `includeEvents` is the release
+ * rule: an event-log gap alone also authorizes destroy. Any other gap keeps the source.
+ */
+function hasOnlyRawProcessCaptureGap(
+  receipt: Record<string, unknown>,
+  includeEvents = false,
+): boolean {
   const provenance = receipt.provenance
   if (provenance === null || typeof provenance !== 'object') return false
   const reported = provenance as Record<string, unknown>
@@ -351,22 +455,19 @@ function hasOnlyRawProcessCaptureGap(receipt: Record<string, unknown>): boolean 
       (session) =>
         session !== null &&
         typeof session === 'object' &&
-        session.processStreams?.complete === false,
+        (session.processStreams?.complete === false ||
+          (includeEvents && session.nativeEvents?.complete === false)),
     )
   )
     return false
-  const allowed = [
-    /^process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
-    /^Sandbox session [\w-]+ declared partial raw capture$/,
-    /^Sandbox session [\w-]+ attempt [\w-]+\/\d+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
-    /^Sandbox session [\w-]+ has no original process source: [\w-]+$/,
-    /^Sandbox session [\w-]+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
-    /^Raw native session capture for Sandbox session [\w-]+ is unavailable: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
-    /^Session [\w-]+ process streams incomplete$/,
-    /^Attempt [\w-]+\/\d+: process_(?:io_missing|io_unavailable|source_unavailable)(?::[\w-]+)?$/,
-  ]
-  const gaps = reason.slice(prefix.length).split('; ')
-  return gaps.length > 0 && gaps.every((gap) => allowed.some((pattern) => pattern.test(gap)))
+  const gaps = captureGapTexts(receipt)
+  return (
+    gaps.length > 0 &&
+    gaps.every(
+      (gap) =>
+        PROCESS_GAP.some((pattern) => pattern.test(gap)) || (includeEvents && EVENT_GAP.test(gap)),
+    )
+  )
 }
 
 /** Environments that cannot execute another turn, whether absent or terminal at the provider. */

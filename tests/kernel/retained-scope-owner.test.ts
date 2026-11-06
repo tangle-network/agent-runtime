@@ -8,6 +8,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
+import { canonicalCandidateDigest } from '../../src/candidate-execution/digest'
 import { contentAddress } from '../../src/durable/content-address'
 import {
   InMemoryResultBlobStore,
@@ -474,6 +475,247 @@ describe('retained scope owner input and result', () => {
       kind: 'environment-teardown',
       environmentId,
       destroyed: false,
+    })
+  })
+
+  it.each([
+    {
+      name: 'over_bound',
+      keep: true,
+      nativeStoreComplete: false,
+      nativeReason: 'over_bound:.local/share/opencode/opencode.db',
+      coverageComplete: true,
+      processComplete: true,
+      eventsComplete: true,
+    },
+    {
+      name: 'nativeStore incomplete',
+      keep: true,
+      nativeStoreComplete: false,
+      nativeReason: undefined,
+      coverageComplete: true,
+      processComplete: true,
+      eventsComplete: true,
+    },
+    {
+      name: 'events_incomplete',
+      keep: false,
+      nativeStoreComplete: true,
+      nativeReason: 'events_incomplete',
+      coverageComplete: false,
+      processComplete: true,
+      eventsComplete: false,
+    },
+    {
+      name: 'process_io_missing',
+      keep: false,
+      nativeStoreComplete: true,
+      nativeReason: 'process_io_missing',
+      coverageComplete: false,
+      processComplete: false,
+      eventsComplete: true,
+    },
+  ])('keeps a box only for an incomplete native session copy ($name)', async (testCase) => {
+    const environmentId = 'receipt-source'
+    const blobs = new InMemoryResultBlobStore()
+    const { outputArtifacts } = createCandidateOutputFixture()
+    const captured = await captureAgentCandidateWorkspaceFiles(
+      [{ path: 'work.txt', mode: 0o644, bytes: new TextEncoder().encode('retained work') }],
+      { artifactPersistence: { executionId: 'owner-test:input:1', outputArtifacts } },
+    )
+    const profileDigest = canonicalCandidateDigest({ profile: 'native-store-keep' })
+    const requestDigest = canonicalCandidateDigest({ request: 'native-store-keep' })
+    const controlRef = {
+      runId: 'owner-test',
+      provider: 'owner-provider',
+      environmentId,
+      sessionId: 'receipt-session',
+      executionId: 'provider-execution',
+      requestDigest,
+    }
+    const gap =
+      testCase.nativeReason === undefined
+        ? undefined
+        : `provider workspace retention coverage incomplete: ${testCase.nativeReason}`
+    const output = {
+      workspaceSnapshot: captured.snapshot,
+      workspaceCapture: {
+        executionId: 'owner-test:input:1',
+        environmentId,
+        controlRef,
+        node: {
+          rootId: 'owner-test',
+          parentId: 'owner-test',
+          nodeId: 'owner-test',
+          attemptId: 'attempt-1',
+        },
+        profileDigest,
+        providerSessionId: controlRef.sessionId,
+        nativeSessionId: controlRef.sessionId,
+        snapshot: captured.snapshot,
+        coverageComplete: testCase.coverageComplete,
+        ...(gap === undefined ? {} : { incompleteReason: gap }),
+        provenance: {
+          status: 'reported' as const,
+          environmentId,
+          executionId: 'owner-test:input:1',
+          controlRef,
+          workspace: {
+            scannedFiles: 1,
+            reportedFiles: 1,
+            scannedDirectories: 0,
+            reportedDirectories: 0,
+            complete: true,
+          },
+          sessions: [
+            {
+              id: controlRef.sessionId,
+              nativeStore: { complete: testCase.nativeStoreComplete },
+              ...(testCase.nativeReason === undefined
+                ? {}
+                : { nativeReason: testCase.nativeReason }),
+              processStreams: { complete: testCase.processComplete },
+              nativeEvents: { complete: testCase.eventsComplete },
+            },
+          ],
+          missing: testCase.nativeReason === undefined ? [] : [testCase.nativeReason],
+        },
+      },
+    }
+    const outRef = contentAddress(output)
+    await blobs.put(outRef, output)
+    const at = new Date(0).toISOString()
+    const events: SpawnEvent[] = [
+      {
+        kind: 'execution-input',
+        id: 'owner-test',
+        taskRef: contentAddress('task'),
+        workspaceRetention: true,
+        seq: 1,
+        at,
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'intent',
+          provider: 'owner-provider',
+          idempotencyKey: 'receipt-key',
+          turnId: 'receipt-turn',
+          sessionId: 'receipt-session',
+          executionId: 'provider-execution',
+          runId: 'owner-test',
+          requestedProfileDigest: profileDigest,
+          requestDigest,
+        },
+        seq: 2,
+        at,
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'environment',
+          provider: 'owner-provider',
+          environmentId,
+          idempotencyKey: 'receipt-key',
+          turnId: 'receipt-turn',
+          sessionId: 'receipt-session',
+          executionId: 'provider-execution',
+        },
+        seq: 3,
+        at,
+      },
+      {
+        kind: 'execution-admitted',
+        id: 'owner-test',
+        admission: {
+          phase: 'dispatched',
+          idempotencyKey: 'receipt-key',
+          turnId: 'receipt-turn',
+          controlRef,
+        },
+        seq: 4,
+        at,
+      },
+      {
+        kind: 'execution-bound',
+        id: 'owner-test',
+        binding: {
+          status: 'known',
+          attemptId: 'attempt-1',
+          materializationReceiptDigest: canonicalCandidateDigest({ receipt: 'native-store' }),
+          bindingDigest: canonicalCandidateDigest({ binding: 'native-store' }),
+          descriptor: { kind: 'test' },
+        },
+        seq: 5,
+        at,
+      },
+      {
+        kind: 'execution-result',
+        id: 'owner-test',
+        outRef,
+        spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+        seq: 6,
+        at,
+      },
+    ]
+    let destroys = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'owner-provider',
+      capabilities() {
+        throw new Error('cleanup must not request execution capabilities')
+      },
+      async create() {
+        throw new Error('cleanup must not create an environment')
+      },
+      async get(id) {
+        return {
+          id,
+          provider: 'owner-provider',
+          status: async () => 'running',
+          async *stream() {
+            yield* []
+          },
+          async destroy() {
+            destroys++
+          },
+        }
+      },
+    }
+    await inScope(async (scope) => {
+      registerScopeRetainedOwner(scope, {
+        rootId: 'owner-test',
+        nodeId: 'owner-test',
+        blobs,
+        priorEvents: events,
+        now: () => 0,
+        journal: {
+          loadTree: async () => [...events],
+          beginTree: async () => {},
+          appendEvent: async (_root, event) => {
+            events.push(event)
+          },
+        },
+      })
+      bindScopeRetainedOwnerProvider(scope, provider)
+      const cleanup = await releaseScopeRetainedOwnerEnvironment(scope)
+      expect(cleanup).toHaveLength(testCase.keep ? 1 : 0)
+    })
+    expect(destroys).toBe(testCase.keep ? 0 : 1)
+    expect(events.at(-1)).toMatchObject({
+      kind: 'environment-teardown',
+      environmentId,
+      destroyed: !testCase.keep,
+      ...(testCase.keep
+        ? {
+            detail: expect.stringContaining(
+              testCase.nativeReason?.startsWith('over_bound:')
+                ? `native session copy incomplete: ${testCase.nativeReason}`
+                : 'native session copy incomplete: nativeStore incomplete',
+            ),
+          }
+        : {}),
     })
   })
 

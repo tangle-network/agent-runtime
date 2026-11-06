@@ -1,49 +1,13 @@
 /**
- *
- * The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
- * `Executor.deliver`. The driver's `steer_agent` / `answer_question` land here,
- * and the worker's agent loop takes them at two points:
- *
- *   - QUEUED (default): the message accumulates and is taken at the next step boundary — folded
- *     into the conversation before the next think. A worker also takes before it may settle, so it
- *     can never finish while a steer/answer it never read is still pending.
- *   - FORCEFUL (`interrupt: true`): trips `freshInterrupt()`'s signal so the loop can abort its
- *     in-flight turn immediately, then re-plan with the message folded in — breaking the worker out
- *     of a wrong path mid-task instead of waiting for it to finish the step.
- *
- * Taking is a LEASE, never a removal. A loop calls {@link Inbox.take}, folds the messages into its
- * next model input, and commits each one only once the provider accepted that input. Any failure,
- * abort or re-entry before then releases the lease, and the messages return to the head of the
- * queue ahead of later arrivals. A failed turn therefore cannot lose what it took: in run 18b a
- * director ruling and a failed-check notice were drained into a turn that failed, and the next two
- * prompts said "Events waiting for you: none".
- *
- * Every authority message ends in exactly one receipt to its sender: `consumed`, naming the
- * attempt whose accepted input carried it, or `failed`, naming why. Two rules bound the wait:
- *
- *   - PROMOTION: an authority message still unconsumed {@link AUTHORITY_PROMOTION_MS} after it
- *     arrived becomes an interrupt and aborts the turn in flight, so the next input carries it.
- *     A promoted message gets that one attempt; if the lease holding it is released again, the
- *     message fails instead of waiting another boundary. The sender hears within 15 minutes plus
- *     one attempt.
- *   - SETTLE: a recipient that stops with messages still held calls {@link Inbox.failPending},
- *     which reports each one failed. A recipient that cannot run another turn (no budget, a stop
- *     request, a failed run) therefore settles, and its sender learns the steer was not read.
- *
- * A THIRD kind arrives here too: peer mail from a sibling worker (`./peer-mail`). It is carried on
- * its own wire property, and this file keeps it strictly apart from the two authority kinds:
- *
- *   - It can never be forceful. `interrupt` is written as `false` and the wire field is ignored, so
- *     a peer cannot abort a peer's in-flight turn and hold it at zero progress.
- *   - It never blocks a settle. The pre-settle fence counts {@link Inbox.pendingAuthority}, not
- *     total pending, because a peer that keeps mail arriving would otherwise deny a FINISHED worker
- *     its settlement.
- *   - It renders in its own block, fenced with a per-fold nonce and attributed to its sender. The
- *     `[SUPERVISOR]` header is emitted for authority messages ONLY, so a mixed lease cannot present
- *     a peer's message as an instruction from the parent.
- *
- * `deliver` never throws — a malformed message is ignored and returns `false`, so no caller can
- * report delivery for bytes this inbox discarded.
+ * Worker inbox behind `Executor.deliver`. Queued `steer_agent` / `answer_question` messages are
+ * taken at the next step boundary, including before settle. `interrupt: true` aborts the turn in
+ * flight. {@link Inbox.take} is a lease: commit only after the provider accepts the input, otherwise
+ * the messages return to the head of the queue. Each authority message gets one receipt, `consumed`
+ * or `failed`. After {@link AUTHORITY_PROMOTION_MS} an unconsumed authority message interrupts once;
+ * a released lease then fails it. A recipient that stops calls {@link Inbox.failPending}. Peer mail
+ * (`./peer-mail`) is never forceful, never blocks settle ({@link Inbox.pendingAuthority} is the
+ * fence), and renders in its own block without the `[SUPERVISOR]` header. `deliver` returns `false`
+ * for a malformed message and does not throw.
  *
  * @experimental
  */

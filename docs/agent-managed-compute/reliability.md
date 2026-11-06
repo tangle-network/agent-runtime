@@ -139,7 +139,7 @@ New provider captures belong to the provider and Sandbox Intelligence; the optio
 Historical capture receipt/provenance types, archive verification/materialization, transcript projection, and inspection readers remain supported.
 An old input's persisted `workspaceRetention: true` remains an obligation even when the resumed backend has no writer option.
 A missing or mismatched host receipt keeps the old source. Accepted work may continue in an isolated new session while its evidence debt remains explicit; an unresolved failed invocation remains pending.
-A receipt whose only gap is raw process I/O may permit continuation in the retained environment, but incomplete coverage still prevents evidence-authorized release.
+A receipt whose only gap is raw process I/O may permit continuation in the retained environment. Release still destroys for that gap, and for an event-log gap alone (`events_incomplete`). An incomplete native session copy (`nativeStore` not complete, or an `over_bound:` / `store_file_` reason) keeps the source and journals `environment-teardown` with `destroyed: false` and that reason.
 The normal child cleanup barrier still runs; explicit cancellation never turns an unverified old source into confirmed teardown.
 An old source mutated by a later invocation cannot be reconstructed as historical evidence.
 `tests/runtime/retained-capture-resume.test.ts` covers real coordinator loss, direct historical receipt verification and cold native custody.
