@@ -1,5 +1,7 @@
 ## 6.0.8
 
+Preserve identity discovery from historical partial events while validating full event identities atomically in the public journal reader.
+
 Read historical kindless spawn-journal envelopes and let read-only projections explicitly skip malformed physical rows with `readSpawnJournal(runDir, { invalid: 'skip' })`, preserving strict defaults and atomic groups.
 
 ## 6.0.7
