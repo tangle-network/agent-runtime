@@ -54,10 +54,18 @@ export async function* readCommittedJsonLines<T>(
           ? new TextDecoder('utf-8', { fatal: true }).decode(bytes)
           : bytes.toString('utf8')
       } catch (cause) {
-        if (!terminated || (options.invalid === 'skip' && cause instanceof TypeError)) return undefined
+        if (!terminated || (options.invalid === 'skip' && cause instanceof TypeError))
+          return undefined
         throw new Error(`${path}: malformed UTF-8 at line ${lineNumber}`, { cause })
       }
-      return parseRecord<T>(line, path, lineNumber++, terminated, options.allowWhitespaceLines, options.invalid)
+      return parseRecord<T>(
+        line,
+        path,
+        lineNumber++,
+        terminated,
+        options.allowWhitespaceLines,
+        options.invalid,
+      )
     }
     let position = start
     while (position < end) {

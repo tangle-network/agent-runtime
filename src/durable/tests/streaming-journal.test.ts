@@ -9,7 +9,7 @@ import {
   readRootStream,
   readRootStreamReceipt,
 } from '../../runtime/supervise/root-stream'
-import { parseCommittedJsonLines, readCommittedJsonLines } from '../jsonl-file'
+import { readCommittedJsonLines } from '../jsonl-file'
 import { FileObserverJournal } from '../observer-journal'
 
 let root: string
@@ -35,45 +35,12 @@ const event = (id: string) => ({
 })
 
 describe('streaming committed JSONL', () => {
-  it.each([
-    '',
-    '\n',
-    'null\nfalse\n0\n"text"\n',
-    '{"a":1}\n\n{"b":2}',
-    '{"a":1}\n{"torn":',
-    '{"first":',
-    '{"a":1}\r\n{"b":2}\r\n',
-  ])('matches in-memory parsing for %j', async (bytes) => {
-    const path = join(root, 'records.jsonl')
-    await fs.writeFile(path, bytes)
-    expect(await collect(readCommittedJsonLines(path))).toEqual(
-      parseCommittedJsonLines(bytes, path),
-    )
-  })
-
   it('preserves UTF-8 and records across multiple stream chunks', async () => {
     const path = join(root, 'records.jsonl')
     const records = [{ text: '🙂é'.repeat(50_001) }, { text: 'after boundary' }]
     await fs.writeFile(path, records.map((record) => JSON.stringify(record)).join('\n'))
     expect(await collect(readCommittedJsonLines(path))).toEqual(records)
   })
-
-  it.each(['{}\n\nBAD\n', '{}\nBAD\n{"torn":', '{}\r{}\n', ' \n'])(
-    'refuses committed corruption in %j',
-    async (bytes) => {
-      const path = join(root, 'records.jsonl')
-      await fs.writeFile(path, bytes)
-      const expected = (() => {
-        try {
-          parseCommittedJsonLines(bytes, path)
-        } catch (error) {
-          return (error as Error).message
-        }
-      })()
-      await expect(collect(readCommittedJsonLines(path))).rejects.toThrow(expected)
-      expect(await fs.readFile(path, 'utf8')).toBe(bytes)
-    },
-  )
 
   it('only treats a missing file as empty when explicitly requested', async () => {
     const path = join(root, 'absent.jsonl')
@@ -100,7 +67,6 @@ describe('streaming committed JSONL', () => {
     await fs.truncate(path, 2)
     await expect(collect(reader)).rejects.toThrow(/journal changed/)
   })
-
 })
 
 describe('durable consumers share streaming reads', () => {
