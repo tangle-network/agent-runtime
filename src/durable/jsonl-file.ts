@@ -21,6 +21,7 @@ export async function* readCommittedJsonLines<T>(
   options: {
     allowMissing?: boolean
     allowWhitespaceLines?: boolean
+    invalid?: 'throw' | 'skip'
     onBytes?: (bytes: Uint8Array) => void
     /** Internal fixed-prefix range. The caller supplies a record boundary and owns the handle. */
     handle?: FileHandle
@@ -53,10 +54,10 @@ export async function* readCommittedJsonLines<T>(
           ? new TextDecoder('utf-8', { fatal: true }).decode(bytes)
           : bytes.toString('utf8')
       } catch (cause) {
-        if (!terminated) return undefined
+        if (!terminated || (options.invalid === 'skip' && cause instanceof TypeError)) return undefined
         throw new Error(`${path}: malformed UTF-8 at line ${lineNumber}`, { cause })
       }
-      return parseRecord<T>(line, path, lineNumber++, terminated, options.allowWhitespaceLines)
+      return parseRecord<T>(line, path, lineNumber++, terminated, options.allowWhitespaceLines, options.invalid)
     }
     let position = start
     while (position < end) {
@@ -97,13 +98,14 @@ function parseRecord<T>(
   lineNumber: number,
   terminated: boolean,
   allowWhitespaceLines = false,
+  invalid: 'throw' | 'skip' = 'throw',
 ): { value: T } | undefined {
   if (line.length === 0 || (allowWhitespaceLines && line.trim().length === 0)) return undefined
   try {
     return { value: JSON.parse(line) as T }
   } catch (cause) {
     if (!(cause instanceof SyntaxError)) throw cause
-    if (!terminated) return undefined
+    if (!terminated || invalid === 'skip') return undefined
     throw new Error(`${source}: malformed JSONL record at line ${lineNumber}`, { cause })
   }
 }

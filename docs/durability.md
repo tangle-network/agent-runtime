@@ -2,13 +2,17 @@
 
 This page maps every durability primitive in the Tangle stack to its owner. It is the inventory for [#1585](https://github.com/tangle-network/agent-runtime/issues/1585). Each row names what the primitive durably owns, who uses it, and whether it is public. Consumers come from an org-wide search of every repository's default branch on 2026-10-06; "none" means no code outside the owning repository imports it.
 
-`readSpawnJournal(runDir, { after, tailBytes })` from `/durable` or `/kernel` reads
+`readSpawnJournal(runDir, { after, tailBytes, invalid })` from `/durable` or `/kernel` reads
 committed records with owning roots and expands grouped envelopes internally. Persist its
 cursor unchanged for incremental reads. An initial byte window keeps the opening record
 and complete tail records; `truncated` reports omitted middle history. With a cursor, the
 byte budget pages appended records. A crossing record can exceed the budget.
 `remainingBytes` includes an incomplete final write; replacement, truncation or sampled
 boundary changes reset the cursor. A missing journal is an empty page with no cursor.
+Historical kindless `{root,event}` envelopes remain readable. Corrupt committed rows fail
+by default. Read-only projections can choose `invalid: 'skip'`; malformed JSON, UTF-8 or
+envelopes then advance the physical cursor without yielding any part of an invalid group.
+This neither repairs stored bytes nor relaxes execution replay and append validation.
 
 `readRunState(runDir)` composes Runtime's settlement, failure, parking, cancellation,
 lock and journal readers. Settlement outranks cancellation, then parking, then verified
