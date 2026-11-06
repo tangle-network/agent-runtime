@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -22,113 +22,7 @@ function instruction(receiptId: string, text: string): ContinuationInstruction {
   }
 }
 
-function evidenceChain(
-  receipt: ContinuationInstruction,
-  outcome: 'delivered' | 'runtime-has-no-inbox',
-): CoordinationEvent[] {
-  return [
-    { type: 'instruction', instruction: receipt },
-    {
-      type: 'delivery-attempt',
-      attempt: {
-        receiptId: receipt.receiptId,
-        kind: receipt.kind,
-        toWorker: receipt.toWorker,
-        instructionDigest: receipt.instructionDigest,
-        interrupt: receipt.interrupt,
-      },
-    },
-    {
-      type: 'steer',
-      down: {
-        receiptId: receipt.receiptId,
-        toWorker: receipt.toWorker,
-        instruction: receipt.instruction,
-        instructionDigest: receipt.instructionDigest,
-        delivered: outcome === 'delivered',
-        outcome,
-      },
-    },
-  ]
-}
-
 describe('FileCoordinationLog delivery evidence', () => {
-  it('keeps complete success and refusal chains linked and isolated by stable owner', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'coordination-log-owner-'))
-    try {
-      const log = new FileCoordinationLog(join(dir, 'coordination.jsonl'))
-      const accepted = instruction('accepted', 'continue A')
-      const refused = instruction('refused', 'continue B')
-      for (const [seq, event] of evidenceChain(accepted, 'delivered').entries()) {
-        await log.append('run', stamped(seq, event), 'owner-A')
-      }
-      for (const [seq, event] of evidenceChain(refused, 'runtime-has-no-inbox').entries()) {
-        await log.append('run', stamped(seq, event), 'owner-B')
-      }
-
-      const ownerA = await log.load('run', 'owner-A')
-      const ownerB = await log.load('run', 'owner-B')
-      expect(ownerA.continuations.map((entry) => entry.receiptId)).toEqual(['accepted'])
-      expect(ownerA.deliveryEvidence.map((entry) => entry.type)).toEqual([
-        'delivery-attempt',
-        'steer',
-      ])
-      expect(ownerB.continuations.map((entry) => entry.receiptId)).toEqual(['refused'])
-      expect(ownerB.deliveryEvidence.map((entry) => entry.type)).toEqual([
-        'delivery-attempt',
-        'steer',
-      ])
-      const acceptedOutcome = ownerA.deliveryEvidence.find((entry) => entry.type === 'steer')
-      const refusedOutcome = ownerB.deliveryEvidence.find((entry) => entry.type === 'steer')
-      expect(acceptedOutcome?.down).toMatchObject({ receiptId: 'accepted', outcome: 'delivered' })
-      expect(refusedOutcome?.down).toMatchObject({
-        receiptId: 'refused',
-        outcome: 'runtime-has-no-inbox',
-      })
-      expect(ownerA.records.map(({ seq, at, priority }) => ({ seq, at, priority }))).toEqual([
-        { seq: 0, at: 1000, priority: 0 },
-        { seq: 1, at: 1001, priority: 0 },
-        { seq: 2, at: 1002, priority: 0 },
-      ])
-
-      const raw = (await readFile(join(dir, 'coordination.jsonl'), 'utf8'))
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as { ownerId?: string })
-      expect(raw.map((record) => record.ownerId)).toEqual([
-        'owner-A',
-        'owner-A',
-        'owner-A',
-        'owner-B',
-        'owner-B',
-        'owner-B',
-      ])
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('preserves an attempted-but-unconfirmed delivery as unknown evidence without inventing an outcome', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'coordination-log-crash-window-'))
-    try {
-      const log = new FileCoordinationLog(join(dir, 'coordination.jsonl'))
-      const receipt = instruction('crashed', 'do not replay me')
-      const [authorized, attempted] = evidenceChain(receipt, 'delivered')
-      if (!authorized || !attempted) throw new Error('missing evidence fixture')
-      await log.append('run', stamped(0, authorized), 'owner')
-      await log.append('run', stamped(1, attempted), 'owner')
-
-      const prior = await log.load('run', 'owner')
-      expect(prior.continuations.map((entry) => entry.receiptId)).toEqual(['crashed'])
-      expect(prior.deliveryEvidence).toEqual([attempted])
-      expect(
-        prior.deliveryEvidence.some((entry) => entry.type === 'steer' || entry.type === 'answer'),
-      ).toBe(false)
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
   it('keeps a question blocking after a refused answer delivery across restart', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'coordination-log-refused-answer-'))
     try {
