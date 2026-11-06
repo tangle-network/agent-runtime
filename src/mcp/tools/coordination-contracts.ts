@@ -131,8 +131,8 @@ export interface WorkerSpawnContext {
   readonly continuity?: ContinuityMode
   /** Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches with. */
   readonly resume?: WorkerResumeContext
-  /** The settled worker this spawn replaces, when the manager named one (`spawn_worker`'s
-   *  `successorOf`). Runtime admits only a settled worker of the same manager and journals the
+  /** The worker this spawn revises or replaces, when the manager named one (`spawn_worker`'s
+   *  `successorOf`). Runtime admits only a worker of the same manager, live or settled, and journals the
    *  relation on the new node, so the run record shows who took over whose work. A seam may read
    *  it to hand the successor its predecessor's workspace or retained output; Runtime mounts
    *  nothing on its behalf. Independent of `resume`, which re-attaches the same node's session. */

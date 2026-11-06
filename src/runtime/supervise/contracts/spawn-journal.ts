@@ -64,7 +64,7 @@ export type SpawnEvent =
       key?: string
       /** Manager-scoped assignment identity used to join unkeyed and keyed work alike. */
       assignmentId?: string
-      /** The settled sibling node this spawn replaces (`SpawnOpts.successorOf`). */
+      /** The sibling node this spawn revises or replaces (`SpawnOpts.successorOf`). */
       successorOf?: NodeId
       /** The budget-stopped node whose held environment and session this node continues. */
       continues?: { ofWorker: NodeId; environmentId: string }
