@@ -267,12 +267,18 @@ function routerErrorIdentity(error: unknown): object | undefined {
     : undefined
 }
 
+/** The parsed body; a usage with no cost takes the Router's exact `x-tangle-cost-usd` (#1587). */
 export async function routerResponseJson(response: Response, attempts: number): Promise<unknown> {
-  try {
-    return await response.json()
-  } catch (error) {
-    throwRouterFailureWithAttempts(error, attempts)
-  }
+  const body = (await response
+    .json()
+    .catch((error: unknown) => throwRouterFailureWithAttempts(error, attempts))) as {
+    usage?: Record<string, unknown>
+  } | null
+  const cost = Number(response.headers.get('x-tangle-cost-usd') || Number.NaN)
+  const usage = body?.usage
+  if (cost >= 0 && usage?.cost === undefined && usage?.cost_usd === undefined && usage)
+    usage.cost = cost
+  return body
 }
 
 function agentCoreRetryConfig(

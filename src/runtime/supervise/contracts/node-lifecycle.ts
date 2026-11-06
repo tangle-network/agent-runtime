@@ -51,9 +51,9 @@ export interface SpawnOpts {
    * always run.
    */
   readonly key?: string
-  /** The settled sibling node this spawn replaces, so a run's record names which worker took over
-   *  whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits only
-   *  a settled worker of the same manager. Journaled on `spawned` and on the `agent.spawn` hook. */
+  /** The sibling node this spawn revises or replaces, so a run's record names which worker took over
+   *  whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits any
+   *  worker of the same manager, live or settled. Journaled on `spawned` and on the `agent.spawn` hook. */
   readonly successorOf?: NodeId
   /**
    * With `key`: when the key's committed result ended over its budget and its environment is still

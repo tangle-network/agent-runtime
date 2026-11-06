@@ -8,7 +8,7 @@ import { type AgenticSurface, runAgentic } from '../../src/runtime'
 
 const model = 'strategy-protocol-model'
 const content = 'persisted by the worker tool\n'
-const profile: AgentProfile = {
+const sseProfile: AgentProfile = {
   name: 'filesystem-strategy-worker',
   harness: 'cli-base',
   model: {
@@ -31,10 +31,21 @@ interface CompletionRequest {
   tools: Array<{ function: { name: string } }>
 }
 
-// A loopback protocol fixture supplies SSE; fetch, the worker, tools, scorer and Supervisor run normally.
-it.each([false, true])(
-  'runs a filesystem strategy over HTTP/SSE (one usage receipt omitted=%s)',
-  async (omitUsage) => {
+// A loopback protocol fixture supplies SSE or buffered JSON; fetch, the worker, tools, scorer and
+// Supervisor run normally. The buffered case reports its charge only in `x-tangle-cost-usd` (#1587).
+it.each([
+  { omitUsage: false, buffered: false },
+  { omitUsage: true, buffered: false },
+  { omitUsage: false, buffered: true },
+])(
+  'runs a filesystem strategy over HTTP (%o)',
+  async ({ omitUsage, buffered }) => {
+    const profile: AgentProfile = buffered
+      ? ({
+          ...sseProfile,
+          model: { ...sseProfile.model, metadata: { stream: false, maxTurns: 3 } },
+        } as AgentProfile)
+      : sseProfile
     const directory = await mkdtemp(join(tmpdir(), 'strategy-http-'))
     const path = join(directory, 'result.txt')
     let file: FileHandle | undefined
@@ -56,7 +67,7 @@ it.each([false, true])(
           'BASE_POLICY\nWrite the requested bytes, read them back, then reply DONE.\nPROJECT_GUIDANCE',
         )
         expect(body.model).toBe(model)
-        expect(body.stream).toBe(true)
+        expect(body.stream === true).toBe(!buffered)
         expect(body.tools.map((tool) => tool.function.name).sort()).toEqual([
           'read_file',
           'write_file',
@@ -103,6 +114,27 @@ it.each([false, true])(
             choices: [],
             usage: { prompt_tokens: 11, completion_tokens: 3, cost_usd: 0.25 },
           })
+        if (buffered) {
+          const message = 'content' in delta ? delta : { content: null, ...delta }
+          response.writeHead(200, {
+            'content-type': 'application/json',
+            'x-tangle-cost-usd': '0.25',
+          })
+          response.end(
+            JSON.stringify({
+              model,
+              choices: [
+                {
+                  index: 0,
+                  message: { role: 'assistant', ...message },
+                  finish_reason: turn === 2 ? 'stop' : 'tool_calls',
+                },
+              ],
+              usage: { prompt_tokens: 11, completion_tokens: 3 },
+            }),
+          )
+          return
+        }
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end(
           `${frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join('')}data: [DONE]\n\n`,

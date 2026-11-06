@@ -75,12 +75,8 @@ export function workerFromBackend(
     // still get isolation, but only Scope-backed calls claim durable external-session recovery.
     const assignmentId =
       spawnContext?.assignmentId ?? `unscoped:${unscopedNamespace}:${unscopedOrdinal++}`
-    // The derived execution id scopes by the spawning manager: assignment ordinals restart at
-    // `ordinal:0` under every manager, so an unscoped digest maps worker 1 of EVERY run (and of
-    // every sibling manager) to one external session — on a bridge with a persistent session
-    // store, a 'fresh' spawn then silently continues a foreign run's harness conversation.
-    // Durable recovery is preserved: a replay of the same run re-issues the same manager node id
-    // and the same assignments, so it derives the same session ids.
+    // Scoped by the spawning manager: ordinals restart under every manager, so an unscoped id would
+    // map worker 1 of every run to one bridge session. A replay re-derives the same ids.
     const executionScope = spawnContext?.parentNodeId
     const boundBackend = bindReusableExecutorExecutionId(
       capturedBackend,
@@ -91,8 +87,7 @@ export function workerFromBackend(
         }),
     )
     const boundSessionId = boundBackend.backend === 'bridge' ? boundBackend.sessionId : undefined
-    // Resolved BEFORE the executor exists, so a run that asked for peer mail on a backend that
-    // cannot deliver it fails the spawn instead of handing the worker a capability nobody serves.
+    // Before the executor exists: peer mail on a backend that cannot deliver it fails the spawn.
     const peerMailAttachment = peerMailRuntimeAttachment(profile, capturedBackend, spawnContext)
     if (
       spawnContext?.peerMailUrl &&
@@ -120,8 +115,15 @@ export function workerFromBackend(
             },
           }
         : boundBackend
-    const rawFactory = createExecutor(leafBackend)
-    const baseFactory = deliverable ? gateFactoryOnDeliverable(rawFactory, deliverable) : rawFactory
+    // An analyst run grades a worker: the worker's validator and deliverable never grade it (#1775).
+    const analyst = spawnContext?.analyst !== undefined
+    const rawFactory = createExecutor(
+      analyst && 'validator' in leafBackend
+        ? { ...leafBackend, validator: undefined }
+        : leafBackend,
+    )
+    const baseFactory =
+      deliverable && !analyst ? gateFactoryOnDeliverable(rawFactory, deliverable) : rawFactory
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
     const executorFactory = (spec: AgentSpec, ctx: ExecutorContext) => {

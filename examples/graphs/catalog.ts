@@ -117,6 +117,10 @@ export const catalog: readonly CatalogGraph[] = [
       skepticMajority(['holds', 'holds', 'refuted']),
       skepticMajority(['refuted', 'holds', 'refuted']),
     ],
+    reuses: {
+      name: 'dependency-waves',
+      why: 'the same fork then join: what it adds is a join target that decides the deliverable from every verdict, over skeptics on three model families',
+    },
   },
   {
     file: 'conditional-skip',
@@ -149,14 +153,9 @@ export const catalog: readonly CatalogGraph[] = [
           }
         : {}),
   })),
-  one(
-    'sandbox-e2e',
-    () => ({ graph: sandboxE2eGraph({ root: 'r', worker: 'w', skepticA: 'a', skepticB: 'b' }) }),
-    {
-      name: 'skeptic-majority',
-      why: 'the live run of the skeptic panel on the sandbox backend; it cannot run offline',
-    },
-  ),
+  one('sandbox-e2e', () => ({
+    graph: sandboxE2eGraph({ root: 'r', worker: 'w', skepticA: 'a', skepticB: 'b' }),
+  })),
 ]
 
 /** Files here that are not a fixed-graph example, with the reason. */

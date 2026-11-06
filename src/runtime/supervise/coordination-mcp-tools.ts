@@ -122,14 +122,13 @@ export function bindServedTools(
   if (new Set(selectedNames).size !== selectedNames.length) {
     throw new ValidationError('serveCoordinationMcp: toolNames contains a duplicate name')
   }
-  const servedTools = selectedNames.map((name) => {
-    const tool = availableByName.get(name)
-    if (tool === undefined) {
-      throw new ValidationError(
-        `serveCoordinationMcp: requested tool ${JSON.stringify(name)} is unavailable`,
-      )
-    }
-    return tool
-  })
+  // Every unserved name in one refusal, before any harness turn or backend create (#1219).
+  const missing = selectedNames.filter((name) => !availableByName.has(name))
+  if (missing.length > 0) {
+    throw new ValidationError(
+      `serveCoordinationMcp: requested tools ${missing.map((n) => JSON.stringify(n)).join(', ')} are unavailable; served: ${[...availableByName.keys()].join(', ')}`,
+    )
+  }
+  const servedTools = selectedNames.map((name) => availableByName.get(name) as McpToolDescriptor)
   return { servedTools, background: () => nodeTools.background() + fencedVerbs.background() }
 }

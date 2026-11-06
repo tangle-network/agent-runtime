@@ -795,7 +795,7 @@ describe('supervisePursuit successor record', () => {
     await rm(runDir, { recursive: true, force: true })
   })
 
-  it('records the settled worker a successor replaced, and refuses an unknown or live one', async () => {
+  it('records the worker a successor revises, live or settled, and refuses an unknown one', async () => {
     const runId = 'run:successor'
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
@@ -804,16 +804,14 @@ describe('supervisePursuit successor record', () => {
     const contexts = new Map<string, WorkerSpawnContext | undefined>()
     const replies: Record<string, Record<string, unknown>> = {}
     let drives = 0
-    let predecessorId = ''
     const executed = await run(runDir, runId, {
       makeWorkerAgent: (profile: { name?: string }, context?: WorkerSpawnContext) => {
         const name = profile.name ?? 'worker'
         contexts.set(name, context)
         return deliveringLeaf(name, name === 'first' ? () => gate : undefined)
       },
-      // Drive 1 spawns the predecessor and the refused successors, then ends its turn. Drive 2 is
-      // woken by the predecessor's settlement and spawns the successor. Drive 3 is woken by the
-      // successor's settlement and stops.
+      // Drive 1 spawns the predecessor, revises it while it still runs (a director replacing a
+      // stalled worker, #1588), and is refused an unknown predecessor. Later drives stop.
       driveHarness: (async ({ coordinationMcpUrl: url }) => {
         drives += 1
         if (drives === 1) {
@@ -821,11 +819,10 @@ describe('supervisePursuit successor record', () => {
             profile: testAgentProfile('first'),
             task: 'attempt',
           })
-          predecessorId = first.workerId as string
-          replies.live = await callTool(url, 'spawn_worker', {
+          replies.successor = await callTool(url, 'spawn_worker', {
             profile: testAgentProfile('second'),
             task: 'replace',
-            successorOf: predecessorId,
+            successorOf: first.workerId,
           })
           replies.unknown = await callTool(url, 'spawn_worker', {
             profile: testAgentProfile('second'),
@@ -833,12 +830,6 @@ describe('supervisePursuit successor record', () => {
             successorOf: `${runId}:s99`,
           })
           release()
-        } else if (drives === 2) {
-          replies.successor = await callTool(url, 'spawn_worker', {
-            profile: testAgentProfile('second'),
-            task: 'replace',
-            successorOf: predecessorId,
-          })
         } else {
           await callTool(url, 'stop')
         }
@@ -846,7 +837,6 @@ describe('supervisePursuit successor record', () => {
     })
 
     expect(executed.result.kind).toBe('winner')
-    expect(replies.live).toMatchObject({ error: 'successor-live' })
     expect(replies.unknown).toMatchObject({ error: 'successor-unknown' })
     const predecessor = `${runId}:s0`
     expect(replies.successor).toMatchObject({ successorOf: predecessor })

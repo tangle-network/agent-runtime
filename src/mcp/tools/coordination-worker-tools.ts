@@ -106,11 +106,11 @@ function spawnWorkerTool(ctx: WorkerToolsCtx): McpToolDescriptor {
         successorOf: {
           type: 'string',
           description:
-            'The workerId of a SETTLED worker you spawned that this new worker replaces — for ' +
+            'The workerId of a worker you spawned that this new worker revises or replaces — for ' +
             'example one that failed, stalled, or finished with a weak result, restarted with a ' +
-            'changed profile or task. The run record then names the predecessor on the new ' +
-            'worker. Refused for an id you did not spawn (`error: "successor-unknown"`) and for ' +
-            'a worker still live (`error: "successor-live"` — end your turn until it settles). ' +
+            'changed profile or task. The predecessor may still be live; cancel_worker it if the ' +
+            'successor supersedes it. The run record names the predecessor on the new worker. ' +
+            'Refused for an id you did not spawn (`error: "successor-unknown"`). ' +
             'Put what the successor needs from its predecessor in `task`.',
         },
         budget: spawnBudgetArg,
@@ -191,22 +191,14 @@ async function resolveSpawnedProfile({ opts, profileTable }: WorkerToolsCtx, raw
   return { profile, resolved: resourcePaths.resolved }
 }
 
-// A successor names a settled worker of this manager, so the relation the journal records
-// is true: never an unknown id, and never a worker still running beside its replacement.
+// A successor names a worker of this manager, so the relation the journal records is true. A
+// live predecessor is admitted: a director revising a stalled worker must not lose the lineage.
 function successorRefusal({ opts, spawn, workers }: WorkerToolsCtx, successorOf: string) {
   const predecessor = spawn.nodeForWorker(successorOf)
   if (predecessor === undefined || predecessor.parent !== opts.scope.view.root) {
     return {
       error: 'successor-unknown' as const,
       reason: `'${successorOf}' is not a worker this manager spawned — successorOf takes a workerId from one of your own spawn_worker results`,
-      live: workers.liveWorkerCount(),
-      freeSlots: workers.freeWorkerSlots(),
-    }
-  }
-  if (isLiveNodeStatus(predecessor.status)) {
-    return {
-      error: 'successor-live' as const,
-      reason: `worker '${successorOf}' has not settled — end your turn until it does, then spawn its successor (steer_agent redirects a live worker instead)`,
       live: workers.liveWorkerCount(),
       freeSlots: workers.freeWorkerSlots(),
     }
