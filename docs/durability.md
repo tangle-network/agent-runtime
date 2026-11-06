@@ -234,6 +234,8 @@ Identity retention applies prospectively to invocations that have not already be
 
 An accepted manager turn whose workspace capture fails is evidence debt, not a failure. The node journals one `evidence-pending` row per source, with the error and `since`, keeps the source environment unmutated, and continues in a new environment; the supervisor never exits for it. While the supervisor lives, the owner retries the capture on backoff (`EVIDENCE_RETRY_BACKOFF_MS` in `src/runtime/supervise/retained-owner-evidence.ts`, measured on the run's clock), and the release tries once more. A receipt that lands pays the debt and lets the release destroy the source. A source still owed at release is kept and named in the settled result's `teardownUnconfirmed[].kept` with `keptFor: 'evidence'`, for the caller's salvage.
 
+A settled run's other unconfirmed environments are finished by `reconcileUnconfirmedTeardowns`, exported from `/durable`. It reads each provider id on the settle record, deletes only an environment the provider still holds, and returns the confirmed, deleted, and unknown sets. A live directory lock or a missing settle record refuses the call. Kept environments stay unread.
+
 **What survives a host crash?** Sandbox owns this:
 - Project identity survives, through the durable project store.
 - Workspaces come back from a confirmed snapshot.

@@ -214,12 +214,14 @@ export interface UnconfirmedTeardown {
   readonly runtime: Runtime
   readonly status: NodeStatus
   /** The provider environments the node may still hold and nothing keeps on purpose, by the
-   *  provider's own id: what an operator's sweeper deletes. Present when the executor names at
-   *  least one (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is
-   *  held". Never contains a kept environment. */
+   *  provider's own id. `reconcileUnconfirmedTeardowns` reads each one by that id and deletes it
+   *  only when the provider still holds it. Present when the executor names at least one
+   *  (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is held".
+   *  Never contains a kept environment. */
   readonly environments?: ReadonlyArray<HeldEnvironment>
   /** The environments the node holds on purpose, each with `keptFor` set: a retained execution
-   *  a resume reconciles, or a workspace preserved as evidence. A sweeper never deletes these. */
+   *  a resume reconciles, or a workspace preserved as evidence.
+   *  `reconcileUnconfirmedTeardowns` never reads or deletes these. */
   readonly kept?: ReadonlyArray<HeldEnvironment>
   /** How many teardown requests Runtime sent the executor. */
   readonly attempts?: number

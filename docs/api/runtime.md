@@ -14711,6 +14711,14 @@ Stable logical paid-call id, forwarded as the provider idempotency key and retai
 
 Caller trace tag retained in evidence and forwarded when the transport supports it.
 
+##### propagatedHeaders?
+
+> `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Request headers inherited by the executor. Network transports forward these after assembling
+the request, and Runtime's own content-type, authorization, idempotency-key, and
+x-correlation-id replace any caller value of the same name.
+
 ##### preserveToolParts?
 
 > `optional` **preserveToolParts?**: `boolean`
@@ -17549,16 +17557,18 @@ One settled child whose executor teardown was never acknowledged: the run cannot
 > `readonly` `optional` **environments?**: readonly [`HeldEnvironment`](#heldenvironment)[]
 
 The provider environments the node may still hold and nothing keeps on purpose, by the
- provider's own id: what an operator's sweeper deletes. Present when the executor names at
- least one (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is
- held". Never contains a kept environment.
+ provider's own id. `reconcileUnconfirmedTeardowns` reads each one by that id and deletes it
+ only when the provider still holds it. Present when the executor names at least one
+ (`Executor.heldEnvironments`); absence means nothing was named, never "nothing is held".
+ Never contains a kept environment.
 
 ##### kept?
 
 > `readonly` `optional` **kept?**: readonly [`HeldEnvironment`](#heldenvironment)[]
 
 The environments the node holds on purpose, each with `keptFor` set: a retained execution
- a resume reconciles, or a workspace preserved as evidence. A sweeper never deletes these.
+ a resume reconciles, or a workspace preserved as evidence.
+ `reconcileUnconfirmedTeardowns` never reads or deletes these.
 
 ##### attempts?
 
@@ -32846,7 +32856,7 @@ unvalidated shape (#630) while the authored lens keeps working.
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \} \| \{ `type`: `"route"`; `route`: [`RouteFlowEvent`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"tool-timing"`; `call`: \{ `tool`: `string`; `receivedAt`: `number`; `elapsedMs`: `number`; `responseBytes`: `number`; `ok`: `boolean`; \}; \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \} \| \{ `type`: `"route"`; `route`: [`RouteFlowEvent`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -32975,6 +32985,16 @@ The manager processed events a wake delivered to it. Record-only, and separate f
 
 A tool call that outlived its response fence settled. Queued: the manager's next wake
  carries it, so the caller never re-calls to collect it.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"tool-timing"`; `call`: \{ `tool`: `string`; `receivedAt`: `number`; `elapsedMs`: `number`; `responseBytes`: `number`; `ok`: `boolean`; \}; \}
+
+Server timing of one coordination tool call. Record-only: it never wakes the manager.
+ `receivedAt` is the server clock when the handler started, `elapsedMs` is that handler's
+ duration, and `responseBytes` is the UTF-8 size of its JSON result or error message.
 
 ***
 
@@ -41480,6 +41500,8 @@ but by a caller that copies and syncs what it keeps.
 Profile-exact adapter for packages that consume agent-eval's ChatClient contract.
 Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
 behavioral field is checked against the exact AgentProfile before any transport runs.
+Optional `headers` are forwarded on every Router request. Runtime's own content-type,
+authorization, idempotency-key, and x-correlation-id keep precedence.
 
 #### Parameters
 
@@ -41496,6 +41518,10 @@ behavioral field is checked against the exact AgentProfile before any transport 
 ###### context
 
 `string`
+
+###### headers?
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
 
 #### Returns
 
@@ -41530,6 +41556,10 @@ AgentProfile, execution route, retries, usage, and finite execution evidence.
 ###### pricing?
 
 `CustomTokenPricing`
+
+###### headers?
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
 
 #### Returns
 

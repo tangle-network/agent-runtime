@@ -170,7 +170,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 103 exports.
+Import from `@tangle-network/agent-runtime/durable` — 112 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -190,11 +190,13 @@ Import from `@tangle-network/agent-runtime/durable` — 103 exports.
 | `readRunState` | function | Compose maintained record readers. Terminal settlement outranks cancellation and parking; |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
 | `readSpawnJournal` | function | Read a fixed journal prefix, with historical envelopes and framing owned by Runtime. |
+| `reconcileUnconfirmedTeardowns` | function | Finish unconfirmed teardowns named by a settled run's `result.json`. |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
 | `superviseGraphPursuit` | function | Graph twin of `supervisePursuit`, using its directory lifecycle and `runGraph` execution. |
 | `supervisePursuit` | function | Execute `supervise()` with a durable observer and return its verified pursuit projection. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
+| `NoSettleRecordError` | class | The directory has no settle record, so there is no settled run to reconcile. |
 | `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |
 | `RunParkedError` | class | A resumable wait, with no terminal result or failure. Catch it and let the coordinator exit. |
 | `SettledRunDirectoryError` | class | The directory already holds a settle record, so the run it records must not be re-entered. |
@@ -212,6 +214,7 @@ Import from `@tangle-network/agent-runtime/durable` — 103 exports.
 | `DownMessageAuthorizationInput` | interface | Detached continuation bytes and exact worker identity presented to product authorization before |
 | `DurableFailureRecord` | interface | What `failure.json` records about the most recent throw. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
+| `EnvironmentTarget` | interface | One environment named by the provider that issued it. |
 | `ManagerWakePolicy` | interface | How Runtime wakes a manager that ended its turn with work open. |
 | `MapOnSettleRoute` | interface | One map-on-settle ROUTE: the coordination form of an AgentGraph `maps` edge. When a worker whose |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
@@ -227,6 +230,7 @@ Import from `@tangle-network/agent-runtime/durable` — 103 exports.
 | `PursuitVersionChain` | interface | The chain as its search ledger records it, returned beside the kept version's result. |
 | `PursuitVersions` | interface | Continue a pursuit across versions: after each version settles, an outside judge scores it, and |
 | `PursuitVersionStop` | interface | The chain's stop rule. The chain starts no version its caps do not admit. |
+| `ReconciledEnvironment` | interface | An environment this call proved gone. `nodeId` is the teardown record that named it. |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
@@ -238,6 +242,9 @@ Import from `@tangle-network/agent-runtime/durable` — 103 exports.
 | `SettledPursuitVersion` | interface | A settled version, as the judge and `next` read it. |
 | `SpawnJournalCursor` | interface | Serializable checkpoint of a committed byte boundary, bound to one file and its bytes. |
 | `SuperviseGraphPursuitOptions` | interface | Options for {@link superviseGraphPursuit}: every `runGraph` option, plus the pursuit identity, |
+| `UnconfirmedEnvironmentPort` | interface | The caller's provider adapter. `read` and `delete` take the provider's own id. |
+| `UnconfirmedTeardownReconcile` | interface | The three sets one reconcile call returns. A repeated id is acted on once and reported |
+| `UnreconciledEnvironment` | interface | An environment, or a node with no id, this call could not decide. |
 | `VersionJudge` | interface | An outside judge. Runtime calls it after a version's settle record exists, never inside the |
 | `WorkerSlots` | interface | A fleet-wide bound on concurrently working agents, with a queue for the spawns past it. |
 | `WorkerWatchOptions` | interface | Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). |
@@ -245,6 +252,8 @@ Import from `@tangle-network/agent-runtime/durable` — 103 exports.
 | `CoordinationRejectReason` | type | Why the coordination boundary refused a request. The refusal's JSON-RPC error body names it, so |
 | `DeadlineCheckIn` | type | What a steerable child's own time box does: a check-in, not a kill. At the child's deadline its |
 | `DriveHarnessOwnerContext` | type | Trusted manager identity available before its external harness starts. A product uses this to |
+| `EnvironmentDeletion` | type | What a delete of one environment the read found present proved. |
+| `EnvironmentPresence` | type | What a direct read of one environment proved. `unknown` means the read did not decide. |
 | `EscalateQuestion` | type | Where a question leaves this manager when `ask_parent` is called. |
 | `NextPursuitVersion` | type | Build the one change the next version applies to `best.profile`. Its `id` must be non-empty. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
