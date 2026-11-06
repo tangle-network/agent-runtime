@@ -1,7 +1,7 @@
 import { isRecord } from '@tangle-network/agent-core'
 import type { SpawnEvent } from '../../runtime/supervise/types'
 
-/** Decode historical single-event and atomic-group envelopes without partially accepting a group. @internal */
+/** Decode historical envelopes; readers own event validation. @internal */
 export function spawnJournalRecordEvents(
   record: unknown,
   invalid: 'throw' | 'skip' = 'throw',
@@ -17,11 +17,5 @@ export function spawnJournalRecordEvents(
     return corrupt(`unknown record kind '${String(record.kind)}'`)
   const events = single ? [record.event] : record.events
   if (!Array.isArray(events)) return corrupt('group has no events array')
-  if (
-    events.some(
-      (event) => !isRecord(event) || typeof event.kind !== 'string' || typeof event.id !== 'string',
-    )
-  )
-    return corrupt('record has no event identity')
   return events as SpawnEvent[]
 }

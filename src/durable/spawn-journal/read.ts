@@ -100,8 +100,17 @@ export async function readSpawnJournal(
         if (record.kind === 'begin') {
           records.push({ kind: 'begin', root: record.root, at: record.at as string })
         } else {
-          for (const event of spawnJournalRecordEvents(record, options.invalid))
-            records.push({ kind: 'event', root: record.root, event })
+          const events = spawnJournalRecordEvents(record, options.invalid)
+          if (
+            events.some(
+              (event) =>
+                !isRecord(event) || typeof event.kind !== 'string' || typeof event.id !== 'string',
+            )
+          ) {
+            if (options.invalid === 'skip') continue
+            throw new Error(`${path}: spawn journal record has no event identity`)
+          }
+          for (const event of events) records.push({ kind: 'event', root: record.root, event })
         }
         if (firstOnly) break
       }
