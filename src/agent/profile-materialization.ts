@@ -209,32 +209,6 @@ export const sandboxActProfileMaterialization = defineProfileMaterializationCont
   axes: sandboxProfileMaterialization.axes,
 })
 
-/** Materialization contract for a run path that only injects prompt text. */
-export const promptOnlyProfileMaterialization = defineProfileMaterializationContract({
-  name: 'prompt-only-message',
-  axes: ['systemPrompt', 'instructions'],
-})
-
-/**
- * Materialization contract for a run path that injects prompt text plus inline resources.
- *
- * `resourceFailOnError` is absent: it is a resolution POLICY the attaching path would have to
- * enforce, and inlining resource content does not carry it.
- */
-export const promptResourceProfileMaterialization = defineProfileMaterializationContract({
-  name: 'prompt-resource-attachment',
-  axes: [
-    'systemPrompt',
-    'instructions',
-    'files',
-    'resourceTools',
-    'skills',
-    'resourceAgents',
-    'commands',
-    'resourceInstructions',
-  ],
-})
-
 /** Define the profile axes a concrete run path actually carries into execution. */
 export function defineProfileMaterializationContract(
   options: DefineProfileMaterializationContractOptions,

@@ -190,3 +190,24 @@ export function composeSpawnPreflights(
     return undefined
   }
 }
+
+/** Refuse a `spawn_worker` machine request that the backend's `maxWorkerResources` does not admit
+ *  (#1277): a request is refused, never clamped, and the refusal names the ceiling. */
+export function resourceSpawnPreflight(backend: ExecutorConfig | undefined): SpawnPreflight {
+  return async (_profile, { resources }) => {
+    if (resources === undefined) return undefined
+    const ceiling = backend?.backend === 'provider' ? backend.maxWorkerResources : undefined
+    const over = (['cpu', 'memoryMb', 'diskMb', 'gpu'] as const).filter(
+      (k) =>
+        resources[k] !== undefined &&
+        (k === 'gpu'
+          ? resources.gpu !== ceiling?.gpu
+          : !((resources[k] as number) <= (ceiling?.[k] ?? 0))),
+    )
+    if (over.length === 0) return undefined
+    return {
+      cause: 'unprovisionable-profile',
+      detail: `resources ${over.map((k) => `${k}=${resources[k]}`).join(', ')} exceed this run's maxWorkerResources ${JSON.stringify(ceiling ?? {})}`,
+    }
+  }
+}

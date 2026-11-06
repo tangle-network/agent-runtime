@@ -98,23 +98,33 @@ export function workerFromBackend(
         'workerFromBackend: provider defaults contain the reserved peer-mail attachment alias',
       )
     }
-    const leafBackend =
-      spawnContext?.peerMailUrl && boundBackend.backend === 'provider'
+    const sizedBackend =
+      spawnContext?.resources !== undefined && boundBackend.backend === 'provider'
         ? {
             ...boundBackend,
-            steering: boundBackend.steering ?? {},
             defaults: {
-              ...(boundBackend.defaults ?? {}),
+              ...boundBackend.defaults,
+              resources: { ...boundBackend.defaults?.resources, ...spawnContext.resources },
+            },
+          }
+        : boundBackend
+    const leafBackend =
+      spawnContext?.peerMailUrl && sizedBackend.backend === 'provider'
+        ? {
+            ...sizedBackend,
+            steering: sizedBackend.steering ?? {},
+            defaults: {
+              ...(sizedBackend.defaults ?? {}),
               runtimeAttachments: {
-                ...(boundBackend.defaults?.runtimeAttachments ?? {}),
+                ...(sizedBackend.defaults?.runtimeAttachments ?? {}),
                 mcp: {
-                  ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+                  ...(sizedBackend.defaults?.runtimeAttachments?.mcp ?? {}),
                   [peerMailMcpAlias]: { transport: 'http' as const, url: spawnContext.peerMailUrl },
                 },
               },
             },
           }
-        : boundBackend
+        : sizedBackend
     // An analyst run grades a worker: the worker's validator and deliverable never grade it (#1775).
     const analyst = spawnContext?.analyst !== undefined
     const rawFactory = createExecutor(
