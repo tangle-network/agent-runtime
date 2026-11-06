@@ -1,3 +1,15 @@
+## 7.0.0
+
+`reconcileUnconfirmedTeardowns` reads a settled run's unconfirmed environments by id and deletes only the ones the provider still holds. It returns confirmed, deleted, and unknown sets, and it refuses a live directory lock or a run with no settle record.
+
+Record usable token lower bounds with explicit unknown-attempt counts, requested models and observed provider models. The settle reader can project usage from preserved journals without rewriting the sealed result.
+
+CoordinationEvent includes the tool-timing event. Consumers with exhaustive coordination event switches must handle this variant. SupervisedResult retains its established union arms and adds optional measured usage; requested models and token lower bounds are available without guessing missing receipts.
+
+Keep conservative budget reservations out of terminal measured usage and validate settlement receipts and totals before publication. Missing usage and provider identity remain explicitly unknown.
+
+`agent-runtime-top` tells an empty workspace how to open a supervise run directory: `--web --root` on the directory that holds `observer.jsonl` or `spawn-journal.jsonl`.
+
 ## Unreleased
 
 `profileChatClient` and `profileOptimizerModelCall` forward optional caller request headers on every Router turn. Runtime's content-type, authorization, idempotency-key, and x-correlation-id keep precedence.
