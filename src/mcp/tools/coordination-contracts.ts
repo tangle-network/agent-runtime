@@ -340,11 +340,12 @@ export interface CoordinationToolsOptions {
   readonly preflightSpawn?: SpawnPreflight
   /**
    * OPT-IN pre-journal PROFILE resolution: maps the profile a driver authored to the profile that
-   * will actually run, before `preflightSpawn` asks the backend about it. A layer that pins
-   * profiles by name (an agent graph) installs this so the gate judges the canonical profile —
-   * its real model, tools and harness — never the `{ name }` stub the driver wrote. Synchronous,
-   * throw-on-refusal, identity-free: it sees only the profile, never the assignment or budget,
-   * because both are minted AFTER the pre-journal point. Omit = the authored profile is used.
+   * will actually run — both the spawn and `preflightSpawn`'s gate see the resolved profile. A
+   * layer that pins profiles by name (an agent graph) installs this so the canonical profile —
+   * its real model, tools and harness — runs, never the `{ name }` stub the driver wrote (#1281).
+   * Synchronous, throw-on-refusal, identity-free: it sees only the profile, never the assignment
+   * or budget, because both are minted AFTER the pre-journal point. Omit = the authored profile
+   * is used.
    */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /**
@@ -629,9 +630,6 @@ export interface SpawnAdmission {
   readonly key: string | undefined
   readonly continuity: Exclude<ResolvedContinuity, { readonly error: string }>
   readonly successorOf: string | undefined
-  /** The profile the pre-flight judges: a pinning layer's canonical profile. Read only when a
-   *  pre-flight is configured. */
-  readonly preflightProfile: () => AgentProfile
   /** The receipt for every resource the server read by path. */
   readonly resourcesFromPath: ReadonlyArray<unknown>
   readonly defaultLabel: string

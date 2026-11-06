@@ -695,3 +695,45 @@ describe.skipIf(!bridgeEntry)(
     }, 60000)
   },
 )
+
+describe('bridge executor capacity refusals', () => {
+  // The exact body cli-bridge emits for ExecutorSaturatedError (routes/chat-completions.ts):
+  // counters are flat on the error, `executor` names the semaphore.
+  const saturatedBody = JSON.stringify({
+    error: {
+      type: 'executor_saturated',
+      capacity: true,
+      provider_dispatch: 'not_started',
+      status: 429,
+      executor: 'host',
+      in_flight: 4,
+      max: 4,
+      queued: 2,
+      deadline_ms: 60000,
+      retry_after_ms: 4000,
+      message: 'host: acquire timeout after 60000ms (in_flight=4/4 queued=2)',
+    },
+  })
+
+  it('labels a post-semaphore refusal as capacity, not a provider failure', () => {
+    const decoded = bridgeUpstreamError(saturatedBody, 'bridgeExecutor', 429)
+    expect(decoded).toMatchObject({
+      status: 429,
+      upstreamCode: 'executor_saturated',
+      providerDispatch: 'not_started',
+      capacity: true,
+    })
+    expect(decoded.message).toContain('bridge executor at capacity')
+    expect(decoded.message).toContain('acquire timeout after 60000ms')
+  })
+
+  it('leaves ordinary upstream errors unlabeled', () => {
+    const decoded = bridgeUpstreamError(
+      JSON.stringify({ error: { type: 'not_configured', message: 'backend missing' } }),
+      'bridgeExecutor',
+      500,
+    )
+    expect(decoded.capacity).toBeUndefined()
+    expect(decoded.message).not.toContain('capacity')
+  })
+})

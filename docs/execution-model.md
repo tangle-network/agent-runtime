@@ -123,7 +123,7 @@ A profile with explicit credential intent keeps its dedicated provider.
             │  out, NEVER the verdict)        │                       │ analyst kinds)
 ```
 
-**The rule in one line:** the driver carries the coordination MCP because spawning/steering *is* its job; the worker gets only the artifact's tools because its job is to do the task, not manage others; the analyst is locked to `read_trace` so the selector cannot peek at the judge. (`bench/src/profiles.ts`: `driver/operator`, `worker/default`, `analyst/trace`.)
+**The rule in one line:** the driver carries the coordination MCP because spawning/steering *is* its job; the worker gets only the artifact's tools because its job is to do the task, not manage others; the analyst is locked to `read_trace` so the selector cannot peek at the judge.
 
 ## 4. How a worker is spawned (the mechanics)
 

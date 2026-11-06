@@ -32,7 +32,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { jsonRpc, wakeInput } from '../helpers/coordination-http'
 import { coordinationProxy } from '../helpers/coordination-proxy'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const proxies: Awaited<ReturnType<typeof coordinationProxy>>[] = []
 afterEach(async () => {
@@ -192,6 +192,67 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     )
     // Waiting is not a tool: the manager ends its turn, and the grant is only what was named.
     expect(names).toEqual(['spawn_worker'])
+  })
+
+  // #1281: the gate judged the pinning layer's resolved profile while the spawn ran the authored
+  // stub, so a pre-flight refusal (or grant) described a worker that never existed.
+  it('resolves the spawn profile once: the pre-flight gate and the spawned worker see the same profile', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    let gated: unknown
+    let ran: unknown
+    const root: Agent<unknown, unknown> = {
+      name: 'resolved-spawn-driver',
+      async act(_task, scope: Scope<unknown>) {
+        const { handle: mcp, controls } = await serveCoordinationMcpForManager({
+          scope,
+          blobs,
+          makeWorkerAgent: (profile) => {
+            ran = profile
+            return deliveringLeaf('w', { answer: 42 })
+          },
+          resolveSpawnProfile: (profile) => ({
+            ...profile,
+            tools: runtimeToolDeclarations('granted_tool'),
+          }),
+          preflightSpawn: async (profile) => {
+            gated = profile
+            return undefined
+          },
+          perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+          toolNames: ['spawn_worker'],
+          authentication: true,
+        })
+        try {
+          const response = await jsonRpc(
+            mcp.url,
+            'tools/call',
+            { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
+            mcp.headers,
+          )
+          expect(response.error).toBeUndefined()
+          await controls.awaitWake(wakeInput())
+        } finally {
+          await mcp.close()
+        }
+      },
+    }
+
+    await createSupervisor<unknown, unknown>().run(root, 'solve', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'resolved-spawn',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+    })
+
+    // The worker RAN the resolved profile — with the grant — not the authored `{}` stub.
+    expect((ran as { tools?: Record<string, boolean> }).tools).toEqual(
+      runtimeToolDeclarations('granted_tool'),
+    )
+    // And the gate judged the SAME profile object the spawn used.
+    expect(ran).toBe(gated)
   })
 
   it('answers a spawn whose workspace reads outlast the fence with a receipt, then wakes the manager with its worker', async () => {

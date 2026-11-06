@@ -129,6 +129,30 @@ describe('resolveSpawnResourcePaths through the manager’s own environment', ()
     const asReader = await resolveSpawnResourcePaths(profile, hostDirectoryReader(root))
     expect(asReader).toEqual(asString)
   })
+
+  it('refuses a path naming .sidecar at any depth without asking the provider', async () => {
+    const reads: string[] = []
+    const result = await resolveSpawnResourcePaths(
+      {
+        resources: {
+          files: [
+            { path: 't', resource: { kind: 'inline', name: 't', path: 'work/.sidecar/token' } },
+          ],
+        },
+      },
+      environmentReader({
+        id: 'env-1',
+        read: async (path) => {
+          reads.push(path)
+          return 'x'
+        },
+      }),
+    )
+    expect(result).toMatchObject({ ok: false, at: 'files[0].resource' })
+    if (result.ok) return
+    expect(result.reason).toContain('.sidecar')
+    expect(reads).toEqual([])
+  })
 })
 
 describe('resolveSpawnResourcePaths failures the runtime process cannot read past', () => {

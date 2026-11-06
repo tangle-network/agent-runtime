@@ -129,9 +129,13 @@ export function bridgeUpstreamError(
     ? runtimeFailureRemediationSchema.readonly().safeParse(safe)
     : undefined
   const message = typeof safe.message === 'string' ? safe.message : (upstreamCode ?? 'unknown')
-  return new BackendTransportError('bridge', `${prefix}: ${message}`.slice(0, 512), {
+  // The bridge names capacity refusals (`executor_saturated`) so Runtime does not read a
+  // full host semaphore as a provider failure (#1186).
+  const capacity = raw.capacity === true ? 'bridge executor at capacity: ' : ''
+  return new BackendTransportError('bridge', `${prefix}: ${capacity}${message}`.slice(0, 512), {
     status,
     upstreamCode,
+    ...(capacity ? { capacity: true } : {}),
     ...(raw.provider_dispatch === 'not_started' ? { providerDispatch: 'not_started' } : {}),
     ...(remedy?.success ? { remediation: remedy.data } : {}),
     ...(typeof redacted.body === 'string' ? { body: redacted.body.slice(0, 2_048) } : {}),

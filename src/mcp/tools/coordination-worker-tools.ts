@@ -215,7 +215,7 @@ function successorRefusal({ opts, spawn, workers }: WorkerToolsCtx, successorOf:
 }
 
 async function spawnWorkerHandler(ctx: WorkerToolsCtx, raw: unknown): Promise<unknown> {
-  const { opts, spawn, workers } = ctx
+  const { spawn, workers } = ctx
   const a = obj(raw)
   const key = a.key === undefined ? undefined : str(a.key, 'key')
   const resolvedProfile = await resolveSpawnedProfile(ctx, a.profile)
@@ -248,10 +248,6 @@ async function spawnWorkerHandler(ctx: WorkerToolsCtx, raw: unknown): Promise<un
     key,
     continuity,
     successorOf,
-    // The gate judges the profile that will RUN. A pinning layer resolves the authored stub
-    // to its canonical profile here, so the backend is asked about the real model and tools.
-    preflightProfile: () =>
-      opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
     resourcesFromPath: resolved,
     // magnetar-rust-20261018b's 13 workers were all labelled 'worker', so no view showed a role.
     defaultLabel:

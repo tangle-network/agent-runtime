@@ -5,6 +5,7 @@ import { request as httpsRequest } from 'node:https'
 import { Readable } from 'node:stream'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { BackendTransportError, ValidationError } from '../../errors'
+import { isFiniteNumber } from '../../finite-number'
 import { errorMessage, sleep } from '../util'
 import { abortReason, runAbortable } from './abortable'
 import {
@@ -223,9 +224,14 @@ function silenceBoundRefusal(
 }
 
 /**
- * Read the default bulk lane from `GET /health`. Runtime sends no reserved-client header, so
- * overall capacity can look free while the lane this request will use is already full. Older
- * bridges expose only the overall counters; those retain the prior fallback.
+ * Read the gates that decide a spawn from `GET /health`. The host executor
+ * (`executor.in_flight` of `executor.max`, `BRIDGE_HOST_MAX_CONCURRENCY`) gates a
+ * spawn sooner than the bulk admission lane (default 6 vs 4): a spawn the lane
+ * admits still waits on the executor semaphore for `acquire_deadline_ms` and is
+ * then refused as capacity (#1186). When the bridge reports executor counters they
+ * decide the answer; the bulk admission lane (Runtime sends no reserved-client
+ * header, so overall capacity can look free) and then the overall counters remain
+ * the fallback for older bridges.
  */
 export async function bridgeAdmissionRefusal(
   seam: BridgeSeam,
@@ -244,16 +250,33 @@ export async function bridgeAdmissionRefusal(
   } catch {
     return undefined
   }
-  const admission = (
-    parsed as {
-      admission?: {
-        active?: unknown
-        maxActive?: unknown
-        bulkMaxActive?: unknown
-        activeByClass?: { bulk?: unknown }
-      }
-    } | null
-  )?.admission
+  const health = parsed as {
+    admission?: {
+      active?: unknown
+      maxActive?: unknown
+      bulkMaxActive?: unknown
+      activeByClass?: { bulk?: unknown }
+    }
+    executor?: { in_flight?: unknown; max?: unknown; queued?: unknown }
+  } | null
+  const admission = health?.admission
+  const executorInFlight = health?.executor?.in_flight
+  const executorMax = health?.executor?.max
+  const executorQueued = health?.executor?.queued
+  if (
+    isFiniteNumber(executorInFlight) &&
+    executorInFlight >= 0 &&
+    isFiniteNumber(executorMax) &&
+    executorMax >= 0
+  ) {
+    // This check admits one spawn, so intended concurrency is 1.
+    if (executorInFlight + 1 > executorMax) {
+      const queued =
+        isFiniteNumber(executorQueued) && executorQueued >= 0 ? `, ${executorQueued} queued` : ''
+      return `bridge ${seam.bridgeUrl.replace(/\/$/, '')} executor is full: in_flight ${executorInFlight} of max ${executorMax}${queued}; the spawn would wait on the host semaphore and be refused as capacity`
+    }
+    return undefined
+  }
   const active = admission?.active
   const maxActive = admission?.maxActive
   const bulkActive = admission?.activeByClass?.bulk
