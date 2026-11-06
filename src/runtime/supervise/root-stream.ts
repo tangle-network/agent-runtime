@@ -218,6 +218,22 @@ function writeLine(fd: number, line: string): void {
   }
 }
 
+/** A `task` tool result names the session the harness itself spawned (`<task id="ses_...">` or
+ *  `task_id: ses_...`), the same text `shared-box-worker` reads from a live part. #1264: the id
+ *  reached no record, so a subagent the harness completed stayed invisible to settle and
+ *  coverage alike. */
+const TASK_SESSION_ID = /(?:<task id="|task_id: )(ses_[A-Za-z0-9]+)/gu
+
+function subagentSessionIdsIn(event: ExecutorProgressEvent): readonly string[] {
+  if (event.kind !== 'tool_result' || event.toolName !== 'task') return []
+  const ids: string[] = []
+  for (const text of [event.result, event.error?.message]) {
+    if (typeof text !== 'string') continue
+    for (const match of text.matchAll(TASK_SESSION_ID)) ids.push(match[1]!)
+  }
+  return ids
+}
+
 /**
  * The receipt for the root stream a run directory holds, recomputed from the file's bytes, or
  * `undefined` when the directory holds none. This is what a run that never settled — a root that
@@ -231,17 +247,24 @@ export async function readRootStreamReceipt(
   const path = resolve(runDir, file)
   const hash = createHash('sha256')
   let events = 0
+  const subagentSessionIds = new Set<string>()
   try {
-    for await (const _record of readCommittedJsonLines<RootStreamRecord>(path, {
+    for await (const record of readCommittedJsonLines<RootStreamRecord>(path, {
       onBytes: (bytes) => void hash.update(bytes),
     })) {
       events += 1
+      if ('event' in record)
+        for (const id of subagentSessionIdsIn(record.event)) subagentSessionIds.add(id)
     }
   } catch (error) {
     if (isNoEntError(error)) return undefined
     throw error
   }
-  return Object.freeze({ ref: `sha256:${hash.digest('hex')}`, events })
+  return Object.freeze({
+    ref: `sha256:${hash.digest('hex')}`,
+    events,
+    ...(subagentSessionIds.size > 0 ? { subagentSessionIds: [...subagentSessionIds] } : {}),
+  })
 }
 
 /** Every committed line of the root stream, in order, or `undefined` when there is no file. A

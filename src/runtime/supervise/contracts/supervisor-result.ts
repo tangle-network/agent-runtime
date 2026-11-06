@@ -18,6 +18,9 @@ export interface RootStreamReceipt {
   readonly ref: string
   /** Committed lines in the file. `0` is a root that drove and produced no observable output. */
   readonly events: number
+  /** Subagent sessions the harness itself spawned, as its `task` tool results named them
+   *  (#1264: a completed subagent reached no record before). Absent when none were observed. */
+  readonly subagentSessionIds?: readonly string[]
 }
 
 /** An empty observation list is unknown served identity unless dispatch was proven not started. */
