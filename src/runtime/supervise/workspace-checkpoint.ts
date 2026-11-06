@@ -1,19 +1,7 @@
 /**
  * Durable checkpoints of a retained owner's workspace, and the marker that proves a restore.
- *
- * A director placed on a provider sandbox keeps its working files in that sandbox. When the
- * provider loses the sandbox, Runtime re-enters the director in a new one with the coordinator's
- * run state (`reentry.ts`), but the files were gone: measured in discovery-lab Autopsy A
- * (`autopsy-a-after-20260924b`), the re-entered director found no `objective.md` and
- * wrote a new nonce. So while a manager coordinates, Runtime checkpoints its workspace through the
- * provider's durable branching surface, and a replacement environment is created from the latest
- * checkpoint. The checkpoint belongs to the provider: a Tangle checkpoint is a Sandbox snapshot,
- * which outlives its box (a snapshot took 4.0 to 5.0 s, and a box created
- * from it 19 s after its source box was deleted held every file byte-identical).
- *
- * Before each checkpoint Runtime writes a marker file into the workspace. A restored environment
- * is verified by reading that file back: the provider's create is contracted to restore or fail,
- * and the marker is the evidence that it did.
+ * A replacement environment is created from the latest checkpoint. The marker is the evidence
+ * the provider restored that workspace.
  */
 
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
@@ -36,14 +24,10 @@ export const WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS = 10 * WORKSPACE_CHECKPOINT_TI
  *  and only after their files are captured. */
 export const WORKSPACE_CHECKPOINTS_KEPT = 2
 
-/** Bound on the captures one checkpoint rotation runs, all of them together, forks included.
- *  A turn's own workspace capture also cuts them short when it starts. A capture cut short keeps
- *  its checkpoint, and the owner's release, bounded by `RELEASE_CHECKPOINT_CAPTURES_MS`, captures
- *  it again. */
+/** Bound on the captures one checkpoint rotation runs. A turn capture cuts them short; the release captures again. */
 export const WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS = 2 * 60_000
 
-/** Bound on creating and reconstructing the fork a checkpoint's capture reads: a Sandbox box
- *  created from a snapshot (19 s). The capture itself is bounded by its port. */
+/** Bound on creating the fork a checkpoint capture reads. The capture itself is bounded by its port. */
 export const WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS = 10 * 60_000
 
 /** Write the marker. False when the environment cannot take it, so no restore can be verified. */

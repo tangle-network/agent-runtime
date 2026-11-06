@@ -47,7 +47,8 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
   let snapshot: ReadonlyMap<string, string> | undefined
   const capture = checkpointCaptureFixture({
     provider: source.provider,
-    snapshotFiles: (id) => (id === 'intent-snapshot' && checkpoint ? snapshot : undefined),
+    snapshotFiles: (id) =>
+      (id === 'intent-snapshot' || id === 'older-snapshot') && snapshot ? snapshot : undefined,
   })
   cleanups.push(() => capture.cleanup())
   let live = true
@@ -58,6 +59,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
   let lookup = initialLookup
   let cleanupUnknown = false
   let cleanupThrow: string | undefined
+  let stopOnAbort = false
   let clock = 0
   let lateResult: (() => void) | undefined
   let checkpointStarted: (() => void) | undefined
@@ -132,9 +134,17 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
               : checkpoint,
         }
       },
-      deleteCheckpoint: async (input) => {
-        expect(input.targetId).toBe('intent-snapshot')
+      deleteCheckpoint: async (input, options?: { signal?: AbortSignal }) => {
+        expect(['intent-snapshot', 'older-snapshot']).toContain(input.targetId)
         deletes += 1
+        if (stopOnAbort && deletes === 1) {
+          await new Promise<void>((resolve) => {
+            const signal = options?.signal
+            if (signal === undefined || signal.aborted) resolve()
+            else signal.addEventListener('abort', () => resolve(), { once: true })
+          })
+          return { ...input, status: 'unknown', message: 'aborted', retryable: true }
+        }
         if (cleanupThrow !== undefined) throw new Error(cleanupThrow)
         if (cleanupUnknown) {
           return { ...input, status: 'unknown', message: 'storage unavailable', retryable: true }
@@ -193,6 +203,32 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     },
     setCleanupThrow: (message: string) => {
       cleanupThrow = message
+    },
+    stopDeletesWhenAborted: () => {
+      stopOnAbort = true
+    },
+    async seedOlderCheckpoint() {
+      const older: WorkspaceCheckpointRef = {
+        checkpointId: 'older-snapshot',
+        provider: source.provider,
+        source,
+        idempotencyKey: 'older-key',
+        requestDigest: `sha256:${'b'.repeat(64)}`,
+        createdAt: new Date(0).toISOString(),
+      }
+      events.push({
+        kind: 'workspace-checkpoint',
+        id: source.runId,
+        provider: source.provider,
+        environmentId: source.environmentId,
+        checkpoint: older,
+        seq: events.length + 1,
+        at: new Date(0).toISOString(),
+      })
+      const saved = snapshot
+      snapshot = new Map([['note', 'older']])
+      events.push(await capture.record(older, source.runId, events.length + 1))
+      snapshot = saved
     },
     setNow: (next: number) => {
       clock = next
@@ -336,6 +372,20 @@ describe('retained checkpoint effects with unresolved outcomes', () => {
     expect(probe.events).toContainEqual(
       expect.objectContaining({ kind: 'environment-teardown', destroyed: true }),
     )
+  })
+
+  it('stops the next checkpoint delete when cleanup is aborted', async () => {
+    const probe = fixture('journal-append-failure')
+    probe.stopDeletesWhenAborted()
+    await probe.checkpoint()
+    await probe.seedOlderCheckpoint()
+    await releaseScopeRetainedOwnerEnvironment(probe.scope, { capturesMs: 0 })
+    const cleanups = probe.events.filter((event) => event.kind === 'workspace-checkpoint-cleanup')
+    expect(probe.state().deletes).toBe(1)
+    expect(cleanups).toContainEqual(
+      expect.objectContaining({ confirmed: false, refused: 'cancelled before checkpoint cleanup' }),
+    )
+    expect(cleanups.every((event) => event.confirmed === false)).toBe(true)
   })
 
   it('names what the lookup answered for a request it keeps the source for', async () => {

@@ -170,14 +170,7 @@ export function bindScopeRetainedOwnerProvider(
   if (state) state.provider = provider
 }
 
-/**
- * Bind where the owner's CURRENT environment id can be read from. The drive harness supplies a
- * resolver over its active executor's materialization receipt, which every provider path
- * publishes once the environment exists. The `environment` admission is written only on the
- * retained path, and the production tangle provider declares no `retainedControl`, so a reader
- * that scanned admissions alone would refuse every read on a real sandbox root while looking
- * correct in every test that uses the retained fixture.
- */
+/** Bind the resolver for the owner's current environment id. Admissions alone miss a provider that never writes an environment admission. */
 export function bindScopeRetainedOwnerEnvironmentId(
   scope: Scope<unknown>,
   liveEnvironmentId: () => string | undefined,

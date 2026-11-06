@@ -80,15 +80,7 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
   return attempts
 }
 
-/**
- * Group owner admissions by input and require a verified workspace receipt before deletion.
- *
- * The receipt is the attempt's committed result, or an evidence record of the same attempt: a
- * turn its manager stopped commits its result first and journals its capture as evidence after
- * it, and a turn that failed journals the capture it took of the stopped session. A root capture
- * failure can enter this cleanup barrier and still be resumed, so any receipt refused before
- * reuse must also preserve its source here.
- */
+/** Group owner admissions by input. A source with no verified workspace receipt is preserved, including one a later resume can still use. */
 const UNVERIFIED_SOURCE =
   'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
 

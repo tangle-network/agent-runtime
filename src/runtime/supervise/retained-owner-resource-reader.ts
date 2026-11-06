@@ -3,20 +3,7 @@ import { environmentReader, type SpawnResourceReader } from '../../mcp/tools/spa
 import { owners } from './retained-owner-state'
 import type { Scope } from './types'
 
-/**
- * The owner's environment as a source of by-path spawn resources.
- *
- * Built once per scope, before the environment exists: the coordination tools are created ahead
- * of the owner's first turn, and the environment is admitted during it. So the reader resolves
- * its target on every read — the latest environment admission on this node, reconstructed through
- * the bound provider the same way cleanup reconstructs it, with the same identity check. A manager
- * that has not yet been admitted, or whose provider was never bound, gets a refusal that names the
- * missing piece rather than a read from nowhere.
- *
- * The environment's `read()` serves the sandbox's own workspace; containment against that
- * workspace is the provider's. The relative-path and `..` rules are the reader's, in
- * `environmentReader`, so a manager is refused for the rule it broke.
- */
+/** Read spawn resources from the owner's latest environment. Path rules live in `environmentReader`. A missing admission or provider is a refusal, not a read from nowhere. */
 export function scopeRetainedOwnerResourceReader(
   scope: Scope<unknown>,
 ): SpawnResourceReader | undefined {
