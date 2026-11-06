@@ -1,5 +1,6 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import { captureHarnessTranscript } from '../harness-transcript'
+import { retainedSessionReplaced } from '../retained-run-binding'
 import type { SandboxOutcomeCarrier } from '../sandbox-outcome'
 import { errorText } from '../supervise/error-message'
 import { contentRef } from '../supervise/executor-outcome'
@@ -151,7 +152,10 @@ export class ProviderTurnSettlement {
     const { args } = this
     // A limit or transport stop may omit the terminal aggregate: credit completed native receipts.
     yield* this.usage.settleTurn()
-    this.failure = this.retained ? new RetainedExecutionPendingError(error) : error
+    this.failure =
+      this.retained && !retainedSessionReplaced(error)
+        ? new RetainedExecutionPendingError(error)
+        : error
     this.failed = true
     await this.stopEndedHarness()
     args.scope.state.settleTranscript()

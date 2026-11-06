@@ -1,6 +1,7 @@
 import { ValidationError } from '../../errors'
 import { reportedFailureCause, runtimeFailureCause } from '../failure-cause'
 import { type HarnessTranscriptEvidence, settleHarnessTranscript } from '../harness-transcript'
+import { retainedSessionReplaced } from '../retained-run-binding'
 import { cloneTokenUsage, isAsyncIterable } from '../util'
 import { runAbortable, signalAbortError } from './abortable'
 import type { BudgetPool, ReservationTicket } from './budget'
@@ -248,6 +249,12 @@ async function settleThrown<C>(
     const acceptedAccountingError = attempt.commitAcceptedSpend(accepted)
     if (acceptedAccountingError === undefined) return await settleAccepted(attempt, accepted)
     err = acceptedAccountingError
+  }
+  if (retainedSessionReplaced(err)) {
+    // The admitted session is gone. A recovered child starts pending so a live remote
+    // execution is not replaced; this one is not that execution.
+    live.recoveryPending = false
+    return await settleCrashed(attempt, err, executionEvidence)
   }
   if (err instanceof RetainedExecutionPendingError || live.recoveryPending) {
     return await settleRetainedPending(attempt, err)

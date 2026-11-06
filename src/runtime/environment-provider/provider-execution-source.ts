@@ -4,7 +4,7 @@ import type {
   AgentEnvironmentEvent,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { exactSession } from '../retained-run-binding'
+import { exactSession, retainedSessionReplaced } from '../retained-run-binding'
 import {
   assertRetainedRunReplayMaterial,
   mintRetainedIdentity,
@@ -198,7 +198,7 @@ async function retainedExecution(
     return { environment, events, retained: true }
   } catch (error) {
     // A durable dispatch or exact reattachment proves execution admission before observation starts.
-    if (proof.admitted)
+    if (proof.admitted && !retainedSessionReplaced(error))
       throw new RetainedExecutionPendingError(
         error,
         proof.executionAdmitted ? 'execution' : 'admission',
