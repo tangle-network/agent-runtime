@@ -42,10 +42,6 @@ export const WORKSPACE_CHECKPOINTS_KEPT = 2
  *  it again. */
 export const WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS = 2 * 60_000
 
-/** Bound on creating and reconstructing the fork a checkpoint's capture reads: a Sandbox box
- *  created from a snapshot (19 s). The capture itself is bounded by its port. */
-export const WORKSPACE_CHECKPOINT_FORK_TIMEOUT_MS = 10 * 60_000
-
 /** Write the marker. False when the environment cannot take it, so no restore can be verified. */
 export async function writeWorkspaceMarker(
   environment: AgentEnvironment,

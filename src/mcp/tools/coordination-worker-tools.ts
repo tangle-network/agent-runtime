@@ -114,6 +114,19 @@ function spawnWorkerTool(ctx: WorkerToolsCtx): McpToolDescriptor {
             'Put what the successor needs from its predecessor in `task`.',
         },
         budget: spawnBudgetArg,
+        resources: {
+          type: 'object',
+          description:
+            'Optional machine for this worker: `cpu`, `memoryMb`, `diskMb`, `gpu`. Omit for the ' +
+            "run's default. Refused, naming the ceiling, above the backend's `maxWorkerResources`.",
+          properties: {
+            cpu: { type: 'number', exclusiveMinimum: 0 },
+            memoryMb: { type: 'number', exclusiveMinimum: 0 },
+            diskMb: { type: 'number', exclusiveMinimum: 0 },
+            gpu: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
       },
       required: ['profile', 'task'],
     },

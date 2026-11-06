@@ -72,6 +72,7 @@ import {
   modelSettingsSpawnPreflight,
   profileToolSpawnPreflight,
   providerSpawnPreflight,
+  resourceSpawnPreflight,
 } from './supervise-spawn-preflight'
 import { assertSqlRunOptions } from './supervise-sql-admission'
 import { workerTraceUnpropagatedDeclaration } from './supervise-worker-backend'
@@ -538,6 +539,7 @@ function managerDriverPlan(
     options.backend?.backend === 'provider' && typeof options.backend.provider === 'object'
       ? providerSpawnPreflight(options.backend.provider)
       : undefined,
+    resourceSpawnPreflight(options.backend),
   )
   // A custom harness receives the provider-visible profile plus the immutable canonical profile
   // for receipt binding, so an undeclared materialization defaults to the full canonical leaf set

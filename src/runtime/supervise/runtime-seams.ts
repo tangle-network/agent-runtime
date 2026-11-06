@@ -1,5 +1,6 @@
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { runLocalHarness } from '../../mcp/local-harness-process'
+import type { ResourceRequest } from '../../mcp/tools/coordination-contracts'
 import type { GitRunner } from '../../mcp/worktree'
 import type { WorktreeCheckRunner } from '../../mcp/worktree-harness'
 import type { CodeModeStore, CodeModeToolContext, CodeModeToolsOptions } from '../code-mode'
@@ -220,6 +221,8 @@ export interface ProviderSeam extends ProviderExecutorOptions {
    * environment that every co-tenant of a shared box could read.
    */
   shared?: SharedBoxPlacement
+  /** Largest `spawn_worker` `resources` a worker may request; above it is refused (#1277). */
+  maxWorkerResources?: ResourceRequest
 }
 
 export const routerSeamKey = 'router'

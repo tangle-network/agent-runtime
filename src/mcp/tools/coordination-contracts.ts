@@ -1,6 +1,7 @@
 import type { PairedPromotionDecision } from '@tangle-network/agent-eval'
 import type { SealedExperiment } from '@tangle-network/agent-eval/experiment'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import type { Redactor } from '../../redact'
 import type {
   AgentExecutionRef,
@@ -97,6 +98,9 @@ export interface SettledWorker {
   readonly subtree?: SubtreeSummary
 }
 
+/** The machine a worker asks for: the canonical create-time resource request. */
+export type ResourceRequest = NonNullable<CreateAgentEnvironmentInput['resources']>
+
 /** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
  * complete worker profile is prepared for one spawn. */
 export interface WorkerSpawnContext {
@@ -110,6 +114,8 @@ export interface WorkerSpawnContext {
   readonly budget: Budget
   /** Detached, deeply immutable task bytes from this spawn request. */
   readonly task: unknown
+  /** The machine `spawn_worker` requested, admitted under the backend's `maxWorkerResources`. */
+  readonly resources?: ResourceRequest
   /** Exact trace label selected for this spawn. */
   readonly label: string
   /** Semantic restart key, when the manager supplied one. */
@@ -460,6 +466,7 @@ export interface SpawnPreflightContext {
   readonly label: string
   readonly key?: string
   readonly task: unknown
+  readonly resources?: ResourceRequest
 }
 
 /** The gate `CoordinationToolsOptions.preflightSpawn` installs. */
