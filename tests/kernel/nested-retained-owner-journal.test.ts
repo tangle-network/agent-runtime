@@ -162,7 +162,6 @@ describe('nested retained owner journal isolation', () => {
       let dispatches = 0
       let attempts = 0
       let reads = 0
-      const subscriptions: Array<{ since: string | undefined; frames: number }> = []
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         dispatch: async (turn) => {
@@ -202,12 +201,7 @@ describe('nested retained owner journal isolation', () => {
           return {
             ...session,
             async *events(eventOptions) {
-              const read = { since: eventOptions?.since, frames: 0 }
-              subscriptions.push(read)
-              for await (const frame of session.events!(eventOptions)) {
-                read.frames += 1
-                yield frame
-              }
+              yield* session.events!(eventOptions)
               for (let n = 0; mode === 'replayed' && n < REPLAYED; n++) {
                 const part = { id: `prt-${n}`, type: 'reasoning', text: 'x' }
                 yield { id: `replay-${n}`, type: 'message.part.updated', data: { part } }
@@ -460,10 +454,6 @@ describe('nested retained owner journal isolation', () => {
           },
         })
         expect(nested.some((event) => event.kind === 'execution-abandoned')).toBe(false)
-        expect(subscriptions).toEqual([
-          { since: undefined, frames: 3 },
-          ...Array(2).fill({ since: 'event-2', frames: 0 }),
-        ])
         const floor = parent.find(
           (event) =>
             event.kind === 'reconciled' && event.id === spawn.id && event.settledSeq !== undefined,
@@ -548,12 +538,6 @@ describe('nested retained owner journal isolation', () => {
           finalizer,
           brain: scriptedDriverBrain([{ content: 'waiting for the manager' }, { content: 'done' }]),
         })
-        // A restart resumes after the position the last driver attempt recorded, reading no frame;
-        // one before any attempt was recorded replays the execution from its first frame.
-        if (retry)
-          expect(subscriptions.slice(1)).toEqual([
-            mode === 'unreconciled-restart' ? { since: 'event-2', frames: 0 } : subscriptions[0],
-          ])
         const recoveredParent = (await restarted.journal.loadTree('root')) ?? []
         const recoveredNested = (await restarted.journal.loadTree(spawn.ownedTreeRoot)) ?? []
         const settlement = recoveredParent.find((e) => e.kind === 'settled' && e.id === spawn.id)

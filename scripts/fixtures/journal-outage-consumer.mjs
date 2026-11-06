@@ -229,6 +229,7 @@ if (mode === 'controller') {
   let createMaterial
   let coordinationPort
   let worker
+  let nativeStartedAt
   let controllerPid
   let controllerPhase
   let injected
@@ -327,6 +328,7 @@ if (mode === 'controller') {
           await fs.writeFile(join(root, 'native-control.json'), JSON.stringify(controlRef))
           const code = `const fs=require('node:fs'); const root=process.argv[1]; let ticks=0; const timer=setInterval(()=>{ fs.writeFileSync(root+'/heartbeat',String(++ticks)); if(fs.existsSync(root+'/complete')) { fs.writeFileSync(root+'/native-result.json',JSON.stringify({answer:21+21,pid:process.pid,ticks})); clearInterval(timer); } },25); setTimeout(()=>{clearInterval(timer);process.exit(2)},15000).unref()`
           worker = spawn(process.execPath, ['-e', code, root], { stdio: 'ignore' })
+          nativeStartedAt = new Date().toISOString()
           alive = true
           worker.once('exit', (code) => {
             alive = false
@@ -342,7 +344,7 @@ if (mode === 'controller') {
           {
             id: 'native-start',
             type: 'status',
-            data: { sequence: 0, occurredAt: new Date().toISOString() },
+            data: { sequence: 0, occurredAt: nativeStartedAt },
             normalized: { type: 'status', status: 'started' },
           },
         ]

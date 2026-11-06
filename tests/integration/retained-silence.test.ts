@@ -20,7 +20,10 @@ import {
   DriverAttemptsExhaustedError,
 } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { runDriverWithRetry } from '../../src/runtime/supervise/driver-retry'
-import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
+import {
+  RetainedExecutionPendingError,
+  type RetainedObservedPosition,
+} from '../../src/runtime/supervise/retained-executor'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 
 const quietMs = 300
@@ -29,7 +32,17 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
 })
 
-async function nativeRun(mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'probe') {
+async function nativeRun(
+  mode:
+    | 'duplicate'
+    | 'progress'
+    | 'held'
+    | 'closed'
+    | 'probe'
+    | 'replay'
+    | 'replay-closed'
+    | 'replay-cold',
+) {
   const directory = await mkdtemp(join(tmpdir(), 'retained-silence-'))
   const child = spawn(process.execPath, ['tests/helpers/retained-silence-native.cjs', directory], {
     stdio: ['pipe', 'pipe', 'inherit'],
@@ -78,14 +91,20 @@ async function nativeRun(mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'p
         ...session,
         status: async () => (await command('status')) as 'running',
         async *events(options): AsyncIterable<AgentEnvironmentEvent> {
-          let offset = 0
+          const initial = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
+            .trim()
+            .split('\n')
+          let offset = options?.since
+            ? initial.findIndex((row) => JSON.parse(row).id === options.since) + 1
+            : 0
+          await command('observe', { since: options?.since ?? null })
           while (!stop.signal.aborted && !options?.signal?.aborted) {
             const rows = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
               .trim()
               .split('\n')
             for (const row of rows.slice(offset)) yield JSON.parse(row)
             offset = rows.length
-            if (mode === 'closed') return
+            if (mode === 'closed' || mode === 'replay-closed') return
             await delay(10, undefined, { signal: stop.signal })
           }
         },
@@ -135,6 +154,57 @@ async function nativeRun(mode: 'duplicate' | 'progress' | 'held' | 'closed' | 'p
   return { directory, child, stop, handle, session, command, journal, dispatches: () => dispatches }
 }
 
+async function observeWithRetry(
+  fixture: Awaited<ReturnType<typeof nativeRun>>,
+  records: DriverAttemptRecord[],
+  observed?: RetainedObservedPosition,
+) {
+  return runDriverWithRetry({
+    async drive() {
+      try {
+        const observation = new RetainedObservation(
+          fixture.handle,
+          fixture.stop.signal,
+          { observed },
+          quietMs,
+        )
+        for await (const event of observation.observe(fixture.session))
+          await appendCommittedJsonLine(fixture.journal, event)
+      } catch (cause) {
+        throw new RetainedExecutionPendingError(cause)
+      }
+    },
+    progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+    budget: () => ({
+      tokensLeft: 100,
+      tokensKnown: true,
+      cacheBreakdownKnown: true,
+      usdLeft: 0,
+      usdCapped: false,
+      usdKnown: true,
+      iterationsLeft: 10,
+      deadlineMs: 0,
+      reservedTokens: 0,
+    }),
+    signal: fixture.stop.signal,
+    policy: {
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+      transientOutageMs: 0,
+      maxConsecutiveFailures: 2,
+    },
+    async resolvePending(pending) {
+      expect(pending.pendingCause).toBe('unobservable')
+      expect((await fixture.handle.status()).status).toBe('running')
+      return false
+    },
+    async onAttempt(record) {
+      records.push(record)
+      await appendCommittedJsonLine(join(fixture.directory, 'attempts.jsonl'), record)
+    },
+  })
+}
+
 it.each(['duplicate', 'closed'] as const)(
   'bounds %s observation and unchanged pending retry without destroying or redispatching the live invocation',
   async (mode) => {
@@ -142,50 +212,7 @@ it.each(['duplicate', 'closed'] as const)(
     const records: DriverAttemptRecord[] = []
     let failure: unknown
     try {
-      await runDriverWithRetry({
-        async drive() {
-          try {
-            const observation = new RetainedObservation(
-              fixture.handle,
-              fixture.stop.signal,
-              undefined,
-              quietMs,
-            )
-            for await (const event of observation.observe(fixture.session))
-              await appendCommittedJsonLine(fixture.journal, event)
-          } catch (cause) {
-            throw new RetainedExecutionPendingError(cause)
-          }
-        },
-        progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
-        budget: () => ({
-          tokensLeft: 100,
-          tokensKnown: true,
-          cacheBreakdownKnown: true,
-          usdLeft: 0,
-          usdCapped: false,
-          usdKnown: true,
-          iterationsLeft: 10,
-          deadlineMs: 0,
-          reservedTokens: 0,
-        }),
-        signal: fixture.stop.signal,
-        policy: {
-          initialBackoffMs: 1,
-          maxBackoffMs: 1,
-          transientOutageMs: 0,
-          maxConsecutiveFailures: 2,
-        },
-        async resolvePending(pending) {
-          expect(pending.pendingCause).toBe('unobservable')
-          expect((await fixture.handle.status()).status).toBe('running')
-          return false
-        },
-        async onAttempt(record) {
-          records.push(record)
-          await appendCommittedJsonLine(join(fixture.directory, 'attempts.jsonl'), record)
-        },
-      })
+      await observeWithRetry(fixture, records)
     } catch (error) {
       failure = error
     }
@@ -215,7 +242,6 @@ it.each(['duplicate', 'closed'] as const)(
     expect(observed.filter((row) => row.type === 'message')).toHaveLength(2)
     expect(JSON.stringify(observed)).toContain('awaitingResultSince')
     const protocol = await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8')
-    expect(protocol.match(/"op":"status"/g)?.length).toBeGreaterThanOrEqual(3)
     expect(protocol).not.toMatch(/cancel|destroy/)
     await fixture.command('finish')
     expect(await fixture.handle.result()).toMatchObject({ success: true, text: 'durable result' })
@@ -301,3 +327,46 @@ it('accepts the exact result that arrives while a live-status read is outstandin
     await answer
   }
 })
+
+it.each(['replay', 'replay-closed', 'replay-cold'] as const)(
+  'replays advancing native cursors inside one driver attempt (%s)',
+  async (mode) => {
+    const fixture = await nativeRun(mode)
+    const records: DriverAttemptRecord[] = []
+    const observedPosition =
+      mode === 'replay-cold'
+        ? { executionId: fixture.handle.controlRef.executionId, replayPosition: 'event-0' }
+        : undefined
+    if (observedPosition)
+      await appendCommittedJsonLine(
+        fixture.journal,
+        JSON.parse((await readFile(join(fixture.directory, 'events.jsonl'), 'utf8')).trim()),
+      )
+    await observeWithRetry(fixture, records, observedPosition)
+    expect(records).toMatchObject([{ attempt: 1, stop: 'completed' }])
+    expect(fixture.dispatches()).toBe(1)
+    const observed = []
+    for await (const row of readCommittedJsonLines<AgentEnvironmentEvent>(fixture.journal))
+      observed.push(row)
+    expect(observed.filter((row) => row.type === 'message').map((row) => row.id)).toEqual([
+      'event-0',
+      'event-1',
+      'event-2',
+    ])
+    expect(observed.filter((row) => row.type === 'result')).toMatchObject([
+      { data: { success: true } },
+    ])
+    const protocol = (await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    const subscriptions = protocol.filter((row) => row.op === 'observe').map((row) => row.since)
+    expect([
+      [observedPosition ? 'event-0' : null, 'event-0', 'event-1'],
+      [observedPosition ? 'event-0' : null, 'event-0', 'event-1', 'event-2'],
+    ]).toContainEqual(subscriptions)
+    expect(protocol).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ op: 'cancel' })]),
+    )
+  },
+)

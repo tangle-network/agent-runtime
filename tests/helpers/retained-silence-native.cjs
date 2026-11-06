@@ -7,6 +7,7 @@ const directory = process.argv[2]
 let timer
 let initial
 let mode
+let replayReads = 0
 const write = (file, value) =>
   fs.appendFileSync(path.join(directory, file), `${JSON.stringify(value)}\n`)
 const frame = (sequence) => ({
@@ -32,6 +33,16 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         }
       }, input.quietMs / 2)
     }
+  } else if (
+    op === 'observe' &&
+    mode.startsWith('replay') &&
+    input.since &&
+    !fs.existsSync(path.join(directory, 'result')) &&
+    (mode !== 'replay-cold' || replayReads++ > 0)
+  ) {
+    const sequence = Number(input.since.slice('event-'.length)) + 1
+    write('events.jsonl', frame(sequence))
+    if (sequence === 2) fs.writeFileSync(path.join(directory, 'result'), 'finished')
   } else if (op === 'status') value = 'running'
   else if (op === 'finish') {
     clearInterval(timer)
@@ -39,7 +50,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   } else if (op === 'unblock')
     fs.writeFileSync(path.join(directory, 'persistence.fifo'), 'committed')
   const reply = () => {
-    write('protocol.jsonl', { op, value })
+    write('protocol.jsonl', { op, ...input, value })
     process.stdout.write(`${JSON.stringify({ id, value })}\n`)
   }
   if (op === 'status' && mode === 'probe') {

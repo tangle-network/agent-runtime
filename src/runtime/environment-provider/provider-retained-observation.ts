@@ -109,13 +109,18 @@ export class RetainedObservation {
   async *observe(
     session: AgentSession,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult> {
-    this.lastObservedAt = Date.now()
-    const completed = yield* this.drain(session, this.resumedFrom)
-    if (!completed && !this.sawTerminal && this.lastReplayPosition !== undefined) {
-      // The terminal receipt carries the turn's usage: resume once; a second failure keeps the first.
-      const firstFailure = this.failure
+    let replayedFrom: string | undefined
+    let firstFailure: typeof this.failure
+    while (true) {
+      this.lastObservedAt = Date.now()
+      if ((yield* this.drain(session, replayedFrom ?? this.resumedFrom)) || this.sawTerminal) break
+      firstFailure ??= this.failure
+      if (this.lastReplayPosition === undefined || this.lastReplayPosition === replayedFrom) {
+        this.failure = firstFailure
+        break
+      }
+      replayedFrom = this.lastReplayPosition
       this.failure = undefined
-      if (!(yield* this.drain(session, this.lastReplayPosition))) this.failure = firstFailure
     }
     // An earlier attempt read the frames up to a resumed position, usage receipts among them.
     const resumed = this.resumedFrom && `retained provider stream resumed after ${this.resumedFrom}`
@@ -339,7 +344,6 @@ export class RetainedObservation {
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult, boolean> {
     const subscription = linkAbort(this.signal)
     let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
-    let failed = false
     try {
       iterator = session
         .events({
@@ -363,7 +367,7 @@ export class RetainedObservation {
               `retained provider stream sent ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result; the rest were not read`,
             ),
           }
-          break
+          return true
         }
         if (this.observedFrames % RETAINED_OBSERVATION_BATCH_EVENTS === 0 && this.observedFrames) {
           // Ready iterators would otherwise starve result transport, cancellation and deadlines.
@@ -375,25 +379,23 @@ export class RetainedObservation {
         } catch (error) {
           if (this.signal.aborted) throw error
           this.failure = { error }
-          failed = true
-          break
+          return false
         }
         if (observed.kind === 'quiet') {
-          if (this.silenceHandledAt !== undefined) await this.stopQuietObservation(session)
-          else {
-            yield this.awaitingResult(this.lastObservedAt)
-            this.lastObservedAt = Date.now()
+          if (this.silenceHandledAt === undefined) yield this.awaitingResult(this.lastObservedAt)
+          this.failure ??= {
+            error: streamFailure('retained provider stream stalled before its exact result'),
           }
-          continue
+          return false
         }
         if (observed.kind === 'exact-result') {
           this.failure ??= {
             error: streamFailure('retained provider stream remained open after its exact result'),
           }
-          break
+          return true
         }
         this.pendingRead = undefined
-        if (observed.value.done) break
+        if (observed.value.done) return this.sawTerminal
         if (this.acceptFrame(observed.value.value)) {
           yield observed.value.value
           // Consumer persistence is backpressure, not silence on the provider connection.
@@ -408,6 +410,5 @@ export class RetainedObservation {
         .then(() => iterator?.return?.())
         .catch(() => undefined)
     }
-    return !failed
   }
 }
