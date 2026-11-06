@@ -431,7 +431,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1036 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -532,6 +532,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 | `extractLlmCallEvent` | function | Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when |
 | `failuresAnalyst` | function | The default self-improvement LENS — authored content, not a code path. On each settled worker it hands |
 | `fanout` | function | `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved |
+| `fileEscalateQuestion` | function | An `escalateQuestion` that writes each `ask_parent` question to `questions/<id>.json` for an |
 | `filterAuthoredAsserts` | function | The proven authored-assert filter (lifted from the rigs' generateTests): keep only |
 | `flatWidenGate` | function | The flat default `ScopeWidenGate` — never widens, keeping the R2 selector≠judge collision |
 | `formatPromptHandle` | function | The string form of a handle: `<surface>/v<n>`. |

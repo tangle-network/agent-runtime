@@ -654,12 +654,10 @@ export {
 // children that already settled instead of re-running them. `{ withDriver: true }` wraps the
 // registry for the recursive agents-drive-agents path.
 export * from './supervise/run-context'
-// The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout that
-// published `traces analyze --supervisor-run-dir` reads (`.loops/…` is the pre-rename location
-// readers fall back to). Promoted from the loops repo (#4519 in agent-container) so the
-// writer contract is published alongside its reader.
+// The durable, cross-process face of a run: the `<root>/.agent/supervisor/<id>` layout.
 export {
   cancelWorker,
+  fileEscalateQuestion,
   legacySupervisorRunDir,
   readWorkerCancellation,
   readWorkerSteerAcknowledgement,

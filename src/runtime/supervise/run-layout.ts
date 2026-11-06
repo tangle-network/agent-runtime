@@ -5,15 +5,9 @@
  * `Inbox` seam in `./inbox`. A run persists its state under one directory so that any OTHER process
  * can find it after the fact: `@tangle-network/traces` reads exactly this layout via
  * `traces analyze --supervisor-run-dir`, a restarted host can rehydrate a run it no longer holds
- * handles to, and a human can steer a live worker by appending one NDJSON line. Until now the
- * layout was defined only in the unpublished `loops` repo (`src/supervisor-control.ts`) — a
- * published reader depending on an unpublished writer's convention — so the contract is promoted
- * here, names preserved.
+ * handles to, and a human or another process can steer, cancel or answer it.
  *
- * `.agent` is the one dot-dir for ALL agent-owned state (skills already write
- * `.agent/hypotheses/`, `.agent/skill-runs.jsonl`); supervisor runs live beside them rather than
- * under a product-branded dir. Runs written by older writers used `.loops/supervisor/<id>` —
- * readers that must see those keep a legacy fallback; this writer never creates `.loops` again.
+ * `.agent` is the one dot-dir for all agent-owned state; supervisor runs live beside skill state.
  *
  * Layout, relative to `supervisorRunDir(root, id)`:
  *
@@ -21,27 +15,22 @@
  *   steers/acks/<hash>.json        runtime acknowledgement for that steer operation
  *   workers/<id>.inbox.ndjson      best-effort readable projection of admitted steer requests
  *   workers/<label>.ndjson         best-effort per-worker control-event log (delivery bookkeeping)
+ *   questions/<id>.json            an `ask_parent` question {@link fileEscalateQuestion} hands to an
+ *                                  outside observer, who answers with a root `writeWorkerSteer`
  *   cancellations/requests.ndjson  worker-scoped cancel requests (durable inbox); each line is a
  *                                  {@link WorkerCancelRequest}
- *   cancellations/<opId>.json      the acknowledgement for one cancel operation — a
- *                                  {@link WorkerCancellation} written ONLY by the runtime
- *                                  acknowledger in the OWNING manager's turn loop: exact node
- *                                  ids route to the manager that parents them (any depth);
- *                                  label/profile-name references to the root manager alone
+ *   cancellations/<opId>.json      a {@link WorkerCancellation}, written ONLY by the owning
+ *                                  manager's acknowledger (labels resolve at the root alone)
  *   cancellations/run.request.json the run-scoped cancel request — one {@link RunCancelRequest},
  *                                  the whole RUN rather than one worker
- *   cancellations/run.json         the acknowledgement for the run-scoped request — a
- *                                  {@link RunCancellation} written ONLY by the runtime (the root
- *                                  manager issues the abort; the `supervise()` settle path records
- *                                  what the run actually did)
+ *   cancellations/run.json         its {@link RunCancellation}, written ONLY by the runtime
  *
  * Reads are tolerant by contract: a partial trailing line (a writer mid-append) or a corrupt line
  * never poisons the rest of the file — later valid lines still matter. Duplicate operation ids
  * collapse to the first admitted request, while a payload conflict fails closed.
  *
- * Promoted from `loops/src/supervisor-control.ts`. Steer admission now requires the exact worker id
- * and a caller-owned operation id. One atomic request file is the durable inbox; the NDJSON file is
- * a readable projection only and never controls idempotency.
+ * Steer admission requires the exact worker id and a caller-owned operation id. One atomic request
+ * file is the durable inbox; the NDJSON file is a readable projection that never controls idempotency.
  *
  * @experimental
  */
@@ -51,6 +40,7 @@ import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import { sha256 } from '../../content-digest'
 import { fenceRunWrite } from '../../durable/run-fence'
+import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { RetainedRunEffect } from '../retained-run-types'
 import {
   appendDurableFile,
@@ -58,6 +48,18 @@ import {
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
 } from './durable-file'
+
+/** An `escalateQuestion` that writes each `ask_parent` question to `questions/<id>.json` for an
+ *  out-of-process observer, who answers through `writeWorkerSteer` on the root (#1165). */
+export function fileEscalateQuestion(rootDir: string, runId: string): EscalateQuestion {
+  return (question) => {
+    const dir = join(supervisorRunDir(rootDir, runId), 'questions')
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, `${question.id.replace(/[^\w.-]/g, '_')}.json`)
+    writeAtomicDurableFile(file, `${JSON.stringify(question, null, 2)}\n`, { mode: 0o600 })
+    return { delivered: true, to: file }
+  }
+}
 
 /** One atomically admitted down-leg request for an exact worker id. @stable */
 export interface WorkerSteerRequest {
