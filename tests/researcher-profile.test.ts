@@ -24,9 +24,9 @@ describe('researcher profile execution authority', () => {
     expect(agentRunSpec.profile).toBe(profile)
   })
 
-  it('refuses an incomplete execution profile before returning a run spec', () => {
+  it('refuses an incomplete execution profile naming every missing field in one rejection', () => {
     expect(() => researcherProfile({ profile: { name: 'incomplete' } })).toThrow(
-      /harness must be explicit/,
+      /harness must be explicit before execution; .*model\.default is missing; execution requires a concrete model; .*model\.provider must be explicit before execution/,
     )
   })
 

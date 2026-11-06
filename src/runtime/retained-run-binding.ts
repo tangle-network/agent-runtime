@@ -20,6 +20,7 @@ import type {
   AgentSessionStatus,
   AgentTurnResult,
 } from '@tangle-network/agent-interface/environment-provider'
+import { BackendTransportError } from '../errors'
 import { runAbortable } from './supervise/abortable'
 import { armDeadlineTimer } from './supervise/deadline'
 import { abortError } from './util'
@@ -170,6 +171,37 @@ export class RetainedRunProviderContractError extends Error {
     this.name = 'RetainedRunProviderContractError'
     this.code = options.code ?? 'RETAINED_RUN_PROVIDER_CONTRACT_ERROR'
   }
+}
+
+const HTML_PAGE_START = /^<!doctype html|^<html|^<body/i
+
+/** A gateway's HTML error page that reached a retained-run read as the failure text: a replay
+ *  endpoint behind Cloudflare answers 5xx with markup, which is a bad moment on the transport
+ *  (retry, outage window), never a provider contract violation inviting reconciliation of an
+ *  execution that never started (#1203). Extracts the printed HTTP status and a bounded,
+ *  tag-free excerpt; the page itself is kept as the diagnostic body. */
+export function htmlTransportFailure(error: unknown): BackendTransportError | undefined {
+  if (!(error instanceof Error)) return undefined
+  const text = error.message ?? ''
+  if (!HTML_PAGE_START.test(text.trim())) return undefined
+  const title = /<title>([^<]*)<\/title>/i.exec(text)?.[1]?.trim()
+  const headline =
+    title ??
+    text
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  const status = /\b([45]\d\d)\b/.exec(headline)?.[1]
+  const excerpt = headline.slice(0, 200)
+  return new BackendTransportError(
+    'provider',
+    `provider answered an HTML error page${status === undefined ? '' : ` (HTTP ${status})`}: ${excerpt}`,
+    {
+      ...(status === undefined ? {} : { status: Number(status) }),
+      body: excerpt,
+      cause: error,
+    },
+  )
 }
 
 export function cancellationRequest(

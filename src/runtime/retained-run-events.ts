@@ -14,6 +14,7 @@ import {
   assertSequence,
   assertStableText,
   awaitAbortable,
+  htmlTransportFailure,
   RetainedRunProviderContractError,
 } from './retained-run-binding'
 import type { RetainedRunEventOptions } from './retained-run-types'
@@ -126,6 +127,9 @@ export async function* retainedRunEvents(
       throw abortError(options.signal.reason)
     }
     if (error instanceof RetainedRunProviderContractError) throw error
+    // A gateway's HTML error page is a transport failure, not a contract violation (#1203).
+    const html = htmlTransportFailure(error)
+    if (html) throw html
     // Two facts share this catch: the runtime's own checks above threw (the provider's answer
     // broke its contract), or the provider's iterator threw (the READ failed). Name each so a
     // settlement can tell them apart (#1204); the read is a wrapper, the check is a verdict.

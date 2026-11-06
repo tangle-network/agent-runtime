@@ -27,6 +27,7 @@ import {
   exactSessionCancel,
   exactSessionResult,
   hasDurableCancel,
+  htmlTransportFailure,
   isTerminalSessionStatus,
   RetainedRunProviderContractError,
 } from './retained-run-binding'
@@ -108,6 +109,9 @@ async function retainedResult(control: RetainedRunControl) {
     candidate = await exactSessionResult(control.session)
   } catch (error) {
     if (error instanceof RetainedRunProviderContractError) throw error
+    // A gateway's HTML error page is a transport failure, not a contract violation (#1203).
+    const html = htmlTransportFailure(error)
+    if (html) throw html
     throw new RetainedRunProviderContractError(
       error instanceof Error ? error.message : 'provider retained result read failed',
       { code: 'RETAINED_RESULT_READ_FAILED', cause: error },

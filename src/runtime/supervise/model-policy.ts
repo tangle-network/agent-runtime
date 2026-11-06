@@ -75,24 +75,25 @@ export function profileBridgeWireModel(
  * Refuse an incomplete execution identity before any backend may fill it from ambient config.
  * `AgentProfile` is the sole behavioral authority: harness, provider, and concrete model all
  * participate in its digest. Eval's runtime-selected marker is a matrix-planning value, never an
- * executable model.
+ * executable model. Every missing field is named in ONE refusal, so a caller that cannot see
+ * the contract learns it in one round trip, not one per field (#1329).
  */
 export function assertExecutableAgentProfile(profile: AgentProfile, context: string): void {
+  const failures: string[] = []
   if (profile.harness === undefined) {
-    throw new ConfigError(`${context}: AgentProfile.harness must be explicit before execution`)
+    failures.push('AgentProfile.harness must be explicit before execution')
   }
   const declared = profile.model?.default
-  const model = concreteModelId(declared)
-  if (!model) {
-    const reason = isHarnessNativeModel(declared) ? 'runtime-selected' : 'missing'
-    throw new ConfigError(
-      `${context}: AgentProfile.model.default is ${reason}; execution requires a concrete model`,
+  if (!concreteModelId(declared)) {
+    failures.push(
+      `AgentProfile.model.default is ${isHarnessNativeModel(declared) ? 'runtime-selected' : 'missing'}; execution requires a concrete model`,
     )
   }
   if (!profile.model?.provider?.trim()) {
-    throw new ConfigError(
-      `${context}: AgentProfile.model.provider must be explicit before execution`,
-    )
+    failures.push('AgentProfile.model.provider must be explicit before execution')
+  }
+  if (failures.length > 0) {
+    throw new ConfigError(`${context}: the profile cannot run yet: ${failures.join('; ')}`)
   }
 }
 

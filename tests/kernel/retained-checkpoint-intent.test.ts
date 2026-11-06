@@ -57,6 +57,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
   let failAppend = boundary === 'journal-append-failure'
   let lookup = initialLookup
   let cleanupUnknown = false
+  let cleanupThrow: string | undefined
   let clock = 0
   let lateResult: (() => void) | undefined
   let checkpointStarted: (() => void) | undefined
@@ -134,6 +135,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
       deleteCheckpoint: async (input) => {
         expect(input.targetId).toBe('intent-snapshot')
         deletes += 1
+        if (cleanupThrow !== undefined) throw new Error(cleanupThrow)
         if (cleanupUnknown) {
           return { ...input, status: 'unknown', message: 'storage unavailable', retryable: true }
         }
@@ -189,6 +191,9 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     setCleanupUnknown: (next: boolean) => {
       cleanupUnknown = next
     },
+    setCleanupThrow: (message: string) => {
+      cleanupThrow = message
+    },
     setNow: (next: number) => {
       clock = next
     },
@@ -242,12 +247,45 @@ describe('retained checkpoint effects with unresolved outcomes', () => {
       }),
     )
     expect(probe.state()).toMatchObject({ deletes: 1, destroys: 0, live: true })
+    // An unconfirmed delete says why: the acknowledgement the provider returned (#1594).
+    expect(probe.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        confirmed: false,
+        refused: "provider acknowledged 'unknown'",
+      }),
+    )
+    expect(cleanup).toContainEqual(
+      expect.objectContaining({
+        detail: expect.stringContaining("provider acknowledged 'unknown'"),
+      }),
+    )
     const resumed = { signal: new AbortController().signal } as Scope<unknown>
     probe.register(resumed)
     probe.setCleanupUnknown(false)
     expect(await releaseScopeRetainedOwnerEnvironment(resumed)).toEqual([])
     expect(probe.state()).toMatchObject({ deletes: 2, destroys: 1, live: false })
     expect(probe.state().checkpoint).toBeUndefined()
+  })
+
+  it('journals the provider error text when a checkpoint delete throws', async () => {
+    const probe = fixture('unknown-outcome')
+    probe.setCleanupThrow('storage backend connection refused')
+    await probe.checkpoint()
+    const cleanup = await releaseScopeRetainedOwnerEnvironment(probe.scope)
+    expect(probe.state()).toMatchObject({ deletes: 1, destroys: 0, live: true })
+    expect(probe.events).toContainEqual(
+      expect.objectContaining({
+        kind: 'workspace-checkpoint-cleanup',
+        confirmed: false,
+        refused: expect.stringContaining('storage backend connection refused'),
+      }),
+    )
+    expect(cleanup).toContainEqual(
+      expect.objectContaining({
+        detail: expect.stringContaining('storage backend connection refused'),
+      }),
+    )
   })
 
   it.each(['unknown-outcome', 'late-after-cancel', 'journal-append-failure'] as const)(

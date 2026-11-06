@@ -1334,6 +1334,61 @@ describe('retained runtime run control', () => {
     })
   })
 
+  it('classifies a gateway HTML error page from a retained read as a transport failure', async () => {
+    const controlRef = {
+      runId: 'html-502-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'html-session',
+      executionId: 'html-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    // The Cloudflare 502 page from mech-interp-foundations-glm2-20260911e: a gateway's markup,
+    // which is a bad moment on the transport, not a provider contract violation (#1203).
+    const page =
+      '<!DOCTYPE html>\n<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->\n' +
+      '<head><title>tangle.tools | 502: Bad gateway</title></head>\n' +
+      `<body>${'padding '.repeat(2_000)}</body></html>`
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      // biome-ignore lint/correctness/useYield: the throw-before-yield path is the test subject
+      async *events() {
+        throw new Error(page)
+      },
+      result: async () => {
+        throw new Error(page)
+      },
+      prompt: async () => {
+        throw new Error(page)
+      },
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        return { id: session.id, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'html-environment' },
+      turn: { prompt: 'go', turnId: 'html-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+    await expect(run.result()).rejects.toMatchObject({
+      name: 'BackendTransportError',
+      status: 502,
+      message: expect.stringContaining('HTML error page'),
+      body: expect.stringContaining('Bad gateway'),
+    })
+    await expect(async () => {
+      for await (const _ of run.events()) void _
+    }).rejects.toMatchObject({ name: 'BackendTransportError', status: 502 })
+  })
+
   it('requires exact run and execution coordinates on reconnect and result', async () => {
     const controlRef = {
       runId: 'exact-run',

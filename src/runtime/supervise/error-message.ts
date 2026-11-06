@@ -98,3 +98,19 @@ export function causeChain(error: unknown): object[] {
   }
   return chain
 }
+
+const maxStackFrames = 40
+
+/** The deepest cause's stack that has one, redacted and bounded to {@link maxStackFrames} frames,
+ *  so a record whose messages alone cannot place a failure (a RangeError deep in reconciliation)
+ *  still names its throw site (#2347). The outermost wrappers' stacks are skipped: they restate
+ *  the wrap site the record's own fields already name. */
+export function errorStack(error: unknown): string | undefined {
+  let found: string | undefined
+  for (const value of causeChain(error)) {
+    if (!(value instanceof Error)) continue
+    const stack = errorProperty(value, 'stack')
+    if (stack !== undefined && stack !== '[unreadable error stack]') found = stack
+  }
+  return found === undefined ? undefined : found.split('\n').slice(0, maxStackFrames).join('\n')
+}
