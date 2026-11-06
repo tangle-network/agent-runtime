@@ -176,10 +176,9 @@ export class RetainedRunProviderContractError extends Error {
 const HTML_PAGE_START = /^<!doctype html|^<html|^<body/i
 
 /** A gateway's HTML error page that reached a retained-run read as the failure text: a replay
- *  endpoint behind Cloudflare answers 5xx with markup, which is a bad moment on the transport
- *  (retry, outage window), never a provider contract violation inviting reconciliation of an
- *  execution that never started (#1203). Extracts the printed HTTP status and a bounded,
- *  tag-free excerpt; the page itself is kept as the diagnostic body. */
+ *  endpoint behind Cloudflare answers 5xx with markup, which is a transport failure (retry,
+ *  outage window), never a contract violation inviting reconciliation of an execution that never
+ *  started (#1203). Extracts the printed HTTP status and a bounded, tag-free excerpt. */
 export function htmlTransportFailure(error: unknown): BackendTransportError | undefined {
   if (!(error instanceof Error)) return undefined
   const text = error.message ?? ''
