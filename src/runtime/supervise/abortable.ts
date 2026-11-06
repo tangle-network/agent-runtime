@@ -42,6 +42,12 @@ export function signalAbortError(signal: AbortSignal, fallback: string): Error {
   return error
 }
 
+/** A parent abort stops the call at once. The timeout still bounds a parent that stays open. */
+export function deadlineSignal(parent: AbortSignal | undefined, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms)
+  return parent === undefined ? timeout : AbortSignal.any([parent, timeout])
+}
+
 interface LinkedAbort {
   readonly signal: AbortSignal
   abort(reason?: unknown): void

@@ -2,7 +2,7 @@ import {
   type AgentWorkspaceBranching,
   workspaceCheckpointResultMatchesRequest,
 } from '@tangle-network/agent-interface'
-import { runAbortable } from './abortable'
+import { deadlineSignal, runAbortable } from './abortable'
 import { errorText } from './error-message'
 import type { OwnerState } from './retained-owner-state'
 import type { SpawnEvent } from './types'
@@ -57,15 +57,13 @@ interface UnresolvedCheckpointRequest {
 
 /**
  * An aborted observation cannot prove that the provider never created a snapshot, so a request
- * whose lookup does not find it keeps its source alive for a later lookup, with one exception: a
- * provider that answers `not_found` for a request older than {@link WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS}
- * never created it. No operation that request started can still be in flight, and keeping the
- * source then holds a sandbox for nothing: on Discovery Lab runs terraform-economics-20261005e and
- * f, each root was kept after its run settled over requests made hours earlier.
+ * whose lookup does not find it keeps its source. A `not_found` older than
+ * {@link WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS} never created one. A parent abort starts no lookup.
  */
 export async function reconcileCheckpointRequests(
   state: OwnerState,
   events: SpawnEvent[],
+  parent?: AbortSignal,
 ): Promise<UnresolvedCheckpointRequest[]> {
   const operationKey = (operation: { idempotencyKey: string; requestDigest: string }): string =>
     JSON.stringify([operation.idempotencyKey, operation.requestDigest])
@@ -87,7 +85,11 @@ export async function reconcileCheckpointRequests(
   )
   const unconfirmed: UnresolvedCheckpointRequest[] = []
   for (const event of pending) {
-    const signal = AbortSignal.timeout(30_000)
+    if (parent?.aborted) {
+      unconfirmed.push({ event, reason: 'cancelled before checkpoint lookup' })
+      continue
+    }
+    const signal = deadlineSignal(parent, 30_000)
     try {
       const branching = await checkpointHandle(state, event.environmentId, signal)
       if (branching === undefined) throw new Error('source-scoped checkpoint handle unavailable')
