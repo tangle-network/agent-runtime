@@ -1,13 +1,13 @@
 /**
  * The acceptance test for the resume-aware BUILT-IN driver.
  *
- * Five paid workers are dispatched by `supervise`'s own coordination driver under semantic spawn
+ * Five offline workers are dispatched by `supervise`'s own coordination driver under semantic spawn
  * keys. Three settle; the coordinator is then killed with two still in flight. A brand-new process
  * resumes on the same `runId` + `runDir` and re-issues the IDENTICAL plan — the brain is not
  * resume-aware, so every skip has to come from the runtime.
  *
  * What must hold: no replacement starts for a worker whose prior remote execution has no terminal
- * receipt. The resumed run keeps that work visible as unknown and charges its declared ceiling.
+ * receipt. Admission retains its ceiling while terminal usage reports the measured lower bound.
  */
 
 import { spawn } from 'node:child_process'
@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
+import type { SettledUsage } from '../../src/runtime/supervise/settled-usage'
 import type { Spend } from '../../src/runtime/supervise/types'
 
 const childScript = new URL('../helpers/resume-driver-child.ts', import.meta.url).pathname
@@ -34,6 +35,7 @@ interface PhaseReport {
   readonly kind: string
   readonly out: string | null
   readonly spentTotal: Spend
+  readonly usage: SettledUsage
   readonly spentBreakdown?: { driverInference: Spend; childWork: Spend }
   readonly settledNodes: string[]
   readonly inDoubtRefusals: string[]
@@ -149,17 +151,22 @@ describe('resume-aware built-in driver — a killed coordinator never duplicates
     expect(resumed.out).not.toBe(controlReport.out)
     expect(resumed.settledNodes).toEqual(['w1', 'w2', 'w3'])
 
-    // Spend does not pretend the two killed executions were free: their missing receipts remain
-    // charged at both declared ceilings and their telemetry remains unknown.
-    expect(resumed.spentBreakdown?.childWork.iterations).toBe(13)
+    // Terminal receipts exclude reservations while the two unfinished workers stay unknown.
+    expect(resumed.spentBreakdown?.childWork.iterations).toBe(3)
     expect(resumed.spentBreakdown?.childWork.tokens).toEqual({
-      input: 20_030,
+      input: 30,
       output: 30,
       cacheBreakdownKnown: false,
     })
-    expect(resumed.spentBreakdown?.childWork.tokensKnown).toBe(false)
-    expect(resumed.spentBreakdown?.childWork.usdKnown).toBe(false)
+    expect(resumed.spentTotal.tokensKnown).toBe(false)
+    expect(resumed.spentTotal.usdKnown).toBe(false)
     expect(resumed.spentBreakdown?.childWork.usd).toBeCloseTo(0.03, 10)
+    expect(resumed.usage.tokens).toEqual({
+      status: 'lower-bound',
+      input: resumed.spentTotal.tokens.input,
+      output: resumed.spentTotal.tokens.output,
+      unknownAttempts: null,
+    })
 
     // The resumed coordinator still has a metered inference record. Refusing unknown work may use
     // fewer turns than an uninterrupted control, but neither path may hide the coordinator cost.
