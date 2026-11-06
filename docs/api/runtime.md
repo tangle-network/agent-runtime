@@ -17001,12 +17001,8 @@ carries `tokensKnown: true`. The twin of `boxMinutesProvenance` on the token cha
 
 ### SpendGap
 
-One journaled node whose usage accounting is incomplete — the named gap behind a `false`
-`tokensKnown`/`usdKnown` on a terminal `spentTotal`. `never-settled`: the spawn is durable but
-no terminal record landed, so the whole subtree is unaccounted on every channel and
-`spentTotal` charges its budget ceiling instead of a fabricated zero. `unreported`: a settled
-or metered record landed without a complete provider receipt, so the summed numbers are a
-floor on the named channels, never the measured total.
+A node with missing usage. Recorded subtotals are lower bounds; never-settled
+work has no terminal receipt and unreported work has an incomplete one.
 
 #### Properties
 
@@ -19468,6 +19464,12 @@ The root conserved-pool ceiling (tokens + usd + iterations + deadline).
 
 Exact root profile/task identity supplied by the one-call composition surface.
 
+##### requestedProfile?
+
+> `readonly` `optional` **requestedProfile?**: `AgentProfile`
+
+Authored request, independent of whether the root uses an external executor.
+
 ##### rootSegment?
 
 > `readonly` `optional` **rootSegment?**: [`RootSegmentEntry`](#rootsegmententry)
@@ -19887,12 +19889,8 @@ minted by `createRootHandle` implement the required form in `SteerableRootHandle
 
 ### RootStreamReceipt
 
-The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per
-progress event the root's executor observed, referenced by the content address of the file's
-bytes and its committed line count. Present exactly when the run had a run directory and a
-Runtime-driven root that began at least one drive attempt; a caller-supplied harness leaves it
-absent, never an empty receipt. Distinct from `outRef`, which on a `winner` names the SELECTED
-CHILD's artifact.
+Root executor progress retained in root-stream.jsonl; outRef instead names selected output.
+Absent for caller-supplied harnesses or roots that never began a drive.
 
 #### Properties
 
@@ -19936,11 +19934,7 @@ Router-owned proof that this attempt never reached a provider.
 
 ### NoWinnerError
 
-A driver's `act()` rejection, normalized to serializable evidence so it survives the typed
-no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
-non-`Error` rejection normalizes to `{ name: 'NonError', message }` — never dropped.
-Exported so a consumer handling `reason: 'driver-failed'` names this type instead of retyping
-its fields.
+Serializable act() rejection; non-Errors retain name NonError and their message.
 
 #### Properties
 
@@ -19966,14 +19960,9 @@ Structural failure evidence captured before the rejection becomes message text.
 
 ### FleetYield
 
-How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at
-root settlement — after the join barrier and the release sweep, so the terminal records the
-sweep wrote are included, and forest-wide so a director's grandchildren count (the population
-the observer projection shows). Invariant: `spawned === done + down + cancelled + neverSettled`.
-Distinct from a no-winner's `downCount`, the breaker's tally of ordinary down settlements: a
-released record is the driver's earlier down re-stated, so the breaker skips it and
-`downCount` never includes a retained child, while `down` here does. `spendGaps` stays
-root-tree scoped, so on a nested run the two disagree by design.
+Children across the owned forest after the join barrier and release sweep.
+spawned === done + down + cancelled + neverSettled. Unlike the breaker's downCount,
+down includes released retained children. spendGaps remains root-tree scoped.
 
 #### Properties
 
@@ -19981,8 +19970,7 @@ root-tree scoped, so on a nested run the two disagree by design.
 
 > `readonly` **spawned**: `number`
 
-Every `spawned` record with a parent; the run root and an owned tree's re-rooted owner copy
- are exempt.
+Spawned children; excludes root and synthetic owned-tree root copies.
 
 ##### done
 
@@ -20010,17 +19998,71 @@ Spawned with no terminal record: a crash-orphaned child, or a retained child of 
 
 > `readonly` **releasedUnrecovered**: `number`
 
-Terminal records marked `retainedExecution: 'released'` — a subset of `down + cancelled`.
- A nested manager whose OWN retained execution was released counts here beside the
- grandchildren it released, because its execution was destroyed unrecovered too.
+Released without recovery; a subset of down + cancelled.
 
 ##### releaseUnconfirmed
 
 > `readonly` **releaseUnconfirmed**: `number`
 
-Terminal records marked `retainedExecution: 'release-unconfirmed'` — a subset of
- `down + cancelled`, disjoint from `releasedUnrecovered`: executions a final settlement left
- unrecovered without confirming their environment destroyed.
+Teardown unconfirmed; a disjoint subset of down + cancelled.
+
+***
+
+### SettledRunEvidence
+
+Evidence shared by every terminal outcome. Requested models never stand in for served models.
+
+#### Properties
+
+##### tree
+
+> **tree**: [`TreeView`](#treeview)
+
+##### spentTotal
+
+> **spentTotal**: [`Spend`](#spend-1)
+
+Recorded usage, with explicit completeness flags; ms is elapsed wall time.
+
+##### usage?
+
+> `readonly` `optional` **usage?**: [`SettledUsage`](#settledusage-1)
+
+##### rootProviderModel?
+
+> `readonly` `optional` **rootProviderModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+##### rootStream?
+
+> `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](#rootstreamreceipt)
+
+##### rootHarnessTranscript?
+
+> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
+
+##### continuation?
+
+> `readonly` `optional` **continuation?**: [`DriverContinuationRecord`](#drivercontinuationrecord)
+
+##### execution?
+
+> `readonly` `optional` **execution?**: [`AgentExecutionRef`](#agentexecutionref)
+
+##### providerModel?
+
+> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+##### teardownUnconfirmed?
+
+> `optional` **teardownUnconfirmed?**: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]
+
+##### spendGaps?
+
+> `optional` **spendGaps?**: readonly [`SpendGap`](#spendgap)[]
+
+##### fleetYield
+
+> **fleetYield**: [`FleetYield`](#fleetyield)
 
 ***
 
@@ -22504,7 +22546,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`execution`](#execution-4)
+[`SuperviseOptions`](#superviseoptions).[`execution`](#execution-5)
 
 ##### selectSeat?
 
@@ -22850,7 +22892,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`continuation`](#continuation-4)
+[`SuperviseOptions`](#superviseoptions).[`continuation`](#continuation-5)
 
 ##### childSettleGraceMs?
 
@@ -25321,7 +25363,7 @@ A separate capability for the same manager's owned workers, without manager tool
 
 ###### Inherited from
 
-[`RemoteSupervisorReader`](#remotesupervisorreader).[`tree`](#tree-2)
+[`RemoteSupervisorReader`](#remotesupervisorreader).[`tree`](#tree-3)
 
 ##### observe()
 
@@ -27351,6 +27393,58 @@ Every other option of the call, unchanged: `backend`, `driverBackend`, `coordina
 ##### reason?
 
 > `readonly` `optional` **reason?**: `"completed"` \| `"failed"` \| `"cancelled"` \| `"usage-limit"` \| `"paused"`
+
+***
+
+### SettledUsage
+
+Measured tokens remain usable without claiming the unreported remainder is zero.
+
+#### Properties
+
+##### tokens
+
+> `readonly` **tokens**: `object`
+
+###### status
+
+> `readonly` **status**: `"unknown"` \| `"known"` \| `"lower-bound"`
+
+###### input
+
+> `readonly` **input**: `number` \| `null`
+
+###### output
+
+> `readonly` **output**: `number` \| `null`
+
+###### unknownAttempts
+
+> `readonly` **unknownAttempts**: `number` \| `null`
+
+Null when legacy or unfinished work does not establish the number of attempts.
+
+##### requestedModel
+
+> `readonly` **requestedModel**: `object`
+
+###### id
+
+> `readonly` **id**: `string` \| `null`
+
+###### harness
+
+> `readonly` **harness**: `string` \| `null`
+
+###### provider
+
+> `readonly` **provider**: `string` \| `null`
+
+##### observedModels
+
+> `readonly` **observedModels**: readonly `string`[]
+
+Observations only; providerModel separately states whether served identity is complete.
 
 ***
 
@@ -37700,258 +37794,15 @@ Durable provider identity evidence, independent from the planned materialization
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & (\{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \}) \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = [`SettledRunEvidence`](#settledrunevidence) & (\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \} \| `object` & (\{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \}) \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `downCount`: `number`; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `error`: [`NoWinnerError`](#nowinnererror); \})
 
-Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
+A no-winner never carries a best-effort output; only driver-failed carries an error.
 
 #### Type Parameters
 
 ##### Out
 
 `Out`
-
-#### Union Members
-
-##### Type Literal
-
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; \}
-
-###### kind
-
-> **kind**: `"winner"`
-
-###### out
-
-> **out**: `Out`
-
-###### outRef
-
-> **outRef**: `string`
-
-###### verdict?
-
-> `optional` **verdict?**: `DefaultVerdict`
-
-###### tree
-
-> **tree**: [`TreeView`](#treeview)
-
-###### spentTotal
-
-> **spentTotal**: [`Spend`](#spend-1)
-
-The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journal sums;
- `ms` is the wall clock from supervise start (the ORIGINAL root instant on a resumed run)
- to this terminal state — executors under-report their own `ms` and parallel children
- overlap, so a per-event sum cannot state the run's real duration. `tokensKnown`/`usdKnown`
- are always explicit here: `true` is the checked claim that every spawn reached a terminal
- record and every settled/metered record carried a complete receipt on that channel;
- `false` comes with the unaccounted nodes named in `spendGaps`.
-
-###### rootProviderModel?
-
-> `readonly` `optional` **rootProviderModel?**: [`RootProviderModelEvidence`](#rootprovidermodelevidence)
-
-Runtime-owned provider evidence for the root manager, when the root executed inference.
-
-###### rootStream?
-
-> `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](#rootstreamreceipt)
-
-The root manager's retained provider stream, when the run directory holds one.
-
-###### rootHarnessTranscript?
-
-> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
-
-The root manager's native harness session, persisted like a child's receipt. A child's
- receipt rides its settle record and the root has none, so the result carries it. Absent
- for a router-brained root, which runs no driver.
-
-###### continuation?
-
-> `readonly` `optional` **continuation?**: [`DriverContinuationRecord`](#drivercontinuationrecord)
-
-What the root's external driver loop did: genuine continuations, failure retries,
- environment replacements, why the loop ended, and how the root closed the run. Absent for
- a router-brained root, which runs no driver loop.
-
-###### execution?
-
-> `readonly` `optional` **execution?**: [`AgentExecutionRef`](#agentexecutionref)
-
-The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
- a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none.
-
-###### providerModel?
-
-> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
-
-Runtime-owned provider evidence reduced across the complete journal forest.
-
-###### teardownUnconfirmed?
-
-> `optional` **teardownUnconfirmed?**: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>
-
-Settled children whose teardown stayed unconfirmed after the settlement retry window
- (`teardownConfirmMs`) — the resources this run could not prove destroyed. Each names the
- provider environments a sweeper deletes when its executor reports them, and each is
- journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a healthy run
- never carries it.
-
-###### spendGaps?
-
-> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
-
-The journaled nodes whose usage accounting is incomplete — the named gaps behind a
- `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
-
-###### fleetYield
-
-> **fleetYield**: [`FleetYield`](#fleetyield)
-
-How the fleet ended, see `FleetYield`. Always present: zeros are facts.
-
-###### spentBreakdown?
-
-> `optional` **spentBreakdown?**: `object`
-
-Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
- `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
- `driverInference + childWork === spentTotal` on `iterations`/`tokens`/`usd`; the
- breakdown's `ms` fields stay executor-reported sums while `spentTotal.ms` is wall clock.
- Present whenever any driver metered.
-
-###### spentBreakdown.driverInference
-
-> **driverInference**: [`Spend`](#spend-1)
-
-###### spentBreakdown.childWork
-
-> **childWork**: [`Spend`](#spend-1)
-
-***
-
-`object` & (\{ `reason`: `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"` \| `"stopped"` \| `"budget-exhausted"` \| `"deadline"` \| `"aborted"`; \} \| \{ `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; \})
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>; `leakedReservations?`: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); \}
-
-###### kind
-
-> **kind**: `"no-winner"`
-
-The DRIVER-FAULT arm: `act()` rejected and no lifecycle cause (breaker/abort/budget/every
-child down) outranks it — so nothing about the tree explains the failure and the driver's
-own rejection is the only thing that does. It is therefore REQUIRED here. One down child
-among delivered siblings does not outrank it: that count rides `downCount`.
-`all-children-down` with `downCount: 0` used to be indistinguishable from an honest empty
-result; this arm is that configuration/authoring fault, named.
-
-###### reason
-
-> **reason**: `"driver-failed"`
-
-###### tree
-
-> **tree**: [`TreeView`](#treeview)
-
-###### downCount
-
-> **downCount**: `number`
-
-###### spentTotal
-
-> **spentTotal**: [`Spend`](#spend-1)
-
-The conserved spend incurred before the run failed — real cost is paid even when no
- worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
- explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
-
-###### rootProviderModel?
-
-> `readonly` `optional` **rootProviderModel?**: [`RootProviderModelEvidence`](#rootprovidermodelevidence)
-
-Runtime-owned provider evidence for the root manager, when the root executed inference.
-
-###### rootStream?
-
-> `readonly` `optional` **rootStream?**: [`RootStreamReceipt`](#rootstreamreceipt)
-
-The root manager's retained provider stream, when the run directory holds one.
-
-###### rootHarnessTranscript?
-
-> `readonly` `optional` **rootHarnessTranscript?**: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence)
-
-The root manager's native harness session, persisted like a child's receipt. A child's
- receipt rides its settle record and the root has none, so the result carries it. Absent
- for a router-brained root, which runs no driver.
-
-###### continuation?
-
-> `readonly` `optional` **continuation?**: [`DriverContinuationRecord`](#drivercontinuationrecord)
-
-What the root's external driver loop did: genuine continuations, failure retries,
- environment replacements, why the loop ended, and how the root closed the run. Absent for
- a router-brained root, which runs no driver loop.
-
-###### execution?
-
-> `readonly` `optional` **execution?**: [`AgentExecutionRef`](#agentexecutionref)
-
-The root's caller-supplied attribution as it registered (`SuperviseOptions.execution`):
- a fork's lineage keys, a SearchSpec's `searchSpecDigest`. Absent when the caller set none.
-
-###### providerModel?
-
-> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
-
-Runtime-owned provider evidence reduced across the complete journal forest.
-
-###### teardownUnconfirmed?
-
-> `optional` **teardownUnconfirmed?**: `ReadonlyArray`\<[`UnconfirmedTeardown`](#unconfirmedteardown)\>
-
-Settled children whose teardown stayed unconfirmed after the settlement retry window
- (`teardownConfirmMs`) — the resources this run could not prove destroyed. Each names the
- provider environments a sweeper deletes when its executor reports them, and each is
- journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a healthy run
- never carries it.
-
-###### leakedReservations?
-
-> `optional` **leakedReservations?**: `ReadonlyArray`\<[`LeakedReservation`](#leakedreservation)\>
-
-Budget reservations still open when the run reached its join barrier, each named by the
- assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
- `total ≡ free + reserved + committed` does not hold, so `spentTotal` is a floor rather
- than a measurement — the run still settles with the tree and the spend the journal
- recorded. Present exactly when non-empty; a healthy run never carries it.
-
-###### spendGaps?
-
-> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
-
-The journaled nodes whose usage accounting is incomplete — the named gaps behind a
- `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
-
-###### fleetYield
-
-> **fleetYield**: [`FleetYield`](#fleetyield)
-
-How the fleet ended, see `FleetYield`. Always present: zeros are facts.
-
-###### error
-
-> **error**: [`NoWinnerError`](#nowinnererror)
-
-The driver's own rejection, carried across the typed no-winner boundary so the failure is
- recoverable by the caller. A non-`Error` rejection is normalized, never dropped.
 
 ***
 
@@ -45315,7 +45166,7 @@ a stamp asserting something that never happened.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"no-winner"`; `downCount`: `number`; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"no-winner"`; `downCount`: `number`; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `downCount`: `number`; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
 
 **`Stable`**
 
@@ -45337,7 +45188,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<\{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
+`Promise`\<\{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"no-winner"`; `downCount`: `number`; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `error?`: `undefined`; `reason`: `"deadline"` \| `"stopped"` \| `"aborted"` \| `"budget-exhausted"` \| `"all-children-down"` \| `"no-children-spawned"` \| `"no-result-selected"`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"no-winner"`; `downCount`: `number`; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `error?`: `undefined`; `reason`: `"cancelled"`; `source`: `string`; `cancellationReason`: `string`; `operationId?`: `string`; `operator?`: `string`; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `downCount`: `number`; `leakedReservations?`: readonly [`LeakedReservation`](#leakedreservation)[]; `error`: [`NoWinnerError`](#nowinnererror); `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \} \| \{ `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](#spend-1); `usage?`: [`SettledUsage`](#settledusage-1); `rootStream?`: [`RootStreamReceipt`](#rootstreamreceipt); `rootHarnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `continuation?`: [`DriverContinuationRecord`](#drivercontinuationrecord); `execution?`: [`AgentExecutionRef`](#agentexecutionref); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](#spendgap)[]; `fleetYield`: [`FleetYield`](#fleetyield); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend-1); `childWork`: [`Spend`](#spend-1); \}; `rootProviderModel`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); \}\>
 
 ***
 

@@ -1,3 +1,11 @@
+## 6.0.9
+
+`reconcileUnconfirmedTeardowns` reads a settled run's unconfirmed environments by id and deletes only the ones the provider still holds. It returns confirmed, deleted, and unknown sets, and it refuses a live directory lock or a run with no settle record.
+
+Record usable token lower bounds with explicit unknown-attempt counts, requested models and observed provider models. The settle reader can project usage from preserved journals without rewriting the sealed result.
+
+Keep conservative budget reservations out of terminal measured usage and validate settlement receipts and totals before publication. Missing usage and provider identity remain explicitly unknown.
+
 ## Unreleased
 
 `profileChatClient` and `profileOptimizerModelCall` forward optional caller request headers on every Router turn. Runtime's content-type, authorization, idempotency-key, and x-correlation-id keep precedence.
