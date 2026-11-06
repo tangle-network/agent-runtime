@@ -17,10 +17,11 @@
  *   isolated-writers-integrate three writer entries, then a join starts the integrator
  *   discovered-fanout-reduce   4 traversals on ONE edge, then the reducer; peak live readers equals
  *                              workerSlots (2, and 4 in the control)
- *   skeptic-majority           3 analyzes rows per settle; result.out keeps the claim on 2 of 3 and
- *                              carries no claim when the votes drop it
+ *   skeptic-majority           a fork to 3 skeptics, a join into the tally; result.out keeps the
+ *                              claim on 2 of 3 and carries no claim when the votes drop it
  *   conditional-skip           zero findings: zero traversals on the verify edge, a finish instead
- *   judge-panel                2 judges x 3 attempts = 6 scores; result.out is the top attempt's work
+ *   judge-panel                a join forks 2 judges over 3 attempts; the tally's result.out is the
+ *                              top attempt's work
  *   loop-until-dry             the critic's dry streak finishes the loop at two, under the cap
  *   hierarchical-nested        the lead spawns its workers on its own edges; the ledger names it
  *   dependency-waves           a fork releases api, ui and docs; a join starts e2e after both
@@ -207,32 +208,30 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(wide.peakLive()).toBe(4)
   })
 
-  it('skeptic-majority: three findings per settle, and the delivered decision follows the votes', async () => {
+  it('skeptic-majority: a fork to three skeptics, a join into the tally, and the decision follows the votes', async () => {
     const kept = skepticMajority(['holds', 'holds', 'refuted'])
-    const res = await runGraphWithTestBrain(kept.graph, kept.opts)
+    const res = await runGraph(kept.graph, kept.opts)
     expect(res.result.kind).toBe('winner')
-    expect(edgesOf(res, 'delegates:lead->claimant')).toHaveLength(1)
-    expect(
-      analyzesOf(res)
-        .map((r) => [r.edge, r.to, r.outcome])
-        .sort(),
-    ).toEqual([
-      ['analyzes:skeptic-accuracy:claimant->lead', 'lead', 'delivered'],
-      ['analyzes:skeptic-repro:claimant->lead', 'lead', 'delivered'],
-      ['analyzes:skeptic-scope:claimant->lead', 'lead', 'delivered'],
+    expect(routesOf(res).map((r) => [r.edge, r.to, r.outcome])).toEqual([
+      ['routes:entry->claimant', 'claimant', 'delivered'],
+      ...['skeptic-accuracy', 'skeptic-scope', 'skeptic-repro'].map((to) => [
+        'routes:claimant#1->skeptic-accuracy+skeptic-scope+skeptic-repro',
+        to,
+        'delivered',
+      ]),
+      ['routes:skeptic-accuracy+skeptic-scope+skeptic-repro#1->tally', 'tally', 'delivered'],
     ])
-    expect(delivered(res)).toEqual({ kept: true, holds: 2, refuted: 1, claim: CLAIM })
+    expect(delivered(res)).toEqual({ tally: { kept: true, holds: 2, refuted: 1, claim: CLAIM } })
     // The panel is diverse by construction: three skeptics, three model families.
     const families = kept.graph.nodes
       .filter((n) => n.id.startsWith('skeptic-'))
       .map((n) => n.profile.model?.provider)
     expect(new Set(families).size).toBe(3)
 
-    // The negative control: the same graph with two refutations drops the claim, and the run
-    // returns the votes without it.
+    // The negative control: two refutations drop the claim, and the run returns only the votes.
     const dropped = skepticMajority(['refuted', 'holds', 'refuted'])
-    const droppedRes = await runGraphWithTestBrain(dropped.graph, dropped.opts)
-    expect(delivered(droppedRes)).toEqual({ kept: false, holds: 1, refuted: 2 })
+    const droppedRes = await runGraph(dropped.graph, dropped.opts)
+    expect(delivered(droppedRes)).toEqual({ tally: { kept: false, holds: 1, refuted: 2 } })
     expect(JSON.stringify(delivered(droppedRes))).not.toContain(CLAIM.claim)
   })
 
@@ -258,22 +257,19 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     expect(skipped.exhaustedEdges).toEqual([])
   })
 
-  it('judge-panel: two judges score all three attempts, and the run delivers the top total', async () => {
+  it('judge-panel: two judges score all three attempts, and the tally delivers the top total', async () => {
     const { graph, opts } = judgePanel()
-    const res = await runGraphWithTestBrain(graph, opts)
+    const res = await runGraph(graph, opts)
 
     expect(res.result.kind).toBe('winner')
-    const scores = analyzesOf(res)
-    expect(scores).toHaveLength(6)
-    expect(scores.every((r) => r.to === 'lead' && r.outcome === 'delivered')).toBe(true)
-    expect(scores.filter((r) => r.edge.startsWith('analyzes:judge-rigor:'))).toHaveLength(3)
-    expect(scores.filter((r) => r.edge.startsWith('analyzes:judge-clarity:'))).toHaveLength(3)
-
-    // result.out is attempt-b's own work (not attempt-a, the default finalizer's tie pick).
-    const out = delivered(res) as PanelDecision
+    expect(
+      edgesOf(res, 'routes:attempt-a+attempt-b+attempt-c#1->judge-rigor+judge-clarity'),
+    ).toHaveLength(2)
+    expect(edgesOf(res, 'routes:judge-rigor+judge-clarity#1->tally')).toHaveLength(1)
+    // result.out is attempt-b's own work, chosen in graph data with no root.
+    const out = (delivered(res) as { tally: PanelDecision }).tally
     expect(out.winner).toEqual(ATTEMPT_OUT['attempt-b'])
-    const attemptB = delegatesOf(res).find((r) => r.to === 'attempt-b')?.workerId as string
-    expect(out.totals[attemptB]).toBeCloseTo(1.7)
+    expect(out.totals['attempt-b']).toBeCloseTo(1.7)
     expect(Math.max(...Object.values(out.totals))).toBeCloseTo(1.7)
   })
 
