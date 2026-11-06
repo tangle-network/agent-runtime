@@ -46,6 +46,7 @@ const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
   // Record-only as well: the manager already holds what it acknowledged.
   if (ev.type === 'acknowledgement') return { type: 'acknowledgement', ...ev.acknowledgement }
   if (ev.type === 'tool-outcome') return { type: 'tool-outcome', ...ev.outcome }
+  if (ev.type === 'tool-timing') return { type: 'tool-timing', ...ev.call }
   if (ev.type === 'lead-message') return { type: 'lead-message', ...ev.message }
   if (ev.type === 'map') return { type: 'map', ...ev.map }
   if (ev.type === 'route') return { type: 'route', ...ev.route }

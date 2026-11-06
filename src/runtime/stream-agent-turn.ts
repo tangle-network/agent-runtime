@@ -141,6 +141,12 @@ export interface StreamAgentTurnOptions {
   /** Caller trace tag retained in evidence and forwarded when the transport supports it. */
   correlationId?: string
   /**
+   * Request headers inherited by the executor. Network transports forward these after assembling
+   * the request, and Runtime's own content-type, authorization, idempotency-key, and
+   * x-correlation-id replace any caller value of the same name.
+   */
+  propagatedHeaders?: Readonly<Record<string, string>>
+  /**
    * Opt-in tool-part projection for box and executor backends: sandbox tool
    * parts additionally surface in-stream as
    * `tool_call` / `tool_result` events (`mapSandboxToolEvent`), so a consumer
@@ -478,6 +484,7 @@ async function* streamAgentTurnInternal(
         {
           signal: deadline.signal,
           seams: {},
+          ...(opts.propagatedHeaders ? { propagatedHeaders: opts.propagatedHeaders } : {}),
           node: {
             rootId: nodeId,
             parentId: nodeId,

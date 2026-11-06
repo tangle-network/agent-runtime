@@ -132,9 +132,11 @@ unchanged in Node and in Cloudflare Workers.
 
 ## Model execution
 
-`profileChatClient({ profile, executor, context })` adapts one exact
-`AgentProfile` to agent-eval's chat contract.
-`profileOptimizerModelCall({ profile, executor, context })` does the same for
+`profileChatClient({ profile, executor, context, headers })` adapts one exact
+`AgentProfile` to agent-eval's chat contract. `headers` is optional and is sent
+on every Router request; Runtime's content-type, authorization, idempotency-key,
+and x-correlation-id keep precedence.
+`profileOptimizerModelCall({ profile, executor, context, headers })` does the same for
 external optimizer calls, while `createSandboxPromptBackend({ ... })`
 normalizes a caller-owned sandbox stream.
 The Runtime executor owns credentials, routing, retries, and usage evidence;

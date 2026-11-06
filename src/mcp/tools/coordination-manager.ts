@@ -275,7 +275,70 @@ function assembleTools(parts: ManagerParts): McpToolDescriptor[] {
     analystRunContext: analysis.analystRunContext,
     defineAnalyst: analysis.defineAnalyst,
   })
-  return tools
+  return tools.map((tool) => timeCoordinationTool(bus, tool))
+}
+
+/** Record handler duration for every coordination tool call without changing its result. */
+function timeCoordinationTool(
+  bus: EventBus<CoordinationEvent>,
+  tool: McpToolDescriptor,
+): McpToolDescriptor {
+  return {
+    ...tool,
+    handler: async (raw) => {
+      const receivedAt = Date.now()
+      try {
+        const value = await tool.handler(raw)
+        await recordToolTiming(bus, tool.name, receivedAt, true, value)
+        return value
+      } catch (error) {
+        await recordToolTiming(bus, tool.name, receivedAt, false, error)
+        throw error
+      }
+    },
+  }
+}
+
+async function recordToolTiming(
+  bus: EventBus<CoordinationEvent>,
+  tool: string,
+  receivedAt: number,
+  ok: boolean,
+  value: unknown,
+): Promise<void> {
+  try {
+    await bus.publish(
+      {
+        type: 'tool-timing',
+        call: {
+          tool,
+          receivedAt,
+          elapsedMs: Math.max(0, Date.now() - receivedAt),
+          responseBytes: responseUtf8Bytes(ok ? value : errorText(value)),
+          ok,
+        },
+      },
+      { queue: false },
+    )
+  } catch (error) {
+    console.error('Runtime could not record coordination tool timing', {
+      tool,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function responseUtf8Bytes(value: unknown): number {
+  if (typeof value === 'string') return Buffer.byteLength(value)
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? 'null')
+  } catch {
+    return Buffer.byteLength(String(value))
+  }
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function managerSurface(parts: ManagerParts, tools: McpToolDescriptor[]): CoordinationTools {
