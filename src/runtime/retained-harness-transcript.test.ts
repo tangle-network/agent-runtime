@@ -203,6 +203,33 @@ describe('retained native transcript projection', () => {
     expect((await resolveHarnessTranscriptCapture(capture, { artifacts }))?.files).toHaveLength(1)
   })
 
+  it('admits native inventory digests the sidecar wrote as bare hex', async () => {
+    const { receipt, artifacts } = await fixture([Buffer.from('one'), Buffer.from('two')])
+    const source = receipt.provenance.sessions![0]!
+    const changed = {
+      ...receipt,
+      provenance: {
+        ...receipt.provenance,
+        sessions: [
+          {
+            ...source,
+            nativeStore: {
+              ...source.nativeStore!,
+              entries: source.nativeStore!.entries.map((entry) => ({
+                ...entry,
+                sha256: entry.sha256 === null ? null : entry.sha256.replace(/^sha256:/u, ''),
+              })),
+            },
+          },
+        ],
+      },
+    }
+    const capture = retainHarnessTranscript(changed, 'future-harness')
+    const artifact = await resolveHarnessTranscriptCapture(capture, { artifacts })
+    expect(artifact?.files).toHaveLength(2)
+    expect(artifact?.skipped).toEqual([])
+  })
+
   it('returns an explicit absence when the provider declares no native files', async () => {
     const { receipt } = await fixture()
     const capture = retainHarnessTranscript(

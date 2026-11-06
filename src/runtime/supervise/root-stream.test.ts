@@ -87,6 +87,45 @@ describe('root stream sink', () => {
     expect(lines[1]).toMatchObject({ seq: 2, event: { kind: 'text_delta', text: 'after the gap' } })
   })
 
+  it('records subagent sessions the task tool results name, across processes', async () => {
+    const first = createRootStreamSink(dir, now)
+    await first.beginAttempt()
+    first.append({
+      kind: 'tool_call',
+      toolName: 'task',
+      toolCallId: 'prt_1',
+      args: { prompt: 'go' },
+    })
+    first.append({
+      kind: 'tool_result',
+      toolName: 'task',
+      toolCallId: 'prt_1',
+      result: '<task id="ses_first" state="completed">\n<task_result>done</task_result>\n</task>',
+    })
+    expect((await first.close())?.subagentSessionIds).toEqual(['ses_first'])
+
+    const second = createRootStreamSink(dir, now)
+    await second.beginAttempt()
+    second.append({
+      kind: 'tool_result',
+      toolName: 'task',
+      toolCallId: 'prt_2',
+      status: 'error',
+      error: { type: 'tool', message: 'task_id: ses_first closed early' },
+    })
+    second.append({ kind: 'tool_result', toolName: 'other', result: '<task id="ses_no" />' })
+    second.append({
+      kind: 'tool_result',
+      toolName: 'task',
+      toolCallId: 'prt_3',
+      result: '<task id="ses_second" state="completed">',
+    })
+    const receipt = await second.close()
+    // The whole file, both processes, is re-read; only `task` results count and ids dedupe.
+    expect(receipt?.subagentSessionIds).toEqual(['ses_first', 'ses_second'])
+    expect(receipt?.events).toBe(5)
+  })
+
   it('refuses an append before an attempt and any use after close', async () => {
     const sink = createRootStreamSink(dir, now)
     expect(() => sink.append({ kind: 'text_delta', text: 'early' })).toThrow(

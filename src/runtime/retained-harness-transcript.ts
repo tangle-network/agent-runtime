@@ -207,6 +207,13 @@ export function retainHarnessTranscript(
   }
 }
 
+/** The sidecar's native inventory has written both `sha256:<hex>` and bare `<hex>` digests
+ *  (#1264: whole runs skipped every file for the bare form); accept either and keep the
+ *  canonical prefix. `null` still means no digest and stays unverifiable. */
+function nativeDigest(value: string | null): string | null {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? `sha256:${value}` : value
+}
+
 function retainedCapture(
   receipt: ProviderWorkspaceCaptureReceipt,
   harness: string,
@@ -235,7 +242,7 @@ function retainedCapture(
       const parsed = fileSchema.safeParse({
         path: nativeIdentity(attribution),
         bytes: entry.sizeBytes,
-        sha256: entry.sha256,
+        sha256: nativeDigest(entry.sha256),
         attribution,
       })
       if (parsed.success) files.push(parsed.data)
