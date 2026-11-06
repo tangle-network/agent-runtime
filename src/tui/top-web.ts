@@ -147,8 +147,12 @@ export async function serveTopWeb(options: TopWebOptions) {
     touched.add(root)
     schedule()
   }
-  for (const root of roots) watchers.push(watch(root, { recursive: true }, mark(root)))
-  // Watch notifications may be coalesced or lost; the same loader reconciles them without a second model.
+  // A watch only wakes the reconcile below, which reads without one: a host out of inotify watches
+  // (ENOSPC) or a file removed mid-registration must not end the run it views. Watches may also be lost.
+  for (const root of roots)
+    try {
+      watchers.push(watch(root, { recursive: true }, mark(root)).on('error', () => undefined))
+    } catch {}
   const reconcile = setInterval(schedule, TOP_SNAPSHOT_RECONCILE_MS)
   const heartbeat = setInterval(() => {
     for (const client of clients) client.write(': alive\n\n')
