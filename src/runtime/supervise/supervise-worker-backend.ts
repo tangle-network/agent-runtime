@@ -98,7 +98,6 @@ export function workerFromBackend(
         'workerFromBackend: provider defaults contain the reserved peer-mail attachment alias',
       )
     }
-    // A spawn's admitted machine request sizes this worker's create (#1277).
     const sizedBackend =
       spawnContext?.resources !== undefined && boundBackend.backend === 'provider'
         ? {

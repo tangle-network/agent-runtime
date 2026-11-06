@@ -1,37 +1,7 @@
 /**
- *
- * PROGRESS-BASED STOP RULES — end a long-horizon run for the right reason.
- *
- * Every existing bound is a CEILING: iterations, tokens, dollars, an absolute deadline, a turn
- * cap. A ceiling answers "may this run continue?" and never "is this run still getting anywhere?".
- * So a supervision tree that stopped learning at settle 4 keeps buying workers until it hits a
- * wall — the run ends on exhaustion, and the operator cannot tell a run that finished from a run
- * that ran out.
- *
- * A stop rule reads the run's own PROGRESS and decides. Three signals feed it:
- *   - the objective curve over settled work (best-so-far, from `anytime.ts` — see below),
- *   - the LIVE worker feed (`WorkerProgress`: `idleMs`, `stalled`, `turns`, `tokens`),
- *   - tree-level shape (how many are in flight, when the last settle landed).
- *
- * ── Two boundaries this module holds deliberately ───────────────────────────────────────────────
- *
- * ENFORCEMENT lives here; THRESHOLDS do not. "Stop after 5 settles with no improvement" is a
- * judgment about a domain — how noisy its scores are, how expensive a worker is, how much a late
- * breakthrough is worth. That belongs to the caller (a loop, a bench, a product). Every rule below
- * takes its thresholds as required options with no hidden defaults for the numbers that decide;
- * the module ships the MECHANISM and refuses to ship the judgment.
- *
- * A stop rule can only ADD a stop, never remove one. The driver evaluates the hard ceilings
- * (`poolStarved`, `deadlinePassed`, abort, the driver's own stop) FIRST and independently; the
- * rule is consulted only when they all say "continue". So no rule can talk a run past its budget.
- *
- * ── What is reused, not re-derived ──────────────────────────────────────────────────────────────
- *
- * `anytime.ts` already computed best-so-far curves, their area, and plateau detection — but only
- * after a run was over, from waterfall spans. Rather than write a second copy for the live path,
- * `bestSoFar` / `areaUnderCurve` / `plateauLength` were extracted there and are imported here. A
- * stop rule that calls a run plateaued therefore agrees, number for number, with the report that
- * later judges whether stopping was right.
+ * Stop rules only add a stop, and only after the hard ceilings say continue. Thresholds are
+ * required caller options. `bestSoFar`, `areaUnderCurve`, and `plateauLength` come from
+ * `anytime.ts`.
  *
  * @experimental
  */

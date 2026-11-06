@@ -1,38 +1,8 @@
 /**
- *
- * `rollingDispatch` — the REFILLING dispatch policy over a `Scope`. It keeps `width` children in
- * flight and admits the next queued unit of work the instant one settles, instead of waiting for
- * a whole round to drain (`fanout`) or for a driver to decide again (`spawn → await → spawn`).
- *
- * The gap it closes: `fanout` opens every item at once and then drains — one round, no refill —
- * and a driver brain's manual loop opens one worker per model turn. Between those two there was
- * nothing that holds N slots full, which is why a 5-worker run can peak at 2 live workers and sit
- * ~50% idle. This is a policy over the EXISTING `Scope.spawn` / `Scope.next` primitives: it adds
- * no second admission path, so the conserved budget pool stays the only fence on total work and
- * `width` is only a fence on simultaneous work.
- *
- * Fail-closed by construction: an admission rejection (`budget-exhausted` / `depth-exceeded`) is
- * recorded and STOPS further admission — the loop then drains what is already live and returns.
- * It never retries a rejected spawn against the same pool, and it never spawns past `width`.
- *
- * ── Concurrency ────────────────────────────────────────────────────────────────────────────────
- *
- * `width` bounds the children THIS dispatcher holds in flight. The tree-wide bound on working
- * agents is `SuperviseOptions.workerSlots` (`./worker-slots`): a spawn past it is queued by the
- * scope, not refused, so a `width` above the free slots only lengthens the allocator's queue.
- * `SandboxLineage`'s fork concurrency bounds boxes inside ONE leaf's fork wave, a different unit.
- *
- * ── Why this is not a copy of the kernel's batch loop ──────────────────────────────────────────
- *
- * `runBatch` (`src/runtime/run-loop.ts`) runs the same hold-N-slots-full shape over the KERNEL's
- * substrate: bare promises in a `Set`, raced with `Promise.race`, bounded by `maxConcurrency`.
- * This one runs it over the SUPERVISOR's substrate — `Scope.spawn`'s atomic reservation against
- * the conserved pool, `Scope.next`'s journaled settlement cursor, and the blob store behind each
- * result. Neither can be expressed in the other's terms without dragging its whole substrate
- * along: the kernel loop has no budget to reserve and no cursor to order settlements by, and this
- * one cannot race raw promises because a settlement is only real once it is journaled. The shape
- * repeating across the two deliberate layers is resonance, not duplication — do not "unify" them
- * into a shared helper that would have to know about both.
+ * `rollingDispatch` keeps `width` children in flight over `Scope.spawn` and `Scope.next`.
+ * An admission rejection stops further admission. `width` bounds this dispatcher; `workerSlots`
+ * queues past the tree-wide bound; a sandbox fork wave is a different unit. Do not fold this
+ * into `runBatch`: a Scope settlement is real only once it is journaled.
  *
  * @experimental
  */

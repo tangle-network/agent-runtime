@@ -52,6 +52,26 @@ export function exactSession(
   return { session, controlRef: currentControlRef }
 }
 
+/** The provider returned a different session than the one this execution admitted. A lost
+ *  reply, which keeps the same coordinates and no session, is not this case. */
+const replacedSessionMessage = new Set([
+  'provider reconstructed a different retained environment',
+  'provider reconstructed a different session',
+  'provider session reconstructed a different retained session',
+  'provider session returned a different exact run control reference',
+])
+
+export function retainedSessionReplaced(error: unknown): boolean {
+  const seen = new Set<unknown>()
+  let current = error
+  for (let depth = 0; depth < 8 && current !== undefined && !seen.has(current); depth += 1) {
+    seen.add(current)
+    if (current instanceof Error && replacedSessionMessage.has(current.message)) return true
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return false
+}
+
 export function sameControlCoordinates(
   left: AgentExactRunControlRef,
   right: AgentExactRunControlRef,

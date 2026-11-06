@@ -260,7 +260,7 @@ Import from `@tangle-network/agent-runtime/durable` — 112 exports.
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
 | `QuestionEscalationOutcome` | type | The result of handing a question this manager cannot answer to whatever is above it. |
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
-| `RetainedPendingCause` | type | Why a retained execution has no accepted terminal result, classified where the cause is still |
+| `RetainedPendingCause` | type | Why a retained execution has no accepted terminal result. `unobservable` means it may have run |
 | `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
 | `SelectSeat` | type | The caller owns account eligibility and credential resolution; Runtime owns the chain order. |
 | `SpawnJournalReadRecord` | type | Physical groups expand to event records; the owning tree is preserved for every event. |
@@ -787,7 +787,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1036 exports.
 | `BoxSurfaceReaderOptions` | interface | Retry and cancellation controls for {@link boxSurfaceReader}. |
 | `BridgeHarnessStore` | interface | A harness's own session store on the bridge host, named so the runtime may read it. |
 | `BridgeModelCredential` | interface | A live, request-scoped model credential reference for a local cli-bridge. |
-| `BridgeSeam` | interface | cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs |
+| `BridgeSeam` | interface | cli-bridge transport seam. The spawned `AgentProfile` is the harness authority and is forwarded |
 | `Budget` | interface | Explicit ceilings on a spawn or root. An omitted channel is uncapped and reserves nothing. |
 | `BudgetOverspend` | interface | One channel on which a settled reservation's measured spend exceeded what it reserved. |
 | `BudgetPoolRestore` | interface | Durable spend, unknown-work ceilings and remaining backing restored before new admission. |

@@ -20,15 +20,7 @@ import {
   writeWorkspaceMarker,
 } from './workspace-checkpoint'
 
-/**
- * Note that the owner's manager made a coordination call, and checkpoint its workspace when the
- * last checkpoint is older than {@link WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS}.
- *
- * A coordination call is where a manager commits work: it spawns, waits for, reads, or submits.
- * The checkpoint runs in the background and never delays the call. A failed checkpoint leaves the
- * previous one as the restore point; a provider or environment that cannot checkpoint stops the
- * attempts for this owner.
- */
+/** Checkpoint after a coordination call once the last one is older than {@link WORKSPACE_CHECKPOINT_MIN_INTERVAL_MS}. It never delays the call, and a failure leaves the previous restore point. */
 export function noteScopeRetainedOwnerCoordination(scope: Scope<unknown>): void {
   const state = owners.get(scope)
   if (state?.provider === undefined || state.checkpointsUnavailable !== undefined) return
@@ -209,12 +201,7 @@ async function requestCheckpoint(
   return true
 }
 
-/**
- * Delete this environment's oldest checkpoint beyond {@link WORKSPACE_CHECKPOINTS_KEPT} when no
- * capture could ever hold its files, to make room for a newer one. Keeping them all stopped the
- * restore point instead: zro-game-20261104b's box stored 25 of its 61 requests, its plan's limit,
- * and its last restore point was 7 h old. A backend that captures deletes through its rotation.
- */
+/** Delete the oldest checkpoint past {@link WORKSPACE_CHECKPOINTS_KEPT} when no capture can hold it, so a snapshot limit cannot freeze the restore point. */
 async function deleteOldestUncapturable(
   state: OwnerState,
   branching: AgentWorkspaceBranching,
@@ -230,11 +217,3 @@ async function deleteOldestUncapturable(
   const { unconfirmed } = await cleanCheckpoints(state, branching, oldest, events, signal, true)
   return unconfirmed.length === 0
 }
-
-/**
- * The owner's workspace-capture journal writers. A turn's capture starting cuts short the
- * checkpoint rotation's captures: on Discovery canary test-acceptance-canary-20261019j (Runtime
- * 0.327.0) a rotation capture of an older checkpoint started 4 s before the root's final capture,
- * on the same evidence store, and the final capture spent 26.6 of its 32.6 minutes storing its
- * archive until the root's budget deadline aborted the rotation.
- */
