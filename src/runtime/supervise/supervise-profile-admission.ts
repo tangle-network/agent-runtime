@@ -31,15 +31,8 @@ import {
   providerVisibleProfile,
 } from './supervisor-agent'
 
-/**
- * NOT a harness-name test — `ExecutorConfig.backend` is a discriminated-union TAG naming HOW a
- * profile is materialized (bridge / sandbox / cli-worktree / cli-in-place / router / cli /
- * provider), which is a
- * different axis from WHICH CLI runs. An exhaustive switch on a closed union tag is the correct
- * shape and must stay: it is what makes a new executor kind a compile error here rather than a
- * silently weaker materialization contract. Every other `backend.backend === …` in this file and
- * in `runtime.ts` is the same tag; none of them are harness names.
- */
+/** `ExecutorConfig.backend` names HOW a profile is materialized, not which CLI runs; the exhaustive
+ *  switch makes a new executor kind a compile error rather than a weaker contract. */
 export function backendProfileMaterialization(
   backend: ExecutorConfig,
 ): ProfileMaterializationContract {
@@ -54,8 +47,13 @@ export function backendProfileMaterialization(
     case 'cli-in-place':
       return worktreeCliProfileMaterialization
     case 'router':
-    case 'router-tools':
       return promptModelProfileMaterialization
+    case 'router-tools':
+      // The tool loop runs exactly the caller tools `AgentProfile.tools` enables (#1587).
+      return {
+        name: 'router-tools-execution',
+        axes: [...promptModelProfileMaterialization.axes, 'tools'],
+      }
     case 'cli':
       return controlProfileMaterialization
   }

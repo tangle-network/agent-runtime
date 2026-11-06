@@ -54,11 +54,6 @@ export function mergeObservedModelIdentity(current: string, next: string): strin
     : current
 }
 
-/** Canonicalize a served model for cross-route identity comparisons. */
-export function canonicalObservedModel(model: string): string | undefined {
-  return canonicalObservedModelParts(model)?.canonical
-}
-
 /** Return the canonical model and its validated snapshot kind for runtime evidence reduction. */
 export function canonicalObservedModelParts(
   model: string,
