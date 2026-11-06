@@ -33,7 +33,7 @@ export function assertValidSpend(spend: Spend, label: string): void {
     ['cacheWrite', spend.tokens.cacheWrite],
   ] as const) {
     if (value === undefined && field !== 'input' && field !== 'output') continue
-    if (!Number.isSafeInteger(value) || value < 0) {
+    if (value === undefined || !Number.isSafeInteger(value) || value < 0) {
       throw new Error(`${label}.tokens.${field} must be a non-negative safe integer`)
     }
   }
