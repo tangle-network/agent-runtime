@@ -1,3 +1,4 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { closesCursorSlot } from '../../durable/spawn-journal/event-index'
 import { aggregateProviderModelEvidence } from '../../durable/spawn-journal/provider-model-evidence'
 import { loadSpawnForest, type SpawnForest } from '../../durable/spawn-journal/spawn-forest'
@@ -5,6 +6,7 @@ import { RuntimeRunStateError } from '../../errors'
 import { addSpend } from '../util'
 import { sumMeasuredSpendFromEvents } from './recover-executors'
 import { withBudgetResources } from './resources'
+import { type SettledUsage, settledUsage } from './settled-usage'
 import { assertValidSpend } from './spend-validation'
 import type { SpawnedEvent } from './supervisor-root-contract'
 import type {
@@ -23,8 +25,10 @@ export async function terminalAccounting(
   journal: SpawnJournal,
   root: string,
   elapsedMs: number,
+  profile?: AgentProfile,
 ): Promise<{
   spentTotal: Spend
+  usage: SettledUsage
   childWork: Spend
   driverInference: Spend
   gaps: SpendGap[]
@@ -62,7 +66,15 @@ export async function terminalAccounting(
     usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
   }
   assertValidSpend(spentTotal, 'settlement total')
-  return { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield }
+  return {
+    spentTotal,
+    usage: settledUsage(forest, spentTotal, providerModel, profile),
+    childWork,
+    driverInference,
+    gaps,
+    providerModel,
+    fleetYield,
+  }
 }
 
 /** Count each child by its last terminal record across the owned forest; roots are exempt. */

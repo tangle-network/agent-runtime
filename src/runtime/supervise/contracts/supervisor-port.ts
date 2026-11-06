@@ -58,6 +58,8 @@ export interface SupervisorOpts {
   readonly budget: Budget
   /** Exact root profile/task identity supplied by the one-call composition surface. */
   readonly rootIdentity?: NodeExecutionIdentity
+  /** Authored request, independent of whether the root uses an external executor. */
+  readonly requestedProfile?: import('@tangle-network/agent-interface').AgentProfile
   /** The segment this entry runs the root in. `rootIdentity` stays the recorded root's; when the
    *  segment differs from the one the run last ran, the journal gains one `root-segment` record. A
    *  fresh run refuses a segment that changes the recorded profile's model or harness. */

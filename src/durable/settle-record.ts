@@ -1,12 +1,18 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { canonicalCandidateDigest, canonicalCandidateJson } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  canonicalCandidateDigest,
+  canonicalCandidateJson,
+} from '@tangle-network/agent-interface'
 import {
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
 } from '../runtime/supervise/durable-file'
+import { terminalAccounting } from '../runtime/supervise/supervisor-accounting'
 import type { RootStreamReceipt, SupervisedResult } from '../runtime/supervise/types'
 import { isNoEntError } from './jsonl-file'
+import { FileSpawnJournal } from './spawn-journal/journal-store'
 
 /** Terminal evidence has one result per segment. Reopen archives that result byte for byte;
  * a failed attempt may resume because failure.json records only the latest throw.
@@ -130,12 +136,22 @@ export async function writeFailureRecord(
 
 /**
  * Read the settle record a run directory holds, or `undefined` when it holds none. A file that
- * is present but is not a settle record is corruption and fails loud.
+ * is present but is not a settle record is corruption and fails loud. `usage` annotates legacy
+ * results by replay without changing their sealed fields; recorded usage always wins.
  */
 export async function readSettleRecord(
   runDir: string,
+  options: { readonly usage?: boolean; readonly requestedProfile?: AgentProfile } = {},
 ): Promise<SupervisedResult<unknown> | undefined> {
-  return readTerminalFile(runDir, SETTLE_RECORD_FILE, parseSettleRecord)
+  const recorded = await readTerminalFile(runDir, SETTLE_RECORD_FILE, parseSettleRecord)
+  if (!recorded || !options.usage || recorded.usage) return recorded
+  const { usage } = await terminalAccounting(
+    new FileSpawnJournal(resolve(runDir, 'spawn-journal.jsonl')),
+    recorded.tree.root,
+    recorded.spentTotal.ms,
+    options.requestedProfile,
+  )
+  return { ...recorded, usage }
 }
 
 async function readTerminalFile<T>(

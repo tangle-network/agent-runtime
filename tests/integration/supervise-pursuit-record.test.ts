@@ -275,6 +275,11 @@ describe('supervisePursuit durable terminal records', () => {
     const executed = await run(runDir, runId)
 
     expect(executed.result.kind).toBe('winner')
+    expect(executed.result.usage?.requestedModel).toEqual({
+      id: 'offline-test-model',
+      harness: 'opencode',
+      provider: 'offline',
+    })
     expect(executed.settlePath).toBe(join(runDir, SETTLE_RECORD_FILE))
     const bytes = await readFile(executed.settlePath, 'utf8')
     expect(bytes).toBe(settleRecordJson(executed.result))
@@ -287,6 +292,7 @@ describe('supervisePursuit durable terminal records', () => {
     expect(record.kind).toBe('winner')
     expect(record.tree.root).toBe(runId)
     expect(await readSettleRecord(runDir)).toEqual(record)
+    expect(await readSettleRecord(runDir, { usage: true })).toEqual(record)
     const sources = await readRuntimeSupervisorRun(runDir)
     expect(sources.result).toBe(bytes)
 
