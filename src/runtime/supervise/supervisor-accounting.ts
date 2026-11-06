@@ -17,6 +17,7 @@ import type {
   Spend,
   SpendChannel,
   SpendGap,
+  TreeView,
 } from './types'
 
 /** Terminal usage comes from receipts, never admission's conservative reservation charges.
@@ -27,6 +28,7 @@ export async function terminalAccounting(
   elapsedMs: number,
   profile?: AgentProfile,
 ): Promise<{
+  tree: TreeView
   spentTotal: Spend
   usage: SettledUsage
   childWork: Spend
@@ -35,13 +37,9 @@ export async function terminalAccounting(
   providerModel: import('./types').ProviderModelExecutionEvidence
   fleetYield: FleetYield
 }> {
-  const events = await journal.loadTree(root)
-  if (events === undefined) {
-    throw new RuntimeRunStateError(
-      `supervisor: spawn tree '${root}' is missing from the journal after run (corrupted log)`,
-    )
-  }
-  for (const event of events) {
+  const forest = await loadSpawnForest(journal, root)
+  const rootTree = forest.trees[0]!
+  for (const event of rootTree.events) {
     const spend =
       event.kind === 'metered'
         ? event.spend
@@ -50,9 +48,9 @@ export async function terminalAccounting(
           : undefined
     if (spend !== undefined) assertValidSpend(spend, `settlement ${event.id}/${event.kind}`)
   }
-  const { childWork, driverInference } = sumMeasuredSpendFromEvents(events)
-  const gaps = spendGapsFromEvents(events)
-  const forest = await loadSpawnForest(journal, root)
+  const { childWork, driverInference } = sumMeasuredSpendFromEvents([...rootTree.events])
+  // Forest-wide: a nested driver's children live in its owned tree, outside the root view (#1189).
+  const gaps = spendGapsFromEvents(forest.events.map((entry) => entry.event))
   const providerModel = aggregateProviderModelEvidence(forest)
   const fleetYield = fleetYieldFromForest(forest)
   const summed = addSpend(childWork, driverInference)
@@ -66,7 +64,15 @@ export async function terminalAccounting(
     usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
   }
   assertValidSpend(spentTotal, 'settlement total')
+  const forestNodes = forest.nodes.filter((node) => node.id !== forest.root)
   return {
+    tree: {
+      root: forest.root,
+      nodes: forestNodes.map(({ treeRoot: _treeRoot, ...node }) => node),
+      inFlight: forestNodes.filter((node) =>
+        ['queued', 'acquiring', 'running'].includes(node.status),
+      ).length,
+    },
     spentTotal,
     usage: settledUsage(forest, spentTotal, providerModel, profile),
     childWork,

@@ -1163,11 +1163,8 @@ describe('retained environments at root settlement', () => {
           ).toBe(true)
           const settled = await scope.next()
           expect(settled?.kind === 'done' || settled?.kind === 'down').toBe(true)
-          // No turn of the finished manager runs again, so the grandchild's retained execution is
-          // released now: its environment is gone and receipted while this root is still acting,
-          // not at the run's settlement. On Discovery run magnetar-rust-sandbox-20261031b (Runtime
-          // 3.0.5) six workers aborted by `driver completed` kept their sandboxes running for the
-          // hours the run went on, and the cell ran out of host capacity.
+          // The grandchild's retained execution releases now, while the root still acts — not at
+          // settlement (Discovery magnetar-rust-sandbox-20261031b, Runtime 3.0.5: released workers kept sandboxes until the host hit capacity).
           await expect
             .poll(() => fleet.environments(), { timeout: 5_000, interval: 20 })
             .toEqual([])
@@ -1219,6 +1216,9 @@ describe('retained environments at root settlement', () => {
       releaseUnconfirmed: 0,
     })
     expect(result.fleetYield.done + result.fleetYield.down).toBe(2)
+    // The settled record names the nested grandchild too: tree and spendGaps read the forest (#1189).
+    expect(result.tree.nodes.map((node) => node.id).sort()).toEqual(['root:s0', 'root:s0:s0'])
+    expect(result.spendGaps?.map((gap) => gap.id)).toEqual(['root:s0:s0'])
   })
 
   it('closes a local retained-pending manager after confirming its owned descendants', async () => {

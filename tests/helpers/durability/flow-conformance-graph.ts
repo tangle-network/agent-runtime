@@ -38,18 +38,6 @@ import { armKillSwitch, type KillSwitch, readLabels } from './kill-switch'
 
 export const FLOW_RUN_ID = 'flow-conformance'
 export const AREAS = ['north', 'south'] as const
-/** Every execution of the reference run, by tag: each settles done exactly once. */
-export const FLOW_TAGS = [
-  'surveyor',
-  'scout:north',
-  'scout:south',
-  'collate',
-  'builder:1',
-  'review:1',
-  'builder:2',
-  'review:2',
-  'verifier',
-] as const
 /** Done settles per journal label: map items are labelled `<node>#<index>`, and builder and
  *  review settle twice only because of the authored repair. */
 export const FLOW_SETTLES_BY_LABEL = {
@@ -61,7 +49,6 @@ export const FLOW_SETTLES_BY_LABEL = {
   review: 2,
   verifier: 1,
 }
-export const FLOW_OUT = { verifier: { verified: true, build: 2 } }
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
