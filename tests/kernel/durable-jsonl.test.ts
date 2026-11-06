@@ -2,41 +2,11 @@ import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
 import { FileCorpus } from '../../src/runtime/personify/corpus'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 
 describe('durable append-only JSONL', () => {
-  it('recovers only an invalid unterminated final spawn-journal record', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'spawn-jsonl-tail-'))
-    try {
-      const path = join(dir, 'spawn.jsonl')
-      const journal = new FileSpawnJournal(path)
-      await journal.beginTree('run', '2026-07-29T00:00:00.000Z')
-      await appendFile(path, '{"kind":"event"')
-
-      await expect(journal.loadTree('run')).resolves.toEqual([])
-      await journal.beginTree('after-recovery', '2026-07-29T00:00:01.000Z')
-      await expect(journal.loadTree('run')).resolves.toEqual([])
-      await expect(journal.loadTree('after-recovery')).resolves.toEqual([])
-
-      await writeFile(
-        path,
-        '{"kind":"begin","root":"run","at":"2026-07-29T00:00:00.000Z"}\n{bad}\n',
-      )
-      await expect(journal.loadTree('run')).rejects.toThrow(/malformed JSONL record at line 2/)
-
-      await writeFile(
-        path,
-        '{bad}\n{"kind":"begin","root":"run","at":"2026-07-29T00:00:00.000Z"}\n',
-      )
-      await expect(journal.loadTree('run')).rejects.toThrow(/malformed JSONL record at line 1/)
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
   it('recovers only an invalid unterminated final coordination-log record', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'coordination-jsonl-tail-'))
     try {

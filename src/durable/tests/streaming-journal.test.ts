@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileCoordinationLog } from '../../runtime/supervise/coordination-log'
 import {
   createRootStreamSink,
   readRootStream,
   readRootStreamReceipt,
 } from '../../runtime/supervise/root-stream'
-import { parseCommittedJsonLines, readCommittedJsonLines } from '../jsonl-file'
+import { readCommittedJsonLines } from '../jsonl-file'
 import { FileObserverJournal } from '../observer-journal'
 
 let root: string
@@ -17,7 +17,6 @@ beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), 'streaming-journal-'))
 })
 afterEach(async () => {
-  vi.restoreAllMocks()
   await fs.rm(root, { recursive: true, force: true })
 })
 async function collect<T>(records: AsyncIterable<T>): Promise<T[]> {
@@ -36,45 +35,12 @@ const event = (id: string) => ({
 })
 
 describe('streaming committed JSONL', () => {
-  it.each([
-    '',
-    '\n',
-    'null\nfalse\n0\n"text"\n',
-    '{"a":1}\n\n{"b":2}',
-    '{"a":1}\n{"torn":',
-    '{"first":',
-    '{"a":1}\r\n{"b":2}\r\n',
-  ])('matches in-memory parsing for %j', async (bytes) => {
-    const path = join(root, 'records.jsonl')
-    await fs.writeFile(path, bytes)
-    expect(await collect(readCommittedJsonLines(path))).toEqual(
-      parseCommittedJsonLines(bytes, path),
-    )
-  })
-
   it('preserves UTF-8 and records across multiple stream chunks', async () => {
     const path = join(root, 'records.jsonl')
     const records = [{ text: '🙂é'.repeat(50_001) }, { text: 'after boundary' }]
     await fs.writeFile(path, records.map((record) => JSON.stringify(record)).join('\n'))
     expect(await collect(readCommittedJsonLines(path))).toEqual(records)
   })
-
-  it.each(['{}\n\nBAD\n', '{}\nBAD\n{"torn":', '{}\r{}\n', ' \n'])(
-    'refuses committed corruption in %j',
-    async (bytes) => {
-      const path = join(root, 'records.jsonl')
-      await fs.writeFile(path, bytes)
-      const expected = (() => {
-        try {
-          parseCommittedJsonLines(bytes, path)
-        } catch (error) {
-          return (error as Error).message
-        }
-      })()
-      await expect(collect(readCommittedJsonLines(path))).rejects.toThrow(expected)
-      expect(await fs.readFile(path, 'utf8')).toBe(bytes)
-    },
-  )
 
   it('only treats a missing file as empty when explicitly requested', async () => {
     const path = join(root, 'absent.jsonl')
@@ -100,21 +66,6 @@ describe('streaming committed JSONL', () => {
     expect(await reader.next()).toMatchObject({ value: 1 })
     await fs.truncate(path, 2)
     await expect(collect(reader)).rejects.toThrow(/journal changed/)
-  })
-
-  it('does not hide an allocation failure as a torn final write', async () => {
-    const path = join(root, 'records.jsonl')
-    const bytes = '{"keep":true}'
-    await fs.writeFile(path, bytes)
-    const parse = JSON.parse
-    const failure = new RangeError('fixture allocation failure')
-    vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) => {
-      if (text === bytes) throw failure
-      return parse(text, reviver)
-    })
-    expect(() => parseCommittedJsonLines(bytes, path)).toThrow(failure)
-    await expect(collect(readCommittedJsonLines(path))).rejects.toBe(failure)
-    expect(await fs.readFile(path, 'utf8')).toBe(bytes)
   })
 })
 

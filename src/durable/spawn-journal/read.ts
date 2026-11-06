@@ -20,6 +20,8 @@ export type SpawnJournalReadRecord =
   | { readonly kind: 'event'; readonly root: NodeId; readonly event: SpawnEvent }
 
 export interface SpawnJournalReadOptions {
+  /** Read-only projections may skip malformed physical rows; execution readers stay strict. */
+  readonly invalid?: 'throw' | 'skip'
   readonly after?: SpawnJournalCursor
   /** Initial opening-and-tail window, or an incremental page's byte budget. A crossing record
    * is read whole, so one large record can exceed this budget. Omit for complete history. */
@@ -39,7 +41,7 @@ export interface SpawnJournalReadResult {
 }
 
 /** Read a fixed journal prefix, with historical envelopes and framing owned by Runtime.
- * Missing journals return an empty page. Malformed committed records fail; incomplete final
+ * Missing journals return an empty page. Malformed committed records fail by default; incomplete final
  * writes remain unread for the next call. Cursors detect replacement, truncation and edits at
  * their sampled opening/boundary; they are not integrity proofs against arbitrary file edits.
  */
@@ -82,27 +84,24 @@ export async function readSpawnJournal(
         start,
         end,
         strictUtf8: true,
+        invalid: options.invalid,
         onCommit: (committed) => {
           offset = committed
         },
       })) {
-        if (!isRecord(record) || typeof record.root !== 'string') {
-          throw new Error(`${path}: spawn journal record has no root`)
+        if (
+          !isRecord(record) ||
+          typeof record.root !== 'string' ||
+          (record.kind === 'begin' && typeof record.at !== 'string')
+        ) {
+          if (options.invalid === 'skip') continue
+          throw new Error(`${path}: spawn journal record has no root or begin timestamp`)
         }
         if (record.kind === 'begin') {
-          if (typeof record.at !== 'string') throw new Error(`${path}: begin record has no at`)
-          records.push({ kind: 'begin', root: record.root, at: record.at })
+          records.push({ kind: 'begin', root: record.root, at: record.at as string })
         } else {
-          for (const event of spawnJournalRecordEvents(record)) {
-            if (
-              !isRecord(event) ||
-              typeof event.kind !== 'string' ||
-              typeof event.id !== 'string'
-            ) {
-              throw new Error(`${path}: spawn journal record has no event identity`)
-            }
+          for (const event of spawnJournalRecordEvents(record, options.invalid))
             records.push({ kind: 'event', root: record.root, event })
-          }
         }
         if (firstOnly) break
       }

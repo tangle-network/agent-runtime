@@ -56,6 +56,42 @@ describe('public committed spawn journal reads', () => {
     expect(next.reset).toBe(false)
   })
 
+  it('reads kindless history and skips only malformed physical rows when explicitly requested', async () => {
+    const legacy = { root: 'root', event: spawned('legacy') }
+    await writeFile(path, line(begin) + line(legacy))
+    expect((await readSpawnJournal(runDir)).records).toEqual([begin, { ...legacy, kind: 'event' }])
+    expect(await new FileSpawnJournal(path).loadTree('root')).toEqual([legacy.event])
+    const good = { kind: 'event', root: 'root', event: spawned('next') }
+    const corrupt = Buffer.concat([
+      Buffer.from('BAD\n'),
+      Buffer.from([0xff, 10]),
+      Buffer.from(line(null)),
+      Buffer.from(line({ ...good, root: undefined })),
+      Buffer.from(line({ ...good, kind: 'other' })),
+      Buffer.from(line({ kind: 'events', root: 'root', events: [spawned('hidden'), {}] })),
+    ])
+    const opening = await readFile(path)
+    await appendFile(path, corrupt)
+    await appendFile(path, line(good) + '{"torn":')
+    const bytes = await readFile(path)
+    await expect(readSpawnJournal(runDir)).rejects.toThrow('malformed JSONL')
+    const tolerant = { invalid: 'skip' } as const
+    const page = await readSpawnJournal(runDir, tolerant)
+    expect(page.records).toEqual([begin, { ...legacy, kind: 'event' }, good])
+    expect(page.cursor?.offset).toBe(bytes.length - Buffer.byteLength('{"torn":'))
+    expect(page.remainingBytes).toBe(Buffer.byteLength('{"torn":'))
+    expect((await readSpawnJournal(runDir, { ...tolerant, after: page.cursor })).records).toEqual(
+      [],
+    )
+    await expect(readSpawnJournal(runDir)).rejects.toThrow('malformed JSONL')
+    expect(await readFile(path)).toEqual(bytes)
+    await writeFile(path, opening)
+    await new FileSpawnJournal(path).appendEvent('root', spawned('appended'))
+    expect((await readSpawnJournal(runDir)).records.at(-1)).toMatchObject({
+      event: { id: 'appended' },
+    })
+  })
+
   it('keeps torn UTF-8 bytes unread and accepts historical complete unterminated records', async () => {
     const event = { kind: 'event', root: 'root', event: spawned('🙂') }
     const encoded = Buffer.from(line(event))

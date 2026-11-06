@@ -1,14 +1,27 @@
 import { isRecord } from '@tangle-network/agent-core'
 import type { SpawnEvent } from '../../runtime/supervise/types'
 
-/** Decode the file journal's historical single-event and atomic-group envelopes. @internal */
-export function spawnJournalRecordEvents(record: unknown): ReadonlyArray<SpawnEvent> {
-  if (!isRecord(record)) throw new Error('spawn journal corrupted: record must be an object')
-  if (record.kind === 'begin') return []
-  if (record.kind === 'event') return [record.event as SpawnEvent]
-  if (record.kind !== 'events') {
-    throw new Error(`spawn journal corrupted: unknown record kind '${String(record.kind)}'`)
+/** Decode historical single-event and atomic-group envelopes without partially accepting a group. @internal */
+export function spawnJournalRecordEvents(
+  record: unknown,
+  invalid: 'throw' | 'skip' = 'throw',
+): ReadonlyArray<SpawnEvent> {
+  const corrupt = (reason: string): ReadonlyArray<SpawnEvent> => {
+    if (invalid === 'skip') return []
+    throw new Error(`spawn journal corrupted: ${reason}`)
   }
-  if (!Array.isArray(record.events)) throw new Error('spawn journal group has no events array')
-  return record.events as SpawnEvent[]
+  if (!isRecord(record)) return corrupt('record must be an object')
+  if (record.kind === 'begin') return []
+  const single = record.kind === 'event' || (record.kind === undefined && 'event' in record)
+  if (!single && record.kind !== 'events')
+    return corrupt(`unknown record kind '${String(record.kind)}'`)
+  const events = single ? [record.event] : record.events
+  if (!Array.isArray(events)) return corrupt('group has no events array')
+  if (
+    events.some(
+      (event) => !isRecord(event) || typeof event.kind !== 'string' || typeof event.id !== 'string',
+    )
+  )
+    return corrupt('record has no event identity')
+  return events as SpawnEvent[]
 }
