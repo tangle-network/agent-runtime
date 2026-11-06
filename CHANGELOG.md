@@ -1,3 +1,7 @@
+## 6.0.6
+
+Resume stalled retained event reads from the last observed cursor within the same driver attempt. Advancing cursors permit further replay; an unchanged cursor stays bounded. Preserve the original execution and exact-result authority without redispatching work.
+
 ## 6.0.5
 
 A release publishes only after its seven upstream contracts pass on the qualified archive, as an `evidence` job inside `Publish`; the local release gate no longer runs them a second time.
