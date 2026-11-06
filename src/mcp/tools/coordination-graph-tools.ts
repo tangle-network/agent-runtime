@@ -94,9 +94,6 @@ export function mountGraphsTools({
           // A graph root starts fresh: its continuity is its nodes' edges, inside the graph.
           continuity: { continuity: 'fresh' },
           successorOf: undefined,
-          // A graph root is canonical already; this manager's resolver still judges it.
-          preflightProfile: () =>
-            opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
           resourcesFromPath: [],
           defaultLabel: `graph:${prepared.root}`,
           accepted: { graph: { root: prepared.root, nodes: prepared.nodes } },

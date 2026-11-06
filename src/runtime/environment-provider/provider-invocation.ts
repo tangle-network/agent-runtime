@@ -64,7 +64,9 @@ export async function* streamProviderExecutor(
   recordRuntimeOwnedProviderAttemptStart(args.scope.executor()) // one attempt per dispatch
   const source = await providerExecutionSource(args, turn, args.signal)
   const environment = source.environment
-  args.onEnvironment(environment)
+  // Adoption binds the environment identity and the applied resources it reports before the
+  // turn starts streaming, so the finalized declaration is complete evidence.
+  await args.onEnvironment(environment)
   const usage = new ProviderUsageAccount(args, turn.model)
   const observer = new ProviderTurnObserver(args, usage, source.retained, turn.model)
   const settlement = new ProviderTurnSettlement(
@@ -115,7 +117,7 @@ export interface StreamProviderExecutorArgs {
   /** The executor's state, mirrors and native control, which an invocation reports through. */
   scope: ProviderExecutorScope
   onRetained: (handle: RetainedRunHandle) => void
-  onEnvironment: (environment: AgentEnvironment) => void
+  onEnvironment: (environment: AgentEnvironment) => void | Promise<void>
 }
 
 export interface ProviderInvocationEnd {

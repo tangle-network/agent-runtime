@@ -151,10 +151,6 @@ async function spawnNode(
           key,
           continuity,
           successorOf: state.settledWorker.get(marker.node),
-          preflightProfile: () =>
-            state.opts.resolveSpawnProfile
-              ? detachedFrozen(state.opts.resolveSpawnProfile(profile))
-              : profile,
           resourcesFromPath: [],
           defaultLabel: marker.node,
           route: Object.freeze({ ...marker }),

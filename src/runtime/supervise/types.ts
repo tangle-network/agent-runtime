@@ -56,6 +56,7 @@ export type {
   ExecutorMaterialization,
   ExecutorNodeContext,
   MaterializedExecutionIdentity,
+  MaterializedResources,
   NodeExecutionIdentity,
   ProfileMaterializationReceipt,
   UnknownMaterializationReason,

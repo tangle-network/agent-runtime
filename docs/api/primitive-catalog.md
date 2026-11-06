@@ -431,7 +431,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1197,6 +1197,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `MapItemFailurePolicy` | type | What a map does when one of its items fails. See {@link MapOnSettleRoute.onItemFailure}. |
 | `MaterializedModelIdentity` | type | A named model carried into an execution, or an explicit reason the exact model is unknowable. |
+| `MaterializedResources` | type | The box sizes the created environment reported as applied, or an explicit unknown. Known |
 | `MountRecorder` | type | Records a mounted resource into the run's provenance manifest. Passed to |
 | `NativeContextContinuationExecution` | type | Result of one verified same-session continuation. |
 | `NativeContextContinuationInput` | type | Runtime controls plus the exact user turn bound into a continuation request. |

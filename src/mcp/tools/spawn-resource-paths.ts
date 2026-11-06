@@ -78,9 +78,14 @@ export function hostDirectoryReader(root: string): SpawnResourceReader {
 
 /**
  * The environment reader: a manager running inside a provider environment whose `read()` serves
- * its own workspace. The provider owns containment — it will not serve a path outside the box —
- * but the relative-path and `..` rules are enforced here too, so the refusal names the rule the
- * manager broke rather than whatever the provider says about an escape it declined.
+ * its own workspace. Containment of relative paths is the provider's property, not this
+ * function's: the tangle sidecar enforces it in `resolveWorkspacePath`
+ * (apps/sidecar/src/lib/workspace.ts:98-155, agent-dev-container) — relative paths stay inside
+ * the sandbox workspace, absolute paths only through an allowlist, `.sidecar/` refused at any
+ * depth because that tree holds the guest's orchestrator token. If that enforcement widened,
+ * this reader would serve files from outside the workspace; the absolute, `..`, and `.sidecar`
+ * refusals below are belt-and-braces so it stays correct for every path shape they can name
+ * (#1284).
  *
  * `read()` returns a string, so an environment cannot hand back bytes that are not UTF-8; the
  * provider has already decoded. The size bound is checked on what arrives.
@@ -101,6 +106,12 @@ export function environmentReader(environment: {
       }
       if (requested.split(/[\\/]/u).includes('..')) {
         return { ok: false, reason: `path ${requested} leaves the manager's workspace` }
+      }
+      if (requested.split(/[\\/]/u).includes('.sidecar')) {
+        return {
+          ok: false,
+          reason: `path ${requested} names .sidecar, the guest's control tree; a spawn resource cannot read it`,
+        }
       }
       let content: string
       try {

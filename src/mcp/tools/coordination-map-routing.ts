@@ -105,7 +105,6 @@ async function startMapSpawn(
   task: unknown,
   index: number | undefined,
 ): Promise<{ readonly workerId: string } | { readonly refused: string }> {
-  const { opts } = state
   const { route } = expansion
   const name = typeof profile.name === 'string' && profile.name.length > 0 ? profile.name : 'worker'
   const spawned = await admitRuntimeSpawn(state.admitSpawn, {
@@ -118,8 +117,6 @@ async function startMapSpawn(
     key: `map:${route.edge}#${expansion.expansion}:${index ?? 'join'}`,
     continuity: { continuity: 'fresh' },
     successorOf: undefined,
-    preflightProfile: () =>
-      opts.resolveSpawnProfile ? detachedFrozen(opts.resolveSpawnProfile(profile)) : profile,
     resourcesFromPath: [],
     defaultLabel: name,
     map: Object.freeze({ edge: route.edge, role, ...(index === undefined ? {} : { index }) }),

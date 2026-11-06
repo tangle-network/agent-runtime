@@ -364,10 +364,16 @@ describe('provider evidence on the spawn journal', () => {
     ] as AgentEnvironmentEvent[]
   }
 
-  /** Run one provider worker under a supervisor and return its journaled settlement. */
+  /** Run one provider worker under a supervisor and return its journaled settlement and receipt.
+   * `observedResources` becomes the created environment's observation of its applied sizes. */
   async function settledLeaf(
     events: AgentEnvironmentEvent[],
-  ): Promise<Extract<SpawnEvent, { kind: 'settled' }>> {
+    executorOptions: Parameters<typeof providerAsExecutor>[1] = {},
+    observedResources?: unknown,
+  ): Promise<{
+    settled: Extract<SpawnEvent, { kind: 'settled' }>
+    materialized: Extract<SpawnEvent, { kind: 'materialized' }> | undefined
+  }> {
     const root = await mkdtemp(join(tmpdir(), 'provider-evidence-'))
     roots.push(root)
     const context = createFileRunContext(join(root, 'run'))
@@ -380,6 +386,9 @@ describe('provider evidence on the spawn journal', () => {
           provider: 'served-fixture',
           status: async () => 'running',
           destroy: async () => {},
+          ...(observedResources === undefined
+            ? {}
+            : { observe: async () => ({ resources: observedResources }) }),
           async *stream(): AsyncGenerator<AgentEnvironmentEvent> {
             for (const event of events) yield event
           },
@@ -392,7 +401,10 @@ describe('provider evidence on the spawn journal', () => {
         executorSpec: {
           profile: servedProfile,
           harness: servedProfile.harness,
-          executorFactory: providerAsExecutor(provider, { destroyOnSettle: true }),
+          executorFactory: providerAsExecutor(provider, {
+            destroyOnSettle: true,
+            ...executorOptions,
+          }),
         },
       },
     )
@@ -421,15 +433,17 @@ describe('provider evidence on the spawn journal', () => {
       },
     )
     expect(result.kind).toBe('winner')
-    const settled = ((await context.journal.loadTree('root')) ?? []).find(
-      (event) => event.id === 'root:s0' && event.kind === 'settled',
-    )
+    const events0 = (await context.journal.loadTree('root')) ?? []
+    const settled = events0.find((event) => event.id === 'root:s0' && event.kind === 'settled')
     if (settled?.kind !== 'settled') throw new Error('the leaf never settled')
-    return settled
+    const materialized = events0.find(
+      (event) => event.id === 'root:s0' && event.kind === 'materialized',
+    )
+    return { settled, materialized }
   }
 
   it('journals the served model the platform reported beside the usage it settled', async () => {
-    const settled = await settledLeaf(
+    const { settled } = await settledLeaf(
       servedEvents({ provider: 'openai', model: 'gpt-6.1-sol', source: 'profile' }),
     )
     expect(settled.spent.tokens).toMatchObject({ input: 2939, output: 149 })
@@ -438,7 +452,7 @@ describe('provider evidence on the spawn journal', () => {
   })
 
   it('journals a conflict when the platform served a model other than the declared one', async () => {
-    const settled = await settledLeaf(
+    const { settled } = await settledLeaf(
       servedEvents({ provider: 'openai', model: 'gpt-5.4', source: 'environment' }),
     )
     expect(settled.providerModel).toMatchObject({
@@ -448,10 +462,60 @@ describe('provider evidence on the spawn journal', () => {
   })
 
   it('keeps the model unknown when the platform reported none', async () => {
-    const settled = await settledLeaf(servedEvents(undefined))
+    const { settled } = await settledLeaf(servedEvents(undefined))
     expect(settled.providerModel).toMatchObject({
       status: 'unknown',
       reason: 'provider-model-missing',
+    })
+  })
+
+  it('records the applied sizes the environment reported, never the create request', async () => {
+    const { materialized } = await settledLeaf(
+      servedEvents(undefined),
+      { defaults: { resources: { cpu: 4, memoryMb: 8192 } } },
+      {
+        effective: {
+          state: 'known',
+          value: { cpu: 2, memoryMb: 4096 },
+          provenance: { origin: 'reported', observedAt: '2026-11-06T00:00:00.000Z' },
+        },
+      },
+    )
+    expect(materialized?.receipt).toMatchObject({
+      status: 'known',
+      resources: {
+        status: 'known',
+        cpu: 2,
+        memoryMb: 4096,
+        origin: 'reported',
+        observedAt: '2026-11-06T00:00:00.000Z',
+      },
+    })
+  })
+
+  it('records an explicit unknown when the created environment offers no observation', async () => {
+    const { materialized } = await settledLeaf(servedEvents(undefined), {
+      defaults: { resources: { cpu: 2, memoryMb: 4096 } },
+    })
+    expect(materialized?.receipt).toMatchObject({
+      resources: {
+        status: 'unknown',
+        reason: 'created environment offers no observation',
+      },
+    })
+  })
+
+  it('records an explicit unknown when the environment reports a non-known effective size', async () => {
+    const { materialized } = await settledLeaf(
+      servedEvents(undefined),
+      {},
+      { effective: { state: 'unavailable', reason: 'sandbox reports no limits' } },
+    )
+    expect(materialized?.receipt).toMatchObject({
+      resources: {
+        status: 'unknown',
+        reason: 'created environment reported effective resources as unavailable',
+      },
     })
   })
 })

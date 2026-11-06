@@ -7,13 +7,13 @@ import {
   runtimeOwnedExecutorMaterialization,
 } from '../supervise/materialization'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
-import type { Spend, UsageEvent } from '../supervise/types'
+import type { MaterializedResources, Spend, UsageEvent } from '../supervise/types'
 import {
   reportedResetAt,
   unavailablePauseMs,
   unavailableResumeAt,
 } from '../supervise/upstream-unavailable'
-import { sleep } from '../util'
+import { errorMessage, sleep } from '../util'
 import type { ProviderExecutorScope } from './provider-executor-state'
 import {
   type ProviderInvocationEnd,
@@ -30,7 +30,11 @@ interface Invocation {
 }
 
 /** A new environment now backs this execution; the identity the provider issued is evidence. */
-function adoptEnvironment(scope: ProviderExecutorScope, env: AgentEnvironment): void {
+async function adoptEnvironment(
+  scope: ProviderExecutorScope,
+  env: AgentEnvironment,
+  signal: AbortSignal,
+): Promise<void> {
   const { state, materialization } = scope
   state.environment = env
   state.resetWorkspace(env)
@@ -42,6 +46,10 @@ function adoptEnvironment(scope: ProviderExecutorScope, env: AgentEnvironment): 
   ) {
     state.harnessTranscript = harnessTranscriptUnavailable('capture-did-not-run')
   }
+  // Applied sizes exist only once the box does, so adoption reads them from the created
+  // environment before the turn starts; the create input's request was admission-validated,
+  // never applied, and is not recorded in its place.
+  const resources = await appliedResources(env, signal)
   // `create` resolved, so the environment identity the provider issued is now evidence. It
   // goes in `execution`, which the mid-run guard treats as per-attempt routing, and NOT in
   // `plan`, which the guard holds fixed across attempts. It used to be written to both, so a
@@ -49,15 +57,55 @@ function adoptEnvironment(scope: ProviderExecutorScope, env: AgentEnvironment): 
   // refused as a changed materialization even after #1230 excused `execution.id`. Measured
   // on mech-interp-foundations-pi-20260915i under 0.225.5, which was the first guard able to
   // name the field. The admission events already record which environment served each
-  // attempt; nothing reads the id from the plan.
+  // attempt; nothing reads the id from the plan. Applied `resources` sit in the same
+  // per-materialization zone for the same reason.
   finalizeRuntimeOwnedPendingExecutor(
     scope.executor(),
     {
       ...materialization.plannedDeclaration,
+      resources,
       execution: { kind: 'environment', id: env.id },
     },
     materialization.plannedBinding,
   )
+}
+
+/** Read the applied box sizes from the created environment's normalized observation. Unknown is
+ * the honest answer whenever the environment offers no observation, reports no known effective
+ * size, or fails to answer; the request the create input carried is never a substitute. */
+async function appliedResources(
+  env: AgentEnvironment,
+  signal: AbortSignal,
+): Promise<MaterializedResources> {
+  if (env.observe === undefined) {
+    return { status: 'unknown', reason: 'created environment offers no observation' }
+  }
+  try {
+    const observation = await env.observe({ signal })
+    const effective = observation.resources?.effective
+    if (effective?.state !== 'known') {
+      const reported = effective === undefined ? 'none' : effective.state
+      return {
+        status: 'unknown',
+        reason: `created environment reported effective resources as ${reported}`,
+      }
+    }
+    const { value, provenance } = effective
+    return {
+      status: 'known',
+      ...(value.cpu === undefined ? {} : { cpu: value.cpu }),
+      ...(value.memoryMb === undefined ? {} : { memoryMb: value.memoryMb }),
+      ...(value.diskMb === undefined ? {} : { diskMb: value.diskMb }),
+      ...(value.accelerator === undefined ? {} : { accelerator: value.accelerator }),
+      origin: provenance.origin,
+      observedAt: provenance.observedAt,
+    }
+  } catch (error) {
+    return {
+      status: 'unknown',
+      reason: `created environment observation failed: ${errorMessage(error)}`,
+    }
+  }
 }
 
 /** The seams one invocation reports through; `continued` marks a continuation of the execution. */
@@ -93,8 +141,8 @@ function invocationArgs(
       state.providerSessionId = state.workspaceControlRef.sessionId
       nativeControl.cancelRetainedOnManagerStop(handle)
     },
-    onEnvironment: (env) => {
-      if (!continued) return adoptEnvironment(scope, env)
+    onEnvironment: async (env) => {
+      if (!continued) return adoptEnvironment(scope, env, signal)
       // A continuation runs in the environment the execution already materialized in; a
       // different one would be a different execution, which the receipt cannot name.
       if (env.id !== state.environment?.id) {

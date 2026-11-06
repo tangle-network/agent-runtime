@@ -90,9 +90,12 @@ export function admitSpawn(
     ...(spawnContext.route !== undefined ? { route: spawnContext.route } : {}),
     ...(spawnContext.continuity !== undefined ? { continuity: spawnContext.continuity } : {}),
   })
-  // Recovery reconstructs the admitted authority; authorization cannot replace it. Inside a
-  // graph subtask the graph pins each spawn first and hands the pinned profile to the run's
-  // own authority, as `runGraph` does for a run's root graph.
+  // Recovery skips re-authorization deliberately (#1281): the recovered profile bytes ARE the
+  // admitted authority — recovery loads them from the spawn's own profileRef blob, digest-checked
+  // against its admitted identity — so `authorizeSpawn`'s decision is already inside them and
+  // re-running it would double-apply a grant or replace recorded authority with a fresh one.
+  // Inside a graph subtask the graph pins each spawn first and hands the pinned profile to the
+  // run's own authority, as `runGraph` does for a run's root graph.
   const authorize = seat.graph?.authorizeSpawn ?? options.authorizeSpawn
   const decision =
     !recovering && authorize

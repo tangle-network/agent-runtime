@@ -891,6 +891,60 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
   })
 
+  it('refuses a spawn when the host executor is full even though the admission lane has room', async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined }> = []
+    server = createServer((req, res) => {
+      requests.push({ method: req.method, url: req.url })
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            admission: {
+              active: 2,
+              maxActive: 8,
+              bulkMaxActive: 6,
+              activeByClass: { reserved: 0, bulk: 2 },
+            },
+            executor: { in_flight: 4, max: 4, queued: 1, acquire_deadline_ms: 60000 },
+          }),
+        )
+        return
+      }
+      if (respondBridgeCapabilities(req, res)) return
+      res.writeHead(500)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+
+    const failure = await drain(
+      executor.execute(
+        'must not dispatch',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toMatchObject({
+      message: expect.stringMatching(
+        /executor is full: in_flight 4 of max 4, 1 queued; the spawn would wait on the host semaphore/u,
+      ),
+      providerDispatch: 'not_started',
+    })
+    expect(classifyDriverFailure(failure)).toBe('transient')
+    expect(requests).toEqual([
+      { method: 'GET', url: '/' },
+      {
+        method: 'GET',
+        url: '/v1/capabilities?model=pi%2Ftangle-router%2Fglm-5.2',
+      },
+      { method: 'GET', url: '/health' },
+    ])
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+  })
+
   it('rejects a v2 bridge that completes without its terminal profile acknowledgement', async () => {
     const stub = await startBridgeStub(
       `data: ${JSON.stringify({ choices: [{ delta: { content: 'untrusted' } }] })}\n\ndata: [DONE]\n\n`,

@@ -26,6 +26,28 @@ export interface MaterializedExecutionIdentity {
   readonly id: string
 }
 
+/** The box sizes the created environment reported as applied, or an explicit unknown. Known
+ * values come from the environment's normalized observation (`resources.effective`), never from
+ * the create input: the request was admission-validated, not applied, and the applied sizes stay
+ * comparable against what the guest itself reads from its cgroup limits. `origin` and
+ * `observedAt` carry the observation's provenance so an estimate is never mistaken for a
+ * provider-applied size; `accelerator` is the observation's hardware shape. */
+export type MaterializedResources =
+  | {
+      readonly status: 'known'
+      readonly cpu?: number
+      readonly memoryMb?: number
+      readonly diskMb?: number
+      readonly accelerator?: {
+        readonly kind: string
+        readonly count: number
+        readonly memoryMb?: number
+      }
+      readonly origin: 'estimated' | 'measured' | 'reported'
+      readonly observedAt: string
+    }
+  | { readonly status: 'unknown'; readonly reason: string }
+
 /**
  * Data-only declaration from trusted executor code about the exact sealed plan `execute` uses.
  * Scope snapshots this value and computes the durable receipt; callers never provide digests.
@@ -40,6 +62,8 @@ export interface ExecutorMaterialization {
   readonly backend: string
   /** Exact selected model, or an explicit unknown reason. */
   readonly model: MaterializedModelIdentity
+  /** Applied resources the created environment reported, or an explicit unknown reason. */
+  readonly resources?: MaterializedResources
   /** Backend-native session/run/request/process identity. */
   readonly execution: MaterializedExecutionIdentity
   /** Named implementation that turns the effective profile into executable backend inputs. */
@@ -84,6 +108,7 @@ export type ProfileMaterializationReceipt =
       readonly runtime: Runtime
       readonly backend: string
       readonly model: MaterializedModelIdentity
+      readonly resources: MaterializedResources
       readonly execution: MaterializedExecutionIdentity
       readonly materializer: string
     }

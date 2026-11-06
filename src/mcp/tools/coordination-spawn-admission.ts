@@ -199,15 +199,15 @@ function resolveContinuity(
  */
 async function preflightRefusal(
   state: AdmissionState,
-  input: SpawnAdmission,
+  effective: SpawnAdmission['profile'],
   label: string,
   task: ReturnType<typeof detachedFrozen>,
+  key: string | undefined,
 ): Promise<unknown> {
   const { opts } = state
   if (!opts.preflightSpawn) return undefined
-  const { key } = input
-  // The gate judges the profile that will RUN, which the caller resolved.
-  const refusal = await opts.preflightSpawn(input.preflightProfile(), {
+  // The gate judges the profile that will RUN — the same one the spawn below uses (#1281).
+  const refusal = await opts.preflightSpawn(effective, {
     label,
     ...(key !== undefined ? { key } : {}),
     task,
@@ -232,7 +232,12 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
   const a = input.args
   const task = detachedFrozen(input.task)
   const label = typeof a.label === 'string' ? a.label : input.defaultLabel
-  const refused = await preflightRefusal(state, input, label, task)
+  // The profile that RUNS: a pinning layer resolves the authored stub to its canonical
+  // profile, and the pre-flight gate and the spawn see the SAME resolved profile (#1281).
+  const effective = opts.resolveSpawnProfile
+    ? detachedFrozen(opts.resolveSpawnProfile(profile))
+    : profile
+  const refused = await preflightRefusal(state, effective, label, task, key)
   if (refused !== undefined) return refused
   const budget = Object.freeze(
     a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
@@ -257,7 +262,7 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
     ...(input.map !== undefined ? { map: input.map } : {}),
     ...(input.route !== undefined ? { route: input.route } : {}),
   })
-  const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
+  const res = opts.scope.spawn(() => opts.makeWorkerAgent(effective, context), task, {
     budget,
     label,
     assignmentId,

@@ -22,10 +22,8 @@ The full suite includes these focused local coordination files:
 pnpm exec vitest run \
   tests/kernel/coordination-mcp.test.ts \
   tests/kernel/supervisor-agent.test.ts \
-  tests/kernel/coordination.test.ts \
   tests/kernel/event-bus.test.ts \
-  tests/mcp/task-queue-durable.test.ts \
-  src/runtime/environment-provider.test.ts
+  tests/mcp/task-queue-durable.test.ts
 ```
 
 Those tests establish that the local primitives work.

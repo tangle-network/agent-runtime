@@ -199,10 +199,11 @@ export interface SuperviseOptions {
    *  Flow graphs keep derivation for native child drivers; their root uses Runtime's deterministic
    *  brain and makes no model call through this backend. */
   readonly rootDriverFromBackend?: boolean
-  /** Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
-   *  the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
-   *  sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
-   *  canonical profile. Identity-free and synchronous; throw to refuse. */
+  /** Pre-journal profile resolution: the profile a driver authored → the profile that will run
+   *  (`CoordinationToolsOptions.resolveSpawnProfile`), for the spawn itself and its pre-flight
+   *  gate alike (#1281). A pinning layer sets this alongside `authorizeSpawn` so the backend
+   *  gate and the authorization see the same canonical profile. Identity-free and synchronous;
+   *  throw to refuse. */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** OPT-IN standing guidance from the profile knowledge base
    *  (`@tangle-network/agent-interface/profile-kb`). `'profile-kb'` composes harness guidance,

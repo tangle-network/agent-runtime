@@ -88,6 +88,7 @@ const declarationKeys = new Set([
   'authoredProfile',
   'backend',
   'model',
+  'resources',
   'execution',
   'materializer',
   'plan',
@@ -403,6 +404,7 @@ export function knownMaterializationReceipt(
   assertNonEmpty(declaration.execution?.kind, 'execution.kind')
   assertNonEmpty(declaration.execution?.id, 'execution.id')
   assertModel(declaration.model)
+  assertResources(declaration.resources)
 
   let effectiveProfileDigest: Sha256Digest
   let materializationPlanDigest: Sha256Digest
@@ -435,6 +437,9 @@ export function knownMaterializationReceipt(
     runtime: input.runtime,
     backend: declaration.backend,
     model: declaration.model,
+    resources:
+      declaration.resources ??
+      ({ status: 'unknown', reason: 'executor-did-not-report-applied-resources' } as const),
     execution: declaration.execution,
     materializer: declaration.materializer,
   })
@@ -578,6 +583,74 @@ function assertModel(model: ExecutorMaterialization['model']): void {
     return
   }
   throw new ValidationError('executor materialization: model.status must be known or unknown')
+}
+
+function assertResources(resources: ExecutorMaterialization['resources']): void {
+  if (resources === undefined) return
+  if (typeof resources !== 'object' || resources === null || Array.isArray(resources)) {
+    throw new ValidationError('executor materialization: resources must be a known/unknown report')
+  }
+  const keys = Object.keys(resources).sort().join(',')
+  if (resources.status === 'unknown') {
+    if (keys !== 'reason,status') {
+      throw new ValidationError(
+        'executor materialization: unknown resources accepts only status and reason',
+      )
+    }
+    assertNonEmpty(resources.reason, 'resources.reason')
+    return
+  }
+  if (resources.status !== 'known') {
+    throw new ValidationError('executor materialization: resources.status must be known or unknown')
+  }
+  const sizes: Record<string, unknown> = {
+    cpu: resources.cpu,
+    memoryMb: resources.memoryMb,
+    diskMb: resources.diskMb,
+  }
+  const allowed = new Set([...Object.keys(sizes), 'accelerator', 'origin', 'observedAt', 'status'])
+  const stray = Object.keys(resources).filter((key) => !allowed.has(key))
+  if (stray.length > 0) {
+    throw new ValidationError(
+      `executor materialization: known resources accepts only ${[...allowed].sort().join(', ')}: ${stray.sort().join(', ')}`,
+    )
+  }
+  const positive = (value: unknown, integer: boolean) =>
+    Number.isFinite(value as number) &&
+    (value as number) > 0 &&
+    (!integer || Number.isInteger(value))
+  for (const [field, value] of Object.entries(sizes).filter(([, v]) => v !== undefined)) {
+    if (!positive(value, field !== 'cpu')) {
+      throw new ValidationError(
+        `executor materialization: resources.${field} must be a positive ${field === 'cpu' ? 'number' : 'integer'}`,
+      )
+    }
+  }
+  if (resources.accelerator !== undefined) {
+    const accelerator = resources.accelerator
+    assertNonEmpty(accelerator.kind, 'resources.accelerator.kind')
+    if (!positive(accelerator.count, true)) {
+      throw new ValidationError(
+        'executor materialization: resources.accelerator.count must be a positive integer',
+      )
+    }
+    if (accelerator.memoryMb !== undefined && !positive(accelerator.memoryMb, true)) {
+      throw new ValidationError(
+        'executor materialization: resources.accelerator.memoryMb must be a positive integer',
+      )
+    }
+  }
+  if (Object.values(sizes).every((v) => v === undefined) && resources.accelerator === undefined) {
+    throw new ValidationError(
+      'executor materialization: known resources needs at least one of cpu, memoryMb, diskMb, accelerator',
+    )
+  }
+  if (!['estimated', 'measured', 'reported'].includes(resources.origin)) {
+    throw new ValidationError(
+      'executor materialization: resources.origin must be estimated, measured or reported',
+    )
+  }
+  assertNonEmpty(resources.observedAt, 'resources.observedAt')
 }
 
 function assertNonEmpty(value: unknown, field: string): asserts value is string {

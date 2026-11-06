@@ -86,6 +86,12 @@ export class BackendTransportError extends AgentEvalError {
    */
   readonly providerDispatch?: 'not_started'
   /**
+   * Bridge-owned proof that the refusal came from a full executor semaphore, not a
+   * provider: the request waited on the host's concurrency gate and was refused as
+   * capacity (`executor_saturated`, HTTP 429). Retryable after `Retry-After`.
+   */
+  readonly capacity?: true
+  /**
    * The upstream's own error class when it names one (the bridge's `parse_error`,
    * `not_configured`, a provider's `invalid_request_error`). A class the upstream never
    * retries is a decision about the request, so a retry policy may read it where no
@@ -112,6 +118,7 @@ export class BackendTransportError extends AgentEvalError {
       remediation?: RuntimeFailureCause['remediation']
       body?: string
       providerDispatch?: 'not_started'
+      capacity?: true
     },
   ) {
     super('config', message, options)
@@ -121,6 +128,7 @@ export class BackendTransportError extends AgentEvalError {
     this.remediation = options?.remediation
     this.body = options?.body
     this.providerDispatch = options?.providerDispatch
+    this.capacity = options?.capacity
   }
 }
 
