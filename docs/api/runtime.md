@@ -19922,7 +19922,7 @@ Structural failure evidence captured before the rejection becomes message text.
 
 Children across the owned forest after the join barrier and release sweep.
 spawned === done + down + cancelled + neverSettled. Unlike the breaker's downCount,
-down includes released retained children. spendGaps remains root-tree scoped.
+down includes released retained children. spendGaps and tree read the whole forest (#1189).
 
 #### Properties
 

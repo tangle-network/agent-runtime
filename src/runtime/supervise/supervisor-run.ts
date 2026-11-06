@@ -442,26 +442,30 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
       await settled.opts.blobs.put(outRef, out)
       // ONE ledger: `settled` events carry child WORK, `metered` events the drivers' OWN inference;
       // `spentTotal` is their sum and the breakdown keeps the two separable.
-      const { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield, usage } =
-        await terminalAccounting(
-          settled.journal,
-          settled.opts.runId,
-          settled.now() - settled.runEpochMs,
-          settled.opts.requestedProfile,
-        )
+      const accounting = await terminalAccounting(
+        settled.journal,
+        settled.opts.runId,
+        settled.now() - settled.runEpochMs,
+        settled.opts.requestedProfile,
+      )
       return {
         kind: 'winner',
         out,
         outRef,
-        tree: settled.tree,
-        spentTotal,
-        usage,
-        providerModel,
+        tree: accounting.tree,
+        spentTotal: accounting.spentTotal,
+        usage: accounting.usage,
+        providerModel: accounting.providerModel,
         ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
-        ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
-        fleetYield,
-        ...(isNonEmptySpend(driverInference)
-          ? { spentBreakdown: { driverInference, childWork } }
+        ...(accounting.gaps.length > 0 ? { spendGaps: accounting.gaps } : {}),
+        fleetYield: accounting.fleetYield,
+        ...(isNonEmptySpend(accounting.driverInference)
+          ? {
+              spentBreakdown: {
+                driverInference: accounting.driverInference,
+                childWork: accounting.childWork,
+              },
+            }
           : {}),
       }
     }
@@ -479,7 +483,7 @@ async function noWinner<Out>(
   rejection?: DriverRejection,
 ): Promise<SupervisedResult<Out>> {
   const { controller, teardownUnconfirmed, leakedReservations } = settled
-  const { spentTotal, gaps, providerModel, fleetYield, usage } = await terminalAccounting(
+  const { tree, spentTotal, gaps, providerModel, fleetYield, usage } = await terminalAccounting(
     settled.journal,
     settled.opts.runId,
     settled.now() - settled.runEpochMs,
@@ -487,7 +491,7 @@ async function noWinner<Out>(
   )
   const common = {
     kind: 'no-winner' as const,
-    tree: settled.tree,
+    tree,
     downCount: settled.breaker.downCount(),
     spentTotal,
     usage,
