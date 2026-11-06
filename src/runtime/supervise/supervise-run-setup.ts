@@ -509,7 +509,7 @@ function managerDriverPlan(
   // Runtime-managed tool declarations and the coordination channel are checked before reservation
   // or journaling; a bridge adds its route/admission check after. A caller-owned worker port owns
   // its mount and receives the profile unchanged.
-  const spawnPreflight = composeSpawnPreflights(
+  const agentPreflight = composeSpawnPreflights(
     async (profile, context) => {
       const external = isExternalSupervisor(profile)
       const manager =
@@ -539,6 +539,15 @@ function managerDriverPlan(
       ? providerSpawnPreflight(options.backend.provider)
       : undefined,
   )
+  // A check node's `{ name }` profile names no model or harness; its command runs instead.
+  const checkNames = options.checkNodes?.names
+  const spawnPreflight: typeof agentPreflight =
+    agentPreflight && checkNames
+      ? (profile, context) =>
+          checkNames.includes(profile.name ?? '')
+            ? Promise.resolve(undefined)
+            : agentPreflight(profile, context)
+      : agentPreflight
   // A custom harness receives the provider-visible profile plus the immutable canonical profile
   // for receipt binding, so an undeclared materialization defaults to the full canonical leaf set
   // (less Runtime-owned coordination declarations); declaring `driveHarnessMaterialization`

@@ -26,6 +26,7 @@ const superviseOptionKeys = [
   'analyzeOnSettle',
   'mapOnSettle',
   'routeFlow',
+  'checkNodes',
   'decideGate',
   'authorizeMessage',
   'authorizeSpawn',
@@ -260,6 +261,7 @@ export const SUPERVISE_EXECUTABLE_OPTION_KEYS: ReadonlyArray<keyof SuperviseOpti
 const superviseReferenceOptionKeys: ReadonlySet<string> = new Set<keyof SuperviseOptions>([
   ...superviseExecutableOptionKeys,
   'blobs',
+  'checkNodes',
   'hooks',
   'journal',
   'otel',

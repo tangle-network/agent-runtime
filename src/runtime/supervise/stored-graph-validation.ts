@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { GraphEdge, GraphTopology } from './graph'
-import { graphFileSchema, graphRouteWhenSchema } from './graph-file-schema'
+import { graphCheckNodeSchema, graphFileSchema, graphRouteWhenSchema } from './graph-file-schema'
 import { validateFlowGraph } from './graph-flow'
 import { assertGraphTriggerBindings, graphTriggerBindingsSchema } from './graph-parameters'
 import { graphDigest, type StoredGraph } from './graph-registry'
@@ -98,7 +98,8 @@ const storedGraphSchema = graphFileSchema
   .extend({
     observed: z.literal(false).optional(),
     triggerBindings: graphTriggerBindingsSchema.optional(),
-    nodes: z.array(node).min(1),
+    nodes: z.array(node.extend({ check: graphCheckNodeSchema.optional() })).min(1),
+    workspace: graphFileSchema.shape.workspace,
     edges: z.array(edge),
     entry: entry.optional(),
     gates: gates.optional(),
@@ -137,7 +138,8 @@ function assertJsonData(value: unknown, visiting = new Set<object>()): void {
 
 function assertExecutableNodes(graph: GraphTopology): void {
   for (const item of graph.nodes)
-    assertExecutableAgentProfile(item.profile, `validateStoredGraph node ${item.id}`)
+    if (item.check === undefined)
+      assertExecutableAgentProfile(item.profile, `validateStoredGraph node ${item.id}`)
   for (const item of graph.edges)
     if (item.kind === 'maps' && item.graph) assertExecutableNodes(item.graph)
 }
@@ -183,6 +185,12 @@ export function validateStoredGraph(
     for (const condition of 'all' in check.when ? check.when.all : [check.when])
       if (condition.node !== undefined && !ids.has(condition.node))
         refuse(`check references unknown node ${condition.node}`)
+  }
+  for (const item of graph.nodes) {
+    if (item.check === undefined) continue
+    if (!graph.entry) refuse('check nodes run only in a flow graph (one with entry)')
+    if (item.profile.name !== item.id || Object.keys(item.profile).length !== 1)
+      refuse(`check node ${item.id} carries a profile; its profile is { name: id }`)
   }
   assertExecutableNodes(graph)
   const registry = options.registry ?? kernelPromptRegistry()
