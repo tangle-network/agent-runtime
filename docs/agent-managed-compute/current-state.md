@@ -185,11 +185,7 @@ They must not be presented as distributed stores.
 
 ### 11. Conversation resume assumes one writer
 
-The conversation journal correctly resumes committed turns, but its documentation explicitly forbids multiple drivers writing the same `runId`.
-
-See `docs/durability-adapters.md:206`.
-
-That is a good constraint and should become an enforced ownership rule rather than an application warning.
+The conversation journal and `docs/durability-adapters.md` were removed. Chat resume belongs to the Agent App turn store. Supervised work resumes from its run directory. See the deletion ledger in [`docs/durability.md`](../durability.md).
 
 ### 12. Current tests stop at the process boundary
 

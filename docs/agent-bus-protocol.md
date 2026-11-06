@@ -67,8 +67,8 @@ A `@tangle-network/agent-runtime` consumer (driver code):
 ## Reference
 
 - `src/conversation/` (internal) — header construction, turn identity, depth parsing, and the call-policy
-  primitives, and the durable conversation journal all export from the package root (`src/index.ts`);
-  there are no protocol-specific subpaths.
+  primitives export from the package root (`src/index.ts`). The durable conversation journal was removed;
+  chat persistence belongs to the Agent App turn store ([`durability.md`](./durability.md)).
 - `@tangle-network/agent-gateway` — Hono middleware for inbound enforcement.
 
 ## Implementation status
