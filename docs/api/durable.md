@@ -2118,6 +2118,12 @@ Serializable checkpoint of a committed byte boundary, bound to one file and its 
 
 #### Properties
 
+##### invalid?
+
+> `readonly` `optional` **invalid?**: `"throw"` \| `"skip"`
+
+Read-only projections may skip malformed physical rows; execution readers stay strict.
+
 ##### after?
 
 > `readonly` `optional` **after?**: [`SpawnJournalCursor`](#spawnjournalcursor)
@@ -5991,7 +5997,7 @@ Read the most recent failure record, or `undefined` when the directory holds non
 > **readSpawnJournal**(`runDir`, `options?`): `Promise`\<[`SpawnJournalReadResult`](#spawnjournalreadresult)\>
 
 Read a fixed journal prefix, with historical envelopes and framing owned by Runtime.
-Missing journals return an empty page. Malformed committed records fail; incomplete final
+Missing journals return an empty page. Malformed committed records fail by default; incomplete final
 writes remain unread for the next call. Cursors detect replacement, truncation and edits at
 their sampled opening/boundary; they are not integrity proofs against arbitrary file edits.
 

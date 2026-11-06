@@ -1,3 +1,7 @@
+## 6.0.8
+
+Read historical kindless spawn-journal envelopes and let read-only projections explicitly skip malformed physical rows with `readSpawnJournal(runDir, { invalid: 'skip' })`, preserving strict defaults and atomic groups.
+
 ## Unreleased
 
 `profileChatClient` and `profileOptimizerModelCall` forward optional caller request headers on every Router turn. Runtime's content-type, authorization, idempotency-key, and x-correlation-id keep precedence.
