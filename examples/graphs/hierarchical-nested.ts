@@ -5,13 +5,11 @@
  * In a fixed graph the hierarchy is a node that
  * declares the spawn tool: `lead` carries `agent_runtime_coordination_spawn_worker`, so the graph
  * runs it as a NESTED SUPERVISOR with its own brain and its own scope instead of a leaf. The lead
- * spawns `impl-a` and `impl-b`, which are graph nodes like any other, so every delegation is
- * pinned and ledgered; the nested workers' ids sit UNDER the lead's (`h:s0:s0`, `h:s0:s1`). The
+ * spawns `impl-a` and `impl-b` along its OWN delegates edges, so each ledger row names the
+ * supervisor that made it and the nested ids sit UNDER the lead's (`h:s0:s0`, `h:s0:s1`). The
  * planner then spawns the `integrator` over the lead's result.
  *
- * Two honest limits. Every delegates edge names the root as `from` (the fixed graph form), so the
- * ledger cannot say which supervisor spawned a worker; the worker id path does. And the lead's
- * brain runs on the router transport, so the offline form scripts that HTTP peer
+ * The lead's brain runs on the router transport, so the offline form scripts that HTTP peer
  * (`RouterTransportConfig.complete`) rather than a driver brain.
  *
  * Fully offline (scripted brain + scripted router peer + leaf seam).
@@ -43,10 +41,10 @@ export function hierarchicalNested(): { graph: AgentGraph; opts: RunGraphTestOpt
       workerNode('impl-b', 'Implement the second half.'),
       workerNode('integrator', 'Integrate the lead result.'),
     ],
-    edges: ['lead', 'impl-a', 'impl-b', 'integrator'].map((to) => ({
+    edges: ['planner>lead', 'lead>impl-a', 'lead>impl-b', 'planner>integrator'].map((pair) => ({
       kind: 'delegates' as const,
-      from: 'planner',
-      to,
+      from: pair.split('>')[0] as string,
+      to: pair.split('>')[1] as string,
       directive: brief,
       maxTraversals: 1,
     })),

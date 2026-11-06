@@ -22,7 +22,7 @@
  *   conditional-skip           zero findings: zero traversals on the verify edge, a finish instead
  *   judge-panel                2 judges x 3 attempts = 6 scores; result.out is the top attempt's work
  *   loop-until-dry             the critic's dry streak finishes the loop at two, under the cap
- *   hierarchical-nested        the lead's workers have ids nested under the lead's
+ *   hierarchical-nested        the lead spawns its workers on its own edges; the ledger names it
  *   dependency-waves           a fork releases api, ui and docs; a join starts e2e after both
  *   proof-gate                 no proof, no traversal on the destructive edge
  *   arm-comparison             3 registry records; the cheapest delivery wins and replays
@@ -301,13 +301,45 @@ describe('examples/graphs corpus — every pattern runs offline with a truthful 
     const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
+    // Each row names the supervisor that made the delegation (#1774).
+    expect(delegatesOf(res).map((r) => [r.from, r.outcome, r.workerId])).toEqual([
+      ['planner', 'delivered', 'h:s0'],
+      ['lead', 'delivered', 'h:s0:s0'],
+      ['lead', 'delivered', 'h:s0:s1'],
+      ['planner', 'delivered', 'h:s1'],
+    ])
     expect(delegatesOf(res).map((r) => [r.edge, r.outcome, r.workerId])).toEqual([
       ['delegates:planner->lead', 'delivered', 'h:s0'],
-      ['delegates:planner->impl-a', 'delivered', 'h:s0:s0'],
-      ['delegates:planner->impl-b', 'delivered', 'h:s0:s1'],
+      ['delegates:lead->impl-a', 'delivered', 'h:s0:s0'],
+      ['delegates:lead->impl-b', 'delivered', 'h:s0:s1'],
       ['delegates:planner->integrator', 'delivered', 'h:s1'],
     ])
     expect(res.exhaustedEdges).toEqual([])
+  })
+
+  it("hierarchical-nested: the planner cannot spawn a node on the lead's edge", async () => {
+    const { graph, opts } = hierarchicalNested()
+    const replies: string[] = []
+    const res = await runGraphWithTestBrain(graph, {
+      ...opts,
+      brain: async (messages) => {
+        const tool = messages.filter((m) => m.role === 'tool').map((m) => String(m.content))
+        replies.push(...tool.slice(replies.length))
+        return tool.length === 0
+          ? {
+              toolCalls: [
+                {
+                  id: 'direct',
+                  name: 'spawn_worker',
+                  arguments: JSON.stringify({ profile: { name: 'impl-a' }, task: 'x' }),
+                },
+              ],
+            }
+          : { content: 'done' }
+      },
+    })
+    expect(replies.join('\n')).toContain("its delegates edge starts at 'lead'")
+    expect(delegatesOf(res).filter((r) => r.to === 'impl-a')).toEqual([])
   })
 
   it('dependency-waves: a fork releases the wave, a join waits for both branches', async () => {

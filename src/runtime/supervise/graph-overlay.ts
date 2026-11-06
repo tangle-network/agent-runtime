@@ -225,9 +225,7 @@ function pinNode(ctx: OverlayContext, input: SpawnAuthorizationInput): AgentProf
     typeof (input.profile as { name?: unknown } | undefined)?.name === 'string'
       ? (input.profile as { name: string }).name
       : undefined
-  // An analyst-AGENT run: the coordination settle hook (marker authored by the runtime, never
-  // model arguments) spawns the analyst NODE. The directive travels as the TASK, so nothing is
-  // appended to the profile; its traversal is ledgered on the finding/steer it produces.
+  // An analyst node run (runtime-authored marker): its directive is the TASK, ledgered on its finding.
   if (input.analyst !== undefined) {
     const { analystNodes } = ctx.validated
     const analystNode = analystNodes.get(input.analyst)
@@ -267,10 +265,16 @@ function pinDelegatesSpawn(
     )
   }
   const edge = validated.delegatesByWorker.get(node.id) as DelegatesEdge
+  // A spawner runs a graph node; the root's scope maps to none. Spawn only along your own edges.
+  const spawner = ledger.nodeByWorkerId.get(input.parentNodeId ?? '') ?? validated.root?.id
+  if (spawner !== edge.from) {
+    throw new ValidationError(
+      `runGraph: '${spawner}' spawned '${node.id}', but its delegates edge starts at '${edge.from}'`,
+    )
+  }
   const id = edgeId(edge)
   const cap = edge.maxTraversals ?? defaultEdgeTraversalCap
-  // The EFFECTIVE spawn mode (per-call override, else the edge default, else fresh): the ledger
-  // states how each hop continued, not how it was configured to.
+  // The EFFECTIVE spawn mode, so the ledger states how each hop continued.
   const spawnContinuity: TraversalContinuity = input.continuity ?? 'fresh'
   if (ledger.capUsed(id) >= cap) {
     ledger.exhausted.add(id)

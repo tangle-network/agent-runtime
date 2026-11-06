@@ -165,8 +165,7 @@ export function validateGraphTopology(
       )
     }
   }
-  // Root: the one node that delegates and is never delegated TO. P0 executes the star/2-node
-  // cyclic family (one driver, N workers); nested driver graphs are the recorded P3 absorption.
+  // Root: the one node that delegates and is never delegated TO.
   const delegatedTo = new Set(delegates.map((edge) => edge.to))
   const roots = [...new Set(delegates.map((edge) => edge.from))].filter(
     (id) => !delegatedTo.has(id),
@@ -179,18 +178,13 @@ export function validateGraphTopology(
     )
   }
   const root = requireNode(roots[0] as string, 'root resolution')
-  if (root.profile.tools?.[`${coordinationProfileToolPrefix}spawn_worker`] !== true) {
-    throw new ValidationError(
-      `runGraph: root node '${root.id}' has delegates edges but does not declare ` +
-        `${JSON.stringify(`${coordinationProfileToolPrefix}spawn_worker`)} — the graph cannot ` +
-        'spawn any declared worker',
-    )
-  }
+  // Any node holding the spawn tool may delegate; it runs as a nested supervisor (#1774).
+  const spawnTool = `${coordinationProfileToolPrefix}spawn_worker`
   for (const edge of delegates) {
-    if (edge.from !== root.id) {
+    if (requireNode(edge.from, edgeId(edge)).profile.tools?.[spawnTool] !== true) {
       throw new ValidationError(
-        `runGraph: ${edgeId(edge)} delegates from a non-root node — P0 executes one driver over ` +
-          'its workers (the 2-node cyclic case, star-generalized); deeper delegation is P3',
+        `runGraph: ${edgeId(edge)} delegates from '${edge.from}', which does not declare ` +
+          `${JSON.stringify(spawnTool)} — only a node holding the spawn tool can start workers`,
       )
     }
   }
@@ -463,20 +457,22 @@ export function graphRootProfile(
         : `Findings from analyst '${edge.analyst}' (over: ${edge.over.join(', ')}) will arrive as ` +
           `finding events.\n${registry.resolve(edge.directive).text}`,
     )
-  const workerLines = [...workers.values()].map((node) => {
-    const edge = delegatesByWorker.get(node.id) as DelegatesEdge
-    const cap = edge.maxTraversals ?? defaultEdgeTraversalCap
-    const description =
-      typeof node.profile.description === 'string' && node.profile.description.length > 0
-        ? ` — ${node.profile.description}`
-        : ''
-    const continuityNote =
-      edge.continuity === 'resume'
-        ? "; continuity: resume — each spawn after the first re-attaches to this node's latest " +
-          'settled session (spawn again to continue it; steer while it is live)'
-        : ''
-    return `- '${node.id}'${description} (delegation cap: ${cap} traversals${continuityNote})`
-  })
+  const workerLines = [...delegatesByWorker.values()]
+    .filter((edge) => edge.from === root.id)
+    .map((edge) => {
+      const node = workers.get(edge.to) as GraphNode
+      const cap = edge.maxTraversals ?? defaultEdgeTraversalCap
+      const description =
+        typeof node.profile.description === 'string' && node.profile.description.length > 0
+          ? ` — ${node.profile.description}`
+          : ''
+      const continuityNote =
+        edge.continuity === 'resume'
+          ? "; continuity: resume — each spawn after the first re-attaches to this node's latest " +
+            'settled session (spawn again to continue it; steer while it is live)'
+          : ''
+      return `- '${node.id}'${description} (delegation cap: ${cap} traversals${continuityNote})`
+    })
   // Maps run without the driver: say so, or a driver would spawn the items a second time.
   const mapLines = maps.map(
     (edge) =>
