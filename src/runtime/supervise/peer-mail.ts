@@ -1,37 +1,7 @@
 /**
- *
- * PEER MAIL — the sibling-to-sibling channel, and the ONE place its bounds are enforced.
- *
- * Before this, a worker could only be reached by its parent: the inbox understood `steer` and
- * `answer`, both parent-authored, and the only worker-to-worker path fired at SETTLE time through
- * an analyst lens. Two live workers therefore could not compare results, one could not challenge
- * another's claim, and a blocked worker could not ask the peer that already had the fact.
- *
- * The mailbox is a POST OFFICE the parent owns, not a socket between workers. A worker never
- * touches another worker's inbox: it calls `send_mail` on a capability endpoint, and THIS module —
- * running with the parent's `Scope` — decides whether the envelope is admitted and then calls
- * `Scope.send`. Every decision, including every refusal, is published as a coordination event, so
- * the parent stays the auditor of a channel it no longer has to relay.
- *
- * Four properties this module is responsible for, each of which fails CLOSED:
- *
- *  - IDENTITY. `from` is never a tool argument. A capability id is minted per spawn assignment and
- *    bound to that assignment's concrete worker id once the spawn succeeds; the sender is read from
- *    the binding. An unbound capability can send nothing (`sender-unbound`). The capability is the
- *    ONLY thing a worker holds, and it carries no coordination verb — a worker that can send mail
- *    still cannot spawn, steer, or stop anything.
- *  - AUTHORITY. Peer mail is information, never instruction. A body or subject that tries to speak
- *    as the supervisor is refused at intake (`forged-authority`) and the receiver's render fences
- *    what survives — see {@link AUTHORITY_MARKERS} and the inbox's peer block.
- *  - BOUNDS. A per-sender send quota, a per-receiver inbox cap in both count and bytes, a maximum
- *    reply depth, and hard byte caps on subject and body. Every attempt that reaches the quota
- *    check consumes one unit whether or not it delivers, so probing for refusals is not free.
- *  - PROVENANCE. Mail may carry evidence refs for the receiver to re-check. Mail confers no
- *    verification: evidence is judged by the reader and the external claim audit, not by the mail
- *    form. Nothing is promoted because a peer asserted it.
- *
- * Scope is ONE run: siblings under one manager's live scope. No cross-run, no cross-org, no
- * outbound HTTP.
+ * The parent mailbox. A worker calls `send_mail`; `from` is the capability binding, never a
+ * tool argument. Forged authority is refused. A quota check consumes the attempt. Mail confers
+ * no verification. One run only.
  *
  * @experimental
  */

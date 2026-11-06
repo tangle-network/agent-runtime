@@ -318,6 +318,30 @@ describe('supervised retained provider recovery', () => {
     },
   )
 
+  it('settles a replaced provider session down and lets the same key spawn again', async () => {
+    const fixture = await setup('dispatched')
+    await fixture.first()
+    fixture.replaceSession()
+    let replaced: unknown
+    await fixture.run(async (scope) => {
+      const settled = scope.view.inFlight > 0 ? await scope.next() : undefined
+      expect(settled?.kind).toBe('down')
+      if (settled?.kind === 'down')
+        expect(settled.reason).toContain('provider reconstructed a different session')
+      replaced = scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        label: 'work',
+        budget: { maxIterations: 1, maxTokens: 10 },
+      })
+      return 'replaced'
+    }, providerAsExecutor(fixture.provider()))
+    expect(replaced).toMatchObject({ ok: true, prior: { state: 'retried' } })
+    const events = (await fixture.context.journal.loadTree('root')) ?? []
+    expect(events.some((event) => event.kind === 'environment-teardown' && event.destroyed)).toBe(
+      false,
+    )
+  })
+
   it('keeps an interrupted key in doubt without a configured recovery executor', async () => {
     const fixture = await setup('dispatched')
     await fixture.first()
@@ -414,6 +438,7 @@ async function setup(
   let dispatchCount = 0
   let resultCount = 0
   let resumedTokens: number | undefined
+  let replaceSession = false
   const provider = (): AgentEnvironmentProvider => {
     const base = durableRetainedProvider(stateFile)
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
@@ -426,6 +451,7 @@ async function setup(
         const session = environment.session!(id, options)
         return {
           ...session,
+          ...(replaceSession ? { id: 'foreign-session' } : {}),
           events(options) {
             if (observationFailure === 'transport-open')
               throw new Error('retained event connection lost')
@@ -544,6 +570,9 @@ async function setup(
     provider,
     worker,
     run,
+    replaceSession: () => {
+      replaceSession = true
+    },
     creations: () => createCount,
     dispatches: () => dispatchCount,
     resultReads: () => resultCount,

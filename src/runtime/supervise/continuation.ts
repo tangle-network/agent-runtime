@@ -1,36 +1,8 @@
 /**
- * The continuation: what a manager with a completion check is told when its turn ends and the
- * check is unmet, and the one rule that decides whether it is sent back.
- *
- * Measured on discovery-lab before this module (670 settled runs, 1,596 re-entries):
- * 1,565 re-entries followed a failed turn and resent the original task, and 31 carried note text.
- * The note Runtime wrote itself held seven fixed lines and no field for the check's verdict. Of 40
- * episodes where the director ended on its own and the outside check disagreed, 33 were told
- * nothing before they ended. 100 of 236 resubmits sent the identical packet. So the director
- * mostly graded itself, and when it was wrong it heard nothing it could use.
- *
- * The design (discovery `docs/38-one-loop-and-continuation.md`) makes three things single, and
- * this module holds the part Runtime owns:
- *
- *  - ONE CHECK. A check reading is a {@link CheckVerdict}: pass, the items it read, the composite,
- *    and one `FAIL <item> <where>: <reason>` line per failed item. The same check decides
- *    `submit_result`, runs when a turn ends without an accepted result, scores the finished run,
- *    and ranks versions. A check that could not run gives no verdict ({@link CheckUnavailableError}),
- *    and the loop pauses instead of blaming the director.
- *  - ONE RESEND RULE. {@link ContinuationPolicy} is required for a manager with a check. It holds
- *    `maxBarren`, the re-entered turns in a row that may end without progress before each further
- *    continuation waits a barren pause, and an optional deadline. There is no re-prompt count and
- *    no default: a retry default in source is a research decision.
- *  - ONE NOTE. {@link composeContinuationNote} writes it. Runtime owns the facts and their order;
- *    the {@link ContinuationProfile} owns every instruction word, so an optimizer can change the
- *    words without touching code. A play may append a section, never remove or rewrite one.
- *
- * Evidence behind the note's shape: located errors help (given the first mistake's true location,
- * fix rates rose 23.5 to 43.9 points, Tyen 2023); unsupported pressure does not (threats and tips
- * had no significant effect, Wharton 2025; challenges without evidence flipped correct answers,
- * FlipFlop); repeated summaries drop detail while itemized additions do not (ACE). So the note is
- * a list of located facts, findings are added and marked resolved rather than rewritten, and the
- * profile, not this file, decides how blunt the words are.
+ * One check ({@link CheckVerdict}; {@link CheckUnavailableError} pauses), one
+ * {@link ContinuationPolicy} (`maxBarren`, an optional deadline, no re-prompt default), and one
+ * note ({@link composeContinuationNote} owns the facts, {@link ContinuationProfile} owns the
+ * words, a play may only append).
  */
 
 import { mkdir } from 'node:fs/promises'
