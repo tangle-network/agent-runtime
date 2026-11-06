@@ -15,7 +15,13 @@ import {
   rootId,
   withFixture,
 } from './fixtures/uncertain-create-harness'
-import { digest, object, readRecords, record } from './fixtures/uncertain-create-protocol'
+import {
+  digest,
+  object,
+  readRecords,
+  record,
+  type ServiceState,
+} from './fixtures/uncertain-create-protocol'
 
 let bundle: string
 let executables: Executables
@@ -40,6 +46,15 @@ function intents(events: SpawnEvent[], id = rootId) {
 }
 function abandoned(events: SpawnEvent[], id = rootId) {
   return events.filter((event) => event.kind === 'execution-abandoned' && event.id === id)
+}
+function requests(state: ServiceState, kind: string) {
+  return state.requests.filter((row) => row.kind === kind)
+}
+function executionResults(events: SpawnEvent[], id?: string) {
+  return events.filter(
+    (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
+      event.kind === 'execution-result' && (id === undefined || event.id === id),
+  )
 }
 async function assertAcceptedNativeResult(
   fixture: ProcessFixture,
@@ -70,7 +85,7 @@ async function assertOneIdentity(fixture: ProcessFixture, expected?: unknown): P
   )
   const identity = { input: inputs(events)[0], intent: intents(events)[0] }
   if (expected !== undefined) expect(identity).toEqual(expected)
-  const creates = (await fixture.state()).requests.filter((row) => row.kind === 'create')
+  const creates = requests(await fixture.state(), 'create')
   expect(creates.length).toBeGreaterThan(2)
   expect(
     new Set(creates.map((row) => row.key)).size,
@@ -110,16 +125,14 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       expect(original.inputs).toHaveLength(1)
       expect(original.intents).toHaveLength(1)
       const firstState = await fixture.state()
-      const firstPosts = firstState.requests.filter((row) => row.kind === 'stream-http-request')
+      const firstPosts = requests(firstState, 'stream-http-request')
       expect(firstPosts.length).toBeGreaterThan(0)
       expect(new Set(firstPosts.map((row) => row.bodyDigest)).size).toBe(1)
       expect(readRecords(join(fixture.directory, 'attempts.jsonl'))).toEqual([
         expect.objectContaining({ attempt: 1, error: expect.any(String) }),
       ])
       if (scenario === 'dispatch-refused')
-        expect(firstState.requests.filter((row) => row.kind === 'dispatch-refused')).toHaveLength(
-          firstPosts.length,
-        )
+        expect(requests(firstState, 'dispatch-refused')).toHaveLength(firstPosts.length)
       const wire = firstPosts[0]!
       const requested = object(object(wire.input).runControlRef)
       expect(requested).toMatchObject({
@@ -131,13 +144,13 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
       expect(firstState.requests.some((row) => row.kind === 'required-capture-capabilities')).toBe(
         true,
       )
-      expect(firstState.requests.filter((row) => row.kind === 'create')).toHaveLength(1)
+      expect(requests(firstState, 'create')).toHaveLength(1)
       expect(
-        firstState.requests
-          .filter((row) => row.kind === 'create')
-          .every((row) => object(row.rawCreateBody).requireNativeSessionCapture === true),
+        requests(firstState, 'create').every(
+          (row) => object(row.rawCreateBody).requireNativeSessionCapture === true,
+        ),
       ).toBe(true)
-      expect(firstState.requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
+      expect(requests(firstState, 'delete')).toHaveLength(0)
       expect(
         firstState.requests.some(
           (row) =>
@@ -153,8 +166,7 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
         async () => {
           const state = await fixture.state()
           return (
-            state.requests.filter((row) => row.kind === 'successful-attempt-observer-barrier')
-              .length >= 2 ||
+            requests(state, 'successful-attempt-observer-barrier').length >= 2 ||
             (await fixture.events()).some(
               (event) =>
                 event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
@@ -182,7 +194,7 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
             error: expect.stringContaining('exact run control reference'),
           })
       }
-      expect(after.filter((event) => event.kind === 'execution-result')).toHaveLength(0)
+      expect(executionResults(after)).toHaveLength(0)
       const state = await fixture.state()
       expect(state.provisions).toHaveLength(1)
       expect(state.boxes).toHaveLength(1)
@@ -194,14 +206,14 @@ it.each(['dispatch-refused', 'dispatch-lost-reply'] as const)(
         runControlRef: requested,
         status: 'running',
       })
-      expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
-      expect(state.requests.filter((row) => row.kind === 'execution-started-sent')).toHaveLength(
+      expect(requests(state, 'dispatch')).toHaveLength(1)
+      expect(requests(state, 'execution-started-sent')).toHaveLength(
         scenario === 'dispatch-refused' ? 1 : 0,
       )
       expect(state.provisions[0]!.key).toBe(original.intents[0]!.idempotencyKey)
-      expect(state.requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
-      expect(state.requests.filter((row) => row.kind === 'native-result-ready')).toHaveLength(0)
-      const posts = state.requests.filter((row) => row.kind === 'stream-http-request')
+      expect(requests(state, 'delete')).toHaveLength(0)
+      expect(requests(state, 'native-result-ready')).toHaveLength(0)
+      const posts = requests(state, 'stream-http-request')
       if (scenario === 'dispatch-refused') expect(posts).toHaveLength(firstPosts.length + 1)
       else {
         expect(posts.length).toBeGreaterThanOrEqual(1)
@@ -237,9 +249,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
               ),
           )
           const identity = await assertOneIdentity(fixture)
-          const before = (await fixture.state()).requests.filter(
-            (row) => row.kind === 'create',
-          ).length
+          const before = requests(await fixture.state(), 'create').length
           const servicePid = JSON.parse(
             await readFile(join(fixture.directory, 'service-ready.json'), 'utf8'),
           ).pid
@@ -253,9 +263,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           ).toBe(servicePid)
           await fixture.wait(
             'the recovered service receives the original create identity',
-            async () =>
-              (await fixture.state()).requests.filter((row) => row.kind === 'create').length >
-              before,
+            async () => requests(await fixture.state(), 'create').length > before,
           )
           await assertOneIdentity(fixture, identity)
           expect((await fixture.events()).some((event) => event.kind === 'root-reentered')).toBe(
@@ -284,19 +292,14 @@ describe('actual Tangle SDK uncertain root create identities', () => {
                 (row) =>
                   row.kind === 'successful-attempt-observer-barrier' &&
                   row.phase === 'native-result-committed',
-              ) &&
-              (await fixture.events()).some(
-                (event) => event.kind === 'execution-result' && event.id === rootId,
-              )
+              ) && executionResults(await fixture.events(), rootId).length > 0
             )
           })
           await assertOneIdentity(fixture, identity)
           const state = await fixture.state()
-          expect(state.requests.filter((row) => row.kind === 'provision-admitted')).toHaveLength(1)
-          expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
-          const results = (await fixture.events()).flatMap((event) =>
-            event.kind === 'execution-result' && event.id === rootId ? [event] : [],
-          )
+          expect(requests(state, 'provision-admitted')).toHaveLength(1)
+          expect(requests(state, 'dispatch')).toHaveLength(1)
+          const results = executionResults(await fixture.events(), rootId)
           expect(results).toHaveLength(1)
           const accepted = results[0]!
           expect(accepted.spent.tokens).toMatchObject({
@@ -305,9 +308,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
             cacheBreakdownKnown: false,
           })
           await assertAcceptedNativeResult(fixture, accepted)
-          expect(
-            state.requests.filter((row) => row.kind === 'native-replay-consumed'),
-          ).toHaveLength(1)
+          expect(requests(state, 'native-replay-consumed')).toHaveLength(1)
         },
         { holdCreateFailure: true },
       )
@@ -334,10 +335,8 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           continuation: { attempts: 3 },
         })
         const state = await fixture.state()
-        expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(0)
-        expect(
-          (await fixture.events()).filter((event) => event.kind === 'execution-result'),
-        ).toHaveLength(0)
+        expect(requests(state, 'dispatch')).toHaveLength(0)
+        expect(executionResults(await fixture.events())).toHaveLength(0)
       })
     },
     45000,
@@ -348,7 +347,7 @@ describe('actual Tangle SDK uncertain root create identities', () => {
       await fixture.wait('old result plus B retry frontier', async () => {
         const events = await fixture.events()
         return (
-          events.some((event) => event.kind === 'execution-result' && event.id === rootId) &&
+          executionResults(events, rootId).length > 0 &&
           (await fixture.state()).requests.filter(
             (row) => row.kind === 'create' && row.status === 408,
           ).length >= 5
@@ -368,20 +367,13 @@ describe('actual Tangle SDK uncertain root create identities', () => {
             event.destroyed,
         ),
       ).toBe(true)
-      expect(
-        before.some(
-          (event) =>
-            event.kind === 'execution-result' && event.id === rootId && event.seq > bInput.seq,
-        ),
-      ).toBe(false)
+      expect(executionResults(before, rootId).some((event) => event.seq > bInput.seq)).toBe(false)
       expect(abandoned(before)).toHaveLength(0)
-      const count = (await fixture.state()).requests.filter((row) => row.kind === 'create').length
+      const count = requests(await fixture.state(), 'create').length
       await fixture.resume()
       await fixture.wait(
         'B actually retries after process restart',
-        async () =>
-          (await fixture.state()).requests.filter((row) => row.kind === 'create').length >=
-          count + 3,
+        async () => requests(await fixture.state(), 'create').length >= count + 3,
       )
       const after = await fixture.events()
       expect(inputs(after)).toEqual(allInputs)
@@ -436,11 +428,13 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           expect(inputs(events)).toHaveLength(1)
           expect(intents(events)).toHaveLength(1)
           expect(abandoned(events)).toHaveLength(0)
-          expect(fixture.attempts().at(-1)?.stop).toBe('pending-unresolved')
-          expect(fixture.attempts().filter((row) => row.error !== undefined)).toHaveLength(3)
-          expect(
-            (await fixture.state()).requests.filter((row) => row.kind === 'dispatch'),
-          ).toHaveLength(1)
+          const failures = fixture.attempts().filter((row) => row.error !== undefined)
+          const last = failures.at(-1)
+          expect(last).toMatchObject({ stop: 'pending-unresolved', pendingCause: 'unobservable' })
+          // A distinct setup failure does not belong to the final unchanged-cause streak.
+          const changed = failures.findLastIndex((row) => row.error !== last?.error)
+          expect(failures.slice(changed + 1)).toHaveLength(3)
+          expect(requests(await fixture.state(), 'dispatch')).toHaveLength(1)
           return
         }
         await fixture.wait(
@@ -540,13 +534,13 @@ describe('typed real command credential refusal and accepted evidence', () => {
       expect(object(result.error).message).toContain('terminal-error')
       expect(object(result.error).message).toContain('ValidationError')
       const state = await fixture.state()
-      expect(state.requests.filter((row) => row.kind === 'create')).toEqual([
+      expect(requests(state, 'create')).toEqual([
         expect.objectContaining({ status: 400, resources: { cpuCores: 16 }, profile: 'root' }),
       ])
       expect(state.provisions).toHaveLength(0)
       expect(state.boxes).toHaveLength(0)
       expect(state.runs).toHaveLength(0)
-      expect(state.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(0)
+      expect(requests(state, 'dispatch')).toHaveLength(0)
       expect(readRecords(join(fixture.directory, 'credential-calls.jsonl'))).toEqual([
         expect.objectContaining({ profile: 'root', number: 1, refused: false }),
       ])
@@ -646,9 +640,7 @@ describe('typed real command credential refusal and accepted evidence', () => {
           await fixture.wait(
             'accepted manager turn and actual grandchild create',
             async () =>
-              (await fixture.events()).some(
-                (event) => event.kind === 'execution-result' && event.id === child,
-              ) &&
+              executionResults(await fixture.events(), child).length > 0 &&
               (await fixture.state()).requests.some(
                 (row) => row.kind === 'create' && row.profile === 'pending-grandchild',
               ),
@@ -737,17 +729,10 @@ describe('typed real command credential refusal and accepted evidence', () => {
           expect(
             events.some((event) => event.kind === 'spawned' && event.id === `${child}:s0`),
           ).toBe(true)
-          const accepted = events.filter(
-            (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
-              event.kind === 'execution-result' && event.id === child,
-          )
+          const accepted = executionResults(events, child)
           expect(accepted).toHaveLength(1)
           await assertAcceptedNativeResult(fixture, accepted[0]!)
-          expect(
-            (await fixture.state()).requests.filter(
-              (row) => row.kind === 'descendant-steer-delivered',
-            ),
-          ).toHaveLength(1)
+          expect(requests(await fixture.state(), 'descendant-steer-delivered')).toHaveLength(1)
           // The executor aborts and joins its descendants before recording nested recovery.
           // That owned cleanup must not become ordinary terminal settlement of the manager.
           expect(
@@ -782,15 +767,12 @@ describe('accepted native recovery and historical identities', () => {
               event.kind === 'execution-admitted' &&
               event.id === `${rootId}:s0` &&
               event.admission.phase === 'dispatched',
-          ) &&
-          (await fixture.events()).some(
-            (event) => event.kind === 'execution-result' && event.id === rootId,
-          ),
+          ) && executionResults(await fixture.events(), rootId).length > 0,
       )
       await fixture.killCoordinator()
       const committed = await fixture.events()
-      const accepted = committed.filter((event) => event.kind === 'execution-result')
-      const dispatched = (await fixture.state()).requests.filter((row) => row.kind === 'dispatch')
+      const accepted = executionResults(committed)
+      const dispatched = requests(await fixture.state(), 'dispatch')
       const heldState = await fixture.state()
       const heldChild = dispatched.find((row) => row.environmentId === 'box-2')!
       expect(heldChild).toBeDefined()
@@ -828,8 +810,7 @@ describe('accepted native recovery and historical identities', () => {
           events.some(
             (event) =>
               event.kind === 'settled' && event.id === `${rootId}:s0` && event.status === 'done',
-          ) &&
-          events.some((event) => event.kind === 'execution-result' && event.id === `${rootId}:s0`)
+          ) && executionResults(events, `${rootId}:s0`).length > 0
         )
       })
       const recovered = (await fixture.events()).filter(
@@ -858,12 +839,8 @@ describe('accepted native recovery and historical identities', () => {
       expect(
         finalizers.filter((row) => Array.isArray(row.delivered) && row.delivered.length === 1),
       ).toHaveLength(1)
-      expect(
-        events.filter((event) => event.kind === 'execution-result' && event.id === child),
-      ).toHaveLength(1)
-      const allDispatches = (await fixture.state()).requests.filter(
-        (row) => row.kind === 'dispatch',
-      )
+      expect(executionResults(events, child)).toHaveLength(1)
+      const allDispatches = requests(await fixture.state(), 'dispatch')
       const childDispatch = dispatched.find((row) => row.environmentId === 'box-2')!
       expect(childDispatch).toBeDefined()
       expect(
@@ -884,10 +861,7 @@ describe('accepted native recovery and historical identities', () => {
       expect(
         parentEvents.filter((event) => event.kind === 'metered' && event.id === child),
       ).toHaveLength(0)
-      const nativeResult = parentEvents.find(
-        (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
-          event.kind === 'execution-result' && event.id === child,
-      )!
+      const nativeResult = executionResults(parentEvents, child)[0]!
       expect(nativeResult).toBeDefined()
       expect(settled.outRef).toBe(nativeResult.outRef)
       await assertAcceptedNativeResult(fixture, nativeResult)
@@ -916,10 +890,7 @@ describe('accepted native recovery and historical identities', () => {
         }
       }
       expect(pursuit.result.kind).toBe('winner')
-      const acceptedResults = events.filter(
-        (event): event is Extract<SpawnEvent, { kind: 'execution-result' }> =>
-          event.kind === 'execution-result',
-      )
+      const acceptedResults = executionResults(events)
       for (const result of acceptedResults) await assertAcceptedNativeResult(fixture, result)
       const acceptedExecutions = new Set(
         acceptedResults.map((result) => {
