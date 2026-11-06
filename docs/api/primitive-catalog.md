@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@6.0.8` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@7.0.0` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -972,7 +972,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `ProviderAsSandboxClientOptions` | interface | Legacy Sandbox client adapter options. |
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderLeafOut` | interface | Provider execution evidence and default turn output: the visible answer plus the event archive the |
-| `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
+| `ProviderModelAttemptEvidence` | interface | An empty observation list is unknown served identity unless dispatch was proven not started. |
 | `ProviderPlacement` | interface | Caller-declared execution placement. Matching never changes the authored profile. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
 | `ProviderWorkspaceAttemptProvenance` | interface | One Sidecar execution attempt; retries remain separate evidence. |
@@ -1026,9 +1026,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `RetainedRunSnapshot` | interface | Stable status snapshot for a retained run. |
 | `RetainedRunStartMaterial` | interface | Environment, turn, and optional identity needed to replay one retained start. |
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
-| `RootSegment` | interface | What a root runs on during one segment of its run. |
+| `RootSegment` | interface | One root's model, harness and package versions. Changed execution starts a new segment |
 | `RootSegmentEntry` | interface | The segment a root enters with this process. |
-| `RootStreamReceipt` | interface | Root executor progress retained in root-stream.jsonl; outRef instead names selected output. |
+| `RootStreamReceipt` | interface | Root executor progress, when captured; outRef instead names selected output. |
 | `RouteGate` | interface | A vertex that is not an agent: reaching it asks the caller for one of `choices`. The edges |
 | `RouterResponseReceipt` | interface | Exact buffered HTTP evidence. Authentication and cookie headers are excluded. |
 | `RouterRouting` | interface | Router provider routing, lowered into every request a transport sends as |
@@ -1108,7 +1108,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `SuperviseProfileEntry` | interface | One entry of a run's profiles table (`SuperviseRegistry.profiles`): the exact profile a manager |
 | `SuperviseRegistry` | interface | The name→value tables that make the three CODE-valued options expressible as run DATA, and the |
 | `SuperviseRegistryTable` | interface | A name→value table in this package's resolver-port shape: construction stays the caller's, |
-| `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
+| `Supervisor` | interface | Runs a root under the conserved pool, durable journal, abort cascade and restart breaker. |
 | `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
 | `SupervisorNodeContext` | interface | Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot |
 | `SupervisorSpanOutcome` | interface | How the supervised run ended, as `finish()` records it on the root span. |
@@ -1227,7 +1227,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |
 | `RetainedRunTurnInput` | type | A fresh retained turn with a canonical, approved portable context request. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
-| `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
+| `RootProviderModelEvidence` | type | Provider receipts only; requested aliases never fill missing served identity. |
 | `RootSignal` | type | Cancellation of a running root. Send steering or answers through the root's `deliver` inbox. |
 | `RouteMatch` | type | One condition over a settled result: the RFC 6901 `pointer` in the latest usable result of |
 | `RouteWhen` | type | A route condition: one match, or every match of `all`. |
@@ -1250,7 +1250,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `StoredGraphInput` | type | Editable graph data; registration computes its digest when it is omitted. |
 | `StrategyMessage` | type | One provider-neutral conversation record carried between strategy shots. |
 | `StructuralRolloutMessage` | type | Provider-neutral conversation records read by structural candidate extraction. |
-| `SupervisedResult` | type | A no-winner never carries a best-effort output; only driver-failed carries an error. |
+| `SupervisedResult` | type | Terminal receipt fields accompany every outcome; usage preserves measured lower bounds. |
 | `SuperviseOptionsForDispatch` | type | `supervise` options minus Eval-owned cancellation. |
 | `SupervisorFinalizer` | type | The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out. |
 | `SupervisorNodeContextSeed` | type | Context known before `Agent.act`; Runtime adds the concrete node, profile, and task. |

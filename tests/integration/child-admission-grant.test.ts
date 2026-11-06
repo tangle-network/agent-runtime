@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
-import { runSettledCommand } from '../../src/mcp/worktree-harness'
 import {
   createExecutorRegistry,
   createSupervisor,
@@ -20,6 +19,7 @@ import {
 import { registerRetainedExecutorPreparation } from '../../src/runtime/supervise/retained-executor'
 import type { Agent, AgentSpec, ExecutorFactory } from '../../src/runtime/supervise/types'
 import { testAgentProfile } from '../kernel/test-agent-profile'
+import { readyAdmissionProcess } from './fixtures/child-admission-process'
 
 it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
   'admits real process children against current funds and their grant deadline (%s)',
@@ -31,30 +31,22 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
     const runId = `admission-${mode}`
     let factories = 0
     let completed = false
+    const processes = new Map<string, Awaited<ReturnType<typeof readyAdmissionProcess>>>()
     const processChild = (name: string, delay: number) =>
       driverChild(
         testAgentProfile(name),
         {
           name,
           async act(_task, scope) {
-            const result = await runSettledCommand({
-              command: process.execPath,
-              args: [
-                '-e',
-                `require('node:fs').writeFileSync(${JSON.stringify(join(directory, name))}, 'started'); setTimeout(() => process.stdout.write(${JSON.stringify(name)}), ${delay})`,
-              ],
-              cwd: directory,
-              signal: scope.signal,
-              timeoutMs: 5000,
-            })
-            if (result.exitCode !== 0) throw new Error(result.stderr)
-            return result.stdout
+            return processes.get(name)!.run(join(directory, name), name, delay, scope.signal)
           },
         },
         journal,
       )
     try {
-      await createSupervisor().run(
+      for (const name of ['first', 'second'])
+        processes.set(name, await readyAdmissionProcess(directory))
+      const result = await createSupervisor().run(
         {
           name: 'parent',
           async act(_task, scope: Scope<unknown>) {
@@ -106,7 +98,7 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
           executors: withDriverExecutor(createExecutorRegistry()),
         },
       )
-      expect(completed).toBe(true)
+      expect(completed, JSON.stringify(result)).toBe(true)
       const events = (await new FileSpawnJournal(path).loadTree(runId))!
       expect(events.filter((event) => event.kind === 'spawned')).toHaveLength(
         mode === 'unfunded' ? 2 : 3,
@@ -122,8 +114,9 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
         expect(events.some((event) => event.kind === 'teardown-confirmed' && event.id === id)).toBe(
           true,
         )
-        await expect(readFile(join(directory, 'second'))).rejects.toMatchObject({ code: 'ENOENT' })
       }
+      if (mode !== 'slot-queued')
+        await expect(readFile(join(directory, 'second'))).rejects.toMatchObject({ code: 'ENOENT' })
       if (mode === 'slot-queued') {
         const id = events.find((event) => event.kind === 'spawned' && event.key === 'second')!.id
         const queued = events.find((event) => event.kind === 'admission-queued' && event.id === id)
@@ -153,6 +146,7 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
         ).rejects.toThrow('admission deadline changed')
       }
     } finally {
+      await Promise.all([...processes.values()].map((process) => process.close()))
       await rm(directory, { recursive: true, force: true })
     }
   },
@@ -165,6 +159,7 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
   let journal = new FileSpawnJournal(original)
   const blobs = new FileResultBlobStore(join(directory, 'blobs'))
   let phase = 'original'
+  const processes = new Map<string, Awaited<ReturnType<typeof readyAdmissionProcess>>>()
   let recoveryFactory: ExecutorFactory<unknown>
   const child = (): Agent<unknown, unknown> =>
     driverChild(
@@ -172,18 +167,9 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
       {
         name: 'process',
         async act(_task, scope) {
-          const result = await runSettledCommand({
-            command: process.execPath,
-            args: [
-              '-e',
-              `require('node:fs').writeFileSync(${JSON.stringify(join(directory, 'executed-'))} + ${JSON.stringify(phase)}, 'started')`,
-            ],
-            cwd: directory,
-            signal: scope.signal,
-            timeoutMs: 5000,
-          })
-          if (result.exitCode !== 0) throw new Error(result.stderr)
-          return phase
+          return processes
+            .get(phase)!
+            .run(join(directory, `executed-${phase}`), phase, 0, scope.signal)
         },
       },
       journal,
@@ -213,6 +199,8 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
     },
   }
   try {
+    for (const name of ['original', 'recovered'])
+      processes.set(name, await readyAdmissionProcess(directory))
     const initial = await createSupervisor().run(
       {
         name: 'root',
@@ -272,6 +260,7 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
     expect(Date.parse(grant.deadlineArmedAt) - Date.parse(spawned.at)).toBeGreaterThan(150)
     expect(Date.parse(grant.deadlineAt!) - Date.parse(grant.deadlineArmedAt)).toBe(150)
   } finally {
+    await Promise.all([...processes.values()].map((process) => process.close()))
     await rm(directory, { recursive: true, force: true })
   }
 })

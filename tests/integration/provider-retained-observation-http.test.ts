@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { promisify } from 'node:util'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { createFileRunContext } from '../../src/runtime'
 import {
@@ -25,6 +24,68 @@ afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 
+/** Bound cold startup and execution separately; only completed observation starts the exit fence. */
+async function observeInProcess(fixture: ProcessFixture) {
+  const child = spawn(
+    process.execPath,
+    [
+      resolve('tests/integration/fixtures/provider-observation-process.mjs'),
+      fixture.directory,
+      fixture.url,
+    ],
+    {
+      env: { PATH: process.env.PATH, HOME: fixture.directory },
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    },
+  )
+  let phase = 'startup',
+    watchdog: string | null = null,
+    stdout = '',
+    stderr = ''
+  let timer: ReturnType<typeof setTimeout>
+  const phases: Array<{ phase: string; at: number }> = []
+  const arm = (next: string, limitMs: number) => {
+    clearTimeout(timer)
+    phase = next
+    phases.push({ phase, at: Date.now() })
+    timer = setTimeout(() => {
+      watchdog = phase
+      child.kill('SIGKILL')
+    }, limitMs)
+  }
+  child.stdout.on('data', (data) => {
+    stdout += String(data)
+  })
+  child.stderr.on('data', (data) => {
+    stderr += String(data)
+  })
+  arm('startup', 5000)
+  return new Promise((resolve) => {
+    child.on('error', (error) => {
+      stderr += String(error)
+    })
+    child.on('message', (message) => {
+      const record = object(message)
+      if (
+        record.phase === 'ready' &&
+        phase === 'startup' &&
+        typeof record.deadlineMs === 'number'
+      ) {
+        arm('observation', record.deadlineMs + 5000)
+        child.send('start')
+      } else if (record.phase === 'observed' && phase === 'observation') arm('natural-exit', 5000)
+      else {
+        stderr += `unexpected observer phase: ${JSON.stringify(message)}`
+        child.kill('SIGKILL')
+      }
+    })
+    child.once('close', (code, signal) => {
+      clearTimeout(timer)
+      resolve({ code, signal, watchdog, phase, phases, stdout, stderr })
+    })
+  })
+}
+
 it.each<Scenario>([
   'json-observation-429',
   'json-observation-long-success',
@@ -37,28 +98,14 @@ it.each<Scenario>([
     try {
       await fixture.control({ finish: true })
       const context = createFileRunContext(join(fixture.directory, 'run'))
-      // A watchdog fails and reaps a leaking process; success requires its natural exit.
-      const exit = await promisify(execFile)(
-        process.execPath,
-        [
-          resolve('tests/integration/fixtures/provider-observation-process.mjs'),
-          fixture.directory,
-          fixture.url,
-        ],
-        {
-          timeout: 5000,
-          killSignal: 'SIGKILL',
-          env: { PATH: process.env.PATH, HOME: fixture.directory },
-        },
-      ).then(
-        () => ({ code: 0 }),
-        (error: unknown) => ({
-          error: String(error),
-          signal: object(error).signal,
-          killed: object(error).killed,
-        }),
-      )
+      const exit = await observeInProcess(fixture)
       await writeFile(join(fixture.directory, 'observer-process-exit.json'), JSON.stringify(exit))
+      expect(exit, JSON.stringify(exit)).toMatchObject({
+        code: 0,
+        signal: null,
+        watchdog: null,
+        phase: 'natural-exit',
+      })
       const { delivered, budget } = JSON.parse(
         await readFile(join(fixture.directory, 'observed.json'), 'utf8'),
       )
@@ -141,7 +188,6 @@ it.each<Scenario>([
       expect(() => process.kill(Number(processes[0]!.pid), 0)).toThrow(
         expect.objectContaining({ code: 'ESRCH' }),
       )
-      expect(exit).toEqual({ code: 0 })
       passed = true
     } finally {
       await fixture.close()

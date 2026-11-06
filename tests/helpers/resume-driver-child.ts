@@ -183,6 +183,7 @@ process.stdout.write(
     out: result.kind === 'winner' ? result.out : null,
     spentTotal: result.spentTotal,
     spentBreakdown: result.kind === 'winner' ? result.spentBreakdown : undefined,
+    usage: result.usage,
     settledNodes: result.tree.nodes
       .filter((n) => n.status === 'done')
       .map((n) => n.label)

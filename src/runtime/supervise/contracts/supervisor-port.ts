@@ -9,13 +9,8 @@ import type { NodeId, TreeView } from './node-lifecycle'
 import type { ResultBlobStore, SpawnJournal } from './spawn-journal'
 import type { SupervisedResult } from './supervisor-result'
 
-/**
- * Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
- * and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
- * live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
- *
- * @stable
- */
+/** Runs a root under the conserved pool, durable journal, abort cascade and restart breaker.
+ * @stable */
 export interface Supervisor<Task, Out> {
   run(root: Agent<Task, Out>, task: Task, opts: SupervisorOpts): Promise<SupervisedResult<Out>>
   attach(h: RootHandle<Out>): void
@@ -27,20 +22,14 @@ export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
 
-/**
- * What a root runs on during one segment of its run.
- *
- * Its profile's `model.provider`, `model.default`, `model.reasoningEffort` and `harness`, and the
- * package versions the caller ran it under. A run is one id for its whole life; a turn that ends, a lost stream or a dead supervisor is a
- * boundary between entries, and an entry on anything else here starts a new segment.
- */
+/** One root's model, harness and package versions. Changed execution starts a new segment
+ * under the same run id; a turn, lost stream or restart is only a new entry. */
 export interface RootSegment {
   readonly provider?: string
   readonly model?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly harness?: string
-  /** The package versions the caller runs this segment under, by package name (its Runtime among
-   *  them). Runtime records them and never reads them. */
+  /** Caller package versions; recorded without interpretation. */
   readonly stack?: Readonly<Record<string, string>>
 }
 
@@ -111,23 +100,10 @@ export interface SupervisorOpts {
    * teardown.
    */
   readonly childSettleGraceMs?: number | null
-  /**
-   * How long the join barrier keeps retrying a settled child's teardown until the executor
-   * confirms its resources are destroyed. A child's first teardown gets a short acknowledgement
-   * window, and a provider delete that fails or answers late then left the sandbox running: on
-   * 2026-09-20, cancelling 20 Discovery lanes left 2 workers running, and 136 of 612 agents
-   * across that campaign ended with teardown unconfirmed. The barrier re-asks each unconfirmed
-   * child with exponential backoff (starting at 1/300 of this window, doubling, capped at 1/10 of
-   * it) and releases a failed retained environment again under `retainedAtSettlement:
-   * 'release'`. A child still unconfirmed when the window closes is named in
-   * `teardownUnconfirmed` with the environment ids its executor reports, and journaled. The
-   * nodes pending when the window opens are journaled first as `teardown-pending`, so a process
-   * that dies inside the window still leaves their environment ids on record. A retained
-   * environment kept for a resume is not retried, and neither is an answer the executor marks
-   * `permanent`. The window runs after the run's deadline too: a deadline stops work, not
-   * cleanup, so settlement can return up to this long after it. `0` makes one attempt only.
-   * Default: 300000 (5 minutes).
-   */
+  /** Teardown retry window, including after the run deadline. Pending environments are
+   * journaled before retry; unresolved teardown is named in teardownUnconfirmed.
+   * Kept environments and permanent refusals are not retried. Zero makes one attempt.
+   * supervisor-child-join.ts owns DEFAULT_TEARDOWN_CONFIRM_MS and retry backoff. */
   readonly teardownConfirmMs?: number
   /**
    * Load prior journal state and expose committed settlements through `Scope.resume`.
@@ -141,35 +117,13 @@ export interface SupervisorOpts {
    * @experimental
    */
   readonly resume?: boolean
-  /**
-   * What root settlement does with a provider environment that a settled child still holds for a
-   * RETAINED execution (`Executor.releaseRetained`). Such a child settles `down` with its cursor
-   * slot open and its environment alive, because a later process that resumes this run reconciles
-   * the paid execution inside it.
-   *
-   * - `'release'`: the run will not be resumed, so nothing would ever reconcile or release those
-   *   environments. The join barrier releases each one and journals an `environment-teardown`
-   *   receipt per environment. Four settled runs held 18 of a 60-slot
-   *   Sandbox fleet for 19 to 37 hours without it. It then closes each released child's cursor
-   *   slot with a terminal record marked `retainedExecution: 'released'`, so `spendGaps` names
-   *   it `unreported` (a floor) rather than `never-settled` (a ceiling) and
-   *   `fleetYield.releasedUnrecovered` counts it. A release that is refused or cannot be
-   *   confirmed names the node in `teardownUnconfirmed` and its `teardown-unconfirmed` record,
-   *   and after the retry window closes its slot with `retainedExecution: 'release-unconfirmed'`,
-   *   counted by `fleetYield.releaseUnconfirmed`: the settlement is final, so the slot closes
-   *   whether or not the environment is confirmed gone. Measured 2026-09-23/24 on the Discovery
-   *   fleet (Runtime 0.249.1 to 0.261.0): 338 of 1,620 agents never settled, and 179 of the
-   *   retained ones had an admission that never named an environment. A process that dies
-   *   between the last `destroyed: true` receipt and the released record leaves the slot open
-   *   only until the next resume, whose `healReleasedSlots` writes the identical record from the
-   *   `reconciled` record.
-   * - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
-   *
-   * Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
-   * `'release'`. A caller that owns finality says so: `supervisePursuit` records a settle record
-   * that refuses re-entry, so it always releases. A process crash never reaches settlement, so it
-   * releases nothing under either value.
-   */
+  /** Held execution fate at root settlement. Release journals environment teardown and closes
+   * each cursor, marking unconfirmed teardown release-unconfirmed. A later resume heals a
+   * crash between confirmed teardown and terminal publication from its durable floor.
+   * Keep preserves environments for resume and is the default when resume is enabled;
+   * otherwise release is the default. supervisePursuit always releases because its sealed
+   * result refuses re-entry. Process death does not itself release environments.
+   * Missing receipts always leave measured terminal usage incomplete. */
   readonly retainedAtSettlement?: 'release' | 'keep'
   readonly now?: () => number
   readonly signal?: AbortSignal

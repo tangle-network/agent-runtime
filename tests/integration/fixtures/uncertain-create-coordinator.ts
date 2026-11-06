@@ -36,7 +36,6 @@ const provider = createTangleProvider({
     ? { ephemeral: true }
     : {}),
   requireNativeSessionCapture: config.scenario.startsWith('dispatch-'),
-  readyTimeoutMs: 250,
   modelCredentials: createCommandModelCredentialResolver({
     command: [process.execPath, config.resolver, directory],
     timeoutMs: 5000,
