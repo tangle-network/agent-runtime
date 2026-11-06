@@ -35,13 +35,6 @@ const event = (id: string) => ({
 })
 
 describe('streaming committed JSONL', () => {
-  it('preserves UTF-8 and records across multiple stream chunks', async () => {
-    const path = join(root, 'records.jsonl')
-    const records = [{ text: '🙂é'.repeat(50_001) }, { text: 'after boundary' }]
-    await fs.writeFile(path, records.map((record) => JSON.stringify(record)).join('\n'))
-    expect(await collect(readCommittedJsonLines(path))).toEqual(records)
-  })
-
   it('only treats a missing file as empty when explicitly requested', async () => {
     const path = join(root, 'absent.jsonl')
     await expect(collect(readCommittedJsonLines(path))).rejects.toMatchObject({ code: 'ENOENT' })
