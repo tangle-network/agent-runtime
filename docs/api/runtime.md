@@ -1274,7 +1274,7 @@ Typed terminal diagnosis, beside status and never a replacement for lifecycle re
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-17)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-18)
 
 ##### runtime
 
@@ -6288,6 +6288,132 @@ tags, so set it when a demo's output reads on a meaningful sandbox id.
 
 ***
 
+### IsolatedCheckOutputDeclaration
+
+Explicit files the caller approves for retention. Never include secrets or hidden judge inputs.
+
+#### Extended by
+
+- [`IsolatedCheckOutputOptions`](#isolatedcheckoutputoptions)
+
+#### Properties
+
+##### paths
+
+> `readonly` **paths**: readonly `string`[]
+
+Exact, portable, tree-relative regular files; no directories, globs, or links. At most 16.
+
+##### maxFileBytes
+
+> `readonly` **maxFileBytes**: `number`
+
+##### maxTotalBytes
+
+> `readonly` **maxTotalBytes**: `number`
+
+Maximum captured file bytes across the declaration, at most 64 MiB.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Capture and verified persistence deadline, independent of command cancellation. Default 30 s; at most 120 s.
+
+***
+
+### IsolatedCheckOutputOptions
+
+Evidence uses the caller's existing artifact store; Runtime does not choose its durability policy.
+
+#### Extends
+
+- [`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration)
+
+#### Properties
+
+##### paths
+
+> `readonly` **paths**: readonly `string`[]
+
+Exact, portable, tree-relative regular files; no directories, globs, or links. At most 16.
+
+###### Inherited from
+
+[`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration).[`paths`](#paths)
+
+##### maxFileBytes
+
+> `readonly` **maxFileBytes**: `number`
+
+###### Inherited from
+
+[`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration).[`maxFileBytes`](#maxfilebytes-1)
+
+##### maxTotalBytes
+
+> `readonly` **maxTotalBytes**: `number`
+
+Maximum captured file bytes across the declaration, at most 64 MiB.
+
+###### Inherited from
+
+[`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration).[`maxTotalBytes`](#maxtotalbytes)
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Capture and verified persistence deadline, independent of command cancellation. Default 30 s; at most 120 s.
+
+###### Inherited from
+
+[`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration).[`timeoutMs`](#timeoutms-4)
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### artifacts
+
+> `readonly` **artifacts**: [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+***
+
+### IsolatedCheckOutputEvidence
+
+#### Properties
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### inputDigest
+
+> `readonly` **inputDigest**: `` `sha256:${string}` ``
+
+Digest of the exact input copy before the command starts, using the workspace-manifest format.
+
+##### status
+
+> `readonly` **status**: `"retained"` \| `"incomplete"`
+
+##### files
+
+> `readonly` **files**: readonly `object`[]
+
+##### missing
+
+> `readonly` **missing**: readonly `object`[]
+
+##### source?
+
+> `readonly` `optional` **source?**: \{ `kind`: `"local"`; `path`: `string`; \} \| \{ `kind`: `"sandbox"`; `sandboxId`: `string`; `state`: `"stopped"`; \}
+
+Private recovery custody, only on incomplete retention. Do not publish filesystem coordinates.
+
+***
+
 ### IsolatedCheckOptions
 
 #### Properties
@@ -6344,6 +6470,12 @@ Run the check in its own Sandbox box instead of Linux Bubblewrap on this host.
 
 Environment the command receives beside PATH, HOME and LANG: a declared check's named
  secrets and its own settings. Nothing else of this process's environment reaches it.
+
+##### outputs?
+
+> `optional` **outputs?**: [`IsolatedCheckOutputOptions`](#isolatedcheckoutputoptions)
+
+Retain explicitly approved output files, on command success or failure, before cleanup.
 
 ***
 
@@ -33398,21 +33530,29 @@ async iterable for streaming. The callback may also write files into
 
 ***
 
+### IsolatedCheckOutputFailure
+
+> **IsolatedCheckOutputFailure** = `"missing"` \| `"unsafe-path"` \| `"size-limit"` \| `"capture-failed"` \| `"store-failed"` \| `"timeout"`
+
+Bounded codes, never exception text, command output, or secret-bearing provider diagnostics.
+
+***
+
 ### IsolatedCheckResult
 
-> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
+> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
+\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
 
 ***
 
 ##### Type Literal
 
-\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); \}
+\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
 
 ###### succeeded
 
@@ -33451,6 +33591,10 @@ Cleanup failures never replace the primary command failure.
 > `optional` **box?**: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence)
 
 Present once a check box received its complete input.
+
+###### outputs?
+
+> `optional` **outputs?**: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence)
 
 ***
 
@@ -40290,6 +40434,24 @@ other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 ***
 
+### validateIsolatedCheckOutputs()
+
+> **validateIsolatedCheckOutputs**(`value`): [`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration)
+
+Validate authored declarations before starting a check. The returned paths are detached and frozen.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+#### Returns
+
+[`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration)
+
+***
+
 ### runIsolatedCheck()
 
 > **runIsolatedCheck**(`options`): `Promise`\<[`IsolatedCheckResult`](#isolatedcheckresult)\>
@@ -40299,14 +40461,18 @@ Never falls back to host execution.
 
 Bubblewrap requires /usr/bin/bwrap and permission to create Linux namespaces.
 Only trusted system toolchains, private proc/dev/tmp, and the writable copy are mounted.
-The canonical input path remains the working directory; copy writes are discarded.
+The canonical input path remains the working directory. Requested output files are retained
+before cleanup; otherwise copy writes are discarded.
 Time and output are bounded; input copy bytes and entries are bounded when requested.
 The command's memory and generated files require a resource-limited placement.
 Callers must keep the input and trusted toolchains stable while preparing the check.
 
 A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
 the placement's named domains), delivers the tree's regular files verified by sha256, runs the
-command there with only the environment `env` names, and deletes the box.
+command there with only the environment `env` names, and deletes the box after successful
+requested retention. Incomplete retention returns private recovery custody only after the
+native owner confirms the box stopped. Box file capture requires /usr/bin/python3. Local recovery scratch is the
+caller's responsibility; the resource-limited placement requirement still applies.
 
 #### Parameters
 
