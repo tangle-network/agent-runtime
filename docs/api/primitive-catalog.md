@@ -431,7 +431,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1035 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1068,6 +1068,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 | `SearchSpecInputs` | interface | Everything a compiled call needs besides the spec: the problem, its bounds, and the call's |
 | `SelectionReceipt` | interface | A record of one candidate-selection decision: which iteration the selector |
 | `SessionMessageLike` | interface | A harness session message carrying parts (the shape `box.messages()` returns). Structurally typed |
+| `SettledRunEvidence` | interface | Evidence shared by every terminal outcome. Requested models never stand in for served models. |
 | `SettledUsage` | interface | Measured tokens remain usable without claiming the unreported remainder is zero. |
 | `SettledWorker` | interface | A worker whose settlement reached the manager's inbox. |
 | `ShapeBudget` | interface | Budget knobs a shape reads to size its fanout/children WITHOUT owning the conserved pool. |

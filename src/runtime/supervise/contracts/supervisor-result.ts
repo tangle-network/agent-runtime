@@ -77,7 +77,7 @@ export interface FleetYield {
 }
 
 /** Evidence shared by every terminal outcome. Requested models never stand in for served models. */
-interface SettledRunEvidence {
+export interface SettledRunEvidence {
   tree: TreeView
   /** Recorded usage, with explicit completeness flags; ms is elapsed wall time. */
   spentTotal: Spend
