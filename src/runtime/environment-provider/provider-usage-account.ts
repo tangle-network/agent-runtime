@@ -14,6 +14,8 @@ export class ProviderUsageAccount {
   private readonly ledger: UsageLedger
   private readonly worker: string
   private tokens = zeroTokenUsage()
+  /** Live-stream tokens captured at the first broken-stream event, before its exact result replaces them. */
+  private streamedTokens: ReturnType<typeof cloneTokenUsage> | undefined
   private usd = 0
   private usdEstimated = 0
   private sawCompleteTokenReceipt = false
@@ -45,6 +47,8 @@ export class ProviderUsageAccount {
   }
 
   *observe(event: SandboxEvent): Iterable<UsageEvent> {
+    if (this.streamedTokens === undefined && streamBroke(event))
+      this.streamedTokens = cloneTokenUsage(this.tokens)
     yield* this.credit(this.ledger.observe(event, this.worker), event)
   }
 
@@ -96,6 +100,7 @@ export class ProviderUsageAccount {
       // Only unverified amounts are estimates; a mixed run must retain its billed subtotal.
       ...(this.sawCostEstimate ? { usdEstimated: this.usdEstimated } : {}),
       ms: Date.now() - started,
+      ...this.streamBreak(),
     }
     const { carried } = this.args
     return carried === undefined
@@ -106,12 +111,19 @@ export class ProviderUsageAccount {
         }
   }
 
-  /**
-   * The catalog price of the execution's whole token total under the first model id the catalog
-   * knows, or undefined: absence says "nothing could be priced", a zero would say "priced at
-   * nothing". Candidates run most specific first: the id a receipt reported, the turn's model,
-   * the profile's (a provider on its own default declares none, so a reported id is the only match).
-   */
+  /** What the live stream carried, and the exact-result remainder when that result exceeded it. */
+  private streamBreak(): Pick<Spend, 'streamedTokens' | 'unobservedTokens' | 'iterationsKnown'> {
+    if (this.streamedTokens === undefined) return {}
+    const streamedTokens = cloneTokenUsage(this.streamedTokens)
+    const gap = tokenGap(streamedTokens, this.tokens)
+    const unobservedTokens = gap === undefined ? undefined : cloneTokenUsage(gap)
+    return {
+      streamedTokens,
+      ...(unobservedTokens === undefined ? {} : { unobservedTokens, iterationsKnown: false }),
+    }
+  }
+
+  /** Catalog price of the whole token total, or undefined when nothing could be priced. */
   private catalogPrice(): number | undefined {
     const { tokens } = this
     for (const model of [
@@ -195,8 +207,37 @@ export class ProviderUsageAccount {
       this.pendingUnpricedWork = true
       this.pendingEstimate = (this.pendingEstimate ?? 0) + receipt.estimatedCostUsd
     } else if (input > 0 || output > 0 || receipt.tokensKnown === false) {
-      // A duplicate terminal token total credits zero and cannot invent more unpriced work.
       this.pendingUnpricedWork = true
     }
   }
+}
+
+function streamBroke(event: SandboxEvent): boolean {
+  return event.data.eventStreamComplete === false
+}
+
+/** Counters the recorded total gained after `streamed`. A cache class that does not fit the input
+ *  gap is omitted: a remainder is still one token record. */
+function tokenGap(
+  streamed: ReturnType<typeof cloneTokenUsage>,
+  recorded: ReturnType<typeof cloneTokenUsage>,
+): ReturnType<typeof cloneTokenUsage> | undefined {
+  const input = Math.max(0, recorded.input - streamed.input)
+  const output = Math.max(0, recorded.output - streamed.output)
+  const gap: ReturnType<typeof cloneTokenUsage> = { input, output }
+  for (const key of ['freshInput', 'cacheRead', 'cacheWrite'] as const) {
+    const next = recorded[key]
+    if (next === undefined) continue
+    const delta = next - (streamed[key] ?? 0)
+    if (delta > 0) gap[key] = delta
+  }
+  const classified = (gap.freshInput ?? 0) + (gap.cacheRead ?? 0) + (gap.cacheWrite ?? 0)
+  if (classified > input) {
+    delete gap.freshInput
+    delete gap.cacheRead
+    delete gap.cacheWrite
+    gap.cacheBreakdownKnown = false
+  }
+  if (input === 0 && output === 0 && gap.cacheBreakdownKnown !== false) return undefined
+  return gap
 }

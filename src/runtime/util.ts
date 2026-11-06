@@ -161,26 +161,8 @@ export function zeroSpend(): Spend {
   return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
 }
 
-/**
- * The spend of work that HAPPENED and reported no usage receipt.
- *
- * Not the same value as {@link zeroSpend} even though both carry `{0,0}` tokens and `$0`. A bare
- * zero asserts a MEASUREMENT — "this ran and cost nothing" — and every consumer downstream reads it
- * that way: the pool keeps reporting `readout().tokensKnown === true`, the journal totals stay
- * clean, the OTEL span records a priced zero, and a caller's token-denominated ceiling can never
- * fire no matter how much the work really burned. A ceiling that cannot fire is worse than no
- * ceiling, because it reads as protection.
- *
- * `tokensKnown` is the marker the substrate already threads end to end for exactly this case
- * (`budget.ts`, `otel-spans.ts`, `spawn-journal.ts`, `supervisor.ts`): the work is recorded, the
- * zero is labelled a floor rather than a total, and every rollup that touches it reports its
- * balance as a ceiling rather than a measurement. Use this — never a bare zero — whenever a runtime
- * cannot see what its worker spent.
- *
- * The same rule applies to dollars. A dollar-capped run must refuse an executor whose billed spend
- * is unknowable; `budgetExempt` does not authorize Runtime to relabel unknown spend as a measured
- * zero. Callers that require dollar accounting must use a backend with a trusted billing receipt.
- */
+/** Work that happened and reported no receipt. Unlike {@link zeroSpend}, `tokensKnown: false` makes
+ *  the zero a floor, so a token or dollar ceiling still fires. Never relabel that as a measurement. */
 export function unmeteredSpend(ms: number): Spend {
   return {
     iterations: 0,
@@ -205,6 +187,7 @@ export function cloneSpend(spend: Spend): Spend {
     ms: spend.ms,
     ...boxMinutesOf(spend),
     ...(spend.tokensProvenance === undefined ? {} : { tokensProvenance: spend.tokensProvenance }),
+    ...streamBreakOf(spend),
   }
 }
 
@@ -227,17 +210,11 @@ export function addSpend(a: Spend, b: Spend): Spend {
     ms: a.ms + b.ms,
     ...boxMinutesOf(a, b),
     ...tokensProvenanceOf(a, b),
+    ...streamBreakOf(a, b),
   }
 }
 
-/**
- * Fold the token-provenance channel across spends, as a field to spread.
- *
- * Returns nothing when no contributor stated one, because ABSENT already means "the executor's own
- * live stream", which is what every path reported before a harness store was readable. A
- * contributor that stated one and a contributor that did not therefore disagree, and the sum is
- * `'mixed'` — the honest answer for a tree whose spend came from two kinds of receipt.
- */
+/** Absent provenance is the live stream. A stated source beside an absent one folds to `mixed`. */
 function tokensProvenanceOf(...spends: ReadonlyArray<Spend>): {
   tokensProvenance?: TokenUsageProvenance
 } {
@@ -253,22 +230,35 @@ function tokensProvenanceOf(...spends: ReadonlyArray<Spend>): {
     : { tokensProvenance: folded }
 }
 
-/**
- * Fold the platform box-time channel across spends, as a field to spread.
- *
- * Returns nothing when no input carried the channel, so a fold over router or cli-bridge work —
- * which runs no box at all — never gains a `boxMinutesProvenance: 'uncaptured'` that would claim
- * a box ran and went unmetered.
- *
- * Three rules, one per field:
- *  - `boxMinutes` sums the numbers that are present, and stays ABSENT when none is. A missing
- *    measurement never enters the sum as a zero.
- *  - `boxMinutesKnown` is sticky-false, like `tokensKnown`: one contributor that could not state
- *    its box time makes the whole sum a floor.
- *  - `boxMinutesProvenance` degrades. `'observed'` survives only when every contributor that
- *    carried a number was observed; one derived number makes the sum `'estimated'`; no number at
- *    all is `'uncaptured'`.
- */
+/** Fold a broken stream's split. A spend that never broke contributes nothing, not a zero. */
+function streamBreakOf(
+  ...spends: ReadonlyArray<Spend>
+): Pick<Spend, 'streamedTokens' | 'unobservedTokens' | 'iterationsKnown'> {
+  const streamedTokens = foldTokenSplit(spends.map((spend) => spend.streamedTokens))
+  const unobservedTokens = foldTokenSplit(spends.map((spend) => spend.unobservedTokens))
+  const iterationsKnown = spends.some((spend) => spend.iterationsKnown === false)
+    ? (false as const)
+    : undefined
+  return {
+    ...(streamedTokens === undefined ? {} : { streamedTokens }),
+    ...(unobservedTokens === undefined ? {} : { unobservedTokens }),
+    ...(iterationsKnown === undefined ? {} : { iterationsKnown }),
+  }
+}
+
+function foldTokenSplit(
+  parts: ReadonlyArray<LoopTokenUsage | undefined>,
+): LoopTokenUsage | undefined {
+  const present = parts.filter((part): part is LoopTokenUsage => part !== undefined)
+  const first = present[0]
+  if (first === undefined) return undefined
+  const total = cloneTokenUsage(first)
+  for (const part of present.slice(1)) addTokenUsage(total, part)
+  return total
+}
+
+/** Sum present box minutes. Absence is not zero, so a path with no box stays unmarked.
+ *  `boxMinutesKnown` is sticky-false. Provenance degrades from observed to estimated to uncaptured. */
 function boxMinutesOf(...spends: ReadonlyArray<Spend>): {
   boxMinutes?: number
   boxMinutesKnown?: boolean
@@ -339,32 +329,9 @@ function hasClassifiedCacheBreakdown(usage: LoopTokenUsage): boolean {
   return usage.freshInput + usage.cacheRead + usage.cacheWrite === usage.input
 }
 
-/**
- * The token charge for one observation: every token counted ONCE, at the moment it first enters
- * the context — `input − cacheRead + output`.
- *
- * `input` is a rolled-up prompt total that re-counts a cached prefix on every turn that reads it,
- * so charging `input` makes a 100K prefix read 40 times cost 4.1M for content authored once. A
- * cache read is content that was already charged when it was written, so it is the one class the
- * charge subtracts. Under a complete split the result is exactly `freshInput + cacheWrite`. No
- * price weight is involved: this counts work, and money is a separate channel.
- *
- * The subtraction form is what makes the charge ADDITIVE. `input` and `cacheRead` both accumulate
- * through `addTokenUsage`, so the charge on an aggregate equals the sum of the charges on the
- * records that built it — including an aggregate that mixes classified and unclassified turns,
- * where the unclassified remainder is charged in full and only the reported cache reads are
- * credited. A form that read `freshInput + cacheWrite` directly loses that: one unclassified turn
- * would drop the whole aggregate to `input + output` and over-charge every classified turn with it.
- *
- * The one arithmetic guarantee: a set of classes that does not FIT inside the prompt total it
- * partitions credits nothing, so the charge is never below `output` and a class that overflows its
- * own total buys no tokens. It is not a guarantee against a provider that reports a cache read it
- * never served — that provider can under-report `input` just as easily, and the token channel is an
- * accounting unit, not a trust boundary. Prompt tokens the provider left unclassified are charged
- * in full, so a spend with no readable split charges an upper bound on newly-presented work rather
- * than a measurement, and every caller that enforces a ceiling must report the difference
- * (`BudgetPool` does it through `readout().cacheBreakdownKnown`).
- */
+/** Charge `input - cacheRead + output`. A cache read was charged when written. Classes that do not
+ *  fit `input` credit nothing. Unclassified prompt tokens charge in full. Do not charge
+ *  `freshInput + cacheWrite`: one unclassified turn would then over-charge the classified ones. */
 export function chargedTokens(usage: LoopTokenUsage): number {
   return usage.input - creditedCacheRead(usage) + usage.output
 }
@@ -396,27 +363,9 @@ type PromptCacheTokenClasses = Pick<
   'freshInput' | 'cacheRead' | 'cacheWrite' | 'cacheBreakdownKnown'
 >
 
-/**
- * Translate one provider prompt-cache report into the prompt token classes `addTokenUsage` folds
- * and `chargedTokens` credits.
- *
- * The input is the open `promptCache` record an `llm_call` carries, keyed by the `PromptCacheUsage`
- * vocabulary (`readTokens`, `writeTokens`). Providers report that vocabulary unevenly, and the
- * three outcomes are different facts that must not collapse into one another:
- *
- *  - **Nothing reported** — no classes and no marker. The caller's own unknown handling decides,
- *    because a provider that says nothing about caching has not said the split is unknowable.
- *  - **Read and write both reported, and fitting inside `input`** — a complete partition, so
- *    `freshInput` is the remainder and the split is known.
- *  - **One counter reported, or classes that overflow `input`** — the counters that ARE measured
- *    pass through and `cacheBreakdownKnown` is false. A read with no write counter (OpenAI reports
- *    no write) still credits the read it measured, while declaring the rest unclassified so the
- *    charge stays a declared upper bound. An overflowing claim buys nothing: it cannot be a
- *    partition of a total it exceeds.
- *
- * A counter the provider did not report stays absent. A zero would claim the provider measured no
- * cache, which is a different fact from a provider that did not report.
- */
+/** Nothing reported stays unmarked. A read and a write that fit `input` are a complete split.
+ *  One counter, or classes past `input`, pass through with `cacheBreakdownKnown: false`.
+ *  An unreported counter stays absent, never zero. */
 export function promptCacheTokenClasses(
   input: number | undefined,
   promptCache: PromptCacheCounters | undefined,
@@ -442,15 +391,8 @@ function tokenCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
-/**
- * Add the observed subtotal into `acc`; token and cache incompleteness are sticky.
- *
- * A delta whose classes do not FIT inside its own `input` contributes its prompt total and NO
- * classes. Folding them in would hide the overflow: the accumulator's larger `input` can absorb a
- * class total that overflowed the one delta that reported it, and `chargedTokens` would then credit
- * at the aggregate a cache read it refuses at the record. That is the one way the charge could come
- * out below the sum of the charges on the records that built it.
- */
+/** Add a subtotal. Classes that overflow their own `input` are dropped, so a later fold cannot
+ *  credit a cache read this record refused. An unclassified positive input makes the sum unknown. */
 export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage>): void {
   acc.input += delta.input ?? 0
   acc.output += delta.output ?? 0
@@ -478,15 +420,7 @@ export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage
   }
 }
 
-/**
- * Map `items` through `fn` with at most `limit` calls in flight at once,
- * preserving input order in the result. On the first `fn` rejection no NEW
- * items are picked up; already-in-flight calls are awaited, then the first
- * error is rethrown. `limit` is clamped to ≥ 1.
- *
- * Used where a burst of provisioning (e.g. forking N child boxes) must respect
- * the loop's concurrency bound instead of firing all N at once.
- */
+/** Run `fn` with at most `limit` calls in flight, preserving input order. The first rejection wins. */
 export async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
