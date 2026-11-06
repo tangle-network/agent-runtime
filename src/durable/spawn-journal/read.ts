@@ -89,7 +89,11 @@ export async function readSpawnJournal(
           offset = committed
         },
       })) {
-        if (!isRecord(record) || typeof record.root !== 'string' || (record.kind === 'begin' && typeof record.at !== 'string')) {
+        if (
+          !isRecord(record) ||
+          typeof record.root !== 'string' ||
+          (record.kind === 'begin' && typeof record.at !== 'string')
+        ) {
           if (options.invalid === 'skip') continue
           throw new Error(`${path}: spawn journal record has no root or begin timestamp`)
         }
