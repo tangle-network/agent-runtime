@@ -124,7 +124,7 @@ export function renderTopFrameWithLayout(
       push(`No run state under ${supervisorRunsRoot(snapshot.root)}`)
     }
     push(
-      `A run appears here once its driver writes state.json; re-point with: agent-runtime-top <root>`,
+      `Supervise dir with observer.jsonl or spawn-journal.jsonl: agent-runtime-top --web --root <run-dir>`,
     )
     return { frame: `${lines.join('\n')}\n`, targets }
   }
