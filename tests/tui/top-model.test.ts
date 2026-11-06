@@ -460,6 +460,8 @@ describe('supervisor top model', () => {
     const frame = renderTopFrame(snapshot, { color: false, width: 120, height: 30 })
     expect(frame).toContain('NO SUPERVISORS')
     expect(frame).toContain(join(root, '.agent', 'supervisor'))
+    expect(frame).toContain('agent-runtime-top --web --root <run-dir>')
+    expect(frame).toContain('spawn-journal.jsonl')
   })
 
   it('keeps the complete supervisor and reports one bounded diagnostic for a half-written one', () => {
