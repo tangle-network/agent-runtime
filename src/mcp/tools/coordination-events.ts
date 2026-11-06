@@ -59,6 +59,19 @@ export type CoordinationEvent =
   /** A tool call that outlived its response fence settled. Queued: the manager's next wake
    *  carries it, so the caller never re-calls to collect it. */
   | { readonly type: 'tool-outcome'; readonly outcome: ToolOutcomeEvent }
+  /** Server timing of one coordination tool call. Record-only: it never wakes the manager.
+   *  `receivedAt` is the server clock when the handler started, `elapsedMs` is that handler's
+   *  duration, and `responseBytes` is the UTF-8 size of its JSON result or error message. */
+  | {
+      readonly type: 'tool-timing'
+      readonly call: {
+        readonly tool: string
+        readonly receivedAt: number
+        readonly elapsedMs: number
+        readonly responseBytes: number
+        readonly ok: boolean
+      }
+    }
   /** This manager's lead (its parent manager, or the operator for a root) sent it a steer or an
    *  answer. Queued: a manager's harness has no live inbox between turns, so the message is the
    *  input of its next wake instead of a refused delivery. */
@@ -245,6 +258,7 @@ export const journalEventKinds = [
   'analyst-assignment',
   'acknowledgement',
   'tool-outcome',
+  'tool-timing',
   'lead-message',
   'map',
   'route',

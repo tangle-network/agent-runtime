@@ -34,11 +34,14 @@ import { errorMessage } from './util'
 
 /** Profile-exact adapter for packages that consume agent-eval's ChatClient contract.
  * Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
- * behavioral field is checked against the exact AgentProfile before any transport runs. */
+ * behavioral field is checked against the exact AgentProfile before any transport runs.
+ * Optional `headers` are forwarded on every Router request. Runtime's own content-type,
+ * authorization, idempotency-key, and x-correlation-id keep precedence. */
 export function profileChatClient(args: {
   profile: AgentProfile
   executor: ExecutorConfig
   context: string
+  headers?: Readonly<Record<string, string>>
 }): ChatClient {
   const binding = bindProfileChat(args)
 
@@ -64,6 +67,7 @@ export function profileOptimizerModelCall(args: {
   executor: ExecutorConfig
   context: string
   pricing?: CustomTokenPricing
+  headers?: Readonly<Record<string, string>>
 }): ExternalOptimizerModelCall {
   const binding = bindProfileChat(args)
   const profileDigest = canonicalAgentProfileDigest(binding.profile)
@@ -131,6 +135,7 @@ interface BoundProfileChat {
   readonly context: string
   readonly model: string
   readonly settings: ProfileModelExecutionSettings
+  readonly headers?: Readonly<Record<string, string>>
 }
 
 type ProfileChatRun =
@@ -141,10 +146,12 @@ function bindProfileChat(args: {
   profile: AgentProfile
   executor: ExecutorConfig
   context: string
+  headers?: Readonly<Record<string, string>>
 }): BoundProfileChat {
   const profile = executableAgentProfileSnapshot(args.profile, args.context)
   const model = concreteModelId(profile.model?.default)
   if (!model) throw new Error(`${args.context}: AgentProfile.model.default must be concrete`)
+  const headers = callerRequestHeaders(args.headers, args.context)
   return {
     profile,
     executor: captureReusableExecutorConfig(args.executor, args.context),
@@ -155,6 +162,7 @@ function bindProfileChat(args: {
       args.context,
       args.executor.backend === 'provider' ? 'provider' : 'router',
     ),
+    ...(headers ? { headers } : {}),
   }
 }
 
@@ -191,6 +199,7 @@ async function runBoundProfileChat(
         ...(callOpts?.signal ? { signal: callOpts.signal } : {}),
         ...(callOpts?.idempotencyKey ? { callId: callOpts.idempotencyKey } : {}),
         ...(callOpts?.correlationId ? { correlationId: callOpts.correlationId } : {}),
+        ...(binding.headers ? { propagatedHeaders: binding.headers } : {}),
       },
     ),
   )
@@ -336,6 +345,30 @@ function toolCarryingExecutor(binding: BoundProfileChat, req: ChatRequest): Exec
     )
   }
   return captureReusableExecutorConfig({ ...binding.executor, tools }, binding.context)
+}
+
+/** Caller headers are a lowercase token map. Runtime overwrites its own connection headers later. */
+function callerRequestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  context: string,
+): Readonly<Record<string, string>> | undefined {
+  if (headers === undefined) return undefined
+  if (headers === null || typeof headers !== 'object' || Array.isArray(headers)) {
+    throw new Error(`${context}: headers must be an object of lowercase header names to strings`)
+  }
+  const normalized: Record<string, string> = {}
+  for (const [name, value] of Object.entries(headers)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) {
+      throw new Error(
+        `${context}: header name ${JSON.stringify(name)} must be a lowercase token such as x-tangle-client`,
+      )
+    }
+    if (typeof value !== 'string' || value.length === 0 || /[\r\n\0]/.test(value)) {
+      throw new Error(`${context}: header ${JSON.stringify(name)} must be one non-empty line`)
+    }
+    normalized[name] = value
+  }
+  return normalized
 }
 
 function assertSupportedChatCallOptions(
