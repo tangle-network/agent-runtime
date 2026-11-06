@@ -30,9 +30,29 @@ import type {
 } from '@tangle-network/sandbox'
 import {
   captureMaterializedWorkspace,
+  scanMaterializedWorkspaceManifest,
   WorkspaceScanLimitError,
 } from '../candidate-execution/artifacts'
+import {
+  boxCheckOutputReader,
+  type IsolatedCheckOutputEvidence,
+  type IsolatedCheckOutputOptions,
+  localCheckOutputReader,
+  prepareIsolatedCheckOutputs,
+  retainIsolatedCheckOutputs,
+  stopCheckBoxForRecovery,
+  stopCheckProcess,
+} from './isolated-checker-outputs'
+import { runAbortable } from './supervise/abortable'
 import { armDeadlineTimer } from './supervise/deadline'
+
+export {
+  type IsolatedCheckOutputDeclaration,
+  type IsolatedCheckOutputEvidence,
+  type IsolatedCheckOutputFailure,
+  type IsolatedCheckOutputOptions,
+  validateIsolatedCheckOutputs,
+} from './isolated-checker-outputs'
 
 export interface IsolatedCheckOptions {
   /** Trusted workspace boundary containing the untrusted tree. */
@@ -52,6 +72,8 @@ export interface IsolatedCheckOptions {
   /** Environment the command receives beside PATH, HOME and LANG: a declared check's named
    *  secrets and its own settings. Nothing else of this process's environment reaches it. */
   env?: Readonly<Record<string, string>>
+  /** Retain explicitly approved output files, on command success or failure, before cleanup. */
+  outputs?: IsolatedCheckOutputOptions
 }
 
 /**
@@ -105,7 +127,12 @@ export interface IsolatedCheckBoxEvidence {
 }
 
 export type IsolatedCheckResult =
-  | { succeeded: true; value: { stdout: string; stderr: string }; box?: IsolatedCheckBoxEvidence }
+  | {
+      succeeded: true
+      value: { stdout: string; stderr: string }
+      box?: IsolatedCheckBoxEvidence
+      outputs?: IsolatedCheckOutputEvidence
+    }
   | {
       succeeded: false
       reason:
@@ -125,6 +152,7 @@ export type IsolatedCheckResult =
       cleanupDiagnostic?: string
       /** Present once a check box received its complete input. */
       box?: IsolatedCheckBoxEvidence
+      outputs?: IsolatedCheckOutputEvidence
     }
 
 const toolchains = ['/usr', '/bin', '/lib', '/lib64']
@@ -139,22 +167,28 @@ const contains = (parent: string, child: string) => {
  *
  * Bubblewrap requires /usr/bin/bwrap and permission to create Linux namespaces.
  * Only trusted system toolchains, private proc/dev/tmp, and the writable copy are mounted.
- * The canonical input path remains the working directory; copy writes are discarded.
+ * The canonical input path remains the working directory. Requested output files are retained
+ * before cleanup; otherwise copy writes are discarded.
  * Time and output are bounded; input copy bytes and entries are bounded when requested.
  * The command's memory and generated files require a resource-limited placement.
  * Callers must keep the input and trusted toolchains stable while preparing the check.
  *
  * A box check creates one fresh box with no owner secrets and blocked egress (or strict egress to
  * the placement's named domains), delivers the tree's regular files verified by sha256, runs the
- * command there with only the environment `env` names, and deletes the box.
+ * command there with only the environment `env` names, and deletes the box after successful
+ * requested retention. Incomplete retention returns private recovery custody only after the
+ * native owner confirms the box stopped. Box file capture requires /usr/bin/python3. Local recovery scratch is the
+ * caller's responsibility; the resource-limited placement requirement still applies.
  */
 export async function runIsolatedCheck(
   options: IsolatedCheckOptions,
 ): Promise<IsolatedCheckResult> {
   if (options.box) return runInBox(options, options.box)
   let scratch: string | undefined
+  let outputs: IsolatedCheckOutputEvidence | undefined
   let result: IsolatedCheckResult
   try {
+    const retention = prepareIsolatedCheckOutputs(options.outputs)
     if (process.platform !== 'linux') throw new Error('Linux Bubblewrap namespaces are required')
     const { timeoutMs, maxOutputBytes, maxInputBytes, maxInputEntries } = checkLimits(options)
     if (options.signal?.aborted)
@@ -189,6 +223,8 @@ export async function runIsolatedCheck(
     if (contains(tree, scratch)) throw new Error('Temporary storage must be outside the input tree')
     const copy = join(scratch, 'tree')
     await copyBoundedTree(tree, copy, maxInputBytes, maxInputEntries)
+    const input = retention ? await scanMaterializedWorkspaceManifest(copy) : undefined
+    if (retention && input) assertOutputPathsUnoccupied(retention.paths, input)
     const args = [
       '--unshare-all',
       '--die-with-parent',
@@ -222,6 +258,16 @@ export async function runIsolatedCheck(
       ...options.command,
     ]
     result = await execute(args, timeoutMs, maxOutputBytes, options.signal)
+    if (retention && input && (result.succeeded || result.reason !== 'refused')) {
+      outputs = await retainIsolatedCheckOutputs(
+        retention,
+        canonicalCandidateDigest(input),
+        localCheckOutputReader(copy),
+      )
+      if (outputs.status === 'incomplete')
+        outputs = { ...outputs, source: { kind: 'local', path: scratch } }
+      result = withRetainedOutputs(result, outputs)
+    }
   } catch (error) {
     result = {
       succeeded: false,
@@ -229,7 +275,7 @@ export async function runIsolatedCheck(
       diagnostic: String(error),
     }
   }
-  if (scratch) {
+  if (scratch && outputs?.status !== 'incomplete') {
     try {
       await removeScratch(scratch)
     } catch (error) {
@@ -246,7 +292,40 @@ export async function runIsolatedCheck(
         : { ...result, cleanupDiagnostic }
     }
   }
-  return result
+  return outputs ? { ...result, outputs } : result
+}
+
+/** A preexisting input file must never masquerade as newly produced evaluator evidence. */
+function assertOutputPathsUnoccupied(
+  paths: readonly string[],
+  input: AgentCandidateWorkspaceManifestMaterial,
+): void {
+  for (const path of paths)
+    if (
+      input.files.some(
+        (file) =>
+          file.path === path ||
+          file.path.startsWith(`${path}/`) ||
+          path.startsWith(`${file.path}/`),
+      )
+    )
+      throw new Error('Declared check output path overlaps an input file')
+}
+
+function withRetainedOutputs(
+  result: IsolatedCheckResult,
+  outputs: IsolatedCheckOutputEvidence,
+): IsolatedCheckResult {
+  if (!result.succeeded || outputs.status === 'retained') return { ...result, outputs }
+  return {
+    succeeded: false,
+    reason: 'failed',
+    diagnostic: 'Check outputs were not completely retained',
+    stdout: result.value.stdout,
+    stderr: result.value.stderr,
+    exitCode: 0,
+    outputs,
+  }
 }
 
 function checkLimits(options: IsolatedCheckOptions): {
@@ -361,7 +440,7 @@ async function protectedTree(
 
 /** Box-workspace-relative directory that receives the tree and is the command's cwd. */
 const BOX_TREE = 'tree'
-/** Bound on provisioning, delivery, and deletion; the box expires even if this process dies. */
+/** Setup headroom in the requested native lifetime policy; this is not a deletion guarantee. */
 const BOX_SETUP_SECONDS = 900
 /** The box's own process timeout is a backstop behind this module's deadline. */
 const BOX_PROCESS_BACKSTOP_MS = 30_000
@@ -374,9 +453,16 @@ async function runInBox(
 ): Promise<IsolatedCheckResult> {
   let box: SandboxInstance | undefined
   let evidence: IsolatedCheckBoxEvidence | undefined
+  let outputs: IsolatedCheckOutputEvidence | undefined
+  let retention: IsolatedCheckOutputOptions | undefined
+  let maxLifetimeSeconds: number | undefined
+  let commandAttempted = false
+  let commandSettled = false
   let result: IsolatedCheckResult
   try {
+    retention = prepareIsolatedCheckOutputs(options.outputs)
     const { timeoutMs, maxOutputBytes, maxInputBytes, maxInputEntries } = checkLimits(options)
+    maxLifetimeSeconds = Math.ceil(timeoutMs / 1_000) + BOX_SETUP_SECONDS
     if (options.signal?.aborted)
       return { succeeded: false, reason: 'cancelled', diagnostic: 'Check cancelled' }
     const { tree } = await protectedTree(options)
@@ -389,6 +475,7 @@ async function runInBox(
         maxTotalFileBytes: maxInputBytes ?? Number.MAX_SAFE_INTEGER,
       },
     })
+    if (retention) assertOutputPathsUnoccupied(retention.paths, captured.manifest)
     if (placement.builderAccounts.length === 0 || placement.builderAccounts.some((id) => !id))
       throw new Error('builderAccounts must name the account of every key the judged run holds')
     const memoryMB = placement.resources?.memoryMB
@@ -415,7 +502,7 @@ async function runInBox(
         ephemeral: placement.containers !== true,
         egressPolicy: egressFor(placement),
         ...(placement.resources ? { resources: placement.resources } : {}),
-        maxLifetimeSeconds: Math.ceil(timeoutMs / 1_000) + BOX_SETUP_SECONDS,
+        maxLifetimeSeconds,
         // A new identity per call: a replayed create could return a box another caller used.
         idempotencyKey: `agent-runtime-check-${randomUUID()}`,
       },
@@ -472,7 +559,8 @@ async function runInBox(
       input: captured.manifest,
       inputDigest: canonicalCandidateDigest(captured.manifest),
     }
-    result = await executeInBox(
+    commandAttempted = true
+    const execution = await executeInBox(
       box,
       options.command,
       timeoutMs,
@@ -480,6 +568,8 @@ async function runInBox(
       options.env ?? {},
       options.signal,
     )
+    result = execution.result
+    commandSettled = execution.commandSettled
   } catch (error) {
     result = {
       succeeded: false,
@@ -491,7 +581,44 @@ async function runInBox(
       diagnostic: String(error),
     }
   }
-  if (box) {
+  // A transport failure leaves command state unknown. Preserve that box only after its native
+  // lifecycle owner confirms a whole-box stop; never keep live or unconfirmed recovery custody.
+  if (
+    box &&
+    evidence &&
+    retention &&
+    maxLifetimeSeconds !== undefined &&
+    commandAttempted &&
+    (!commandSettled || result.succeeded || result.reason !== 'refused')
+  ) {
+    outputs = commandSettled
+      ? await retainIsolatedCheckOutputs(
+          retention,
+          evidence.inputDigest,
+          boxCheckOutputReader(box, BOX_TREE, retention.timeoutMs ?? 30_000),
+        )
+      : {
+          executionId: retention.executionId,
+          inputDigest: evidence.inputDigest,
+          status: 'incomplete',
+          files: [],
+          missing: retention.paths.map((path) => ({ path, reason: 'capture-failed' as const })),
+        }
+    result = withRetainedOutputs(result, outputs)
+    if (outputs.status === 'incomplete') {
+      if (await stopCheckBoxForRecovery(box))
+        outputs = {
+          ...outputs,
+          source: { kind: 'sandbox', sandboxId: box.id, state: 'stopped' },
+        }
+      else if (!result.succeeded)
+        result = {
+          ...result,
+          cleanupDiagnostic: 'Recovery source stop was not confirmed; box deletion was requested',
+        }
+    }
+  }
+  if (box && outputs?.source?.kind !== 'sandbox') {
     try {
       await box.delete()
     } catch (error) {
@@ -505,10 +632,15 @@ async function runInBox(
             stderr: result.value.stderr,
             exitCode: 0,
           }
-        : { ...result, cleanupDiagnostic }
+        : {
+            ...result,
+            cleanupDiagnostic: [result.cleanupDiagnostic, cleanupDiagnostic]
+              .filter(Boolean)
+              .join('; '),
+          }
     }
   }
-  return evidence ? { ...result, box: evidence } : result
+  return { ...result, ...(evidence ? { box: evidence } : {}), ...(outputs ? { outputs } : {}) }
 }
 
 /** Refuse unless the box reads each file with its manifest digest. `find` names the files: a box
@@ -556,22 +688,20 @@ async function executeInBox(
   limit: number,
   env: Readonly<Record<string, string>>,
   signal?: AbortSignal,
-): Promise<IsolatedCheckResult> {
+): Promise<{ result: IsolatedCheckResult; commandSettled: boolean }> {
   const [executable, ...args] = command
-  const child = await box.process.spawnExact(executable, args, {
-    cwd: BOX_TREE,
-    env: { PATH: '/usr/bin:/bin', HOME: '/tmp', LANG: 'C', ...env },
-    inheritEnv: false,
-    timeoutMs: timeoutMs + BOX_PROCESS_BACKSTOP_MS,
-  })
+  let child: Awaited<ReturnType<SandboxInstance['process']['spawnExact']>> | undefined
+  const deadline = new AbortController()
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
   let bytes = 0
   let failure: 'timeout' | 'cancelled' | 'output-limit' | undefined
-  let stopping: Promise<void> | undefined
+  let stopping: Promise<boolean> | undefined
+  let stopped = false
   const stop = (reason: typeof failure) => {
     failure ??= reason
-    stopping ??= child.kill('SIGKILL', { tree: true }).catch(() => undefined)
+    deadline.abort()
+    if (child) stopping ??= stopCheckProcess(child)
   }
   const clearTimer = armDeadlineTimer(timeoutMs, () => stop('timeout'), true)
   const cancel = () => stop('cancelled')
@@ -579,6 +709,7 @@ async function executeInBox(
   if (signal?.aborted) cancel()
   const capture = async (stream: AsyncIterable<string>, target: Buffer[]) => {
     for await (const text of stream) {
+      if (deadline.signal.aborted) break
       const chunk = Buffer.from(text)
       const remaining = Math.max(0, limit - bytes)
       bytes += chunk.length
@@ -586,38 +717,75 @@ async function executeInBox(
       if (bytes > limit) stop('output-limit')
     }
   }
-  let exitCode: number
-  let exitSignal: string | undefined
+  let completion: { exitCode: number; exitSignal?: string } | undefined
   try {
-    await Promise.all([capture(child.stdout(), stdout), capture(child.stderr(), stderr)])
-    exitCode = await child.wait()
-    exitSignal = (await child.status()).exitSignal
+    child = await runAbortable(
+      () => {
+        const launching = box.process.spawnExact(executable, args, {
+          cwd: BOX_TREE,
+          env: { PATH: '/usr/bin:/bin', HOME: '/tmp', LANG: 'C', ...env },
+          inheritEnv: false,
+          timeoutMs: timeoutMs + BOX_PROCESS_BACKSTOP_MS,
+        })
+        // A late response must not leave a newly observed process running after the caller stopped.
+        void launching.then(
+          (late) => {
+            if (deadline.signal.aborted) void stopCheckProcess(late)
+          },
+          () => undefined,
+        )
+        return launching
+      },
+      deadline.signal,
+      'Check interrupted',
+    )
+    const running = child
+    completion = await runAbortable(
+      async () => {
+        await Promise.all([capture(running.stdout(), stdout), capture(running.stderr(), stderr)])
+        const exitCode = await running.wait()
+        const exitSignal = (await running.status()).exitSignal
+        return { exitCode, exitSignal }
+      },
+      deadline.signal,
+      'Check interrupted',
+    )
+  } catch (error) {
+    if (child) stopping ??= stopCheckProcess(child)
+    if (!failure) throw error
   } finally {
     clearTimer()
     signal?.removeEventListener('abort', cancel)
-    await stopping
+    stopped = (await stopping) === true
   }
   const out = Buffer.concat(stdout).toString()
   const err = Buffer.concat(stderr).toString()
+  const exitCode = completion?.exitCode ?? null
+  const exitSignal = completion?.exitSignal
   const evidence = { stdout: out, stderr: err, exitCode: exitSignal ? null : exitCode }
-  if (failure) return { succeeded: false, reason: failure, diagnostic: err || failure, ...evidence }
+  const finish = (result: IsolatedCheckResult) => ({
+    result,
+    commandSettled: completion !== undefined || stopped,
+  })
+  if (failure)
+    return finish({ succeeded: false, reason: failure, diagnostic: err || failure, ...evidence })
   if (exitCode === 127 && err.startsWith(BOX_EXEC_FAILURE))
-    return { succeeded: false, reason: 'refused', diagnostic: err, ...evidence }
+    return finish({ succeeded: false, reason: 'refused', diagnostic: err, ...evidence })
   if (exitSignal)
-    return {
+    return finish({
       succeeded: false,
       reason: 'failed',
       diagnostic: err || `Check killed by ${exitSignal}`,
       ...evidence,
-    }
+    })
   if (exitCode !== 0)
-    return {
+    return finish({
       succeeded: false,
       reason: 'failed',
       diagnostic: err || out || `Check exited ${exitCode}`,
       ...evidence,
-    }
-  return { succeeded: true, value: { stdout: out, stderr: err } }
+    })
+  return finish({ succeeded: true, value: { stdout: out, stderr: err } })
 }
 
 function execute(
