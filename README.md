@@ -27,9 +27,21 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 
 Runtime keeps compact integration fixtures. Research questions and preregistrations belong in Discovery; reproducibility campaigns and long-horizon value evidence belong in Discovery Lab.
 
-## Quickstart: one exact offline run
+## Start here
 
-This is [`examples/quickstart/minimal.ts`](./examples/quickstart/minimal.ts). It runs without credentials.
+First adoption is one exact run with a result and an identity, then the coordinator you already have.
+
+The scripted quickstart below is that run: a scripted model, no credentials, and a printed decision. A real model is [`examples/delegate`](./examples/delegate), which exits until a router key is set. Durable storage is [`examples/runtime-run`](./examples/runtime-run) through the store adapter you pass; the checked example's adapter is in-process. Provider-owned durability is [`examples/retained-run`](./examples/retained-run). A workflow graph, a fleet topology, and the Intelligence adapter stay optional.
+
+This package runs the declared profile and records the attempt. `@tangle-network/agent-interface` is the profile contract. `@tangle-network/agent-eval` scores and compares. `@tangle-network/sandbox` owns the isolated box, and the Sandbox orchestrator owns session durability for that box. `@tangle-network/agent-knowledge` owns the source-backed knowledge base. `@tangle-network/agent-app` is the product shell for chat, billing, and the tool side channel, and it calls these exports. Discovery owns research campaigns and result archives. Who durably owns each record is [`docs/durability.md`](./docs/durability.md).
+
+The words profile, task, attempt, environment, and completion are the table below. A resumed task brings its settled record, artifacts, and identity. Harness continuation stays with the native session. A result lasts in the store configured for that run. An external effect the record leaves unconfirmed is reconciled at that effect's boundary.
+
+Discovery's runner is one consumer that keeps its own coordinator and imports the published `/kernel` and `/durable` subpaths. Agent App declares the runtime majors its chat shell accepts; a major outside that range is a change in Agent App.
+
+## Quickstart: scripted, no credentials
+
+[`examples/quickstart/minimal.ts`](./examples/quickstart/minimal.ts) is the scripted class named above. It runs without credentials.
 
 ```ts
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -88,13 +100,19 @@ Runtime uses the same primitive for round batches and concurrent sandbox lineage
 | Word | Meaning |
 |---|---|
 | **profile** | The complete behavioral declaration: harness, provider/model, prompt, tools, MCP, permissions, resources, hooks, and subagents. |
+| **task** | The caller's unit of work, passed to `runAgentRounds` or returned by `runTaskQueue`'s `take`. |
+| **attempt** | One execution of that work: one driver attempt, or one fresh worker inside a round. |
+| **environment** | The provider box for an attempt, named by provider and environment id. No id means nothing was named. |
 | **worker** | An agent that performs one assigned unit of work. |
 | **driver / supervisor** | An agent or deterministic policy that observes work and decides what happens next. |
 | **verdict** | An independently produced validity/score record. |
 | **harness** | What drives the profile. `cli-base` is direct model execution; `claude-code`, `codex`, `opencode`, and `prime` run agent harnesses. The complete vocabulary is `HarnessType` in `@tangle-network/agent-interface`. |
-| **delivery** | A settled result that passed the caller's completion check. Settlement alone is not delivery. |
+| **completion** | The caller's check on the settled result. |
+| **delivery** | A settlement that passed that check. |
 
 ## Choose a front door
+
+The scripted quickstart is the first run. Open another row when its shape is the one you already have.
 
 | Front door | Use it for | Runnable example |
 |---|---|---|
@@ -113,7 +131,7 @@ Five mechanisms continue interrupted work; choose by what died:
 - HTTP connection: reconnect with the same execution identity.
 - Same live box, next turn: continue the sandbox session.
 - Coordinator process: `supervise({ runDir })`.
-- User conversation: the conversation journal adapters exported at root.
+- User conversation: Agent App's turn store. `runConversation`, exported at the package root, runs in-process.
 - Initiating process: a retained run owned by the provider.
 
 ## Truthfulness before value
@@ -126,11 +144,7 @@ The provider's account owner binds that turn's credential; Runtime keeps the ori
 Exact replay retains the admitted request, including older admissions that relied on the creation-time profile.
 
 
-Those are **integration proofs**, not benchmark-value proofs.
-
-`pnpm verify:official-optimizers` verifies the official GEPA/Optimize Anything bridge, recipe identities, resume behavior, accounting, and package provenance on a controlled fixture. It does not claim to reproduce GEPA, Omni, AutoResearch, or Meta-Harness benchmark lift. Full benchmark reproduction belongs in Discovery Lab, using the benchmark's own evaluator, matched budgets, frozen partitions, and immutable receipts.
-
-The same boundary applies to trace analysts, Prime Agent RLM, and DSPy RLM: Runtime may expose the execution seam, but analyst quality and benchmark lift must be established outside this repository.
+Those gates are integration proofs. Benchmark reproduction, including the official optimizer bridge, is [`bench/HARNESS.md`](./bench/HARNESS.md). Analyst quality belongs outside this repository.
 
 ### The conformance manifest
 
