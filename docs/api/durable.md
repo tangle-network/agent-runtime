@@ -133,6 +133,42 @@ Open existing committed history by its recorded identity; never creates a file.
 
 ***
 
+### NoSettleRecordError
+
+The directory has no settle record, so there is no settled run to reconcile.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new NoSettleRecordError**(`runDir`): [`NoSettleRecordError`](#nosettlerecorderror)
+
+###### Parameters
+
+###### runDir
+
+`string`
+
+###### Returns
+
+[`NoSettleRecordError`](#nosettlerecorderror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### runDir
+
+> `readonly` **runDir**: `string`
+
+***
+
 ### RunDirectoryLockedError
 
 The directory is held by a live process. `holder` is what that process recorded.
@@ -1719,6 +1755,140 @@ Known dollars, proven floors of unknown ones, and the counts of each.
 > `readonly` **receipt**: `SearchHistoryReceipt`
 
 A bounded receipt over the exact ledger bytes.
+
+***
+
+### EnvironmentTarget
+
+One environment named by the provider that issued it.
+
+#### Extended by
+
+- [`ReconciledEnvironment`](#reconciledenvironment)
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+***
+
+### UnconfirmedEnvironmentPort
+
+The caller's provider adapter. `read` and `delete` take the provider's own id.
+A delete that finds the environment already gone reports `absent`.
+
+#### Methods
+
+##### read()
+
+> **read**(`target`): `Promise`\<[`EnvironmentPresence`](#environmentpresence)\>
+
+###### Parameters
+
+###### target
+
+[`EnvironmentTarget`](#environmenttarget)
+
+###### Returns
+
+`Promise`\<[`EnvironmentPresence`](#environmentpresence)\>
+
+##### delete()
+
+> **delete**(`target`): `Promise`\<[`EnvironmentDeletion`](#environmentdeletion)\>
+
+###### Parameters
+
+###### target
+
+[`EnvironmentTarget`](#environmenttarget)
+
+###### Returns
+
+`Promise`\<[`EnvironmentDeletion`](#environmentdeletion)\>
+
+***
+
+### ReconciledEnvironment
+
+An environment this call proved gone. `nodeId` is the teardown record that named it.
+
+#### Extends
+
+- [`EnvironmentTarget`](#environmenttarget)
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+###### Inherited from
+
+[`EnvironmentTarget`](#environmenttarget).[`provider`](#provider)
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+###### Inherited from
+
+[`EnvironmentTarget`](#environmenttarget).[`environmentId`](#environmentid)
+
+##### nodeId?
+
+> `readonly` `optional` **nodeId?**: `string`
+
+***
+
+### UnreconciledEnvironment
+
+An environment, or a node with no id, this call could not decide.
+
+#### Properties
+
+##### nodeId?
+
+> `readonly` `optional` **nodeId?**: `string`
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+##### environmentId?
+
+> `readonly` `optional` **environmentId?**: `string`
+
+##### detail
+
+> `readonly` **detail**: `string`
+
+***
+
+### UnconfirmedTeardownReconcile
+
+The three sets one reconcile call returns. A repeated id is acted on once and reported
+ on every node that names it.
+
+#### Properties
+
+##### confirmed
+
+> `readonly` **confirmed**: readonly [`ReconciledEnvironment`](#reconciledenvironment)[]
+
+##### deleted
+
+> `readonly` **deleted**: readonly [`ReconciledEnvironment`](#reconciledenvironment)[]
+
+##### unknown
+
+> `readonly` **unknown**: readonly [`UnreconciledEnvironment`](#unreconciledenvironment)[]
 
 ***
 
@@ -5414,6 +5584,22 @@ Build the one change the next version applies to `best.profile`. Its `id` must b
 
 ***
 
+### EnvironmentPresence
+
+> **EnvironmentPresence** = \{ `state`: `"absent"`; \} \| \{ `state`: `"present"`; \} \| \{ `state`: `"unknown"`; `detail`: `string`; \}
+
+What a direct read of one environment proved. `unknown` means the read did not decide.
+
+***
+
+### EnvironmentDeletion
+
+> **EnvironmentDeletion** = \{ `state`: `"deleted"`; \} \| \{ `state`: `"absent"`; \} \| \{ `state`: `"unknown"`; `detail`: `string`; \}
+
+What a delete of one environment the read found present proved.
+
+***
+
 ### SpawnJournalReadRecord
 
 > **SpawnJournalReadRecord** = \{ `kind`: `"begin"`; `root`: [`NodeId`](runtime.md#nodeid-5); `at`: `string`; \} \| \{ `kind`: `"event"`; `root`: [`NodeId`](runtime.md#nodeid-5); `event`: [`SpawnEvent`](runtime.md#spawnevent); \}
@@ -5826,6 +6012,28 @@ a caller that records the option as data can run it at preflight.
 #### Returns
 
 `asserts versions is PursuitVersions`
+
+***
+
+### reconcileUnconfirmedTeardowns()
+
+> **reconcileUnconfirmedTeardowns**(`runDir`, `port`): `Promise`\<[`UnconfirmedTeardownReconcile`](#unconfirmedteardownreconcile)\>
+
+Finish unconfirmed teardowns named by a settled run's `result.json`.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+##### port
+
+[`UnconfirmedEnvironmentPort`](#unconfirmedenvironmentport)
+
+#### Returns
+
+`Promise`\<[`UnconfirmedTeardownReconcile`](#unconfirmedteardownreconcile)\>
 
 ***
 

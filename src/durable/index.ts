@@ -121,6 +121,17 @@ export {
   type VersionJudge,
   type VersionVerdict,
 } from './pursuit-versions'
+export {
+  type EnvironmentDeletion,
+  type EnvironmentPresence,
+  type EnvironmentTarget,
+  NoSettleRecordError,
+  type ReconciledEnvironment,
+  reconcileUnconfirmedTeardowns,
+  type UnconfirmedEnvironmentPort,
+  type UnconfirmedTeardownReconcile,
+  type UnreconciledEnvironment,
+} from './reconcile-unconfirmed-teardowns'
 export { type PursuitFork, RUN_FORK_CORRELATION_KEYS } from './run-fork'
 export {
   acquireRunDirectoryLock,
