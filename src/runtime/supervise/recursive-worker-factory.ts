@@ -66,14 +66,14 @@ function leafWorker(
   const { options, deliverable, runNamespace } = env.setup
   const { childDeliverable } = admitted
   // A check node of the run's own flow runs its command; only that flow's route spawns reach it.
-  const checkNodes = options.checkNodes
+  const routed = spawnContext.route?.node ?? ''
   if (
-    checkNodes &&
+    options.checkNodes &&
     seat.depth === 1 &&
-    spawnContext.route?.node === admitted.authorized.name &&
-    checkNodes.names.includes(spawnContext.route.node)
+    routed === admitted.authorized.name &&
+    options.checkNodes.names.includes(routed)
   )
-    return checkNodes.leaf(admitted.authorized, admitted.authorizedContext)
+    return options.checkNodes.leaf(admitted.authorized, admitted.authorizedContext)
   if (childDeliverable !== deliverable && !options.backend) {
     throw new ValidationError(
       'supervise: resolveDeliverable selected a per-spawn deliverable but there is no backend to derive that leaf from; makeLeafAgent owns its own completion check',
