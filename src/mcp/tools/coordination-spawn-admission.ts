@@ -1,3 +1,5 @@
+import { ResourceRequestSchema } from '@tangle-network/agent-interface'
+import { ValidationError } from '../../errors'
 import type { Handle, Scope, Settled } from '../../runtime'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import type { PeerMailbox } from '../../runtime/supervise/peer-mail'
@@ -7,6 +9,7 @@ import { mergeBudget } from './coordination-budget-override'
 import type {
   CoordinationToolsOptions,
   ResolvedContinuity,
+  ResourceRequest,
   SettledWorker,
   SpawnAdmission,
   WorkerSpawnContext,
@@ -197,20 +200,27 @@ function resolveContinuity(
  * assignment, budget reservation, `Scope.spawn` — is synchronous and commits state.
  * Returns the refusal body, or `undefined` when the spawn may proceed.
  */
+/** `spawn_worker`'s optional machine request, as the canonical resource request. */
+function spawnResources(raw: unknown): ResourceRequest | undefined {
+  if (raw === undefined) return undefined
+  const parsed = ResourceRequestSchema.omit({ providerOptions: true }).strict().safeParse(raw)
+  if (!parsed.success) throw new ValidationError(`spawn_worker resources: ${parsed.error.message}`)
+  return detachedFrozen(parsed.data)
+}
+
 async function preflightRefusal(
   state: AdmissionState,
   effective: SpawnAdmission['profile'],
-  label: string,
-  task: ReturnType<typeof detachedFrozen>,
-  key: string | undefined,
+  spawn: { label: string; task: unknown; key: string | undefined; resources?: ResourceRequest },
 ): Promise<unknown> {
   const { opts } = state
   if (!opts.preflightSpawn) return undefined
+  const { key, resources, ...rest } = spawn
   // The gate judges the profile that will RUN — the same one the spawn below uses (#1281).
   const refusal = await opts.preflightSpawn(effective, {
-    label,
+    ...rest,
     ...(key !== undefined ? { key } : {}),
-    task,
+    ...(resources !== undefined ? { resources } : {}),
   })
   if (!refusal) return undefined
   state.preflightCounts[refusal.cause] += 1
@@ -237,7 +247,8 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
   const effective = opts.resolveSpawnProfile
     ? detachedFrozen(opts.resolveSpawnProfile(profile))
     : profile
-  const refused = await preflightRefusal(state, effective, label, task, key)
+  const resources = spawnResources(a.resources)
+  const refused = await preflightRefusal(state, effective, { label, task, key, resources })
   if (refused !== undefined) return refused
   const budget = Object.freeze(
     a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
@@ -255,6 +266,7 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
     task,
     label,
     ...(key !== undefined ? { key } : {}),
+    ...(resources !== undefined ? { resources } : {}),
     continuity: continuity.continuity,
     ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
     ...(successorOf !== undefined ? { successorOf } : {}),

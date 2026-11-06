@@ -35,16 +35,7 @@
 
 import type { AnalystFinding } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type {
-  AgentSpec,
-  DefaultVerdict,
-  NodeId,
-  ResultBlobStore,
-  Scope,
-  Settled,
-  SpawnJournal,
-  Spend,
-} from '../supervise/types'
+import type { AgentSpec, DefaultVerdict, NodeId, Scope, Settled, Spend } from '../supervise/types'
 import type { Iteration } from '../types'
 import type { LoopShape, Outcome, ShapeContext } from './types'
 
@@ -332,11 +323,6 @@ export interface WidenLineage<D> {
 /** `widen(spec)` — build the streaming progressive-widening combinator. */
 export type Widen = <Task, Seed, D>(spec: WidenSpec<Seed, D>) => CombinatorShape<Task, D>
 
-/** The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall
- *  conflict dormant. Exported so a gate run can pass it explicitly and a test can assert the
- *  default is flat. */
-export type FlatWidenGate = <D>() => ScopeWidenGate<D>
-
 // ════════════════════════════════════════════════════════════════════════════════════
 // 2. ANALYST-ON-SCOPE (G1, a PORT of dynamic.ts's analyze→findings→steer wire)
 // ════════════════════════════════════════════════════════════════════════════════════
@@ -544,14 +530,6 @@ export interface TrajectoryReportOptions {
   /** Rehydrate each `done` node's `output` from the blob store. Off by default (cost-only report). */
   readonly withOutputs?: boolean
 }
-
-/** `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs). */
-export type TrajectoryReportFn = (
-  journal: SpawnJournal,
-  blobs: ResultBlobStore,
-  root: NodeId,
-  options?: TrajectoryReportOptions,
-) => Promise<TrajectoryReport>
 
 /**
  * One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole

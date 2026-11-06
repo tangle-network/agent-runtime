@@ -128,30 +128,6 @@ export interface ProviderWorkspaceCaptureResult {
   readonly stages?: Readonly<Record<string, number>>
 }
 
-/**
- * Where one workspace capture's time went: the wait for a slot of the port's queue, which every
- * recursive environment shares, and the capture itself. Reported once per workspace capture, on
- * success and on failure, so a run records the split instead of leaving it to inference: on
- * Discovery Lab run terraform-economics-20261005f a turn's result arrived 4 to 28 minutes after its
- * stream ended, and nothing said how much of that was queue.
- */
-export interface ProviderWorkspaceCaptureTiming {
-  /** Captures of this port holding or waiting for a slot when this one was requested. */
-  readonly ahead: number
-  /** From the request to the slot being granted, or to the failure when none was granted. */
-  readonly queuedMs: number
-  /** From the slot being granted to the verified archive, or to the failure. Absent when the
-   *  capture never held a slot. */
-  readonly captureMs?: number
-  /** Bytes of the verified workspace archive. */
-  readonly archiveBytes?: number
-  readonly outcome: 'captured' | 'failed'
-  /** Why a failed capture failed, bounded. */
-  readonly error?: string
-  /** The port's own split of `captureMs` ({@link ProviderWorkspaceCaptureResult.stages}). */
-  readonly stages?: Readonly<Record<string, number>>
-}
-
 export interface ProviderWorkspaceCaptureReceipt {
   readonly executionId: string
   /** Durable provider-native identity, separate from the Runtime invocation identity. */
