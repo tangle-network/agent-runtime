@@ -1,21 +1,8 @@
 /**
- * The on-disk supervisor-run layout: `<root>/.agent/supervisor/<id>`.
- *
- * This is the durable, cross-process face of a supervisor run — the counterpart to the in-process
- * `Inbox` seam in `./inbox`. A run persists its state under one directory so that any OTHER process
- * can find it after the fact: `@tangle-network/traces` reads exactly this layout via
- * `traces analyze --supervisor-run-dir`, a restarted host can rehydrate a run it no longer holds
- * handles to, and a human can steer a live worker by appending one NDJSON line. Until now the
- * layout was defined only in the unpublished `loops` repo (`src/supervisor-control.ts`) — a
- * published reader depending on an unpublished writer's convention — so the contract is promoted
- * here, names preserved.
- *
- * `.agent` is the one dot-dir for ALL agent-owned state (skills already write
- * `.agent/hypotheses/`, `.agent/skill-runs.jsonl`); supervisor runs live beside them rather than
- * under a product-branded dir. Runs written by older writers used `.loops/supervisor/<id>` —
- * readers that must see those keep a legacy fallback; this writer never creates `.loops` again.
- *
- * Layout, relative to `supervisorRunDir(root, id)`:
+ * On-disk supervisor run layout: `<root>/.agent/supervisor/<id>`. `@tangle-network/traces` reads it
+ * via `traces analyze --supervisor-run-dir`. Older writers used `.loops/supervisor/<id>`; readers
+ * keep that fallback and this writer never creates `.loops`. Layout, relative to
+ * `supervisorRunDir(root, id)`:
  *
  *   steers/requests/<hash>.json    one exact, caller-idempotent {@link WorkerSteerRequest}
  *   steers/acks/<hash>.json        runtime acknowledgement for that steer operation

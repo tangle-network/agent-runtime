@@ -1,42 +1,13 @@
 /**
- * Shared-box placement: many harness workers in one Sandbox box, each as its own process.
- *
- * The default provider placement gives every worker its own Sandbox box. A box costs a create
- * call, a sidecar, an egress proxy, a preview link and a memory reservation sized for the box,
- * while one opencode worker uses about half a gigabyte. This module packs workers into a small
- * pool of boxes instead. Each worker runs `opencode run` as a separate process with its own
- * working directory and its own HOME, so each worker has its own harness session, its own
- * materialized profile and its own transcript files.
- *
- * Why processes and not sidecar sessions: the sidecar serves every session in one box from one
- * workspace and writes each session's profile into the same files. Measured 2026-09-24 on
- * sandbox-ff52a989e7c9: eight concurrent sessions with different instructions, and seven of eight
- * answered with another session's instructions. A process with its own directory, its own HOME and
- * `OPENCODE_DISABLE_PROJECT_CONFIG` reads only its own configuration: sixteen of sixteen concurrent
- * workers answered with their own instructions and wrote only into their own directory.
- *
- * The boundary is cooperative, not a security boundary. Every worker runs as the same Linux user,
- * so a worker can read a co-tenant's files through its shell. A profile that writes a repository,
- * runs untrusted code, holds a credential of its own, or must stay blind to its siblings keeps a
- * dedicated box: {@link SharedBoxPlacement.refusal} names the profile features this placement
- * cannot carry, and Runtime then uses the dedicated provider.
- *
- * A worker whose model provider refuses a turn for capacity keeps its process's session and
- * directory, pauses by the driver's rule, and continues the same opencode session, the way a
- * dedicated leaf does (`ProviderExecutorOptions.unavailablePause`). 15 of 23
- * down children of play anomaly-referee-v3d ended on `provider_quota_exhausted`, and opencode
- * itself gives up on a refused model after about 70 seconds of its own retries.
- *
- * The workers of one box share the box's router key. Each worker names itself to the router with
- * the `x-tangle-client` header, which the router stores as `clientName` on every usage row, so a
- * keeper can price one worker from the key's per-client rows (`tangle-ops router-spend --key
- * <box key>`). A request without the header stays charged to the box.
- *
- * `workersPerBox` is the one structural cap, and it protects the box. A Tangle box has a fixed
- * 512-task pids limit. An idle box uses about 118 tasks and one opencode worker about 34, so
- * twelve workers reach the limit. At that limit the sidecar's own process spawn fails with EAGAIN
- * and the sidecar restarts, which ends every worker in the box (measured on the same box: 28
- * workers crashed the sidecar twice; 16 workers crashed it once).
+ * Shared-box placement: many harness workers in one Sandbox box, each its own process, directory,
+ * and HOME. Sidecar sessions in one box share a workspace and overwrite each other's profile files,
+ * so this placement does not use them. The boundary is cooperative: the same Linux user can read a
+ * co-tenant. A profile that writes a repository, runs untrusted code, holds its own credential, or
+ * must stay blind to siblings keeps a dedicated box; {@link SharedBoxPlacement.refusal} names those
+ * features. A capacity refusal pauses and continues the same opencode session
+ * (`ProviderExecutorOptions.unavailablePause`). Workers share the box router key and name themselves
+ * with `x-tangle-client` (`clientName` on usage rows). `workersPerBox` stays under the box's
+ * 512-task pid limit so the sidecar is not restarted with EAGAIN.
  */
 
 import { randomUUID } from 'node:crypto'

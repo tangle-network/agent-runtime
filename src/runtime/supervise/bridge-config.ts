@@ -9,49 +9,14 @@ import { assertExactConfigKeys } from './executor-seams'
 import type { ExecutorNodeContext } from './types'
 
 /**
- * cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
- * (claude-code / opencode / kimi / pi) behind one HTTP surface. The spawned
- * `AgentProfile` is the sole harness/provider/model and behavioral authority and
- * is forwarded verbatim per request; this seam carries transport data only.
- *
- * The executor opens a resumable cli-bridge session. `sessionId` identifies the
- * harness conversation across turns; each turn also receives its own durable run id.
- * A dropped HTTP reader reattaches to that exact run and explicit cancel is the only
- * operation allowed to stop it. Omit `sessionId` and the executor mints one per spawn.
- *
- * ── HOW TO CONTROL WHAT THE HARNESS LOADS (there is no argv field, by design) ──
- *
- * A worker often needs the harness started in a KNOWN state — no ambient extensions, skills,
- * context files, or prompt templates — because ambient state is how a paired experiment silently
- * loses its pairing: an installed extension that persists memory across runs carries arm A's state
- * into arm B, and nothing reports it.
- *
- * That is what the spawned `AgentProfile` is FOR. `agent_profile`
- * rides every request verbatim, and cli-bridge maps it onto each harness's own native controls:
- *
- *   - Materializing any profile at all already starts the harness isolated from ambient
- *     workspace state — for pi that is `--no-context-files --no-skills --no-prompt-templates`,
- *     applied to every request that carries an `agent_profile`.
- *   - `AgentProfile.extensions.<harness>` is the named, per-harness control channel. An explicit
- *     `extensions: { pi: { load: [] } }` disables ambient extension discovery outright
- *     (pi's `--no-extensions`); listing package names loads exactly those and nothing else.
- *   - `permissions` / `tools` / `mcp` map onto the harness's native tool and server controls.
- *
- * A caller therefore does NOT need to hand-roll an `Executor` to isolate a harness run, and the
- * profile expressing it stays portable: the same declaration means the same thing on a different
- * harness, whereas an argv string means nothing anywhere else.
- *
- * WHY NOT A GENERAL ARGV PASSTHROUGH. `bridgeUrl` addresses a process-spawning server. Forwarding
- * an arbitrary argv array to it would let any caller holding a bearer token choose the flags of a
- * process on the bridge host — which for real harness CLIs includes flags that load code from a
- * path, read a file into the prompt, redirect the working directory, or turn off the isolation the
- * bridge applies. cli-bridge deliberately confines workers (a filesystem jail and deny-by-default
- * network egress), and every one of those confinements is expressed as spawn configuration, so an
- * argv channel is a channel for unwinding them. It would also break this executor's own contract:
- * the durable-run replay protocol, session pinning, and streaming mode are all argv the bridge
- * owns, and a caller-supplied duplicate silently wins or corrupts the parse. The structured profile
- * channel is validated, per-harness, portable, and refuses controls it does not understand — keep
- * new harness capability there.
+ * cli-bridge transport seam. The spawned `AgentProfile` is the harness authority and is forwarded
+ * verbatim; this seam carries transport only. `sessionId` is the harness conversation; each turn has
+ * its own run id. A dropped reader reattaches to that run, and explicit cancel is the only stop.
+ * Omit `sessionId` and the executor mints one. There is no argv field: materializing a profile
+ * isolates the harness from ambient workspace state, `extensions.<harness>` chooses which extensions
+ * load, and `permissions` / `tools` / `mcp` map to the harness's own controls. An argv array would
+ * let a bearer token unwind the bridge's jail and egress policy and collide with the replay,
+ * session, and streaming flags the bridge owns.
  */
 export interface BridgeSeam {
   bridgeUrl: string

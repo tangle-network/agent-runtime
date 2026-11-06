@@ -4,46 +4,14 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { isRecord } from '@tangle-network/agent-core'
 
 /**
- * Inline resources a manager hands a child by PATH instead of by content.
- *
- * The canonical profile schema knows two resource kinds, `inline` (a content string) and `github`.
- * A manager that wants a child to receive a data file therefore had one way to do it: emit the
- * bytes inside its own `spawn` tool call. That is a transcription by a language model, and it does
- * not survive size. Measured 2026-09-12 (discovery-lab `mech-interp-foundations-glm2-b-20260912b`):
- * a 29,144-character base64 payload on the manager's disk reached three children as 15,928
- * characters with 11 substitutions, and a fourth child received the literal placeholder the
- * manager meant to replace. Seven blind-check attempts across two runs delivered no data.
- *
- * `{ kind: 'inline', name, path }` lets the coordination server be the transport: it reads the
- * file from the manager's workspace, fills `content`, and the profile that reaches the schema,
- * the journal, and the provider is an ordinary inline resource. Nothing downstream changes; the
- * model's output stops carrying the bytes.
- *
- * Where the bytes come from is a {@link SpawnResourceReader}, and there are two:
- *  - a HOST DIRECTORY, for a manager whose driver runs on this host (a loopback bridge with a
- *    `cwd`), read through the descriptor-identity checks below;
- *  - the manager's OWN EXECUTION ENVIRONMENT, for a manager inside a provider sandbox, read
- *    through the environment's `read()`. The coordination server cannot see a sandbox filesystem,
- *    but the provider that created the sandbox can, and it is already in hand.
- *
- * The second reader exists because the first one's absence was not a refusal a manager could
- * work around. Measured 2026-09-17 (discovery-lab `mech-interp-foundations-sandbox-a-20260917h`):
- * a sandbox-rooted director, refused by path, fell back to emitting its files as content and got
- * 5 characters wrong in 24,008, destroying 3 of 7 files including its instrument and both
- * drivers. At that rate 20 KB of mounts all arrive intact about 2% of the time, and gzip makes it
- * worse by turning one wrong character into total loss. Four consecutive runs in that lane lost
- * their research children to this. There is no encoding that fixes a transcription channel; the
- * only fix is a channel with no model in it.
- *
- * Fail-closed rules, each with the reason a manager needs to fix its call:
- *  - no reader available → refused (neither a host directory nor an environment with `read`)
- *  - absolute path or `..` escape → refused by both readers; a symlink that resolves outside the
- *    root → refused by the host reader (the environment reader delegates containment to the
- *    provider, which serves only the sandbox's own workspace)
- *  - not a regular file → refused
- *  - over {@link SPAWN_RESOURCE_PATH_MAX_BYTES} → refused naming the bound
- *  - bytes that are not valid UTF-8 → refused; `content` is a string, so binary data is encoded
- *    (base64) by the manager first, exactly as it would be for a content resource
+ * Inline resources a manager hands a child by path. `{ kind: 'inline', name, path }` is read by the
+ * coordination server into ordinary `content`, so the model does not transcribe the bytes.
+ * {@link SpawnResourceReader} is either a host directory (descriptor-identity checks) or the
+ * manager's own execution environment (`read()`), because the coordination server cannot see a
+ * sandbox filesystem. Refuse when no reader exists, the path is absolute or escapes with `..`, a
+ * host symlink resolves outside the root, the path is not a regular file, the file exceeds
+ * {@link SPAWN_RESOURCE_PATH_MAX_BYTES}, or the bytes are not UTF-8. Binary content is base64,
+ * encoded by the manager as it would be for a content resource.
  */
 export const SPAWN_RESOURCE_PATH_MAX_BYTES = 4 * 1024 * 1024
 

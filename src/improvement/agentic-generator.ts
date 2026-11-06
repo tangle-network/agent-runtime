@@ -1,41 +1,12 @@
 /**
- *
- * `agenticGenerator` — the full-agentic `CandidateGenerator`. It runs a real
- * authored profile inside the candidate worktree the driver already created,
- * letting the agent read the codebase + the research proposal findings and
- * make the change in place. The driver then commits the worktree into a
- * `CodeSurface`.
- *
- * Every paid shot enters Runtime through `createExecutor` + `streamAgentTurn`.
- * The caller supplies the exact `AgentProfile` and a worktree-aware executor
- * placement; Runtime validates and records the profile that actually ran. Two
- * built-in placements edit the supplied worktree itself: `{ backend:'cli-in-place',
- * workspacePath: worktreePath }` runs a local coding CLI (claude-code / codex /
- * opencode / pi) in that directory, and `{ backend:'bridge', cwd: worktreePath }`
- * runs a cli-bridge session there. `cli-worktree` is NOT one of them — it cuts a
- * worktree of its own, so every shot would read as an empty tree.
- *
- * `maxShots` is the DEPTH dial — a multi-shot verify-in-session loop, NOT the
- * kernel `runAgentRounds`. Each shot runs one full harness session in the (persistent)
- * worktree; between shots the loop refines based on what the last shot produced:
- *   - empty tree   → "you changed nothing, make the edits" → retry
- *   - dirty + `verify` fails → feed the verifier's failure into the next shot
- *       (the worktree persists, so the harness RESUMES atop its own failing
- *       edits with the error in hand — no session-specific retry path needed)
- *   - dirty + `verify` ok (or no verifier configured) → return the candidate
- *   - dirty + `verify` ok + `keepGoing` → bank the tree and spend the next shot
- * A candidate that never verifies within `maxShots` is discarded (`applied:
- * false`), never shipped — if you configured a verifier, a non-passing tree is
- * not a candidate. With no verifier, the first dirty shot is the candidate.
- *
- * BEST-OF-N is the `keepGoing` path, and the loop owns it end to end. A
- * verifier that passes a tree and asks for another shot has its tree
- * snapshotted as a Git tree object; when the budget ends, the highest-`score`
- * tree is RESTORED into the worktree and returned as the candidate. So the
- * caller ranks and the loop moves the bytes — a caller never has to write a
- * passing tree back itself. The budget ends on the last shot, or earlier on a
- * `keepGoing`-less pass, and a last shot that broke or reverted the change does
- * not cost the candidate the verified tree an earlier shot produced.
+ * `agenticGenerator` runs an authored profile in the driver's candidate worktree, then the driver
+ * commits that tree to a `CodeSurface`. Shots enter through `createExecutor` and `streamAgentTurn`.
+ * Placements that edit this worktree are `cli-in-place` (`workspacePath`) and `bridge` (`cwd`).
+ * `cli-worktree` cuts another worktree and every shot looks empty. `maxShots` is a verify loop, not
+ * `runAgentRounds`: an empty tree is retried, a failed `verify` is fed into the next shot on the
+ * same tree, a pass returns, and `keepGoing` snapshots the Git tree and restores the highest score
+ * when the budget ends. A verifier that never passes discards the candidate. With no verifier, the
+ * first dirty shot is the candidate.
  *
  * @stable
  */

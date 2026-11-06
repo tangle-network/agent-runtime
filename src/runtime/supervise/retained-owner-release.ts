@@ -146,16 +146,20 @@ async function releaseOwnerEnvironment(
     if (released.has(environmentId)) continue
     let destroyed = false
     let detail: string | undefined
+    const retentionReason = retentionFailures.get(environmentId)
+    const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
     if (
-      retentionFailures.has(environmentId) ||
+      retentionReason !== undefined ||
       pendingSources.has(environmentId) ||
       uncapturedSources.has(environmentId)
     ) {
-      detail = pendingSources.has(environmentId)
-        ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
-        : uncapturedSources.has(environmentId)
-          ? 'checkpoint kept uncaptured: source preserved so its checkpoint can still be forked and captured'
-          : 'provider workspace retention: source preserved because the owner execution has no verified workspace receipt'
+      detail = nativeHold
+        ? retentionReason
+        : pendingSources.has(environmentId)
+          ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
+          : uncapturedSources.has(environmentId)
+            ? 'checkpoint kept uncaptured: source preserved so its checkpoint can still be forked and captured'
+            : retentionReason
       preserved.push(environmentId)
       lastDetail = detail
     } else {

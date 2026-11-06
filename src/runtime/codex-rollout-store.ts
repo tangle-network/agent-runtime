@@ -1,52 +1,12 @@
 /**
- * Codex's own rollout store, read as a first-class spend receipt.
- *
- * Canonical token_usage_record rows take precedence over legacy token_count counters.
- * Their explicit thread identity excludes inherited history, and response identities deduplicate
- * repeated receipts across resumed turns. Conflicting or incomplete canonical evidence is refused.
- * The opening session metadata remains authoritative when native forks include parent metadata.
- *
- * A codex seat writes every turn it runs into a JSONL rollout under its `CODEX_HOME`, and that
- * file carries the provider's token counters whether or not any of them reach the runtime's event
- * stream. When the harness is driven through a transport that forwards no usage — cli-bridge is
- * the measured case — the runtime meters `{input: 0, output: 0, tokensKnown: false}` for a turn
- * whose counters are already on disk. This module is the reader that closes that gap: the store is
- * evidence, not a side effect.
- *
- * MEASURED MOTIVE (discovery#80). One live codex seat reported zero on 9 of 9
- * `metered` events with `tokensKnown: false`, while 27,320,482 codex tokens sat in the same run
- * directory. 1,453,948 of those (5.3%) belonged to three harness-native children the runtime has
- * no journal row for at all. Both numbers come from this file format and neither reached a spend
- * record.
- *
- * ── THE FORK TRAP, and why a file total is never the answer ───────────────────────────────────
- *
- * `spawn_agent` forks a child thread, and a forked child rollout PREPENDS the parent's rows with
- * rewritten timestamps. Measured on a 2026-08-14 depth-1 child: 2,793 lines whose first
- * `token_count` already reads a cumulative 5,080,268,193 and whose last reads 5,396,076,467. The
- * child's own contribution is the DIFFERENCE, 315,808,274 — reading the file's final
- * `total_token_usage` as the child's spend overstates it by 17x here and by 937x on the larger
- * case the research measured.
- *
- * So this reader never reports a file total as a session's spend. It finds the fork boundary — the
- * `task_started` that opens the child's own first turn — and reports the cumulative DELTA from
- * there. A fork whose boundary cannot be isolated reports `boundary: 'unresolved'` and NO usage,
- * because an unattributable number is worse than an absent one.
- *
- * ── Deduplication ─────────────────────────────────────────────────────────────────────────────
- *
- * codex re-emits an identical `token_count` for the same state. Summing the per-turn
- * `last_token_usage` therefore over-counts: measured 25,977,726 against a true cumulative of
- * 25,866,534, a 0.43% overstatement. Every counter here is read from the CUMULATIVE
- * `total_token_usage` and credited as the difference between consecutive DISTINCT cumulative
- * vectors, which is the same dedup-by-cumulative-signature rule `@tangle-network/traces` applies.
- *
- * ── Why this lives in agent-runtime ───────────────────────────────────────────────────────────
- *
- * `@tangle-network/traces` already reads this format, and it DEPENDS on agent-runtime; adopting it
- * here would be a dependency cycle. The wire shape it shares with `harness-usage.ts` — the same
- * five counters, the same two cross-field invariants — is read by `parseCodexUsageRecord`, so the
- * field policy has one home whichever surface the record arrives on.
+ * Codex rollout JSONL under `CODEX_HOME`, read as the spend receipt when the transport forwards no
+ * usage. Canonical `token_usage_record` rows beat legacy `token_count`. Thread identity excludes
+ * inherited history. Conflicting or incomplete canonical evidence is refused. Opening session
+ * metadata stays authoritative when a native fork includes parent metadata. A forked child prepends
+ * the parent's rows, so a file total is never the session's spend: credit the cumulative delta from
+ * the child's own `task_started`, or `boundary: 'unresolved'` and no usage. Identical `token_count`
+ * rows are deduped by distinct cumulative vectors. `@tangle-network/traces` depends on this package,
+ * so the reader stays here and shares `parseCodexUsageRecord` with `harness-usage.ts`.
  */
 
 import type { Dirent } from 'node:fs'

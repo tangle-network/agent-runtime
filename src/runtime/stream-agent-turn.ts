@@ -1,50 +1,14 @@
 /**
- * `streamAgentTurn` — the ONE run-a-turn event-stream contract over every
- * execution substrate: a sandbox box (`SandboxInstance.streamPrompt`), a
- * one-shot Runtime-owned `Executor` (cli-bridge / router / sandbox, via
- * `ExecutorFactory`), and an in-process `AgentExecutionBackend`.
- *
- * One function, one vocabulary: every backend kind yields the existing
- * `RuntimeStreamEvent` union incrementally and ALWAYS terminates with a
- * `final` event whose `text` is the turn's final text and whose
- * `metadata.tokenUsage` / `metadata.costUsd` / `metadata.model` carry the
- * turn's metered usage. `collectAgentTurn` drains a stream into that terminal
- * summary plus the full event list.
- *
- * This is a UNIFICATION seam, not a new stream parser — each kind is a thin
- * adapter over code that already exists and is already hardened:
- *   - `box`      — `mapSandboxEvent` projects the sandbox event stream and one
- *                  `SandboxUsageLedger` (sandbox-events.ts) meters it, so a harness
- *                  that reports usage only in its own event is counted once per turn;
- *                  its requested profile is explicitly recorded as unverified because
- *                  the box already exists.
- *   - `executor` — Runtime materializes the exact `AgentProfile`, records its
- *                  identity receipts, drives the executor once, and tears it
- *                  down after capturing the terminal artifact.
- *   - `chat`     — the backend's own `stream()` surface, normalized by
- *                  `normalizeBackendStreamEvent`; its requested profile is likewise
- *                  unverified because an arbitrary backend cannot attest its setup.
- *
- * Distinct from `openSandboxRun` (box-only, session resume over one persistent
- * artifact, raw `SandboxEvent` deliverables) and from `runAgentTaskStream`
- * (full task lifecycle: knowledge preflight, session store, resume). This is
- * the minimal turn primitive underneath both worlds: prompt in, one normalized
- * event stream out, terminal result+usage guaranteed on every non-thrown path.
- *
- * Stream envelope: `backend_start` → incremental events → (`backend_error` on
- * failure) → `final`. A caller-initiated abort terminates with
- * `final.status: 'aborted'`; an expired `timeoutMs` deadline with
- * `final.status: 'failed'` — so cancellation stays distinguishable from a
- * blown deadline.
- *
- * Mid-stream lifecycle work needs NO extra API: the generator is pull-based,
- * so the producer is suspended between yields and resumes only when the caller
- * pulls again. A consumer can therefore run arbitrary async work between
- * events — sync state on each `tool_result`, decide a no-op retry after
- * draining, run a pre-`done` flush when it receives `final` and BEFORE it
- * forwards its own terminal event downstream. The interleaving is guaranteed
- * (and locked by test): nothing is produced past the event the caller is
- * holding.
+ * `streamAgentTurn` is the one run-a-turn event stream for a sandbox box, a one-shot `Executor`,
+ * and an in-process `AgentExecutionBackend`. Every kind yields `RuntimeStreamEvent` and ends with
+ * `final` (`text`, `metadata.tokenUsage`, `metadata.costUsd`, `metadata.model`). `collectAgentTurn`
+ * drains that. `box` meters with one `SandboxUsageLedger` and records the requested profile
+ * unverified. `executor` materializes the `AgentProfile`, drives once, and tears down after the
+ * terminal artifact. `chat` normalizes `stream()` and is likewise unverified. This is not
+ * `openSandboxRun` or `runAgentTaskStream`. Envelope: `backend_start`, incremental events,
+ * `backend_error` on failure, then `final`. Abort ends `final.status: 'aborted'`; `timeoutMs`
+ * ends `final.status: 'failed'`. The generator is pull-based, so a consumer can work between events
+ * and nothing is produced past the event it holds.
  *
  * @stable
  */

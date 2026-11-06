@@ -1,71 +1,16 @@
 /**
- * Trace context handed DOWN to a spawned worker, so one supervised tree spans machines.
- *
- * WHY. `otel-spans.ts` makes the supervisor's own tree readable by any trace viewer, but it stops at
- * the process boundary: a worker running on a remote sandbox or in a child process opens its OWN
- * trace root, so the viewer shows two unrelated trees for one run. A worker that inherits the
- * parent's trace id and the spawning node's span id emits spans that JOIN the parent's trace, and
- * the viewer assembles the whole cross-machine tree with no viewer change.
- *
- * THE WIRE IS W3C `TRACEPARENT`, dual-written with the legacy pair. `traceContextToEnv`
- * (`src/mcp/trace-propagation.ts`) writes `TRACEPARENT` (the convention the ecosystem — OTel SDKs,
- * collectors, the Claude Code harness binary — reads at spawn) ALONGSIDE the bespoke
- * `TRACE_ID` / `PARENT_SPAN_ID` pair this package shipped first, and `readTraceContextFromEnv()`
- * reads `TRACEPARENT` first with the legacy pair as fallback. The bespoke pair is the fork, not
- * the standard; it is kept for one release so children on the previous package version still join,
- * then removed in the next major.
- *
- * WHICH SPAN. The stamped `PARENT_SPAN_ID` is the span of the node that DID the spawning — the
- * scope's own `parentId` — not the span of the worker's own node. At depth 0 that is the run's root
- * span; inside a driver's nested scope it is that driver child's span, so a depth-2 worker joins
- * under the middle node rather than the root. That is also the only span guaranteed to exist at the
- * moment the child's `ExecutorContext` is built (the worker's own node span is opened by the
- * `agent.spawn` hook that fires just after), so the wire needs no ordering assumption.
- *
- * OFF WHEN TRACING IS OFF. The context reaches an executor only through the `ExecutorContext` seam
- * this module names, and that seam is seeded only when a run configured `SuperviseOptions.otel` AND
- * an exporter resolved. With tracing off there is no seam, {@link workerTraceEnv} returns an empty
- * record, and every spawn environment is byte-identical to what it was before this module existed.
- *
- * TWO SEEDING SITES, because there are two ways a worker's `ExecutorContext` gets built. `Scope`
- * seeds it per child for anything the executor registry resolves — that is the path that knows the
- * spawning node and reaches arbitrary depth. `workerFromBackend` (what `supervise({ backend })`
- * uses) instead builds its leaf executor eagerly and hands it back as a bring-your-own `Executor`,
- * which the registry resolves WITHOUT consulting the scope's context at all; `supervise()` therefore
- * passes the seam to `workerFromBackend` itself, resolved against the run root, which is the node
- * that spawns every front-door worker. Miss that second site and the front door looks wired and
- * stamps nothing.
- *
- * PRECEDENCE, from lowest to highest:
- *   1. the supervisor process's own `process.env` (ambient inheritance),
- *   2. the trace context stamped here,
- *   3. the caller's own seam env (`CliSeam.env`).
- * A caller who sets `TRACE_ID` / `PARENT_SPAN_ID` on a seam wins — theirs is a deliberate
- * declaration about the worker — and the W3C wire follows: a seam that overrides the legacy pair
- * without its own `TRACEPARENT` gets `TRACEPARENT` rebuilt from ITS ids (`mergeTraceEnv` performs
- * the dual-write on the caller's behalf), never left as the recorder's, so both spellings always
- * name the same trace. Ambient `process.env` does NOT win: when the supervisor process was
- * itself launched as someone's worker, its inherited ids describe the SUPERVISOR's place in an
- * outer trace, and reusing them for a child would file the child's spans under the wrong parent.
- * The supported way to join that outer trace is `SupervisorSpanOptions.traceId` / `parentSpanId`
- * (feed them from `readTraceContextFromEnv()`), which makes the recorder's own ids the outer ones
- * and so makes every stamped child inherit them too.
- *
- * WHICH BACKENDS PROPAGATE. Only a backend with a real channel to the worker can carry this, and
- * the ones that have none say so here rather than dropping it silently:
- *   - `cli`           YES — `CliSeam.env` → the spawned subprocess.
- *   - `sandbox`       YES — `CreateSandboxOptions.env` on the box the worker runs in (single-shot
- *                     and steerable). This is the cross-MACHINE case the feature exists for.
- *   - `bridge`        YES — request headers on the bridge POST (`traceparent` plus the legacy
- *                     `x-trace-id` / `x-parent-span-id` pair, {@link workerTraceHeaders}); the
- *                     bridge stamps them into the harness child's environment at spawn.
- *   - `router`,
- *     `router-tools`  NO — a direct model HTTP call. There is no worker process to inherit anything.
- *   - `cli-worktree`,
- *     `cli-in-place`  NO — the work is dispatched through a local harness transport that exposes
- *                     no environment channel. Wiring it means adding that channel to the transport
- *                     first; until then it is honestly unpropagated.
- *   - `provider`      NO — `AgentEnvironmentProvider` has no environment field on its port.
+ * Trace context handed to a spawned worker so one supervised tree spans machines. `traceContextToEnv`
+ * writes W3C `TRACEPARENT` and the legacy `TRACE_ID` / `PARENT_SPAN_ID` pair; readers take
+ * `TRACEPARENT` first. The legacy pair stays so a child on the previous package still joins.
+ * `PARENT_SPAN_ID` is the spawning node's span (`parentId`): at depth 0 the run root, otherwise the
+ * driver child, and the only span that exists when the child's `ExecutorContext` is built. With
+ * `SuperviseOptions.otel` unset, {@link workerTraceEnv} is empty and spawn environments stay
+ * byte-identical. `Scope` stamps registry children. `supervise({ backend })` must pass the same seam
+ * into `workerFromBackend` or the front door stamps nothing. Precedence is ambient `process.env`,
+ * then this stamp, then `CliSeam.env`. A seam that sets the legacy pair gets `TRACEPARENT` rebuilt
+ * from those ids. Ambient ids do not win; join an outer trace with `SupervisorSpanOptions.traceId`
+ * and `parentSpanId`. `cli`, `sandbox`, and `bridge` propagate. `router`, `router-tools`,
+ * `cli-worktree`, `cli-in-place`, and `provider` have no worker environment channel and do not.
  */
 
 import { type TraceContext, traceContextToEnv } from '../../mcp/trace-propagation'

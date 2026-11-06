@@ -1,56 +1,16 @@
 /**
- *
- * `runGraph` — agent graphs: profiles as nodes, registry-backed prompt directives as edges.
- *
- * A topology is PLAIN DATA an agent can author in a few lines: nodes are canonical
- * `AgentProfile`s (the ONLY way a node is described — no role-builder functions), edges are typed
- * values carrying versioned {@link PromptHandle} directives, `deliverable` (termination) and
- * `budget` (one conserved pool) are mandatory. Driver↔worker is the two-node cyclic instance;
- * "agent 3 analyzes 1 and 2 and reports to 1" is ONE edge, not a framework.
- *
- * NOT A SECOND SCHEDULER. `runGraph` is an interpretation layer over what already runs:
- * `supervise()` is the execution core — the same `supervisorAgent`/`driverAgent` machinery,
- * backend-derived worker path (authorized, classified, recursive), conserved-pool budget, and
- * deliverable-gated settlement every
- * supervised run uses. (`runAgentRounds` is deliberately NOT the substrate here.) What the graph
- * layer ADDS is exactly what a bespoke driver loop never
- * had:
- *
- *  1. **Node pinning** — a spawn names a node (`profile.name` = node id) and the node's canonical
- *     profile is what runs; a driver cannot smuggle capabilities into a worker it did not define.
- *  2. **Observable edges** — every delegates/analyzes/maps/routes traversal lands in an EDGE LEDGER
- *     (`delivered | stripped | empty | unpropagated | failed`, with byte counts), in memory on
- *     the result AND as `edge` events in the run journal. The motivating incident: a filter
- *     silently replaced 1,700-char steering with 241 chars of boilerplate for three rounds and
- *     NO artifact said so — an unobservable edge cannot be trusted and its directive cannot be
- *     optimized.
- *  3. **Directives as data** — edge text lives in the prompt registry (`<surface>/v<n>`), so every
- *     edge is a versioned optimization target, never prose hardcoded in a builder function.
- *  4. **Per-edge traversal caps** — the cyclic-graph backstop. A delegates edge whose cap is
- *     exhausted REFUSES further traversals (fail loud), so a cycle cannot spin the pool dry.
- *  5. **Continuity as data** — a delegates edge may declare `continuity: 'resume'`, so each spawn
- *     after the node's first re-attaches to its latest SETTLED session (the spawn context hands
- *     the executor seam `resume: { ofWorker, sequence }`; the kernel keeps identity, ordering,
- *     ledger truth, and the one conserved pool). Every ledger row states how its hop continued:
- *     `'fresh' | 'resume'` for spawns, `'steer'` for mid-run deliveries — fresh respawns, session
- *     resumes, and live steers are all plain data, each a ledgered fact.
- *  6. **Fan-out over a run-time list** — a `maps` edge takes the array a JSON pointer selects in a
- *     node's settled result and runs one item per element, then hands the ordered results to a
- *     join node. The runtime spawns every item and the join when the source settles, so the
- *     driver spends no model turn on them; each item is a spawn through the same authorized path,
- *     reserving from the same conserved pool, and every expansion, item and join is a ledger row.
- *  7. **Flow graphs** — with `entry` set, no node is a root: Runtime spawns the entries and fires
- *     `routes` edges on each settle (`graph-flow.ts`), so a fixed order, a branch, a bounded repair
- *     loop and a stop rule are graph data. The root manager is Runtime's own and never calls a
- *     model; every entry and route spawn takes the same authorized path a map item takes.
- *
- * ORACLES ARE ENVIRONMENT, NEVER WORKERS. Graders/verifiers must not be spawnable in the graph —
- * a delegates edge to them leaks the rubric. An `analyzes` edge names its analyst in one of two
- * forms: a LENS id from the environment's registry (a pure function over trace evidence), or the
- * id of a graph NODE — a tool-equipped analyst AGENT spawned on each matching settle with the
- * node's pinned profile, whose settle output IS the findings. Either way the oracle doctrine
- * holds: an analyst node can never be a delegates target (refused loudly), so no driver can hand
- * it work, and an id living in both the registry and the nodes is refused as ambiguous.
+ * `runGraph` interprets a topology on `supervise()`. Nodes are canonical `AgentProfile`s, edges
+ * carry versioned {@link PromptHandle} directives, and `deliverable` and one conserved `budget`
+ * are mandatory. It does not schedule: `runAgentRounds` is not the substrate. A spawn's
+ * `profile.name` is the node id, so a driver cannot add capabilities the node did not define.
+ * Every delegates, analyzes, maps, or routes hop is an edge-ledger row (`delivered`, `stripped`,
+ * `empty`, `unpropagated`, `failed`) on the result and in the journal. Edge text lives in the
+ * prompt registry. A delegates edge at its traversal cap refuses. `continuity: 'resume'`
+ * re-attaches to the node's latest settled session; ledger hops say `fresh`, `resume`, or `steer`.
+ * A `maps` edge spawns one authorized item per selected array element and then the join, on the
+ * same pool, with no model turn. With `entry` set, Runtime owns the root and fires `routes` on
+ * settle (`graph-flow.ts`). An `analyzes` edge names a registry lens or a graph node, never a
+ * delegates target, and an id in both places is refused.
  *
  * @experimental
  */
