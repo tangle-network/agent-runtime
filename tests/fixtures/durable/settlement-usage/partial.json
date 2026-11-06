@@ -1,0 +1,22 @@
+{
+  "runId": "canary-chain-20261104a",
+  "sourceSha256": "22c8fc96c02c838eb52282878f68ace3e05606a3021a18272469197b1686db44",
+  "projectionSha256": "998aa459f9e38c0826682319e27cf635328b38ac1f269bddb1b75f831c348562",
+  "spentTotal": {
+    "iterations": 0,
+    "ms": 171160,
+    "tokens": {
+      "cacheBreakdownKnown": false,
+      "cacheRead": 372928,
+      "cacheWrite": 0,
+      "freshInput": 32566,
+      "input": 405494,
+      "output": 7637
+    },
+    "tokensKnown": false,
+    "usd": 0.17615648,
+    "usdEstimated": 0.17615648,
+    "usdKnown": false
+  },
+  "providerModel": { "status": "unknown", "models": ["glm-5.3"] }
+}

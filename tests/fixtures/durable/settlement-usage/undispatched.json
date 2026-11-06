@@ -1,0 +1,14 @@
+{
+  "runId": "expr-calculator-20261027b",
+  "sourceSha256": "0f06e9b0897bd78da0653a63126b9ccaa856b9413264410cbc8cf536c6bdc226",
+  "projectionSha256": "4aa8bec0b619b0caef9ffaed134bfe70d8ddaacdcf4410ce0b85f6a9ffdfbf22",
+  "spentTotal": {
+    "iterations": 0,
+    "ms": 3512406,
+    "tokens": { "input": 0, "output": 0 },
+    "tokensKnown": false,
+    "usd": 0,
+    "usdKnown": false
+  },
+  "providerModel": { "status": "unknown", "models": [] }
+}
