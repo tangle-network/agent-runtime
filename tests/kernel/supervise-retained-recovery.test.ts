@@ -95,6 +95,30 @@ describe('supervised retained provider recovery', () => {
       ).toMatchObject([
         { status: 'done', spent: { iterations: 1, tokens: { input: 3, output: 2 } } },
       ])
+      const settled = events.find((event) => event.kind === 'settled' && event.id === 'root:s0')
+      const spent = settled && 'spent' in settled ? settled.spent : undefined
+      if (observationFailure === 'transport-partial') {
+        expect(spent?.streamedTokens).toEqual({
+          input: 2,
+          output: 1,
+          cacheBreakdownKnown: false,
+        })
+        expect(spent?.unobservedTokens).toEqual({
+          input: 1,
+          output: 1,
+          cacheBreakdownKnown: false,
+        })
+        expect(spent?.iterationsKnown).toBe(false)
+      }
+      if (observationFailure === 'transport') {
+        expect(spent?.streamedTokens).toEqual({ input: 0, output: 0 })
+        expect(spent?.unobservedTokens).toEqual({
+          input: 3,
+          output: 2,
+          cacheBreakdownKnown: false,
+        })
+        expect(spent?.iterationsKnown).toBe(false)
+      }
     },
   )
 

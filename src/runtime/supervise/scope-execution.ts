@@ -123,13 +123,8 @@ interface ExecutionEvidence {
   fail: () => Promise<void>
 }
 
-/**
- * Fold a streaming executor's running total onto the live child, so `scope.progress(id)` sees it.
- * The fold never aborts at the reservation: usage arrives after the call it measures, often last,
- * so aborting would discard completed work and save no spend; reconciliation records overspend.
- * `progress` rows, replaced by the settlement, publish on a leading-edge second (#2337, #2339);
- * awaiting-result rows always publish.
- */
+/** Publish the running total. Do not abort the fold: usage often arrives last, and overspend is reconciled.
+ *  Progress rows publish once a second; awaiting-result rows always publish. */
 async function foldExecutorStream<C>(
   { live, childAbort, now }: ChildExecutionAttempt<C>,
   stream: AsyncIterable<UsageEvent>,
@@ -308,13 +303,9 @@ async function settleRetainedPending<C>(
   // once its descendants are confirmed though its owner environment is still held, so
   // `cleanupConfirmed` here does not mean the execution is gone (#1189).
   await attempt.teardown(opts.shutdown ?? 'brutalKill').catch(() => undefined)
-  // Charge what was observed, not the reservation ceiling: a recursive executor's explicit
-  // accounting, else the running total the pool metered off the stream. `reconcile` refunds
-  // `reserved - spent`, so passing the ceiling refunded nothing: 16 dead children
-  // were charged 64M having metered 890k (#1190). The floor is `live.spent` for a leaf (no
-  // production leaf implements `metered`), with every channel marked unknown because the remote
-  // execution may still be consuming; it is journaled as this node's `reconciled` floor. A
-  // ticket already reconciled at a measured terminal spend keeps that measurement.
+  // Charge the observed spend, not the reservation. Reconcile refunds reserved minus spent, so a
+  // ceiling refunds nothing. A still-remote execution is an unknown floor. A ticket already
+  // reconciled at a measured terminal spend keeps that measurement.
   if (!attempt.reconciled) {
     const accounting = executor.accounting?.()
     const ms = Math.max(0, now() - live.startedAt)
@@ -461,11 +452,7 @@ function failureRecord(
   }
 }
 
-/**
- * Fold a streaming executor's usage into the conserved `Spend`, publishing the running total
- * after EVERY event: a RUNNING worker is observable (it used to report zero until the stream
- * drained) and one that throws mid-stream reconciles its real partial spend.
- */
+/** Fold usage after every event, so a running worker is observable and a mid-stream throw keeps its partial spend. */
 async function foldStream(
   stream: AsyncIterable<UsageEvent>,
   onProgress?: (running: Spend, event: UsageEvent) => void | Promise<void>,
@@ -538,9 +525,7 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...(terminal.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(terminal.usdKnown === false ? { usdKnown: false } : {}),
     ms: terminal.ms,
-    // Box-time is terminal-artifact-only BY DESIGN (minutes are unknown until the box dies), so
-    // this is the one place it can reach `live.spent` and the journal; without it the channel was
-    // dropped at settlement (value audit, PR #1053).
+    // Box minutes are known only at teardown, so the terminal artifact is what reaches the journal.
     ...(terminal.boxMinutes !== undefined ? { boxMinutes: terminal.boxMinutes } : {}),
     ...(terminal.boxMinutesKnown !== undefined
       ? { boxMinutesKnown: terminal.boxMinutesKnown }
@@ -552,14 +537,18 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...((streamed.tokensProvenance ?? terminal.tokensProvenance) === undefined
       ? {}
       : { tokensProvenance: streamed.tokensProvenance ?? terminal.tokensProvenance }),
+    // The fold's running total is already the exact result. Only the artifact still has the split.
+    ...(terminal.streamedTokens === undefined
+      ? {}
+      : { streamedTokens: cloneTokenUsage(terminal.streamedTokens) }),
+    ...(terminal.unobservedTokens === undefined
+      ? {}
+      : { unobservedTokens: cloneTokenUsage(terminal.unobservedTokens) }),
+    ...(terminal.iterationsKnown === false ? { iterationsKnown: false as const } : {}),
   }
 }
 
-/**
- * Await a one-shot executor's terminal result unless an abort wins first, except for an execution
- * whose result was accepted before the abort arrived: it is ending the turn that submitted that
- * result, so it is awaited rather than discarded, and the executor bounds that wait itself.
- */
+/** An abort wins unless the result was already accepted, in which case the executor bounds the wait. */
 async function awaitUnlessAccepted<T>(
   work: Promise<T>,
   signal: AbortSignal,

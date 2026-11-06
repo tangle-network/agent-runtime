@@ -25,72 +25,36 @@ export interface Budget {
   readonly resources?: Readonly<Record<string, ResourceLimit>>
 }
 
-/**
- * Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd are separate
- * channels (never folded).
- *
- * `boxMinutes` is a REPORTED channel, not a conserved one: it is summed across a run and carried
- * in the journal, and the budget pool never reserves, commits, or refunds against it. `budget.ts`
- * holds the reason.
- */
+/** Conserved spend from the `UsageEvent` stream. Tokens and dollars stay separate.
+ *  `boxMinutes` is reported only: the pool does not reserve against it. */
 export interface Spend {
   resources?: Readonly<Record<string, ResourceSpend>>
   iterations: number
   tokens: LoopTokenUsage
-  /** Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
-   *  an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
-   *  not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
-   *  turn whose provider reported no usage is recorded with this flag rather than omitted, because
-   *  omitting it makes the turn look free. */
+  /** False marks work that happened with an unreported count. `tokens` is then a floor, not the total. */
   tokensKnown?: boolean
   /** Dollar accounting is known unless explicitly false. A false value must not be treated as $0
    *  when enforcing a dollar-denominated comparison or limit. */
   usdKnown?: boolean
   usd: number
-  /** The part of `usd` that is a PRICE rather than a charge, because no provider receipt covered
-   *  the work: a model catalog's own number, or a figure a provider stated but did not bill.
-   *  `usd - usdEstimated` is what a provider is known to have billed. Present only with
-   *  `usdKnown: false`; absence means nothing here was priced, not that `usd` is measured. */
+  /** The priced part of `usd`, present only with `usdKnown: false`. `usd - usdEstimated` was billed. */
   usdEstimated?: number
   ms: number
-  /**
-   * Platform box wall time in minutes — the third conserved channel, beside tokens and dollars.
-   *
-   * A run on a subscription seat has no marginal dollar per model call, so box time is the only
-   * real resource it consumes. Before this channel existed such a run reported `$0` with nothing
-   * beside it and was unaccountable by construction.
-   *
-   * ABSENT when nothing was measured. Never `0` for unknown: a zero would claim the box consumed
-   * no platform time, which is a different fact from a box nobody metered. The field is absent
-   * entirely on a run with no box (router, cli-bridge, inline), because "not applicable" is not
-   * the same fact as "unmeasured" either.
-   */
+  /** Platform box minutes. Absent when unmeasured or when no box ran. Never `0` for unknown. */
   boxMinutes?: number
-  /** True when this record states its box time. `false` says a box RAN and its lifetime could not
-   *  be paired, so `boxMinutes` — when present at all — is a floor, never the total. The twin of
-   *  `tokensKnown` and `usdKnown` on the platform channel. */
+  /** False: a box ran and `boxMinutes`, if present, is a floor. */
   boxMinutesKnown?: boolean
-  /**
-   * How `boxMinutes` was obtained, in the vocabulary `agent-eval`'s cost ledger already uses
-   * (`CostProvenance`, `cost-ledger.ts`).
-   *
-   * `'observed'` — the platform itself reported the minutes.
-   * `'estimated'` — this runtime derived them from the box lifetime it watched. A derived number
-   *   is not a platform receipt, and the conserved pool never reserves against it.
-   * `'uncaptured'` — a box ran and nothing measured its time. Comes WITHOUT `boxMinutes`.
-   */
+  /** `observed` is the platform's number. `estimated` is derived and not reserved against.
+   *  `uncaptured` means a box ran and comes without `boxMinutes`. */
   boxMinutesProvenance?: 'observed' | 'estimated' | 'uncaptured'
-  /**
-   * How the token counters in `tokens` were obtained, when this record states it.
-   *
-   * ABSENT means every count came from the executor's live stream, which is what every path
-   * reported before harness stores were readable. `'harness-store'` says the harness's own file was
-   * the receipt; `'mixed'` says both sources contributed to this settlement.
-   *
-   * This is a provenance fact, not a confidence one: a store read is the provider's own number and
-   * carries `tokensKnown: true`. The twin of `boxMinutesProvenance` on the token channel.
-   */
+  /** Where `tokens` came from. Absent means the live stream. A store read still has `tokensKnown: true`. */
   tokensProvenance?: TokenUsageProvenance
+  /** Tokens the live stream had reported when a broken stream's exact result arrived. `tokens` stays the recorded total. */
+  streamedTokens?: LoopTokenUsage
+  /** Recorded total minus `streamedTokens`, for each counter that grew. Absent when the exact result did not exceed the stream. */
+  unobservedTokens?: LoopTokenUsage
+  /** False when `iterations` is only the provider-invocation floor: the exact result exceeded the stream, so this count does not name the model calls. */
+  iterationsKnown?: false
 }
 
 /** The accounting channels a usage gap leaves incomplete. */
@@ -119,15 +83,7 @@ export interface BudgetOverspend {
   readonly spent: number
 }
 
-/**
- * A settled reservation whose measured spend exceeded what it reserved.
- *
- * It records an accounting fact, not an outcome. A child that completed stays `done` with its
- * artifact, and a child that failed stays `down`. The pool commits the true spend, so its free
- * balance already carries the overspend and later reservations are refused on their own.
- * Spend the pool cannot verify (unknown dollars under a dollar cap, unknown or overflowing
- * resource usage) is not an overspend: it fails the child closed instead.
- */
+/** Measured spend past the reservation. The child stays done or down; unverifiable spend fails closed. */
 export interface BudgetViolation {
   /** Every overspent channel, in the order tokens, iterations, usd, then resources. Never empty. */
   readonly overspent: ReadonlyArray<BudgetOverspend>

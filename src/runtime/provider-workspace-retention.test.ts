@@ -442,6 +442,12 @@ describe('retained provider observation', () => {
       tokens: { input: 7, output: 5 },
       known: true,
     },
+    {
+      label: 'with an exact cache read the stream never carried',
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 6 },
+      tokens: { input: 10, output: 5, cacheRead: 6 },
+      known: true,
+    },
   ])('preserves partial observed subtotals $label', async ({ usage, tokens, known }) => {
     const admissions: RetainedRunAdmission[] = []
     const provider = pendingRetainedProvider({
@@ -474,6 +480,31 @@ describe('retained provider observation', () => {
     const artifact = executor.resultArtifact()
     expect(artifact.spent.tokens).toMatchObject(tokens)
     expect(artifact.spent.tokensKnown !== false).toBe(known)
+    expect(artifact.spent.iterations).toBe(1)
+    if (usage === undefined) {
+      expect(artifact.spent.streamedTokens).toEqual({
+        input: 3,
+        output: 2,
+        cacheBreakdownKnown: false,
+      })
+      expect(artifact.spent.unobservedTokens).toBeUndefined()
+      expect(artifact.spent.iterationsKnown).toBeUndefined()
+    } else {
+      expect(artifact.spent.streamedTokens).toEqual({
+        input: 3,
+        output: 2,
+        cacheBreakdownKnown: false,
+      })
+      expect(artifact.spent.unobservedTokens).toMatchObject({
+        input: tokens.input - 3,
+        output: tokens.output - 2,
+        cacheBreakdownKnown: false,
+      })
+      expect(artifact.spent.iterationsKnown).toBe(false)
+    }
+    if (usage?.cacheReadInputTokens !== undefined) {
+      expect(artifact.spent.unobservedTokens?.cacheRead).toBe(usage.cacheReadInputTokens)
+    }
     expect(artifact.spent.usd).toBe(0.25)
     // Bare exact-result costs still do not become provider billing receipts.
     expect(artifact.spent.usdKnown).toBe(false)
