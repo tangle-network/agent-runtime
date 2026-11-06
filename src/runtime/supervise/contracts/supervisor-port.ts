@@ -9,13 +9,8 @@ import type { NodeId, TreeView } from './node-lifecycle'
 import type { ResultBlobStore, SpawnJournal } from './spawn-journal'
 import type { SupervisedResult } from './supervisor-result'
 
-/**
- * Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
- * and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
- * live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
- *
- * @stable
- */
+/** Runs a root under the conserved pool, durable journal, abort cascade and restart breaker.
+ * @stable */
 export interface Supervisor<Task, Out> {
   run(root: Agent<Task, Out>, task: Task, opts: SupervisorOpts): Promise<SupervisedResult<Out>>
   attach(h: RootHandle<Out>): void
@@ -27,20 +22,14 @@ export interface RecursiveReservationPolicy {
   readonly ownerShare: number
 }
 
-/**
- * What a root runs on during one segment of its run.
- *
- * Its profile's `model.provider`, `model.default`, `model.reasoningEffort` and `harness`, and the
- * package versions the caller ran it under. A run is one id for its whole life; a turn that ends, a lost stream or a dead supervisor is a
- * boundary between entries, and an entry on anything else here starts a new segment.
- */
+/** One root's model, harness and package versions. Changed execution starts a new segment
+ * under the same run id; a turn, lost stream or restart is only a new entry. */
 export interface RootSegment {
   readonly provider?: string
   readonly model?: string
   readonly reasoningEffort?: ReasoningEffort
   readonly harness?: string
-  /** The package versions the caller runs this segment under, by package name (its Runtime among
-   *  them). Runtime records them and never reads them. */
+  /** Caller package versions; recorded without interpretation. */
   readonly stack?: Readonly<Record<string, string>>
 }
 

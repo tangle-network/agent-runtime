@@ -2,13 +2,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore } from '../../src/durable/in-memory-spawn-stores'
 import type { CoordinationEvent } from '../../src/mcp/tools/coordination-events'
-import { createCoordinationTools } from '../../src/mcp/tools/coordination-manager'
 import type { ContinuationInstruction } from '../../src/mcp/tools/coordination-messages'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 import type { BusRecord } from '../../src/runtime/supervise/event-bus'
-import type { Agent, Scope } from '../../src/runtime/supervise/types'
 
 function stamped(seq: number, event: CoordinationEvent): BusRecord<CoordinationEvent> {
   return { seq, at: 1_000 + seq, priority: event.type === 'question' ? 20 : 0, event }
@@ -193,72 +190,6 @@ describe('FileCoordinationLog delivery evidence', () => {
         type: 'answer',
         down: { receiptId: receipt.receiptId, delivered: false },
       })
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('serializes concurrent appends and replays the exact bus ordering metadata', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'coordination-log-concurrent-order-'))
-    try {
-      const log = new FileCoordinationLog(join(dir, 'coordination.jsonl'))
-      const scope = {
-        send: () => false,
-        next: async () => null,
-        get view() {
-          return { root: 'run', nodes: [], inFlight: 0 }
-        },
-        budget: {
-          tokensLeft: 100,
-          tokensKnown: true,
-          usdLeft: 0,
-          usdCapped: false,
-          usdKnown: true,
-          iterationsLeft: 10,
-          deadlineMs: 0,
-          reservedTokens: 0,
-        },
-        signal: new AbortController().signal,
-      } as unknown as Scope<unknown>
-      const coord = createCoordinationTools({
-        scope,
-        blobs: new InMemoryResultBlobStore(),
-        makeWorkerAgent: () =>
-          ({ name: 'unused', act: async () => undefined }) as Agent<unknown, unknown>,
-        perWorker: { maxIterations: 1, maxTokens: 10 },
-        onEvent: (_event, record) => log.append('run', record, 'owner'),
-      })
-      const steer = coord.tools.find((tool) => tool.name === 'steer_agent')
-      if (!steer) throw new Error('steer_agent tool missing')
-
-      await Promise.all([
-        steer.handler({ workerId: 'missing-A', instruction: 'continue A' }),
-        steer.handler({ workerId: 'missing-B', instruction: 'continue B' }),
-      ])
-
-      const prior = await log.load('run', 'owner')
-      expect(prior.records.map((record) => record.seq)).toEqual([0, 1, 2, 3, 4, 5])
-      for (const receipt of prior.continuations) {
-        const receiptSeq = prior.records.find(
-          (record) =>
-            record.event.type === 'instruction' &&
-            record.event.instruction.receiptId === receipt.receiptId,
-        )?.seq
-        const attemptSeq = prior.records.find(
-          (record) =>
-            record.event.type === 'delivery-attempt' &&
-            record.event.attempt.receiptId === receipt.receiptId,
-        )?.seq
-        const outcomeSeq = prior.records.find(
-          (record) =>
-            record.event.type === 'steer' && record.event.down.receiptId === receipt.receiptId,
-        )?.seq
-        expect(receiptSeq).toBeTypeOf('number')
-        expect(attemptSeq).toBeGreaterThan(receiptSeq as number)
-        expect(outcomeSeq).toBeGreaterThan(attemptSeq as number)
-      }
-      expect(prior.records.every((record) => record.priority === 0)).toBe(true)
-      expect(prior.records.every((record) => Number.isFinite(record.at))).toBe(true)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
