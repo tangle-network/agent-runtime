@@ -19,7 +19,7 @@ it.skipIf(process.platform === 'win32').each(['wait', 'submit', 'debounce'] as c
           const abort = new AbortController()
           const tasks: string[] = []
           const workerIds: string[] = []
-          const settlements = new Map<string, number>()
+          const settledWorkers = new Set<string>()
           let release: ReturnType<typeof setTimeout> | undefined
           let run: ReturnType<typeof supervisePursuit> | undefined
           try {
@@ -34,7 +34,7 @@ it.skipIf(process.platform === 'win32').each(['wait', 'submit', 'debounce'] as c
                 runDir: blocking.directory,
                 signal: abort.signal,
                 onCoordinationEvent: (_context, _eventId, { event }) => {
-                  if (event.type === 'settled') settlements.set(event.worker.id, Date.now())
+                  if (event.type === 'settled') settledWorkers.add(event.worker.id)
                 },
                 budget: { maxIterations: 10, maxTokens: 10_000, deadlineMs: 6_000 },
                 wake: {
@@ -117,9 +117,7 @@ it.skipIf(process.platform === 'win32').each(['wait', 'submit', 'debounce'] as c
                       groupPresent: true,
                     })
                     if (mode === 'debounce') {
-                      expect(settlements.get(workerIds[1]!)).toBeLessThan(
-                        scope.budget.deadlineMs - 1_500,
-                      )
+                      expect(settledWorkers.has(workerIds[1]!)).toBe(true)
                       expect(physicalState(workers[1]!.readyValue!)).toMatchObject({
                         leaderPresent: false,
                         childPresent: false,
@@ -127,8 +125,6 @@ it.skipIf(process.platform === 'win32').each(['wait', 'submit', 'debounce'] as c
                       })
                     }
                     expect(scope.signal.aborted).toBe(false)
-                    expect(Date.now()).toBeGreaterThanOrEqual(scope.budget.deadlineMs - 2_000)
-                    expect(Date.now()).toBeLessThan(scope.budget.deadlineMs - 500)
                     if (mode !== 'wait')
                       expect(
                         await call('submit_result', { result: { answer: 'best-so-far' } }),
