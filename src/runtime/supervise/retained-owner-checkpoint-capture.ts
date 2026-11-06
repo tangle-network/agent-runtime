@@ -4,6 +4,7 @@ import {
   workspaceCleanupRequestDigest,
 } from '@tangle-network/agent-interface'
 import { runAbortable } from './abortable'
+import { errMessage } from './error-message'
 import { type CheckpointEvent, checkpointHandle } from './retained-owner-checkpoint-requests'
 import type { OwnerState } from './retained-owner-state'
 import type { SpawnEvent } from './types'
@@ -20,10 +21,11 @@ export interface CaptureRefusal {
   readonly needsSource: boolean
 }
 
-/** What cleaning a group of checkpoints left: deletes the provider did not confirm, and
- *  checkpoints kept because their files are in no capture. */
-interface CheckpointCleanup {
-  readonly unconfirmed: CheckpointEvent[]
+/** What cleaning a group of checkpoints left: deletes the provider did not confirm — each with
+ *  the acknowledgement status or error text that says why — and checkpoints kept because their
+ *  files are in no capture. */
+export interface CheckpointCleanup {
+  readonly unconfirmed: ReadonlyArray<{ readonly event: CheckpointEvent; readonly reason: string }>
   readonly refused: CaptureRefusal[]
 }
 
@@ -37,7 +39,7 @@ export async function cleanCheckpoints(
   _parent?: AbortSignal,
   uncapturable = false,
 ): Promise<CheckpointCleanup> {
-  const unconfirmed: CheckpointEvent[] = []
+  const unconfirmed: Array<{ readonly event: CheckpointEvent; readonly reason: string }> = []
   const refused: CaptureRefusal[] = []
   for (const event of checkpoints) {
     const captured = captureBeforeCleanup(state, event, events, uncapturable)
@@ -70,6 +72,7 @@ export async function cleanCheckpoints(
       requestDigest: workspaceCleanupRequestDigest(material),
     }
     let confirmed = false
+    let reason: string | undefined
     try {
       if (branching === undefined) throw new Error('source-scoped checkpoint handle unavailable')
       const signal = AbortSignal.timeout(30_000)
@@ -81,10 +84,12 @@ export async function cleanCheckpoints(
       confirmed =
         workspaceCleanupAcknowledgementMatches(request, acknowledgement) &&
         (acknowledgement.status === 'deleted' || acknowledgement.status === 'already_absent')
-    } catch {
-      // The journal and settle result retain the unresolved resource below.
+      if (!confirmed) reason = `provider acknowledged '${acknowledgement.status}'`
+    } catch (error) {
+      // The journal and settle result retain the unresolved resource, with its reason (#1594).
+      reason = errMessage(error).slice(0, 1_000)
     }
-    if (!confirmed) unconfirmed.push(event)
+    if (!confirmed) unconfirmed.push({ event, reason: reason ?? 'delete was not confirmed' })
     await state.args.journal.appendEvent(state.args.rootId, {
       kind: 'workspace-checkpoint-cleanup',
       id: state.args.nodeId,
@@ -92,6 +97,7 @@ export async function cleanCheckpoints(
       environmentId: event.environmentId,
       checkpointId: event.checkpoint.checkpointId,
       confirmed,
+      ...(reason === undefined ? {} : { refused: reason.slice(0, 1_000) }),
       ...(captured.digest === undefined ? {} : { capturedDigest: captured.digest }),
       seq: state.nextSequence(),
       at: new Date(state.args.now()).toISOString(),

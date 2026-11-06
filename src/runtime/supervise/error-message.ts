@@ -4,7 +4,8 @@ const maxCauseDepth = 4
 const maxMessageLength = 32_768
 const maxPartLength = 2_048
 
-/** A persisted failure must explain its wrappers without exporting credentials or unbounded data. */
+/** A persisted failure must explain its wrappers without exporting credentials or unbounded data.
+ *  Redaction runs per line so one credential cannot erase the lines around it. */
 export function errorText(value: unknown): string {
   let text: string
   try {
@@ -12,7 +13,8 @@ export function errorText(value: unknown): string {
   } catch {
     text = '[unprintable rejection]'
   }
-  return String(defaultRedactor(text)).slice(0, maxMessageLength)
+  const lines = text.split('\n').map((line) => String(defaultRedactor(line)))
+  return lines.join('\n').slice(0, maxMessageLength)
 }
 
 export function errorProperty(
@@ -97,4 +99,19 @@ export function causeChain(error: unknown): object[] {
     }
   }
   return chain
+}
+
+const maxStackFrames = 40
+
+/** The deepest cause's stack that has one, redacted and bounded to {@link maxStackFrames} frames,
+ *  so a failure the messages alone cannot place still names its throw site (#2347). Outer
+ *  wrappers' stacks are skipped: they restate the wrap site the record's own fields name. */
+export function errorStack(error: unknown): string | undefined {
+  let found: string | undefined
+  for (const value of causeChain(error)) {
+    if (!(value instanceof Error)) continue
+    const stack = errorProperty(value, 'stack')
+    if (stack !== undefined && stack !== '[unreadable error stack]') found = stack
+  }
+  return found === undefined ? undefined : found.split('\n').slice(0, maxStackFrames).join('\n')
 }

@@ -101,7 +101,7 @@ async function releaseOwnerEnvironment(
   const preserved: string[] = []
   let lastDetail: string | undefined
   let retriable = false
-  const checkpointFailures: CheckpointEvent[] = []
+  const checkpointFailures: { readonly event: CheckpointEvent; readonly reason: string }[] = []
   const checkpointsKept: CaptureRefusal[] = []
   // Sources kept because a checkpoint of theirs is in no capture, and only they can fork it.
   const uncapturedSources = new Set<string>()
@@ -141,7 +141,7 @@ async function releaseOwnerEnvironment(
     clearTimeout(capturesTimer)
   }
   const forksUnresolved = await settleCaptureForks(state)
-  for (const event of checkpointFailures) pendingSources.add(event.environmentId)
+  for (const { event } of checkpointFailures) pendingSources.add(event.environmentId)
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
@@ -225,12 +225,12 @@ async function releaseOwnerEnvironment(
   state.releaseRetriable = retriable
   const checkpointTeardowns: UnconfirmedTeardown[] = [
     ...checkpointFailures.map(
-      (event): UnconfirmedTeardown => ({
+      ({ event, reason }): UnconfirmedTeardown => ({
         id: args.nodeId,
         label: 'scope owner workspace checkpoint',
         runtime: provider.name,
         status: 'done',
-        detail: `checkpoint cleanup unconfirmed: ${event.checkpoint.checkpointId} from ${event.environmentId}`,
+        detail: `checkpoint cleanup unconfirmed: ${event.checkpoint.checkpointId} from ${event.environmentId} (${reason})`,
       }),
     ),
     ...requestFailures.map(

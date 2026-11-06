@@ -49,6 +49,9 @@ export interface DriverAttemptRecord {
   readonly durationMs: number
   /** Absent when the attempt completed. */
   readonly error?: string
+  /** With `error`: the deepest cause's stack, redacted and bounded, so a failure the message
+   *  alone cannot place still names its throw site (#2347). */
+  readonly errorStack?: string
   /** Validated producer attribution, including its reset hint when supplied. */
   readonly failure?: AgentTurnFailure
   readonly classification?: DriverFailureClass

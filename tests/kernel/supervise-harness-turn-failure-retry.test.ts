@@ -325,11 +325,19 @@ describe('a root harness turn that ends with a failed outcome', () => {
     const { result } = await fixture.run({ enabled: false })
     expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
     const events = await fixture.events()
-    const error = ofKind(events, 'driver-attempt')[0]?.record.error
+    const attempt = ofKind(events, 'driver-attempt')[0]?.record
+    const error = attempt?.error
     expect(error).toBeDefined()
     expect(error).not.toContain(secret)
     expect(error).toContain('REDACTED')
     expect(error!.length).toBeLessThanOrEqual(32_768)
+    // The cause's stack rides along, bounded and redacted like the message (#2347).
+    const stack = attempt?.errorStack
+    expect(stack).toBeDefined()
+    expect(stack).not.toContain(secret)
+    expect(stack!.length).toBeLessThanOrEqual(32_768)
+    expect(stack!.split('\n').length).toBeLessThanOrEqual(40)
+    expect(stack).toMatch(/\bat\b/)
   })
 
   it('is retried as a transient driver failure in a new turn on the retained environment', async () => {

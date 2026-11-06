@@ -64,7 +64,9 @@ function spawnWorkerTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       'is refused (`error: "duplicate-key"`). ' +
       'Returns `freeSlots`: how many MORE workers start at once (`null` = no slot bound), and ' +
       '`queued`: how many of your workers wait for a slot. Parallel workers finish the run ' +
-      'sooner than one at a time.' +
+      'sooner than one at a time. An authored profile must be fully executable before it ' +
+      'spawns: `harness`, `model.provider`, a concrete `model.default`, and no legacy ' +
+      '`systemPrompt` — one refusal names every field still missing.' +
       (profileTable === undefined
         ? ''
         : " This run has a profiles table: pass `profile` as one of the table's names to run " +
