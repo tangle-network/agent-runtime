@@ -3,8 +3,9 @@ import { aggregateProviderModelEvidence } from '../../durable/spawn-journal/prov
 import { loadSpawnForest, type SpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import { RuntimeRunStateError } from '../../errors'
 import { addSpend } from '../util'
-import { sumSpendFromEvents } from './recover-executors'
+import { sumMeasuredSpendFromEvents } from './recover-executors'
 import { withBudgetResources } from './resources'
+import { assertValidSpend } from './spend-validation'
 import type { SpawnedEvent } from './supervisor-root-contract'
 import type {
   FleetYield,
@@ -16,23 +17,8 @@ import type {
   SpendGap,
 } from './types'
 
-/**
- * The run's terminal accounting, read off the one journal ledger — the honest per-channel
- * sums (input/output/usd/iterations all preserved), the named usage gaps, and the wall-clock
- * duration stamped onto `spentTotal.ms`. Computed AFTER the join barrier so every child's
- * settlement is recorded. Fails loud if the tree was never journaled (the supervisor always
- * `beginTree`s, so a missing tree is a corrupted journal, not a normal path).
- *
- * `spentTotal.ms` is `elapsedMs`, never the per-event sum: executors under-report their own
- * `ms` (most stamp 0) and parallel children overlap, so the sum cannot state the run's real
- * duration. The breakdown keeps the executor-reported sums.
- *
- * `tokensKnown`/`usdKnown` are stamped explicitly on the terminal total: `true` is a checked
- * claim (every spawn reached a terminal record AND every settled/metered record carried a
- * complete receipt on that channel), never the absence of bad news. The conjunction with the
- * summed flags is deliberately redundant — a future divergence between the sum and the gap
- * scan can only make the claim more conservative, never falsely `true`.
- */
+/** Terminal usage comes from receipts, never admission's conservative reservation charges.
+ * Missing receipts stay named gaps; ms is wall time because parallel executor times overlap. */
 export async function terminalAccounting(
   journal: SpawnJournal,
   root: string,
@@ -51,7 +37,16 @@ export async function terminalAccounting(
       `supervisor: spawn tree '${root}' is missing from the journal after run (corrupted log)`,
     )
   }
-  const { childWork, driverInference } = sumSpendFromEvents(events)
+  for (const event of events) {
+    const spend =
+      event.kind === 'metered'
+        ? event.spend
+        : event.kind === 'settled' || event.kind === 'cancelled' || event.kind === 'reconciled'
+          ? event.spent
+          : undefined
+    if (spend !== undefined) assertValidSpend(spend, `settlement ${event.id}/${event.kind}`)
+  }
+  const { childWork, driverInference } = sumMeasuredSpendFromEvents(events)
   const gaps = spendGapsFromEvents(events)
   const forest = await loadSpawnForest(journal, root)
   const providerModel = aggregateProviderModelEvidence(forest)
@@ -61,20 +56,16 @@ export async function terminalAccounting(
     ...summed,
     ms: Math.max(0, elapsedMs),
     tokensKnown:
-      summed.tokensKnown !== false && !gaps.some((gap) => gap.channels.includes('tokens')),
+      summed.tokensKnown !== false &&
+      summed.tokens.tokensKnown !== false &&
+      !gaps.some((gap) => gap.channels.includes('tokens')),
     usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
   }
+  assertValidSpend(spentTotal, 'settlement total')
   return { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield }
 }
 
-/** How the run's spawned children ended, by node id across every tree of the forest. Read after
- *  the join barrier and the release sweep, so the terminal records the sweep wrote are in it.
- *  Spawned records without a parent are exempt: the run root, and the re-rooted owner copy a
- *  nested driver writes as its tree's first record (`ownedTreeRootSpawn` strips the parent), so
- *  a manager is counted once, in its parent's tree. Buckets are id sets rather than record counts
- *  because the journal guards seq uniqueness, not one-terminal-per-node, and the invariant
- *  `spawned === done + down + cancelled + neverSettled` must not rest on scope discipline alone;
- *  it is asserted here so a future root-id terminal record cannot silently break the tally. */
+/** Count each child by its last terminal record across the owned forest; roots are exempt. */
 function fleetYieldFromForest(forest: SpawnForest): FleetYield {
   const spawned = new Set<NodeId>()
   // Each id lands in exactly one bucket, by its last terminal record in journal order.
@@ -128,11 +119,7 @@ function fleetYieldFromForest(forest: SpawnForest): FleetYield {
   return fleetYield
 }
 
-/** The journaled nodes whose usage accounting is incomplete — one `SpendGap` per node+kind,
- *  channels merged. A spawn with no terminal record (`settled`/`cancelled`/`woken`) is
- *  unaccounted on every channel; a settled or metered record that flags a channel unknown is
- *  a floor on that channel. The root's own spawned event is exempt: its terminal state is the
- *  result this list rides on. */
+/** Merge missing-receipt channels by node and cause; the root settles in result.json. */
 function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
   const labels = new Map<NodeId, string>()
   const budgets = new Map<NodeId, SpawnedEvent['budget']>()
@@ -197,7 +184,7 @@ function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
 /** The channels a single spend record explicitly marks incomplete. */
 function unknownChannels(spend: Spend): SpendChannel[] {
   const channels: SpendChannel[] = []
-  if (spend.tokensKnown === false) channels.push('tokens')
+  if (spend.tokensKnown === false || spend.tokens.tokensKnown === false) channels.push('tokens')
   if (spend.usdKnown === false) channels.push('usd')
   for (const [name, resource] of Object.entries(spend.resources ?? {})) {
     if (!resource.known) channels.push(`resource:${name}`)

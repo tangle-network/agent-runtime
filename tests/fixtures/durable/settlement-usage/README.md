@@ -1,0 +1,5 @@
+Preserved accounting projections from four real runs: incomplete ownership, partial usage, complete tokens, and failed dispatch. Each `.json` records the original journal SHA-256, projected journal SHA-256, and original terminal usage/model fields. Gzip has a fixed timestamp.
+
+The projection keeps begin, spawned, metered, settled, cancelled, reconciled, paused, woken, woken-gone, reopened, and root-reentered records, preserving their fields and order. It excludes prompts, transport configuration, transcripts, execution inputs and output bodies. Atomic envelopes retain only those accounting members. Original evidence is never edited.
+
+`settlement-usage-replay.test.ts` opens the projections through FileSpawnJournal, runs terminalAccounting, publishes a new temporary result, and checks exclusive publication and unchanged input bytes. Mutations of the complete projection exercise malformed-receipt refusal and nested unknown propagation. Admission accounting must retain the unfinished reservation; terminal usage must exclude it.

@@ -32,7 +32,7 @@ export function assertValidSpend(spend: Spend, label: string): void {
     ['cacheRead', spend.tokens.cacheRead],
     ['cacheWrite', spend.tokens.cacheWrite],
   ] as const) {
-    if (value === undefined) continue
+    if (value === undefined && field !== 'input' && field !== 'output') continue
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new Error(`${label}.tokens.${field} must be a non-negative safe integer`)
     }
@@ -46,22 +46,18 @@ export function assertValidSpend(spend: Spend, label: string): void {
     }
   }
   const { freshInput, cacheRead, cacheWrite } = spend.tokens
-  if (freshInput !== undefined && cacheRead !== undefined && cacheWrite !== undefined) {
-    const classified = freshInput + cacheRead + cacheWrite
-    // A spend that CLAIMS a complete split must partition `input` exactly — that invariant is what
-    // lets the charge credit a cache read. A spend that declares its split INCOMPLETE reports
-    // classes covering only part of `input`, which is exactly what `addTokenUsage` produces when it
-    // folds a classified turn together with an unclassified one. Demanding an exact partition there
-    // rejects the shape the incomplete flag exists to describe, and a resumed pool built from such
-    // an aggregate died at construction. Either way the classes may never EXCEED the total they
-    // partition; that direction would let bad telemetry credit tokens nobody presented.
-    if (spend.tokens.cacheBreakdownKnown !== false) {
-      if (classified !== spend.tokens.input) {
-        throw new Error(`${label}.tokens cache classes must sum to input`)
-      }
-    } else if (classified > spend.tokens.input) {
-      throw new Error(`${label}.tokens cache classes must not exceed input`)
-    }
+  const classified = (freshInput ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
+  if (classified > spend.tokens.input) {
+    throw new Error(`${label}.tokens cache classes must not exceed input`)
+  }
+  if (
+    freshInput !== undefined &&
+    cacheRead !== undefined &&
+    cacheWrite !== undefined &&
+    spend.tokens.cacheBreakdownKnown !== false &&
+    classified !== spend.tokens.input
+  ) {
+    throw new Error(`${label}.tokens cache classes must sum to input`)
   }
   for (const [field, value] of [
     ['usd', spend.usd],

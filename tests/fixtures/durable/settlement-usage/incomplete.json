@@ -1,0 +1,22 @@
+{
+  "runId": "magnetar-rust-20261022a",
+  "sourceSha256": "b8ffc172db27f7c880500a830b2cf3c3e7d6f3cda19ac64344ca688b58072251",
+  "projectionSha256": "4f1877ab8bba54f3e4e04cccc7b3e86085dea2afe94eb7c92e92deb1c2a532b1",
+  "spentTotal": {
+    "iterations": 2251799813685246,
+    "ms": 535651356,
+    "tokens": {
+      "cacheBreakdownKnown": false,
+      "cacheRead": 483690176,
+      "cacheWrite": 0,
+      "freshInput": 132934447,
+      "input": 2251800430309869,
+      "output": 1801371
+    },
+    "tokensKnown": false,
+    "usd": 871.2005045999996,
+    "usdEstimated": 871.2005045999996,
+    "usdKnown": false
+  },
+  "providerModel": { "status": "unknown", "models": [] }
+}
