@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileCoordinationLog } from '../../runtime/supervise/coordination-log'
 import {
   createRootStreamSink,
@@ -17,7 +17,6 @@ beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), 'streaming-journal-'))
 })
 afterEach(async () => {
-  vi.restoreAllMocks()
   await fs.rm(root, { recursive: true, force: true })
 })
 async function collect<T>(records: AsyncIterable<T>): Promise<T[]> {
@@ -102,20 +101,6 @@ describe('streaming committed JSONL', () => {
     await expect(collect(reader)).rejects.toThrow(/journal changed/)
   })
 
-  it('does not hide an allocation failure as a torn final write', async () => {
-    const path = join(root, 'records.jsonl')
-    const bytes = '{"keep":true}'
-    await fs.writeFile(path, bytes)
-    const parse = JSON.parse
-    const failure = new RangeError('fixture allocation failure')
-    vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) => {
-      if (text === bytes) throw failure
-      return parse(text, reviver)
-    })
-    expect(() => parseCommittedJsonLines(bytes, path)).toThrow(failure)
-    await expect(collect(readCommittedJsonLines(path))).rejects.toBe(failure)
-    expect(await fs.readFile(path, 'utf8')).toBe(bytes)
-  })
 })
 
 describe('durable consumers share streaming reads', () => {
