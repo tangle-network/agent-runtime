@@ -27,6 +27,7 @@ export function admitSupervisorRun<Task>(
   const {
     budget,
     rootIdentity,
+    requestedProfile,
     rootSegment,
     rootMaterialization,
     runId,
@@ -59,6 +60,7 @@ export function admitSupervisorRun<Task>(
         budget,
         runId,
         ...(rootIdentity === undefined ? {} : { rootIdentity }),
+        ...(requestedProfile === undefined ? {} : { requestedProfile }),
         ...(rootSegment === undefined ? {} : { rootSegment }),
         ...(rootMaterialization === undefined ? {} : { rootMaterialization }),
         ...(maxDepth === undefined ? {} : { maxDepth }),

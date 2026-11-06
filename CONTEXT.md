@@ -13,3 +13,5 @@
 **Private CAS namespace retirement.** Removal of the reviewed current objects belonging to one exact private CAS namespace after its consumer has fenced writers and checked retention eligibility. The store verifies the inventory and reports remaining current objects; bucket version history and consumer retention policy are separate responsibilities.
 
 **Delegated interactive control.** An explicit grant of an existing provider-issued claim to the same trusted local OS principal through private Runtime state. It preserves the real holder and exact process binding, grants full terminal authority, and ends on detach, revocation, owner loss or provider expiry; observer history is never a grant.
+
+**Settled usage.** Measured tokens are a complete total or an explicitly incomplete lower bound; unreported usage is never estimated. Unknown-attempt counts remain null when retained evidence cannot establish their cardinality. Requested models and provider observations state separate facts.

@@ -96,14 +96,8 @@ export interface Spend {
 /** The accounting channels a usage gap leaves incomplete. */
 export type SpendChannel = 'tokens' | 'usd' | `resource:${string}`
 
-/**
- * One journaled node whose usage accounting is incomplete — the named gap behind a `false`
- * `tokensKnown`/`usdKnown` on a terminal `spentTotal`. `never-settled`: the spawn is durable but
- * no terminal record landed, so the whole subtree is unaccounted on every channel and
- * `spentTotal` charges its budget ceiling instead of a fabricated zero. `unreported`: a settled
- * or metered record landed without a complete provider receipt, so the summed numbers are a
- * floor on the named channels, never the measured total.
- */
+/** A node with missing usage. Recorded subtotals are lower bounds; never-settled
+ * work has no terminal receipt and unreported work has an incomplete one. */
 export interface SpendGap {
   readonly id: NodeId
   /** The spawn label, when the node's `spawned` event is in this journal tree. */

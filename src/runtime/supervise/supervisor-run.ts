@@ -442,11 +442,12 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
       await settled.opts.blobs.put(outRef, out)
       // ONE ledger: `settled` events carry child WORK, `metered` events the drivers' OWN inference;
       // `spentTotal` is their sum and the breakdown keeps the two separable.
-      const { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield } =
+      const { spentTotal, childWork, driverInference, gaps, providerModel, fleetYield, usage } =
         await terminalAccounting(
           settled.journal,
           settled.opts.runId,
           settled.now() - settled.runEpochMs,
+          settled.opts.requestedProfile,
         )
       return {
         kind: 'winner',
@@ -454,6 +455,7 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
         outRef,
         tree: settled.tree,
         spentTotal,
+        usage,
         providerModel,
         ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
         ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
@@ -477,16 +479,18 @@ async function noWinner<Out>(
   rejection?: DriverRejection,
 ): Promise<SupervisedResult<Out>> {
   const { controller, teardownUnconfirmed, leakedReservations } = settled
-  const { spentTotal, gaps, providerModel, fleetYield } = await terminalAccounting(
+  const { spentTotal, gaps, providerModel, fleetYield, usage } = await terminalAccounting(
     settled.journal,
     settled.opts.runId,
     settled.now() - settled.runEpochMs,
+    settled.opts.requestedProfile,
   )
   const common = {
     kind: 'no-winner' as const,
     tree: settled.tree,
     downCount: settled.breaker.downCount(),
     spentTotal,
+    usage,
     providerModel,
     ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
     ...(leakedReservations.length > 0 ? { leakedReservations } : {}),

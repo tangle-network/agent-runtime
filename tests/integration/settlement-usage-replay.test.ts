@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import { readSettleRecord, writeSettleRecord } from '../../src/durable/settle-record'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
@@ -22,7 +23,12 @@ it.each(['incomplete', 'partial', 'complete', 'undispatched'])(
       const path = join(dir, 'spawn-journal.jsonl')
       await writeFile(path, bytes)
       const journal = new FileSpawnJournal(path)
-      const result = await terminalAccounting(journal, saved.runId, saved.spentTotal.ms)
+      const profile: AgentProfile = {
+        name: 'requested-seat',
+        harness: 'opencode',
+        model: { default: 'requested-model', provider: 'requested-provider' },
+      }
+      const result = await terminalAccounting(journal, saved.runId, saved.spentTotal.ms, profile)
       if (name === 'incomplete') {
         expect(result.spentTotal.tokens.input).toBe(616_624_623)
         expect(result.spentTotal.iterations).toBe(0)
@@ -33,14 +39,32 @@ it.each(['incomplete', 'partial', 'complete', 'undispatched'])(
       } else expect(result.spentTotal).toEqual(saved.spentTotal)
       expect(result.providerModel).toMatchObject(saved.providerModel)
       expect(result.spentTotal.tokensKnown).toBe(saved.spentTotal.tokensKnown)
+      expect(result.usage.tokens).toEqual({
+        status: name === 'complete' ? 'known' : name === 'undispatched' ? 'unknown' : 'lower-bound',
+        input: name === 'undispatched' ? null : result.spentTotal.tokens.input,
+        output: name === 'undispatched' ? null : result.spentTotal.tokens.output,
+        unknownAttempts:
+          name === 'complete' ? 0 : name === 'partial' ? 1 : name === 'undispatched' ? 61 : null,
+      })
+      expect(result.usage.requestedModel).toEqual({
+        id: 'requested-model',
+        harness: 'opencode',
+        provider: 'requested-provider',
+      })
+      expect(result.usage.observedModels).toEqual(saved.providerModel.models)
       if (name !== 'complete')
         expect(result.gaps.some((gap) => gap.channels.includes('tokens'))).toBe(true)
       await writeSettleRecord(dir, {
         kind: 'no-winner',
         tree: { root: saved.runId, nodes: [] },
         ...result,
+        usage: undefined,
       })
       expect((await readSettleRecord(dir))?.spentTotal).toEqual(result.spentTotal)
+      expect(
+        (await readSettleRecord(dir, { usage: true, requestedProfile: profile }))?.usage,
+      ).toEqual(result.usage)
+      expect((await readSettleRecord(dir))?.usage).toBeUndefined()
       await expect(writeSettleRecord(dir, result)).rejects.toThrow('already exists')
       expect(await readFile(path)).toEqual(bytes)
     } finally {

@@ -431,7 +431,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1034 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -882,7 +882,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
 | `FencedSqlRunContext` | interface | A `RunContext` bound to one fenced SQL ownership generation; read-only until acquired. |
 | `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
 | `FinalizerSettled` | interface | One settled worker as the finalizer sees it — the ledger row (structural fields only). |
-| `FleetYield` | interface | How this run's spawned CHILDREN ended, counted by node id off the complete journal FOREST at |
+| `FleetYield` | interface | Children across the owned forest after the join barrier and release sweep. |
 | `GateRequest` | interface | What a gate asks its caller. `visit` is the 1-based count of times this run reached the gate; |
 | `GraphCommandCheck` | interface | An environment-owned check command, run outside the agent's conversation. |
 | `GraphCorpusGroup` | interface | Descriptive task-type/topology measurements, with every population explicit. |
@@ -941,7 +941,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
 | `NativeContextContinuationHandle` | interface | Admission and terminal result for one same-session continuation. |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
-| `NoWinnerError` | interface | A driver's `act()` rejection, normalized to serializable evidence so it survives the typed |
+| `NoWinnerError` | interface | Serializable act() rejection; non-Errors retain name NonError and their message. |
 | `ObservedSessionFacts` | interface | Structural projection of traces' SessionFacts. The trace reader owns all |
 | `OpenSandboxRunBeforeStartContext` | interface | Context available after the box/session exists and before the first prompt is |
 | `OutputAdapter` | interface | Stream of `SandboxEvent`s → typed `Output`. |
@@ -1028,7 +1028,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
 | `RootSegment` | interface | What a root runs on during one segment of its run. |
 | `RootSegmentEntry` | interface | The segment a root enters with this process. |
-| `RootStreamReceipt` | interface | The root manager's retained provider stream: `<runDir>/root-stream.jsonl`, one line per |
+| `RootStreamReceipt` | interface | Root executor progress retained in root-stream.jsonl; outRef instead names selected output. |
 | `RouteGate` | interface | A vertex that is not an agent: reaching it asks the caller for one of `choices`. The edges |
 | `RouterResponseReceipt` | interface | Exact buffered HTTP evidence. Authentication and cookie headers are excluded. |
 | `RouterRouting` | interface | Router provider routing, lowered into every request a transport sends as |
@@ -1068,6 +1068,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
 | `SearchSpecInputs` | interface | Everything a compiled call needs besides the spec: the problem, its bounds, and the call's |
 | `SelectionReceipt` | interface | A record of one candidate-selection decision: which iteration the selector |
 | `SessionMessageLike` | interface | A harness session message carrying parts (the shape `box.messages()` returns). Structurally typed |
+| `SettledUsage` | interface | Measured tokens remain usable without claiming the unreported remainder is zero. |
 | `SettledWorker` | interface | A worker whose settlement reached the manager's inbox. |
 | `ShapeBudget` | interface | Budget knobs a shape reads to size its fanout/children WITHOUT owning the conserved pool. |
 | `ShapeContext` | interface | The construction context a `LoopShape` factory receives. Carries the persona's resolved |
@@ -1087,7 +1088,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
 | `SpawnJournalCursor` | interface | Serializable checkpoint of a committed byte boundary, bound to one file and its bytes. |
 | `SpawnModelSubstitution` | interface | A spawn whose authorized profile names another harness/provider/model route than the parent |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd are separate |
-| `SpendGap` | interface | One journaled node whose usage accounting is incomplete — the named gap behind a `false` |
+| `SpendGap` | interface | A node with missing usage. Recorded subtotals are lower bounds; never-settled |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
 | `StartRetainedInteractiveRunOptions` | interface | Start one retry-safe native coding-agent TUI in a new environment. |
 | `StartRetainedRunInEnvironmentOptions` | interface | A fresh retained session inside a provider environment that already exists. |
@@ -1249,7 +1250,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1033 exports.
 | `StoredGraphInput` | type | Editable graph data; registration computes its digest when it is omitted. |
 | `StrategyMessage` | type | One provider-neutral conversation record carried between strategy shots. |
 | `StructuralRolloutMessage` | type | Provider-neutral conversation records read by structural candidate extraction. |
-| `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
+| `SupervisedResult` | type | A no-winner never carries a best-effort output; only driver-failed carries an error. |
 | `SuperviseOptionsForDispatch` | type | `supervise` options minus Eval-owned cancellation. |
 | `SupervisorFinalizer` | type | The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out. |
 | `SupervisorNodeContextSeed` | type | Context known before `Agent.act`; Runtime adds the concrete node, profile, and task. |

@@ -188,6 +188,7 @@ function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts:
       blobs: options.blobs ?? context.blobs,
       executors: context.executors,
       rootIdentity: rootExecution.identity,
+      requestedProfile: registeredProfile,
       rootMaterialization: {
         runtime: root?.kind === 'spawned' ? root.runtime : 'inline',
         declaration: 'deferred',
@@ -459,6 +460,7 @@ function rootRunOptions(
     executors: ctx.executors,
     ...(recoverExecutor ? { recoverExecutor } : {}),
     rootIdentity: setup.rootExecution.identity,
+    requestedProfile: registeredProfile,
     ...(options.segment === undefined
       ? {}
       : {
