@@ -303,7 +303,10 @@ it('links a managed native driver attempt to its real execution binding after du
         onDriverAttempt: () => controller.abort(new Error('one acknowledged managed attempt')),
       },
     )
-    await waitFor('managed driver attempt persisted', fixture.admissionEntered.wait)
+    await Promise.race([
+      fixture.admissionEntered.wait,
+      running.then((done) => Promise.reject(new Error(`settled first: ${JSON.stringify(done)}`))),
+    ])
     expect(
       hooks.filter((event) => event.target === 'agent.execution' && event.phase === 'event'),
     ).toEqual([])
