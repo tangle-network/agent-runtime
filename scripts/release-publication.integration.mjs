@@ -69,7 +69,7 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
     restricted_to_workflows: true, workflow_restrictions_read_only: false, selected_workflows: ['another/repository/.github/workflows/deploy.yml@refs/heads/main', `tangle-network/agent-runtime/.github/workflows/qualify-release.yml@${merged}`], extra: 'preserved' }
   let scenario = 'normal', reads = 0, writes = 0
   const ref = 'tangle-network/agent-runtime/.github/workflows/qualify-release.yml@refs/tags/v4.0.0'
-  const server = createServer(async (request, response) => {
+  const server = createServer(async (request, response) => { try {
     response.setHeader('content-type', 'application/json')
     if (request.url.startsWith('/orgs/tangle-network/actions/runner-groups?')) {
       assert.match(request.url, /visible_to_repository=agent-runtime/)
@@ -77,18 +77,17 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
     }
     assert.equal(request.url, '/orgs/tangle-network/actions/runner-groups/14')
     if (request.method === 'PATCH') {
-      assert.equal(run('git', ['rev-parse', 'refs/tags/v4.0.0^{}'], remote), merged, 'admission follows the real immutable push')
+      assert.equal(run('git', ['tag', '--list'], remote), '', 'admission precedes the immutable push')
       let body = ''; for await (const chunk of request) body += chunk
-      const update = JSON.parse(body)
-      assert.deepEqual(Object.keys(update), ['selected_workflows'])
-      assert.deepEqual(new Set(update.selected_workflows), new Set([...group.selected_workflows, ref]))
+      const update = JSON.parse(body); assert.deepEqual(Object.keys(update), ['selected_workflows'])
+      const added = update.selected_workflows.filter((entry) => !group.selected_workflows.includes(entry)); assert.ok(added.length > 0 && added.every((entry) => entry === ref || /qualify-release\.yml@[0-9a-f]{40}$/.test(entry)) && group.selected_workflows.every((entry) => update.selected_workflows.includes(entry)))
       writes += 1
       if (scenario === 'denied') { response.writeHead(403).end('{"message":"fixture denied"}'); return }
       group = { ...group, ...update, selected_workflows: update.selected_workflows.toReversed() }
       if (scenario === 'readback') group.extra = 'unexpected change'
     } else if (++reads === 2 && scenario === 'drift') group.extra = 'concurrent owner change'
     response.end(JSON.stringify(group))
-  })
+  } catch (error) { response.writeHead(500).end(JSON.stringify({ message: error.message })) } }) // an assertion answers, never hangs gh
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve) => server.close(resolve)))
   // Real gh performs HTTP and JSON transport; only its endpoint is local to this fixture.
@@ -123,7 +122,7 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
   assert.notEqual(await tag('--commit', merged), 0)
   assert.equal(writes, 1)
   const installed = structuredClone(group)
-  const resetTag = () => { run('git', ['update-ref', '-d', 'refs/tags/v4.0.0'], remote); run('git', ['tag', '-d', 'v4.0.0'], repo); reads = 0 }
+  const resetTag = () => { if (run('git', ['tag', '--list'], remote)) run('git', ['update-ref', '-d', 'refs/tags/v4.0.0'], remote); if (run('git', ['tag', '--list'], repo)) run('git', ['tag', '-d', 'v4.0.0'], repo); reads = 0 }
   resetTag()
   assert.equal(await tag('--commit', merged), 0, 'pre-existing exact admission makes no policy write')
   assert.equal(writes, 1); assert.deepEqual(group, installed)
@@ -131,7 +130,7 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
     resetTag(); group = { ...installed, selected_workflows: installed.selected_workflows.filter((entry) => entry !== ref) }
     const previousWrites = writes
     assert.notEqual(await tag('--commit', merged), 0)
-    assert.equal(run('git', ['rev-parse', 'refs/tags/v4.0.0^{}'], remote), merged, 'failed admission never moves or deletes the published tag')
+    assert.equal(run('git', ['tag', '--list'], remote), '', 'failed admission publishes no tag')
     assert.equal(writes - previousWrites, scenario === 'drift' ? 0 : 1)
   }
   resetTag(); group = installed; scenario = 'normal'

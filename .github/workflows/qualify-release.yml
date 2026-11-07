@@ -102,6 +102,7 @@ jobs:
 
   verify:
     needs: release-source
+    timeout-minutes: 30 # successful runs 7-16 min, failures up to 19; a hang ends here, not at 6 h
     runs-on:
       group: public-app-production
       labels: [self-hosted, ci-deploy]
