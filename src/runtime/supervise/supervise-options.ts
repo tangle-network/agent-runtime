@@ -37,6 +37,7 @@ import type { RunContext } from './run-context'
 import type { ExecutorConfig } from './runtime'
 import type { SelectSeat } from './seat-chain'
 import type { PlateauOptions, StopRule } from './stop-rules'
+import type { GraphCheckNodes } from './stored-graph-check'
 import type { SuperviseRegistry } from './supervise-registry'
 import type {
   CoordinationBinding,
@@ -390,6 +391,9 @@ export interface SuperviseOptions {
   /** The flow the root manager runs: an AgentGraph with `entry` sets it, together with its
    *  runtime-owned root, which makes no model call. See `RouteFlow`. Omit = none. */
   readonly routeFlow?: RouteFlow
+  /** The leaves of `routeFlow`'s check nodes: a route spawn of one runs its command, not an agent.
+   *  An AgentGraph's check nodes set it. Omit = none. */
+  readonly checkNodes?: GraphCheckNodes
   /** Answers each gate visit of `routeFlow`; `runGraph` sets it from `RunGraphOptions.decideGate`,
    *  replaying a decision the run journal already holds. Omit = none. */
   readonly decideGate?: DecideGate

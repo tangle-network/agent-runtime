@@ -1,5 +1,6 @@
-import { readFile } from 'node:fs/promises'
-import { dirname, extname } from 'node:path'
+import { mkdir, readFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, extname, join } from 'node:path'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -286,15 +287,24 @@ export async function loadGraphFile(
   if (deliverable.checkRef === 'command' && !deliverable.command)
     refuse('command deliverable requires command')
   const nodes = await Promise.all(
-    bound.nodes.map(async (node) => ({
-      id: node.id,
-      profile: await expandProfile(node, { ...options, cwd: options.cwd ?? dirname(file) }),
-    })),
+    bound.nodes.map(async (node): Promise<StoredGraphInput['nodes'][number]> => {
+      if (node.check === undefined)
+        return {
+          id: node.id,
+          profile: await expandProfile(node, { ...options, cwd: options.cwd ?? dirname(file) }),
+        }
+      if (node.profile || node.seat || node.needs)
+        refuse(`check node ${node.id} runs a command and takes no profile, seat or needs`)
+      if (node.id === 'params' || node.id === 'trigger') refuse(`reserved node id ${node.id}`)
+      return { id: node.id, profile: { name: node.id }, check: node.check }
+    }),
   )
   const nodeIds = new Set(nodes.map((node) => node.id))
   for (const id of Object.keys(options.nodeSeats ?? {})) {
     if (!nodeIds.has(id)) refuse(`seat override references unknown node ${id}`)
   }
+  if (nodes.some((node) => node.check) && !bound.entry)
+    refuse('check nodes run only in a flow graph (one with entry)')
   if (deliverable.when) {
     for (const condition of 'all' in deliverable.when ? deliverable.when.all : [deliverable.when]) {
       if (condition.node !== undefined && !nodeIds.has(condition.node))
@@ -314,11 +324,13 @@ export async function loadGraphFile(
         }
       : {}),
     ...(bound.gates ? { gates: bound.gates as AgentGraph['gates'] } : {}),
+    ...(bound.workspace ? { workspace: bound.workspace } : {}),
   }
   // Lower provenance alongside the authoring envelope: only these authored slots may bind later.
   const triggerBindings = compiled.triggerBindings.flatMap((slot): GraphTriggerBinding[] => {
     const [top, index, field, ...tail] = slot.path
     if (top === 'nodes') {
+      if (field === 'check') refuse('trigger slots in a check node command are not shell data')
       if (field === 'id') return [slot, { ...slot, path: ['nodes', index!, 'profile', 'name'] }]
       if (field === 'profile') {
         if (tail[0] === 'name') return [] // Profile names come from node IDs, never this field.
@@ -376,4 +388,24 @@ export async function loadGraphFile(
     params,
     ...(boundOn === undefined ? {} : { on: boundOn }),
   }
+}
+
+/**
+ * The directory a graph run's nodes work in. `workspace: cwd` (the default) is `cwd`. `workspace:
+ * fresh` is a new empty directory the run owns, `<root>/<runId>` (default root
+ * `~/.tangle/workspaces`); a resumed run with the same id reuses it. The host passes the result as
+ * the backend's working directory, where agent and check nodes both run.
+ */
+export async function graphWorkspace(
+  graph: Pick<AgentGraph, 'workspace'>,
+  options: { readonly cwd: string; readonly runId: string; readonly root?: string },
+): Promise<string> {
+  if ((graph.workspace ?? 'cwd') === 'cwd') return options.cwd
+  if (!/^(?!\.\.?$)[A-Za-z0-9._-]+$/.test(options.runId))
+    throw new ValidationError(
+      `graphWorkspace: run id ${JSON.stringify(options.runId)} is not a directory name`,
+    )
+  const directory = join(options.root ?? join(homedir(), '.tangle', 'workspaces'), options.runId)
+  await mkdir(directory, { recursive: true })
+  return directory
 }

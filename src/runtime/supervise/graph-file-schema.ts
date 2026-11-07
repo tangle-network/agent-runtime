@@ -23,6 +23,15 @@ const command = z.strictObject({
 })
 const nonnegativeInteger = z.number().int().nonnegative()
 
+/** A check node's command: no model, no seat. Params substitute as elsewhere. */
+export const graphCheckNodeSchema = z.strictObject({
+  command: z.string().min(1),
+  timeoutMs: z.number().int().positive().optional(),
+  environment: z.string().min(1).optional(),
+  egress: z.array(z.string().min(1)).optional(),
+  secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
+})
+
 /** Authoring envelope. Canonical profiles and topology are validated by their existing owners. */
 export const graphFileSchema = z.strictObject({
   digest: z.string().min(1).optional(),
@@ -36,9 +45,11 @@ export const graphFileSchema = z.strictObject({
         profile: z.record(z.string(), z.unknown()).optional(),
         seat: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
         needs: z.array(z.string().min(1)).optional(),
+        check: graphCheckNodeSchema.optional(),
       }),
     )
     .min(1),
+  workspace: z.enum(['cwd', 'fresh']).optional(),
   entry: z
     .array(
       z.union([z.string().min(1), z.strictObject({ node: z.string().min(1), task: z.unknown() })]),

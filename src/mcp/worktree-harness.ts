@@ -859,11 +859,14 @@ export async function runSettledCommand(opts: {
   cwd: string
   timeoutMs: number
   signal?: AbortSignal
+  /** Added to this process's environment. */
+  env?: Readonly<Record<string, string>>
 }): Promise<SettledCommandResult> {
   opts.signal?.throwIfAborted()
   return new Promise((resolve, reject) => {
     const child = spawn(opts.command, opts.args ?? [], {
       cwd: opts.cwd,
+      ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     })

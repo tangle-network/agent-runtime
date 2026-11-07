@@ -27,3 +27,13 @@ export function runtimeFlowAgent(
 export function isRuntimeFlowAgent(agent: unknown): boolean {
   return typeof agent === 'object' && agent !== null && flowOwners.has(agent)
 }
+
+/** A check node's executor factory runs a command, not a model, so it carries no model identity. */
+export function runtimeCheckFactory<Factory extends object>(factory: Factory): Factory {
+  flowOwners.add(factory)
+  return factory
+}
+
+export function isRuntimeCheckFactory(factory: unknown): boolean {
+  return typeof factory === 'function' && flowOwners.has(factory)
+}

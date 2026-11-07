@@ -45,16 +45,27 @@ import {
 
 export type { GraphTriggerBinding } from './graph-parameters'
 
-import type { GraphFromStoredOptions } from './stored-graph-check'
+import type { GraphCheckNode, GraphFromStoredOptions } from './stored-graph-check'
 
-export type { GraphCommandCheck, GraphFromStoredOptions } from './stored-graph-check'
+export type {
+  GraphCheckNode,
+  GraphCheckNodes,
+  GraphCheckOutput,
+  GraphCommandCheck,
+  GraphFromStoredOptions,
+} from './stored-graph-check'
 
 /** @inline */
 interface StoredGraphContent {
   readonly digest: string
   /** Authored trigger-slot provenance; present (even empty) on compiled loader output. */
   readonly triggerBindings?: readonly GraphTriggerBinding[]
-  readonly nodes: ReadonlyArray<{ readonly id: string; readonly profile: AgentProfile }>
+  readonly nodes: ReadonlyArray<{
+    readonly id: string
+    readonly profile: AgentProfile
+    /** A check node; its profile is `{ name: id }`. */
+    readonly check?: GraphCheckNode
+  }>
   readonly deliverable: Pick<
     AgentGraph['deliverable'],
     'describe' | 'checkRef' | 'command' | 'when'
@@ -62,6 +73,7 @@ interface StoredGraphContent {
   /** A flow graph's entry and gates; absent for any other graph. */
   readonly entry?: AgentGraph['entry']
   readonly gates?: AgentGraph['gates']
+  readonly workspace?: AgentGraph['workspace']
 }
 
 /** A graph as stored. Observed imports retain unknown directives and budgets;
@@ -206,6 +218,7 @@ function storeGraph(graph: AgentGraph): StoredGraph {
     },
     ...(graph.entry === undefined ? {} : { entry: graph.entry }),
     ...(graph.gates === undefined ? {} : { gates: graph.gates }),
+    ...(graph.workspace === undefined ? {} : { workspace: graph.workspace }),
   }
   return { digest: graphDigest(content), ...content }
 }
