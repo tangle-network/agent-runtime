@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@7.0.1` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@7.0.2` and `@tangle-network/agent-eval@1.0.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -431,7 +431,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1040 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1041 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -889,6 +889,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1040 exports.
 | `GraphCheckNode` | interface | A graph node that runs a command instead of an agent: no model, no seat. Locally it runs in the |
 | `GraphCheckNodes` | interface | The leaves of a flow's check nodes, for `supervise()`'s leaf path. |
 | `GraphCheckOutput` | interface | A check node's settled output. `json` is the last stdout line when it parses as an object. |
+| `GraphCheckPlacement` | interface | Where check nodes run in boxes: the run owner's own account. A check node is a step of the |
 | `GraphCommandCheck` | interface | An environment-owned check command, run outside the agent's conversation. |
 | `GraphCorpusGroup` | interface | Descriptive task-type/topology measurements, with every population explicit. |
 | `GraphCorpusSummary` | interface | The registry's observational view. It neither authorizes replay nor proves a causal win. |
