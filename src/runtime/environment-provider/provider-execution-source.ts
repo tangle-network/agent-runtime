@@ -8,6 +8,7 @@ import { exactSession, retainedSessionReplaced } from '../retained-run-binding'
 import {
   assertRetainedRunReplayMaterial,
   mintRetainedIdentity,
+  RetainedMaterializationTimeoutError,
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
@@ -198,6 +199,7 @@ async function retainedExecution(
     return { environment, events, retained: true }
   } catch (error) {
     // A durable dispatch or exact reattachment proves execution admission before observation starts.
+    if (error instanceof RetainedMaterializationTimeoutError) throw error
     if (proof.admitted && !retainedSessionReplaced(error))
       throw new RetainedExecutionPendingError(
         error,

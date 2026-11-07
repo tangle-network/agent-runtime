@@ -68,13 +68,7 @@ import type {
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
-/**
- * Mint deterministic dispatch coordinates from the two caller-supplied keys.
- * The same `(idempotencyKey, turnId)` pair yields the same coordinates in
- * every process, so a pre-dispatch admission record always names the exact
- * session and execution the dispatch will request. A full SHA-256 digest
- * keeps provider session identifiers bounded and safe for workspace paths.
- */
+/** Mint the same session and execution from `(idempotencyKey, turnId)` in every process. */
 export function mintRetainedIdentity(
   idempotencyKey: string,
   turnId: string,
@@ -89,17 +83,64 @@ export function mintRetainedIdentity(
   }
 }
 
-/**
- * Dispatch one detached, replayable run and return only after exact durable
- * coordinates are confirmed by the provider and persisted by the caller.
- *
- * The required `onAdmission` hook first records a digest-only intent before
- * creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
- * reference. The returned promise resolves only after the dispatched admission
- * is durable, so a crash cannot lose a successful start's exact reference.
- *
- * @stable
- */
+/** Bound from a durable intent until `provider.create` resolves. */
+const RETAINED_ENVIRONMENT_MATERIALIZATION_MS = 120_000
+
+/** Create never reached an environment. The message names the stage; the driver stops. */
+export class RetainedMaterializationTimeoutError extends Error {
+  readonly stage = 'intent' as const
+  constructor() {
+    super('retained run reached stage intent and did not materialize an environment')
+    this.name = 'RetainedMaterializationTimeoutError'
+  }
+}
+
+function createRetainedEnvironment(
+  options: StartRetainedRunOptions,
+  parent: AbortSignal | undefined,
+): Promise<AgentEnvironment> {
+  const timeout = AbortSignal.timeout(
+    options.materializationTimeoutMs ?? RETAINED_ENVIRONMENT_MATERIALIZATION_MS,
+  )
+  const signal = parent === undefined ? timeout : AbortSignal.any([parent, timeout])
+  const create = options.provider.create({
+    ...options.environment,
+    signal,
+    metadata: retainedEnvironmentMetadata(
+      options.environment.metadata,
+      options.environment.idempotencyKey,
+    ),
+  })
+  const timedOut = () => timeout.aborted && parent?.aborted !== true
+  return new Promise((resolve, reject) => {
+    const fail = () => {
+      reject(
+        timedOut()
+          ? new RetainedMaterializationTimeoutError()
+          : parent?.reason instanceof Error
+            ? parent.reason
+            : new Error('retained run materialization aborted'),
+      )
+    }
+    if (signal.aborted) {
+      fail()
+      return
+    }
+    signal.addEventListener('abort', fail, { once: true })
+    create.then(
+      (environment) => {
+        signal.removeEventListener('abort', fail)
+        resolve(environment)
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', fail)
+        reject(timedOut() ? new RetainedMaterializationTimeoutError() : error)
+      },
+    )
+  })
+}
+
+/** Dispatch one replayable run. Intent is durable before create; the promise resolves after dispatch is durable. @stable */
 export async function startRetainedRun(
   options: StartRetainedRunOptions,
 ): Promise<RetainedRunHandle> {
@@ -195,13 +236,7 @@ export async function startRetainedRun(
     )
     environment = existing
   } else {
-    environment = await options.provider.create({
-      ...options.environment,
-      metadata: retainedEnvironmentMetadata(
-        options.environment.metadata,
-        options.environment.idempotencyKey,
-      ),
-    })
+    environment = await createRetainedEnvironment(options, attachmentSignal)
   }
   let capabilities: AgentEnvironmentCapabilities
   let teardownFailure =
@@ -255,15 +290,7 @@ export async function startRetainedRun(
   })
 }
 
-/**
- * Dispatch a fresh retained session inside an existing provider environment.
- *
- * This operation reuses only the environment. It does not append to a prior
- * harness chat and does not claim native conversation continuity. The caller
- * must use `RetainedRunHandle.continueNative` for a verified same-chat turn.
- *
- * @stable
- */
+/** Fresh session in an existing environment. A same-chat turn uses `continueNative`. @stable */
 export async function startRetainedRunInEnvironment(
   options: StartRetainedRunInEnvironmentOptions,
 ): Promise<RetainedRunHandle> {
@@ -340,16 +367,7 @@ export async function startRetainedRunInEnvironment(
   })
 }
 
-/**
- * Bind an existing environment to the retained key it was created under, from the metadata the
- * provider's own `get` or `create` record carries. One read, no listing.
- *
- * A metadata-filtered `list` used to stand in when that record had none. The only provider with
- * detached session control and a `list` (Tangle Sandbox) filters client-side, so the fallback
- * walked the caller's whole inventory: on Braid's ~68.5k-sandbox account, ~55 pages at ~1.4 s
- * each before admission (2026-10-28), and past 2,000 sandboxes the route answered 400
- * (2026-10-04). A record without metadata cannot prove ownership, so it is refused at once.
- */
+/** Bind an environment to the retained key on its own get/create record. Missing metadata is a refusal; do not list the account. */
 async function assertRetainedEnvironmentOwnership(
   provider: AgentEnvironmentProvider,
   environment: AgentEnvironment,
@@ -497,12 +515,7 @@ async function dispatchRetainedRun(
   )
 }
 
-/**
- * Await one admission record through the caller's durability hook. A rejection
- * keeps the environment alive — the provider state plus any partial admission
- * record is the recovery path — and surfaces as `RetainedRunAdmissionError` so
- * callers can distinguish a persistence failure from a provider failure.
- */
+/** Await the durability hook. A rejection keeps the environment and throws the admission error, not a provider error. */
 export async function admitDurably<
   TAdmission extends RetainedRunAdmission | RetainedInteractiveAdmission,
 >(onAdmission: (admission: TAdmission) => Promise<void>, admission: TAdmission): Promise<void> {
@@ -517,11 +530,7 @@ export async function admitDurably<
   }
 }
 
-/**
- * Mirror each admission into `<journalRoot>/<runId>/observer.jsonl`, the observer format
- * agent-runtime-top reads. The caller's hook stays authoritative; an observer append that
- * fails never fails the run, matching `FileObserverJournal`'s contract.
- */
+/** Mirror admissions into the observer journal. The caller's hook stays authoritative; an observer failure does not fail the run. */
 export function journaledAdmissions<
   TAdmission extends RetainedRunAdmission | RetainedInteractiveAdmission,
 >(
@@ -542,12 +551,7 @@ export function journaledAdmissions<
   }
 }
 
-/**
- * The interactive handle with its accepted turns and its end journaled beside its admissions, so a
- * viewer sees the run take turns and settle rather than run forever. A turn records its operation id,
- * never the prompt, so handles in different processes agree. The end is the first exited status
- * read or accepted stop.
- */
+/** Journal accepted turns and the end beside admissions. A turn records its operation id, never the prompt. */
 export function journaledInteractiveHandle(
   handle: RetainedInteractiveRunHandle,
   journalRoot: string | undefined,
@@ -648,26 +652,7 @@ function isInteractiveAdmission(
   )
 }
 
-/**
- * Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
- * admission coordinates, or report why the provider cannot prove it.
- *
- * An intent recovery replays the exact original start material through
- * `startRetainedRun`; a changed replay is rejected before provider creation.
- *
- * `not_found`: the provider no longer holds the environment, so nothing
- * remains to destroy. `recovered`: the provider self-identified the session
- * with a strict exact reference matching the recorded coordinates.
- * `unverifiable`: the environment exists but the provider cannot
- * self-identify the session — no session accessor, an accessor that throws,
- * a lazy accessor with no stored reference, or a loose reference. That
- * outcome is never destroy-safe: keep the environment, retry
- * `reconnectRetainedRun` with a dispatched admission record, or inspect the
- * environment with provider-native tools. A session that self-identifies
- * with different coordinates throws: something live is not the recorded run.
- *
- * @stable
- */
+/** Replay a persisted intent, or reattach coordinates the provider can prove. `unverifiable` keeps the environment; different coordinates throw. @stable */
 export function recoverRetainedRun(
   options: RecoverRetainedRunIntentOptions,
 ): Promise<RecoverRetainedRunResult>
@@ -915,13 +900,7 @@ async function assertRetainedCapabilities(
   return capabilities
 }
 
-/**
- * Select the capability document for one concrete environment.
- *
- * A measured environment document is authoritative. An absent document uses
- * the provider document because that provider claims the same guarantee for
- * every environment it creates.
- */
+/** A measured environment capability document wins; an absent one uses the provider document. */
 function retainedCapabilitiesForEnvironment(
   providerName: string,
   providerCapabilities: AgentEnvironmentCapabilities,
