@@ -20,12 +20,7 @@ let fetchMock: ReturnType<typeof vi.fn>
 
 /** Stub `fetch` to return one OpenAI chat-completion body, and capture the request it received. */
 function stubRouter(body: unknown): void {
-  fetchMock = vi.fn(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => body,
-    text: async () => JSON.stringify(body),
-  }))
+  fetchMock = vi.fn(async () => Response.json(body))
   vi.stubGlobal('fetch', fetchMock)
 }
 
