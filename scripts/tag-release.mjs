@@ -74,13 +74,13 @@ console.log(`tagged ${tag} at ${commit}`)
 try {
   if (git('ls-remote', '--tags', 'origin', `refs/tags/${tag}^{}`) !== `${commit}\trefs/tags/${tag}^{}`)
     throw new Error('remote immutable tag does not match the selected commit')
-  const ref = `${repository}/${qualifier}@refs/tags/${tag}`
+  const refs = [`refs/tags/${tag}`, commit].map((at) => `${repository}/${qualifier}@${at}`).filter((ref) => !before.selected_workflows.includes(ref))  // a workflow_call resolves at the commit: the tag ref alone left the 7.0.2 job queued
   if (!isDeepStrictEqual(policy(api(endpoint)), policy(before))) throw new Error('runner-group policy changed during tagging')
-  const expected = { ...before, selected_workflows: [...before.selected_workflows, ...(before.selected_workflows.includes(ref) ? [] : [ref])] }
+  const expected = { ...before, selected_workflows: [...before.selected_workflows, ...refs] }
   // The API has no conditional PATCH: the organization owner serializes policy writes.
-  if (!before.selected_workflows.includes(ref)) api(endpoint, { selected_workflows: expected.selected_workflows })
+  if (refs.length > 0) api(endpoint, { selected_workflows: expected.selected_workflows })
   if (!isDeepStrictEqual(policy(api(endpoint)), policy(expected))) throw new Error('runner-group admission readback differs')
-  console.log(`qualifier admitted: ${ref} in ${before.name}`)
+  console.log(`qualifier admitted at refs/tags/${tag} and ${commit} in ${before.name}`)
 } catch (error) {
   refuse(`${tag} remains published at ${commit}; reconcile its exact qualifier tag reference with the runner-group owner: ${error.message}`)
 }
