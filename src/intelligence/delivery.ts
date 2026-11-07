@@ -26,12 +26,7 @@
  * @stable
  */
 
-import type {
-  AgentImprovementProposal,
-  AgentProfile,
-  AgentProfileDiff,
-} from '@tangle-network/agent-interface'
-import { verifyAgentImprovementProposal } from './activation'
+import type { AgentProfile, AgentProfileDiff } from '@tangle-network/agent-interface'
 
 const defaultPlaneBaseUrl = 'https://intelligence.tangle.tools'
 const defaultRefreshMs = 300_000
@@ -124,40 +119,7 @@ export interface PullCertifiedOptions {
   timeoutMs?: number
 }
 
-/** What Runtime knows about a failed proposal submission.
- * `not-sent` means no request began, `rejected` means Intelligence returned a
- * definitive 4xx response, and `unconfirmed` means the caller may safely retry
- * the same immutable proposal. */
-type AgentImprovementProposalSubmissionState = 'not-sent' | 'rejected' | 'unconfirmed'
-
-/** Submit a completed measured proposal for product-side review. */
-interface SubmitAgentImprovementProposalOptions {
-  proposal: AgentImprovementProposal
-  /** Bearer key. Defaults to `process.env.TANGLE_API_KEY`. */
-  apiKey?: string
-  /** Plane base URL. Defaults to `process.env.TANGLE_INTELLIGENCE_URL` then
-   * `https://intelligence.tangle.tools`. */
-  baseUrl?: string
-  /** fetch impl (tests / non-global-fetch runtimes). Defaults to global fetch. */
-  fetchImpl?: typeof fetch
-  /** Abort the request after this many ms. Default 10000. */
-  timeoutMs?: number
-}
-
-/** Typed result for proposal submission. A successful result contains the
- * exact immutable proposal Intelligence recorded. */
-type SubmitAgentImprovementProposalOutcome =
-  | { succeeded: true; value: AgentImprovementProposal; status: number }
-  | {
-      succeeded: false
-      submission: AgentImprovementProposalSubmissionState
-      error: string
-      status?: number
-      code?: string
-    }
-
 const defaultPlaneRequestTimeoutMs = 10_000
-const maxPlaneErrorTextLength = 200
 
 type PlaneRequestOptions = Pick<
   PullCertifiedOptions,
@@ -230,10 +192,6 @@ async function requestPlane(input: PlaneRequestInput): Promise<PlaneRequestResul
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
-}
-
-function capPlaneErrorText(value: string): string {
-  return value.slice(0, maxPlaneErrorTextLength)
 }
 
 function toDiffProvenance(value: unknown): DiffProvenance {
@@ -315,89 +273,6 @@ export async function pullCertified(opts: PullCertifiedOptions): Promise<PullOut
     return {
       succeeded: false,
       error: `pull response parse failed: ${err instanceof Error ? err.message : String(err)}`,
-    }
-  }
-}
-
-/**
- * Submit a completed Runtime proposal to Intelligence for product-side review.
- * This never runs an experiment, approves a proposal, or applies a candidate.
- * A 4xx response is a confirmed `rejected` request. Network failures, timeouts,
- * 5xx responses, and invalid success responses are `unconfirmed`, so callers
- * can retry the same digest because Intelligence stores proposals idempotently.
- */
-export async function submitAgentImprovementProposal(
-  opts: SubmitAgentImprovementProposalOptions,
-): Promise<SubmitAgentImprovementProposalOutcome> {
-  let proposal: AgentImprovementProposal
-  try {
-    proposal = verifyAgentImprovementProposal(opts.proposal)
-  } catch (err) {
-    return {
-      succeeded: false,
-      submission: 'not-sent',
-      error: `proposal validation failed: ${err instanceof Error ? err.message : String(err)}`,
-    }
-  }
-
-  const request = await requestPlane({
-    ...opts,
-    path: '/v1/improvements/proposals',
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ proposal }),
-  })
-  if (!request.succeeded) {
-    return {
-      succeeded: false,
-      submission: request.attempted ? 'unconfirmed' : 'not-sent',
-      error: request.attempted
-        ? `proposal submission request failed: ${request.error}`
-        : request.error,
-    }
-  }
-  const res = request.response
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    let code: string | undefined
-    let message = capPlaneErrorText(body)
-    try {
-      const parsed = asRecord(JSON.parse(body))
-      if (typeof parsed.error === 'string') code = capPlaneErrorText(parsed.error)
-      if (typeof parsed.message === 'string') message = capPlaneErrorText(parsed.message)
-    } catch {
-      // The response body is optional; the HTTP status still determines the outcome.
-    }
-    return {
-      succeeded: false,
-      submission: res.status >= 400 && res.status < 500 ? 'rejected' : 'unconfirmed',
-      error: `proposal submission ${res.status}: ${message}`,
-      status: res.status,
-      ...(code === undefined ? {} : { code }),
-    }
-  }
-
-  try {
-    const response = asRecord(await res.json())
-    const recorded = verifyAgentImprovementProposal(response.proposal)
-    if (recorded.digest !== proposal.digest) {
-      return {
-        succeeded: false,
-        submission: 'unconfirmed',
-        error: 'proposal submission returned a different proposal digest',
-        status: res.status,
-      }
-    }
-    return { succeeded: true, value: recorded, status: res.status }
-  } catch (err) {
-    return {
-      succeeded: false,
-      submission: 'unconfirmed',
-      error: `proposal submission response parse failed: ${capPlaneErrorText(
-        err instanceof Error ? err.message : String(err),
-      )}`,
-      status: res.status,
     }
   }
 }

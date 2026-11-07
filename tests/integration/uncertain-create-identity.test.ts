@@ -458,18 +458,12 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           cancelEffect: 'cancelled',
           nativeStatus: 'cancelled',
         })
-        await fixture.wait(
-          'confirmed terminal stop authorizes next invocation',
-          async () => {
-            const events = await fixture.events()
-            return (
-              abandoned(events).length > 0 &&
-              inputs(events).length > 1 &&
-              intents(events).length > 1
-            )
-          },
-          35000,
-        )
+        await fixture.wait('confirmed terminal stop authorizes next invocation', async () => {
+          const events = await fixture.events()
+          return (
+            abandoned(events).length > 0 && inputs(events).length > 1 && intents(events).length > 1
+          )
+        })
         const events = await fixture.events()
         expect(abandoned(events)).toContainEqual(
           expect.objectContaining({

@@ -316,8 +316,7 @@ function pinDelegatesSpawn(
     false,
   )
   ledger.holdPendingSpawn(input.parentNodeId, input.assignmentId, row)
-  // The directive is a STANDING instruction: the worker runs under node profile + edge directive;
-  // the driver-authored profile contributes ONLY the node selection.
+  // A standing instruction: node profile + edge directive; the driver's profile only selects the node.
   return withDirective(node.profile, directiveText)
 }
 
@@ -354,8 +353,8 @@ function pinMapSpawn(
   return input.profile
 }
 
-// A flow's entry or route spawn (runtime-authored marker) spawns the node its edge names with the
-// edge directive appended; its traversal is ledgered from the route events.
+// An entry or route spawn gets its node with the edge directive; a resume into an entry node keeps
+// its session's directive-free profile, which the bridge would refuse to rebind (#2479).
 function pinRouteSpawn(
   { validated: { flow }, registry }: OverlayContext,
   input: SpawnAuthorizationInput,
@@ -371,7 +370,8 @@ function pinRouteSpawn(
         `${JSON.stringify(requested)}, which is not the node that edge starts`,
     )
   }
-  return edge === undefined
+  const reentry = edge?.continuity === 'resume' && flow?.entries.some((e) => e.node === requested)
+  return edge === undefined || reentry
     ? node.profile
     : withDirective(node.profile, registry.resolve(edge.directive).text)
 }

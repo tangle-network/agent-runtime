@@ -1,3 +1,13 @@
+## 7.0.3
+
+7.0.1 failed its Publish typecheck (#2475) and 7.0.2 failed the qualify suite: the `graph-check-nodes` assertion lacked the `secrets` that #2469 declared. The runtime code of 7.0.2 ships unchanged.
+
+## 7.0.2
+
+Graph check nodes in boxes run in the run owner's account: `RunGraphOptions.checkPlacement` is a `GraphCheckPlacement` whose `builderAccounts` is optional, the cross-account refusal stays with declared-check judges, secrets resolve only from the placement `env` (a record, or an async resolver called before each box run), and a check node's optional `resources` size a box with a durable home. Every resolved secret value in a check node's output becomes `[redacted:NAME]` before it reaches the receipt, the run's output or downstream `$GRAPH_EVIDENCE`.
+
+- `agent-runtime-mcp` serves a run directory's committed root stream through the `events_*` tools when `MCP_ENABLE_EVENTS=1` and `AGENT_RUNTIME_EVENTS_ROOT_STREAM=<runDir>`: the sequence is the line's own `seq`, which continues across drive attempts and processes, each record carries its `attempt`, a torn tail is never served, and the digest chain lets an observer detect rewritten history at its cursor. Removes the internal `submitAgentImprovementProposal` body left behind when its export was removed.
+
 ## 7.0.1
 
 An unjudged check tells a barren root to end its turn. Own long work still waits inside the turn.

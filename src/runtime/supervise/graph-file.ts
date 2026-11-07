@@ -8,6 +8,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { parseDocument } from 'yaml'
 import { ValidationError } from '../../errors'
+import { assertJsonData } from '../../json-data'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
 import type { AgentGraph } from './graph'
@@ -87,16 +88,6 @@ function refuse(message: string): never {
   throw new ValidationError(`loadGraphFile: ${message}`)
 }
 
-function jsonData(value: unknown, visiting = new Set<object>()): void {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
-  if (typeof value === 'number' && Number.isFinite(value)) return
-  if (!value || typeof value !== 'object' || visiting.has(value))
-    refuse('definition must be finite, acyclic JSON data')
-  visiting.add(value)
-  for (const child of Object.values(value)) jsonData(child, visiting)
-  visiting.delete(value)
-}
-
 function bindParameters(
   raw: Record<string, unknown>,
   supplied: LoadGraphFileOptions['params'],
@@ -131,7 +122,7 @@ function bindParameters(
                   : typeof value === type
         if (!valid) refuse(`parameter ${key} must be ${type}`)
       }
-      jsonData(value)
+      assertJsonData(value, 'loadGraphFile')
       return [key, value]
     }),
   )
@@ -243,7 +234,7 @@ export async function loadGraphFile(
   if (document.warnings.length)
     refuse(document.warnings.map((warning) => warning.message).join('; '))
   const raw: unknown = format === '.json' ? JSON.parse(text) : document.toJS({ maxAliasCount: 100 })
-  jsonData(raw)
+  assertJsonData(raw, 'loadGraphFile')
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) refuse('definition must be an object')
   const source = raw as Record<string, unknown>
   if (
@@ -257,6 +248,7 @@ export async function loadGraphFile(
   const bindingOptions = options.trigger === undefined ? { defer: ['trigger'] as const } : {}
   const compiled = compileGraphParameters(authored, bindings, bindingOptions)
   const bound = graphFileSchema.parse(compiled.value)
+  if (bound.entry && bound.continuation) refuse('continuation with entry has no root manager')
   const boundOn = on === undefined ? undefined : bindGraphParameters(on, bindings, bindingOptions)
   if (bound.check && bound.deliverable) refuse('use check or deliverable, not both')
   let deliverable: StoredGraphInput['deliverable'] | undefined = bound.deliverable
@@ -325,6 +317,7 @@ export async function loadGraphFile(
       : {}),
     ...(bound.gates ? { gates: bound.gates as AgentGraph['gates'] } : {}),
     ...(bound.workspace ? { workspace: bound.workspace } : {}),
+    ...(bound.continuation ? { continuation: bound.continuation } : {}),
   }
   // Lower provenance alongside the authoring envelope: only these authored slots may bind later.
   const triggerBindings = compiled.triggerBindings.flatMap((slot): GraphTriggerBinding[] => {
@@ -373,7 +366,11 @@ export async function loadGraphFile(
         : [{ ...slot, path: ['deliverable', 'describe'] }]
     if (top === 'entry' && slot.path.length === 2)
       return [{ ...slot, path: ['entry', index!, 'node'] }]
-    return ['edges', 'budget', 'gates', 'entry', 'deliverable'].includes(String(top)) ? [slot] : []
+    return ['edges', 'budget', 'gates', 'entry', 'deliverable', 'continuation'].includes(
+      String(top),
+    )
+      ? [slot]
+      : []
   })
   assertGraphTriggerBindings(topology, triggerBindings)
   const content: StoredGraphInput = { ...topology, triggerBindings }

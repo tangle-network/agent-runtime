@@ -8,7 +8,7 @@ import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { ATTR } from '@tangle-network/agent-trace-contract'
 import { decodeOtlpTraceExport } from '@tangle-network/agent-trace-contract/otlp'
 import { Sandbox } from '@tangle-network/sandbox'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { readSpawnJournal } from '../../src/durable'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { createFileRunContext, type DriveHarness, supervise } from '../../src/runtime'
@@ -21,13 +21,16 @@ import { ProcessFixture, prepareExecutables } from './fixtures/uncertain-create-
 import { readRecords } from './fixtures/uncertain-create-protocol'
 
 const execute = promisify(execFile)
+// Every case runs real native processes; the managed case also bundles and starts the provider
+// fixture: 6 s alone, 12 s with 3 busy loops on its core, 68 s with dozens. Waits are on events.
+vi.setConfig({ testTimeout: 180_000 })
 const native = `
 const fs = require('node:fs')
 const assert = require('node:assert/strict')
 ;(async () => {
   const config = JSON.parse(process.env.NATIVE_ATTEMPT)
   const response = await fetch(config.url, {
-    method: 'POST', signal: AbortSignal.timeout(5000),
+    method: 'POST',
     headers: { 'content-type': 'application/json', ...config.headers },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
   })
@@ -54,7 +57,6 @@ async function nativeFailure(
 ): Promise<never> {
   const result = await execute(process.execPath, ['-e', native], {
     cwd: directory,
-    timeout: 5000,
     signal: driver.scope.signal,
     env: {
       ...process.env,
@@ -105,15 +107,12 @@ it.each(['caller', 'infra', 'work', 'capacity'] as const)(
             async appendEvent(root, event) {
               await context.journal.appendEvent(root, event)
               if (event.kind === 'driver-attempt' && event.record.failure) {
-                const ack = await fetch(`${endpoint}/journal-ack`, {
-                  method: 'POST',
-                  signal: AbortSignal.timeout(5000),
-                })
+                const ack = await fetch(`${endpoint}/journal-ack`, { method: 'POST' })
                 if (!ack.ok) throw new Error('durable attempt acknowledgement refused')
               }
             },
           },
-          otel: { exportConfig: { endpoint, batchSize: 1, flushIntervalMs: 10, timeoutMs: 5000 } },
+          otel: { exportConfig: { endpoint, batchSize: 1, flushIntervalMs: 10 } },
           hooks: {
             onEvent(event) {
               hooks.push(event)
@@ -124,7 +123,7 @@ it.each(['caller', 'infra', 'work', 'capacity'] as const)(
             throw new Error('a refused native turn cannot delegate')
           },
           signal: controller.signal,
-          budget: { maxTokens: 100, maxIterations: 5, deadlineMs: 10000 },
+          budget: { maxTokens: 100, maxIterations: 5 },
           driveHarnessMaterialization: {
             name: 'native-attempt-proof',
             axes: AGENT_PROFILE_MATERIALIZATION_AXES,
@@ -137,7 +136,7 @@ it.each(['caller', 'infra', 'work', 'capacity'] as const)(
           onDriverAttempt: () => controller.abort(new Error('proof received its durable attempt')),
         },
       )
-      await waitFor('durable driver attempt', fixture.admissionEntered.wait)
+      await waitFor('durable driver attempt', fixture.admissionEntered.wait, running)
       const beforeAck = (await context.journal.loadTree(runId))!.find(
         (event) => event.kind === 'driver-attempt',
       )!
@@ -275,10 +274,7 @@ it('links a managed native driver attempt to its real execution binding after du
           async appendEvent(root, event) {
             await context.journal.appendEvent(root, event)
             if (event.kind === 'driver-attempt' && event.record.failure) {
-              const ack = await fetch(`${fixture.endpoint}/journal-ack`, {
-                method: 'POST',
-                signal: AbortSignal.timeout(5000),
-              })
+              const ack = await fetch(`${fixture.endpoint}/journal-ack`, { method: 'POST' })
               if (!ack.ok) throw new Error('durable attempt acknowledgement refused')
             }
           },
@@ -293,7 +289,7 @@ it('links a managed native driver attempt to its real execution binding after du
           },
         },
         signal: controller.signal,
-        budget: { maxTokens: 100, maxIterations: 4, deadlineMs: 10000 },
+        budget: { maxTokens: 100, maxIterations: 4 },
         coordination: {
           host: '127.0.0.1',
           port: 0,
@@ -303,7 +299,7 @@ it('links a managed native driver attempt to its real execution binding after du
         onDriverAttempt: () => controller.abort(new Error('one acknowledged managed attempt')),
       },
     )
-    await waitFor('managed driver attempt persisted', fixture.admissionEntered.wait)
+    await waitFor('managed driver attempt persisted', fixture.admissionEntered.wait, running)
     expect(
       hooks.filter((event) => event.target === 'agent.execution' && event.phase === 'event'),
     ).toEqual([])
@@ -382,7 +378,7 @@ it('links a managed native driver attempt to its real execution binding after du
     await fixture.close()
     await rm(bundle, { recursive: true, force: true })
   }
-}, 15000)
+})
 
 it.each(['same', 'infra', 'changing', 'text', 'progress'] as const)(
   'bounds native repeated work failures while %s evidence earns the correct retries',
@@ -408,7 +404,7 @@ it.each(['same', 'infra', 'changing', 'text', 'progress'] as const)(
             throw new Error('a failed native turn cannot delegate')
           },
           signal: controller.signal,
-          budget: { maxTokens: 100, maxIterations: 10, deadlineMs: 10000 },
+          budget: { maxTokens: 100, maxIterations: 10 },
           driveHarnessMaterialization: {
             name: 'native-attempt-proof',
             axes: AGENT_PROFILE_MATERIALIZATION_AXES,

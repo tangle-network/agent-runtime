@@ -233,7 +233,7 @@ try {
                       directive: { surface: 'delegates/worker-brief', version: 1 },
                     },
                   ],
-                  budget: { maxIterations: 12, maxTokens: 1000, deadlineMs: 15000 },
+                  budget: { maxIterations: 12, maxTokens: 1000 },
                   check: {
                     all: [
                       {

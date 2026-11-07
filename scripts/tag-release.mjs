@@ -69,14 +69,14 @@ for (const ref of before.selected_workflows) {
   reviewed = frozen === workflowAt(source)
 }
 if (!reviewed) refuse('frozen qualifier matches neither reviewed main nor an admitted immutable workflow; reconcile its runner policy first')
-// Admit before pushing: a job queued ahead of its admission is never re-offered to the group (v7.0.2, 2026-11-07).
-const ref = `${repository}/${qualifier}@refs/tags/${tag}`
-const expected = { ...before, selected_workflows: [...before.selected_workflows, ...(before.selected_workflows.includes(ref) ? [] : [ref])] }
+// Admit before pushing, at the tag and the commit (a workflow_call resolves at the commit): the 7.0.2 job queued unadmitted.
+const refs = [`refs/tags/${tag}`, commit].map((at) => `${repository}/${qualifier}@${at}`).filter((ref) => !before.selected_workflows.includes(ref))
+const expected = { ...before, selected_workflows: [...before.selected_workflows, ...refs] }
 if (!isDeepStrictEqual(policy(api(endpoint)), policy(before))) refuse('runner-group policy changed during the checks; nothing tagged')
 // The API has no conditional PATCH: the organization owner serializes policy writes.
-if (!before.selected_workflows.includes(ref)) api(endpoint, { selected_workflows: expected.selected_workflows })
+if (refs.length > 0) api(endpoint, { selected_workflows: expected.selected_workflows })
 if (!isDeepStrictEqual(policy(api(endpoint)), policy(expected))) refuse('runner-group admission readback differs; nothing tagged')
-console.log(`qualifier admitted: ${ref} in ${before.name}`)
+console.log(`qualifier admitted at refs/tags/${tag} and ${commit} in ${before.name}`)
 git('tag', '--annotate', tag, '--message', tag, commit)
 git('-c', 'credential.helper=', '-c', 'credential.helper=!gh-drew auth git-credential', 'push', '--quiet', 'origin', `refs/tags/${tag}`)
 if (git('ls-remote', '--tags', 'origin', `refs/tags/${tag}^{}`) !== `${commit}\trefs/tags/${tag}^{}`)

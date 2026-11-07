@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0
+
+First stable release, graduating from 0.14.4, the last version on npm; 0.14.5 to 0.14.10 were never published.
+Named break since 0.14.4: the `./benchmarks/frames` entry no longer exports `ResearchAnswer`, `ResearchTask`, `normalizeAnswer` or `parseCitations`, and other exports were removed or narrowed; `api-surface.json` is the full record and `node scripts/check-version-bump.mjs --archive` lists them against 0.14.4.
+Later compatible changes ship as patch releases.
+
+Benchmark execution and grading are unchanged. Dependencies are the Runtime 1.0 cohort from 0.14.10, one caret per first-party package: agent-eval `^1.0.0`, Sandbox `^1.0.1`, agent-knowledge `^23.0.0` and agent-interface `^5.9.0`.
+
 ## 0.14.10
 
 Use the Runtime 1.0 cohort, one caret per first-party package: agent-eval `^1.0.0`, Sandbox `^1.0.1`, agent-knowledge `^23.0.0` and agent-interface `^5.9.0`.
