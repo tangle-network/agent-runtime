@@ -194,6 +194,81 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(names).toEqual(['spawn_worker'])
   })
 
+  // report_blocked re-runs the named tool under the caller's identity. A name outside the grant
+  // used to fall through to every coordination verb, so this manager could spawn a worker and read
+  // the question ledger through the probe.
+  it('report_blocked probes only the tools this manager was granted', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let workersMade = 0
+    const replies: Record<string, unknown> = {}
+    const root: Agent<unknown, unknown> = {
+      name: 'narrow-manager',
+      async act(_task, scope: Scope<unknown>) {
+        const { handle: mcp } = await serveCoordinationMcpForManager({
+          scope,
+          blobs,
+          makeWorkerAgent: () => {
+            workersMade += 1
+            return deliveringLeaf('w', 'spawned through the probe')
+          },
+          perWorker: { maxIterations: 4, maxTokens: 1000 },
+          toolNames: ['read_journal', 'report_blocked', 'submit_result'],
+          deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },
+          authentication: true,
+        })
+        try {
+          for (const [tool, args] of [
+            ['spawn_worker', { profile: {}, task: 'go' }],
+            ['mcp__coordination__list_questions', {}],
+            ['read_journal', {}],
+          ] as const) {
+            const response = await jsonRpc(
+              mcp.url,
+              'tools/call',
+              { name: 'report_blocked', arguments: { tool, arguments: args, error: 'it failed' } },
+              mcp.headers,
+            )
+            expect(response.error).toBeUndefined()
+            const { content } = response.result as { content: Array<{ text: string }> }
+            replies[tool] = JSON.parse(content[0]!.text)
+          }
+        } finally {
+          await mcp.close()
+        }
+      },
+    }
+    await createSupervisor<unknown, unknown>().run(root, 'probe outside the grant', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'probe-grant',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 2,
+    })
+
+    for (const [tool, bare] of [
+      ['spawn_worker', 'spawn_worker'],
+      ['mcp__coordination__list_questions', 'list_questions'],
+    ]) {
+      expect(replies[tool]).toEqual({
+        blocked: false,
+        error: 'unknown-tool',
+        reason: expect.stringContaining(JSON.stringify(bare)),
+      })
+    }
+    expect(workersMade).toBe(0)
+    const children = ((await journal.loadTree('probe-grant')) ?? []).filter(
+      (event) => event.kind === 'spawned' && event.parent !== undefined,
+    )
+    expect(children).toEqual([])
+    // A granted tool is still probed.
+    expect(replies.read_journal).toMatchObject({
+      blocked: false,
+      probe: { tool: 'read_journal', ok: true },
+    })
+  })
+
   // #1281: the gate judged the pinning layer's resolved profile while the spawn ran the authored
   // stub, so a pre-flight refusal (or grant) described a worker that never existed.
   it('resolves the spawn profile once: the pre-flight gate and the spawned worker see the same profile', async () => {
