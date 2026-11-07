@@ -1,3 +1,9 @@
+## 8.0.1
+
+A profile that declares a Claude family alias (`opus`, `sonnet`, `haiku`) accepts the concrete model of that family that the bridge serves, such as `claude-opus-5-5`; any other provider or family substitution still fails the turn.
+
+Adopt the current dependency cohort, including the compatible Profile update, refresh its proposal fixture, and exercise lifecycle-enabled strict consumers with explicit routed provider configuration.
+
 ## 8.0.0
 
 `ProfileMaterializationReceipt` now requires `resources` when `status` is `known`. Consumers that construct these receipts must provide `MaterializedResources`: the observed resource values and their provenance, or `{ status: 'unknown', reason: '...' }` when no resource observation is available.
