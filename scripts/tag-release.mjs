@@ -69,19 +69,16 @@ for (const ref of before.selected_workflows) {
   reviewed = frozen === workflowAt(source)
 }
 if (!reviewed) refuse('frozen qualifier matches neither reviewed main nor an admitted immutable workflow; reconcile its runner policy first')
+// Admit before pushing: a job queued ahead of its admission is never re-offered to the group (v7.0.2, 2026-11-07).
+const ref = `${repository}/${qualifier}@refs/tags/${tag}`
+const expected = { ...before, selected_workflows: [...before.selected_workflows, ...(before.selected_workflows.includes(ref) ? [] : [ref])] }
+if (!isDeepStrictEqual(policy(api(endpoint)), policy(before))) refuse('runner-group policy changed during the checks; nothing tagged')
+// The API has no conditional PATCH: the organization owner serializes policy writes.
+if (!before.selected_workflows.includes(ref)) api(endpoint, { selected_workflows: expected.selected_workflows })
+if (!isDeepStrictEqual(policy(api(endpoint)), policy(expected))) refuse('runner-group admission readback differs; nothing tagged')
+console.log(`qualifier admitted: ${ref} in ${before.name}`)
 git('tag', '--annotate', tag, '--message', tag, commit)
 git('-c', 'credential.helper=', '-c', 'credential.helper=!gh-drew auth git-credential', 'push', '--quiet', 'origin', `refs/tags/${tag}`)
+if (git('ls-remote', '--tags', 'origin', `refs/tags/${tag}^{}`) !== `${commit}\trefs/tags/${tag}^{}`)
+  refuse(`${tag} on origin does not match ${commit}; reconcile the tag with the release owner`)
 console.log(`tagged ${tag} at ${commit}`)
-try {
-  if (git('ls-remote', '--tags', 'origin', `refs/tags/${tag}^{}`) !== `${commit}\trefs/tags/${tag}^{}`)
-    throw new Error('remote immutable tag does not match the selected commit')
-  const ref = `${repository}/${qualifier}@refs/tags/${tag}`
-  if (!isDeepStrictEqual(policy(api(endpoint)), policy(before))) throw new Error('runner-group policy changed during tagging')
-  const expected = { ...before, selected_workflows: [...before.selected_workflows, ...(before.selected_workflows.includes(ref) ? [] : [ref])] }
-  // The API has no conditional PATCH: the organization owner serializes policy writes.
-  if (!before.selected_workflows.includes(ref)) api(endpoint, { selected_workflows: expected.selected_workflows })
-  if (!isDeepStrictEqual(policy(api(endpoint)), policy(expected))) throw new Error('runner-group admission readback differs')
-  console.log(`qualifier admitted: ${ref} in ${before.name}`)
-} catch (error) {
-  refuse(`${tag} remains published at ${commit}; reconcile its exact qualifier tag reference with the runner-group owner: ${error.message}`)
-}
