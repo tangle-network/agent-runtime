@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import type { SpawnEvent } from '../../src/runtime'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
@@ -34,10 +34,9 @@ const childFile = fileURLToPath(
 )
 const tsx = createRequire(import.meta.url).resolve('tsx')
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-// A resumed graph run takes a few seconds on an idle host and several times that on a loaded CI
-// runner or build host; these bound a hung child, not a slow one.
-const CHILD_REPORT_MS = 90_000
-const CASE_MS = 150_000
+// A resumed graph run takes seconds idle and many times that under load. Waits end on the child's
+// own messages and exit; this one bound only stops a hung child.
+vi.setConfig({ testTimeout: 180_000 })
 
 async function directory() {
   const path = await mkdtemp(join(tmpdir(), 'sql-run-context-'))
@@ -110,23 +109,16 @@ async function start(shared: string, cwd: string, mode = 'run', checkpoint = '')
     child,
     exit,
     async message(type: string) {
-      for (let i = 0; i < 1500; i += 1) {
+      for (;;) {
         const found = messages.find((message) => message.type === type)
         if (found) return found
         if (child.exitCode !== null || child.signalCode !== null)
           throw new Error(`child exited before ${type}: ${stderr}\n${stdout}`)
         await delay(20)
       }
-      throw new Error(`child never reached ${type}: ${stderr}\n${stdout}`)
     },
     async report() {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const result = await Promise.race([
-        exit,
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error(`child timed out: ${stderr}`)), CHILD_REPORT_MS)
-        }),
-      ]).finally(() => clearTimeout(timer))
+      const result = await exit
       expect(result, stderr).toEqual({ code: 0, signal: null })
       return JSON.parse(stdout.trim().split('\n').at(-1)!) as {
         kind: string
@@ -286,228 +278,223 @@ describe('SQL run context', () => {
     }
   })
 
-  it(
-    'shares one immutable read-only SQL inspection cut across journal, blobs and coordination',
-    async () => {
-      const shared = await directory()
-      const rootId = 'inspection-root-node'
-      const db = openSql(join(shared, 'run-context.sqlite'))
-      let selects = 0
-      let historyReads = 0
-      let historyRows = 0
-      let writes = 0
-      let readOnly = false
-      let appendDuringRead = false
-      let writer: Awaited<ReturnType<typeof start>> | undefined
-      const adapter = {
-        async exec(sql: string, params?: readonly unknown[]) {
-          writes += 1
-          if (readOnly) throw new Error('Inspection attempted a SQL write or ownership acquisition')
-          return db.adapter.exec(sql, params)
-        },
-        async query<Row>(sql: string, params?: readonly unknown[]) {
-          selects += 1
-          const history = sql.includes('FROM agent_run_records ')
-          if (history) {
-            historyReads += 1
-            if (appendDuringRead) {
-              appendDuringRead = false
-              if (!writer) throw new Error('SQL writer was not started')
-              writer.child.send('write')
-              await writer.message('written')
-              expect(await writer.exit).toEqual({ code: 0, signal: null })
-            }
+  it('shares one immutable read-only SQL inspection cut across journal, blobs and coordination', async () => {
+    const shared = await directory()
+    const rootId = 'inspection-root-node'
+    const db = openSql(join(shared, 'run-context.sqlite'))
+    let selects = 0
+    let historyReads = 0
+    let historyRows = 0
+    let writes = 0
+    let readOnly = false
+    let appendDuringRead = false
+    let writer: Awaited<ReturnType<typeof start>> | undefined
+    const adapter = {
+      async exec(sql: string, params?: readonly unknown[]) {
+        writes += 1
+        if (readOnly) throw new Error('Inspection attempted a SQL write or ownership acquisition')
+        return db.adapter.exec(sql, params)
+      },
+      async query<Row>(sql: string, params?: readonly unknown[]) {
+        selects += 1
+        const history = sql.includes('FROM agent_run_records ')
+        if (history) {
+          historyReads += 1
+          if (appendDuringRead) {
+            appendDuringRead = false
+            if (!writer) throw new Error('SQL writer was not started')
+            writer.child.send('write')
+            await writer.message('written')
+            expect(await writer.exit).toEqual({ code: 0, signal: null })
           }
-          const rows = await db.adapter.query<Row>(sql, params)
-          if (history) historyRows += rows.length
-          return rows
-        },
+        }
+        const rows = await db.adapter.query<Row>(sql, params)
+        if (history) historyRows += rows.length
+        return rows
+      },
+    }
+    try {
+      const context = await createFencedSqlRunContext(adapter, RUN_ID, leaseOptions)
+      const foreign = await createFencedSqlRunContext(adapter, 'another-run', leaseOptions)
+      const isolated = await createFencedSqlRunContext(adapter, RUN_ID, {
+        ...leaseOptions,
+        tablePrefix: 'inspection_other',
+      })
+      const values = Array.from({ length: 6 }, (_, index) => ({
+        index,
+        text: `retained-${index}`,
+      }))
+      const refs = values.map(contentAddress)
+      const at = '2026-09-24T00:00:00.000Z'
+      const rootEvent = {
+        kind: 'spawned' as const,
+        id: rootId,
+        label: 'root',
+        runtime: 'inline' as const,
+        budget: { maxIterations: 5, maxTokens: 100 },
+        seq: 0,
+        at,
       }
+      const instruction = {
+        receiptId: 'inspection-receipt',
+        kind: 'steer' as const,
+        toWorker: 'worker',
+        instruction: 'recorded instruction',
+        instructionDigest: `sha256:${'a'.repeat(64)}`,
+        interrupt: false,
+      }
+      const record = {
+        seq: 0,
+        at: 1000,
+        priority: 0 as const,
+        event: { type: 'instruction' as const, instruction },
+      }
+      const lease = await context.acquire()
       try {
-        const context = await createFencedSqlRunContext(adapter, RUN_ID, leaseOptions)
-        const foreign = await createFencedSqlRunContext(adapter, 'another-run', leaseOptions)
-        const isolated = await createFencedSqlRunContext(adapter, RUN_ID, {
-          ...leaseOptions,
-          tablePrefix: 'inspection_other',
-        })
-        const values = Array.from({ length: 6 }, (_, index) => ({
-          index,
-          text: `retained-${index}`,
-        }))
-        const refs = values.map(contentAddress)
-        const at = '2026-09-24T00:00:00.000Z'
-        const rootEvent = {
-          kind: 'spawned' as const,
-          id: rootId,
-          label: 'root',
-          runtime: 'inline' as const,
-          budget: { maxIterations: 5, maxTokens: 100 },
-          seq: 0,
-          at,
-        }
-        const instruction = {
-          receiptId: 'inspection-receipt',
-          kind: 'steer' as const,
-          toWorker: 'worker',
-          instruction: 'recorded instruction',
-          instructionDigest: `sha256:${'a'.repeat(64)}`,
-          interrupt: false,
-        }
-        const record = {
-          seq: 0,
-          at: 1000,
-          priority: 0 as const,
-          event: { type: 'instruction' as const, instruction },
-        }
-        const lease = await context.acquire()
-        try {
-          await lease.context.journal.beginTree(rootId, at)
-          await lease.context.journal.appendEvent(rootId, rootEvent)
-          for (const [index, ref] of refs.entries())
-            await lease.context.blobs.put(ref, values[index])
-          await lease.context.coordinationLog!.append(RUN_ID, record, 'inspection-owner')
-        } finally {
-          await lease.release()
-        }
-        const foreignValue = { origin: 'other SQL context' }
-        const foreignRef = contentAddress(foreignValue)
-        for (const other of [foreign, isolated]) {
-          const owned = await other.acquire()
-          try {
-            await owned.context.journal.beginTree(rootId, at)
-            await owned.context.journal.appendEvent(rootId, { ...rootEvent, label: 'foreign' })
-            await owned.context.blobs.put(foreignRef, foreignValue)
-            await owned.context.coordinationLog!.append(
-              RUN_ID,
-              {
-                ...record,
-                event: {
-                  type: 'instruction',
-                  instruction: { ...instruction, instruction: 'foreign instruction' },
-                },
-              },
-              'inspection-owner',
-            )
-          } finally {
-            await owned.release()
-          }
-        }
-        readOnly = true
-        writes = 0
-        writer = await start(shared, await directory(), 'lease')
-        await writer.message('owned')
-        const pid = writer.child.pid
-        if (pid === undefined) throw new Error('SQL writer has no process identity')
-        const nextRef = contentAddress({ pid })
-        await expect(lease.context.blobs.put(nextRef, { pid })).rejects.toSatisfy(
-          isSqlOwnershipDenial,
-        )
-
-        // Real legacy ports are the RED control, with no cache or adapter substitution.
-        selects = 0
-        historyReads = 0
-        historyRows = 0
-        await context.journal.loadTree(rootId)
-        await Promise.all(refs.map((ref) => context.blobs.get(ref)))
-        await context.coordinationLog!.load(RUN_ID, 'inspection-owner')
-        const baselineSelects = selects
-        const baselineReads = historyReads
-        const baselineRows = historyRows
-        expect(baselineReads).toBe(refs.length + 2)
-        expect(baselineSelects).toBe(2 * baselineReads)
-        const before = db.database
-          .prepare(
-            'SELECT namespace, head, revision, generation FROM agent_run_heads WHERE run_id = ?',
-          )
-          .get(RUN_ID)
-        if (!before) throw new Error('SQL run head is absent')
-        selects = 0
-        historyReads = 0
-        historyRows = 0
-        appendDuringRead = true
-        const snapshot = context.readSnapshot ? await context.readSnapshot() : context
-        expect(await snapshot.journal.loadTree(rootId)).toEqual([rootEvent])
-        expect(await Promise.all(refs.map((ref) => snapshot.blobs.get(ref)))).toEqual(values)
-        const prior = await snapshot.coordinationLog!.load(RUN_ID, 'inspection-owner')
-        expect(prior.continuations[0]?.instruction).toBe('recorded instruction')
-        console.info('SQL inspection history reads', {
-          blobRefs: refs.length,
-          baselineReads,
-          baselineSelects,
-          baselineRows,
-          snapshotReads: historyReads,
-          snapshotSelects: selects,
-          snapshotRows: historyRows,
-        })
-        expect(historyReads).toBe(1)
-        expect(selects).toBe(2)
-        expect(historyRows).toBe(Number(before.revision))
-        expect(await snapshot.blobs.get(nextRef)).toBeUndefined()
-        expect(await snapshot.blobs.get(foreignRef)).toBeUndefined()
-        expect(await snapshot.journal.loadTree('another-run')).toBeUndefined()
-        expect((await snapshot.coordinationLog!.load('another-run')).records).toEqual([])
-        expect(snapshot).toMatchObject({
-          runId: RUN_ID,
-          namespace: before.namespace,
-          head: before.head,
-          revision: Number(before.revision),
-        })
-        expect(Object.keys(snapshot).sort()).toEqual([
-          'blobs',
-          'coordinationLog',
-          'head',
-          'journal',
-          'namespace',
-          'revision',
-          'runId',
-        ])
-        for (const port of [snapshot, snapshot.journal, snapshot.blobs, snapshot.coordinationLog])
-          expect(Object.isFrozen(port)).toBe(true)
-        expect(Object.keys(snapshot.journal)).toEqual(['loadTree'])
-        expect(Object.keys(snapshot.blobs)).toEqual(['get'])
-        expect(Object.keys(snapshot.coordinationLog!)).toEqual(['load'])
-        expect(Reflect.set(snapshot, 'revision', -1)).toBe(false)
-        if (!prior.continuations[0]) throw new Error('Recorded coordination instruction is absent')
-        Reflect.set(prior.continuations[0], 'instruction', 'mutated reader output')
-        expect(
-          (await snapshot.coordinationLog!.load(RUN_ID, 'inspection-owner')).continuations[0]
-            ?.instruction,
-        ).toBe('recorded instruction')
-
-        const after = db.database
-          .prepare('SELECT head, revision, generation FROM agent_run_heads WHERE run_id = ?')
-          .get(RUN_ID)
-        expect(after?.generation).toBe(before.generation)
-        expect(Number(after?.revision)).toBe(Number(before.revision) + 1)
-        const fresh = context.readSnapshot ? await context.readSnapshot() : context
-        expect(await fresh.blobs.get(nextRef)).toEqual({ pid })
-        expect(fresh).toMatchObject({
-          head: after?.head,
-          revision: Number(after?.revision),
-          namespace: before.namespace,
-        })
-        expect(historyReads).toBe(2)
-        expect(await snapshot.blobs.get(nextRef)).toBeUndefined()
-        expect(await context.blobs.get(nextRef)).toEqual({ pid })
-        expect(historyReads).toBe(3)
-        for (const other of [foreign, isolated]) {
-          const cut = other.readSnapshot ? await other.readSnapshot() : other
-          expect(await cut.blobs.get(refs[0]!)).toBeUndefined()
-          expect(await cut.blobs.get(foreignRef)).toEqual(foreignValue)
-          expect((await cut.journal.loadTree(rootId))?.[0]?.label).toBe('foreign')
-          expect(
-            (await cut.coordinationLog!.load(RUN_ID, 'inspection-owner')).continuations[0]
-              ?.instruction,
-          ).toBe('foreign instruction')
-          expect(cut.namespace).not.toBe(snapshot.namespace)
-        }
-        expect(writes).toBe(0)
+        await lease.context.journal.beginTree(rootId, at)
+        await lease.context.journal.appendEvent(rootId, rootEvent)
+        for (const [index, ref] of refs.entries()) await lease.context.blobs.put(ref, values[index])
+        await lease.context.coordinationLog!.append(RUN_ID, record, 'inspection-owner')
       } finally {
-        db.database.close()
+        await lease.release()
       }
-    },
-    CASE_MS,
-  )
+      const foreignValue = { origin: 'other SQL context' }
+      const foreignRef = contentAddress(foreignValue)
+      for (const other of [foreign, isolated]) {
+        const owned = await other.acquire()
+        try {
+          await owned.context.journal.beginTree(rootId, at)
+          await owned.context.journal.appendEvent(rootId, { ...rootEvent, label: 'foreign' })
+          await owned.context.blobs.put(foreignRef, foreignValue)
+          await owned.context.coordinationLog!.append(
+            RUN_ID,
+            {
+              ...record,
+              event: {
+                type: 'instruction',
+                instruction: { ...instruction, instruction: 'foreign instruction' },
+              },
+            },
+            'inspection-owner',
+          )
+        } finally {
+          await owned.release()
+        }
+      }
+      readOnly = true
+      writes = 0
+      writer = await start(shared, await directory(), 'lease')
+      await writer.message('owned')
+      const pid = writer.child.pid
+      if (pid === undefined) throw new Error('SQL writer has no process identity')
+      const nextRef = contentAddress({ pid })
+      await expect(lease.context.blobs.put(nextRef, { pid })).rejects.toSatisfy(
+        isSqlOwnershipDenial,
+      )
+
+      // Real legacy ports are the RED control, with no cache or adapter substitution.
+      selects = 0
+      historyReads = 0
+      historyRows = 0
+      await context.journal.loadTree(rootId)
+      await Promise.all(refs.map((ref) => context.blobs.get(ref)))
+      await context.coordinationLog!.load(RUN_ID, 'inspection-owner')
+      const baselineSelects = selects
+      const baselineReads = historyReads
+      const baselineRows = historyRows
+      expect(baselineReads).toBe(refs.length + 2)
+      expect(baselineSelects).toBe(2 * baselineReads)
+      const before = db.database
+        .prepare(
+          'SELECT namespace, head, revision, generation FROM agent_run_heads WHERE run_id = ?',
+        )
+        .get(RUN_ID)
+      if (!before) throw new Error('SQL run head is absent')
+      selects = 0
+      historyReads = 0
+      historyRows = 0
+      appendDuringRead = true
+      const snapshot = context.readSnapshot ? await context.readSnapshot() : context
+      expect(await snapshot.journal.loadTree(rootId)).toEqual([rootEvent])
+      expect(await Promise.all(refs.map((ref) => snapshot.blobs.get(ref)))).toEqual(values)
+      const prior = await snapshot.coordinationLog!.load(RUN_ID, 'inspection-owner')
+      expect(prior.continuations[0]?.instruction).toBe('recorded instruction')
+      console.info('SQL inspection history reads', {
+        blobRefs: refs.length,
+        baselineReads,
+        baselineSelects,
+        baselineRows,
+        snapshotReads: historyReads,
+        snapshotSelects: selects,
+        snapshotRows: historyRows,
+      })
+      expect(historyReads).toBe(1)
+      expect(selects).toBe(2)
+      expect(historyRows).toBe(Number(before.revision))
+      expect(await snapshot.blobs.get(nextRef)).toBeUndefined()
+      expect(await snapshot.blobs.get(foreignRef)).toBeUndefined()
+      expect(await snapshot.journal.loadTree('another-run')).toBeUndefined()
+      expect((await snapshot.coordinationLog!.load('another-run')).records).toEqual([])
+      expect(snapshot).toMatchObject({
+        runId: RUN_ID,
+        namespace: before.namespace,
+        head: before.head,
+        revision: Number(before.revision),
+      })
+      expect(Object.keys(snapshot).sort()).toEqual([
+        'blobs',
+        'coordinationLog',
+        'head',
+        'journal',
+        'namespace',
+        'revision',
+        'runId',
+      ])
+      for (const port of [snapshot, snapshot.journal, snapshot.blobs, snapshot.coordinationLog])
+        expect(Object.isFrozen(port)).toBe(true)
+      expect(Object.keys(snapshot.journal)).toEqual(['loadTree'])
+      expect(Object.keys(snapshot.blobs)).toEqual(['get'])
+      expect(Object.keys(snapshot.coordinationLog!)).toEqual(['load'])
+      expect(Reflect.set(snapshot, 'revision', -1)).toBe(false)
+      if (!prior.continuations[0]) throw new Error('Recorded coordination instruction is absent')
+      Reflect.set(prior.continuations[0], 'instruction', 'mutated reader output')
+      expect(
+        (await snapshot.coordinationLog!.load(RUN_ID, 'inspection-owner')).continuations[0]
+          ?.instruction,
+      ).toBe('recorded instruction')
+
+      const after = db.database
+        .prepare('SELECT head, revision, generation FROM agent_run_heads WHERE run_id = ?')
+        .get(RUN_ID)
+      expect(after?.generation).toBe(before.generation)
+      expect(Number(after?.revision)).toBe(Number(before.revision) + 1)
+      const fresh = context.readSnapshot ? await context.readSnapshot() : context
+      expect(await fresh.blobs.get(nextRef)).toEqual({ pid })
+      expect(fresh).toMatchObject({
+        head: after?.head,
+        revision: Number(after?.revision),
+        namespace: before.namespace,
+      })
+      expect(historyReads).toBe(2)
+      expect(await snapshot.blobs.get(nextRef)).toBeUndefined()
+      expect(await context.blobs.get(nextRef)).toEqual({ pid })
+      expect(historyReads).toBe(3)
+      for (const other of [foreign, isolated]) {
+        const cut = other.readSnapshot ? await other.readSnapshot() : other
+        expect(await cut.blobs.get(refs[0]!)).toBeUndefined()
+        expect(await cut.blobs.get(foreignRef)).toEqual(foreignValue)
+        expect((await cut.journal.loadTree(rootId))?.[0]?.label).toBe('foreign')
+        expect(
+          (await cut.coordinationLog!.load(RUN_ID, 'inspection-owner')).continuations[0]
+            ?.instruction,
+        ).toBe('foreign instruction')
+        expect(cut.namespace).not.toBe(snapshot.namespace)
+      }
+      expect(writes).toBe(0)
+    } finally {
+      db.database.close()
+    }
+  })
 
   it('rejects unsafe SQL identifiers before executing any SQL', async () => {
     const adapter = {
@@ -529,7 +516,7 @@ describe('SQL run context', () => {
     assertComplete(await (await start(shared, host)).report())
     await assertPhysical(shared)
     expect(await readdir(host)).toEqual([])
-  }, 45000)
+  })
 
   // Before/after are on opposite sides of the actual SQLite statement commit. In the after
   // cases the adapter NEVER acknowledges the write to Runtime: the process dies first.
@@ -560,22 +547,18 @@ describe('SQL run context', () => {
     'sql:settled:after',
     'tool:commit:before',
     'tool:commit:after',
-  ])(
-    'SIGKILL at %s resumes on another host without a replacement key',
-    async (checkpoint) => {
-      const shared = await directory()
-      const firstHost = await directory()
-      const secondHost = await directory()
-      const first = await start(shared, firstHost, 'kill', checkpoint)
-      await first.message('checkpoint')
-      expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
-      await rm(firstHost, { recursive: true, force: true })
-      assertComplete(await (await start(shared, secondHost)).report())
-      await assertPhysical(shared)
-      expect(await readdir(secondHost)).toEqual([])
-    },
-    CASE_MS,
-  )
+  ])('SIGKILL at %s resumes on another host without a replacement key', async (checkpoint) => {
+    const shared = await directory()
+    const firstHost = await directory()
+    const secondHost = await directory()
+    const first = await start(shared, firstHost, 'kill', checkpoint)
+    await first.message('checkpoint')
+    expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
+    await rm(firstHost, { recursive: true, force: true })
+    assertComplete(await (await start(shared, secondHost)).report())
+    await assertPhysical(shared)
+    expect(await readdir(secondHost)).toEqual([])
+  })
 
   it.each(['contend', 'contend-locked'])(
     'two live orchestrators (%s): rejects the contender, then the SAME process takes over after SIGKILL',
@@ -605,37 +588,32 @@ describe('SQL run context', () => {
       assertComplete(await contender.report())
       await assertPhysical(shared)
     },
-    CASE_MS,
   )
-  it(
-    'fences a SIGSTOP/SIGCONT owner without releasing its live successor',
-    async () => {
-      const shared = await directory()
-      const owner = await start(shared, await directory(), 'lease')
-      await owner.message('owned')
-      owner.child.kill('SIGSTOP')
-      const successor = await start(shared, await directory(), 'lease')
-      await successor.message('owned')
-      owner.child.kill('SIGCONT')
-      owner.child.send('write')
-      expect(String((await owner.message('fenced')).error)).toMatch(/lease|ownership/i)
-      expect(await owner.exit).toEqual({ code: 0, signal: null })
+  it('fences a SIGSTOP/SIGCONT owner without releasing its live successor', async () => {
+    const shared = await directory()
+    const owner = await start(shared, await directory(), 'lease')
+    await owner.message('owned')
+    owner.child.kill('SIGSTOP')
+    const successor = await start(shared, await directory(), 'lease')
+    await successor.message('owned')
+    owner.child.kill('SIGCONT')
+    owner.child.send('write')
+    expect(String((await owner.message('fenced')).error)).toMatch(/lease|ownership/i)
+    expect(await owner.exit).toEqual({ code: 0, signal: null })
 
-      const db = openSql(join(shared, 'run-context.sqlite'))
-      try {
-        const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
-        await expect(observer.acquire()).rejects.toSatisfy(isSqlOwnershipDenial)
-        successor.child.send('write')
-        await successor.message('written')
-        expect(await successor.exit).toEqual({ code: 0, signal: null })
-        expect(await observer.blobs.get(contentAddress({ pid: owner.child.pid }))).toBeUndefined()
-        expect(await observer.blobs.get(contentAddress({ pid: successor.child.pid }))).toEqual({
-          pid: successor.child.pid,
-        })
-      } finally {
-        db.database.close()
-      }
-    },
-    CASE_MS,
-  )
+    const db = openSql(join(shared, 'run-context.sqlite'))
+    try {
+      const observer = await createFencedSqlRunContext(db.adapter, RUN_ID, leaseOptions)
+      await expect(observer.acquire()).rejects.toSatisfy(isSqlOwnershipDenial)
+      successor.child.send('write')
+      await successor.message('written')
+      expect(await successor.exit).toEqual({ code: 0, signal: null })
+      expect(await observer.blobs.get(contentAddress({ pid: owner.child.pid }))).toBeUndefined()
+      expect(await observer.blobs.get(contentAddress({ pid: successor.child.pid }))).toEqual({
+        pid: successor.child.pid,
+      })
+    } finally {
+      db.database.close()
+    }
+  })
 })

@@ -48,10 +48,7 @@ if (mode === 'json-owner-capture') {
 if (mode.startsWith('json-observation-')) {
   const coordinates = object(JSON.parse(process.argv[4] ?? '{}'))
   const file = nativeEventFile(String(coordinates.executionId))
-  for (let attempt = 0; !fs.existsSync(`${file}.exact`); attempt++) {
-    if (attempt === 1000) throw new Error('exact-result HTTP handshake never arrived')
-    await new Promise((resolve) => setTimeout(resolve, 2))
-  }
+  while (!fs.existsSync(`${file}.exact`)) await new Promise((resolve) => setTimeout(resolve, 2))
   if (mode !== 'json-observation-429') {
     for (let index = 0; index < 1030; index++)
       fs.appendFileSync(

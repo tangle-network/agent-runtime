@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
+import { createRootStreamSink } from '../../src/runtime/supervise/root-stream'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const stores: string[] = []
@@ -72,12 +73,16 @@ class BinClient {
   }
 }
 
-async function spawnEventsBin(journalPath: string): Promise<BinClient> {
+async function spawnEventsBin(
+  journalPath: string,
+  env: Record<string, string> = {},
+): Promise<BinClient> {
   const child = spawn(process.execPath, [join(repoRoot, 'dist', 'mcp', 'bin.js')], {
     env: {
       ...process.env,
       MCP_ENABLE_EVENTS: '1',
       AGENT_RUNTIME_EVENTS_JOURNAL: journalPath,
+      ...env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -200,6 +205,56 @@ describe('agent-runtime-mcp bin serving events over a real observer journal', ()
       })) as { structuredContent: { subscriptionId: string; cursor: number } }
       expect(resumed.structuredContent.subscriptionId).toBe(subscriptionId)
       expect(resumed.structuredContent.cursor).toBe(2)
+    } finally {
+      client.exit()
+    }
+  })
+
+  // #1565: a run's committed root stream over the same wire, read while a later process of the
+  // run continues the file; the acked cursor holds and only the continuation is delivered.
+  it('serves a run directory root stream across a process continuation', async () => {
+    const runDir = await mkdtemp(join(tmpdir(), 'runtime-events-root-'))
+    stores.push(runDir)
+    const write = async (texts: string[]) => {
+      const sink = createRootStreamSink(runDir, Date.now)
+      await sink.beginAttempt()
+      for (const text of texts) sink.append({ kind: 'text_delta', text } as never)
+      await sink.close()
+    }
+    await write(['first', 'second'])
+    const client = await spawnEventsBin(join(runDir, 'unused.jsonl'), {
+      AGENT_RUNTIME_EVENTS_ROOT_STREAM: runDir,
+    })
+    type Page = {
+      structuredContent: {
+        records: Array<{ sequence: number; payload: { event: { text: string } } }>
+      }
+    }
+    const call = (name: string, args: Record<string, unknown>) =>
+      client.call('tools/call', { name, arguments: args })
+    try {
+      await client.call('initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'test', version: '0' },
+      })
+      const subscribed = (await call('events_subscribe', { key: 'lab', fromSequence: 0 })) as {
+        structuredContent: { subscriptionId: string }
+      }
+      const { subscriptionId } = subscribed.structuredContent
+      const first = (await call('events_fetch', { subscriptionId })) as Page
+      expect(
+        first.structuredContent.records.map((r) => [r.sequence, r.payload.event.text]),
+      ).toEqual([
+        [1, 'first'],
+        [2, 'second'],
+      ])
+      await call('events_ack', { subscriptionId, sequence: 2 })
+      await write(['third'])
+      const next = (await call('events_fetch', { subscriptionId })) as Page
+      expect(next.structuredContent.records.map((r) => [r.sequence, r.payload.event.text])).toEqual(
+        [[3, 'third']],
+      )
     } finally {
       client.exit()
     }

@@ -22,9 +22,7 @@ import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
-// The error text of a production failure measured 2026-09-17 on a Discovery director placed on
-// tangle-sandbox with the opencode harness. The turn ended with a failed outcome rather than a
-// thrown error, so the root never got the retry its driverRetry policy promised.
+// A measured 2026-09-17 opencode failure: a failed outcome, not a throw, so driverRetry never ran.
 const UPSTREAM_TIMEOUT = 'opencode execution failed: status code 524 (exit code 1)'
 // The refusal that ended four of five anomaly-referee-v3d lead lanes on 2026-09-24.
 const ROUTER_QUOTA =
@@ -54,31 +52,27 @@ interface TurnFailure {
   readonly dispatchFailure?: boolean
 }
 
+interface HarnessFixtureOptions {
+  readonly runId: string
+  readonly failures: (dispatch: number) => TurnFailure | undefined
+  /** Thrown by environment creation, before any dispatch: a provider command that failed. */
+  readonly createFailure?: () => Error | undefined | Promise<Error | undefined>
+  readonly deadlineMs?: number
+  /** A director that never submits is paused by its barren streak; this deadline ends the run. */
+  readonly continuationDeadlineMs?: number
+  readonly maxBarren?: number
+  /** Sandbox keeps the first execution as the session owner until that execution is cancelled. */
+  readonly deadOwnerBlocksReplacement?: boolean
+}
+
 interface DriverRetry {
   readonly enabled?: boolean
   readonly maxConsecutiveFailures?: number
   readonly maxAttempts?: number
 }
 
-/**
- * A retained provider-backed root whose Nth dispatched turn resolves with `failures(N)` as a failed
- * outcome, and whose first turn that does not fail submits the deliverable. `supervise` may be
- * called more than once on the same run directory and provider state, which is how a resume
- * after a process restart is exercised.
- */
-async function harnessFailureFixture(options: {
-  readonly runId: string
-  readonly failures: (dispatch: number) => TurnFailure | undefined
-  /** Thrown by environment creation, before any dispatch: a provider command that failed. */
-  readonly createFailure?: () => Error | undefined | Promise<Error | undefined>
-  readonly deadlineMs?: number
-  /** Milliseconds from now to the continuation deadline alone; defaults to `deadlineMs`, then
-   *  one hour. A director that never submits is only paused by its barren streak, and this
-   *  deadline ends its run. */
-  readonly continuationDeadlineMs?: number
-  /** Continuations without progress the root may make; the test default is 2. */
-  readonly maxBarren?: number
-}) {
+/** Nth dispatch fails. The first success submits. A second supervise call is a resume. */
+async function harnessFailureFixture(options: HarnessFixtureOptions) {
   const directory = await mkdtemp(join(tmpdir(), 'harness-turn-failure-'))
   directories.push(directory)
   const proxy = await coordinationProxy()
@@ -88,6 +82,8 @@ async function harnessFailureFixture(options: {
   const environmentIds: string[] = []
   const sessionIds: Array<string | undefined> = []
   const failedExecutions = new Map<string, TurnFailure>()
+  const releasedExecutions = new Set<string>()
+  let ownerExecutionId: string | undefined
   let creates = 0
   let destroys = 0
   let dispatches = 0
@@ -111,6 +107,10 @@ async function harnessFailureFixture(options: {
               data: { message: failure.error, code: failure.code },
             }
           }
+        },
+        cancelRun: async (request) => {
+          releasedExecutions.add(request.run.executionId)
+          return session.cancelRun!(request)
         },
         result: async () => {
           if (failure?.streamFailure) throw new Error(failure.error)
@@ -140,9 +140,28 @@ async function harnessFailureFixture(options: {
       const dispatch = dispatches
       environmentIds.push(environment.id)
       sessionIds.push(turn.sessionId)
+      if (
+        options.deadOwnerBlocksReplacement === true &&
+        ownerExecutionId !== undefined &&
+        !releasedExecutions.has(ownerExecutionId)
+      ) {
+        throw Object.assign(
+          new Error(
+            'sandbox dispatch returned an execution id different from the requested run: another execution owns the session or turn and nothing was dispatched',
+          ),
+          {
+            name: 'TangleDispatchNotAdmittedError',
+            code: 'DISPATCH_NOT_ADMITTED',
+            sessionId: turn.sessionId ?? 'retained-session',
+            requestedExecutionId: turn.executionId,
+            activeExecutionId: ownerExecutionId,
+          },
+        )
+      }
       const failure = options.failures(dispatch)
       if (failure?.dispatchFailure) throw new Error(failure.error)
       const dispatched = await environment.dispatch!(turn)
+      ownerExecutionId ??= dispatched.controlRef?.executionId
       if (failure !== undefined) {
         failedExecutions.set(dispatched.controlRef!.executionId!, failure)
         if (!failure.afterSubmit) return dispatched
@@ -351,7 +370,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
     expect(fixture.dispatches()).toBe(2)
 
-    // The failed turn stays on the record: its own input, its failed outcome, and its spend.
     expect(ofKind(events, 'execution-input')).toHaveLength(2)
     const results = ofKind(events, 'execution-result')
     expect(results).toHaveLength(2)
@@ -366,9 +384,7 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(attempts[0]?.stop).toBeUndefined()
     expect(attempts[1]).toMatchObject({ attempt: 2, stop: 'completed', contract: 'met' })
 
-    // The retained design keeps the owner's environment for the whole scope, so the retry reuses
-    // it: one create, both turns in the same environment and provider session, and one release at
-    // settlement. A failed turn that tore the environment down would show a second create here.
+    // The retry reuses the environment: one create, one session, one release.
     expect(fixture.creates()).toBe(1)
     expect(new Set(fixture.environmentIds).size).toBe(1)
     expect(fixture.sessionIds[1]).toBeDefined()
@@ -376,6 +392,20 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(events, 'environment-teardown')).toMatchObject([
       { destroyed: true, environmentId: fixture.environmentIds[0] },
     ])
+  })
+
+  it('replaces a SIGKILLed execution instead of retrying against its id', async () => {
+    const killed = 'OpenCode exited while a model step was still in progress (killed by SIGKILL)'
+    const fixture = await harnessFailureFixture({
+      runId: 'sigkill-replaceable',
+      deadOwnerBlocksReplacement: true,
+      failures: (dispatch) => (dispatch === 1 ? { error: killed } : undefined),
+    })
+    const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 5 })
+    expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
+    expect(fixture.dispatches()).toBe(2)
+    expect(attempts[0]?.error).toContain('SIGKILL')
+    expect(attempts.at(-1)).toMatchObject({ stop: 'completed', contract: 'met' })
   })
 
   it('settles an unchanged unavailable upstream after three drives without spending failure allowances', async () => {
@@ -535,7 +565,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 2, maxAttempts: 5 })
     const events = await fixture.events()
 
-    // Nothing is left to retry for: the completion check already accepted the value.
     expect(result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
     expect(fixture.dispatches()).toBe(1)
     expect(attempts).toMatchObject([{ attempt: 1, stop: 'completed', contract: 'met' }])
@@ -550,8 +579,7 @@ describe('a root harness turn that ends with a failed outcome', () => {
       runId: 'harness-failure-resumed',
       failures: (dispatch) => (dispatch === 1 ? { error: UPSTREAM_TIMEOUT } : undefined),
     })
-    // The first process has no retry, so it settles on the failed turn. It keeps the environment,
-    // as a run a later process may resume does.
+    // No retry, so the first process settles failed and keeps the environment for a resume.
     const first = await fixture.run({ enabled: false }, 'keep')
     expect(first.result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
     expect(first.attempts).toMatchObject([{ classification: 'transient', stop: 'retry-disabled' }])
@@ -562,7 +590,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
 
     expect(resumed.result).toMatchObject({ kind: 'winner', out: { answer: 'retried' } })
     expect(fixture.dispatches()).toBe(2)
-    // Reopening the journal sees both processes' attempts, with one per-node ordinal.
     const cold = createFileRunContext(fixture.runDir)
     const durable = ofKind(
       (await cold.journal.loadTree('harness-failure-resumed')) ?? [],
@@ -576,7 +603,6 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(durable[0]?.record.error).toContain(UPSTREAM_TIMEOUT)
     expect(durable[1]?.record.error).toContain(UPSTREAM_TIMEOUT)
     expect(durable[2]?.record.stop).toBe('completed')
-    // The replayed failure is attempt 1 of the resumed process; it dispatches nothing itself.
     expect(resumed.attempts).toMatchObject([
       { attempt: 1, classification: 'transient', retryInMs: 0 },
       { attempt: 2, stop: 'completed', contract: 'met' },

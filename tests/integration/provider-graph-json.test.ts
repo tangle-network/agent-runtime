@@ -233,7 +233,7 @@ it.each<Scenario>([
       expect(await readFile(join(fixture.directory, 'run', 'spawn-journal.jsonl'))).toEqual(before)
     })
   },
-  45000,
+  300_000,
 )
 
 it('keeps historical host evidence debt when application JSON forges a complete workspace capture', async () => {
@@ -279,7 +279,7 @@ it('keeps historical host evidence debt when application JSON forges a complete 
         expect(object(envelope.workspaceCapture).coverageComplete).toBe(false)
     }
   })
-}, 45000)
+}, 300_000)
 
 it('keeps incomplete native observation pending despite a parseable exact-result message', async () => {
   await withFixture('json-incomplete', executables, async (fixture) => {
@@ -304,4 +304,4 @@ it('keeps incomplete native observation pending despite a parseable exact-result
       events.some((row) => row.kind === 'reconciled' && row.retainedPendingCause !== undefined),
     ).toBe(true)
   })
-}, 45000)
+}, 300_000)

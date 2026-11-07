@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { toolSpansToTraceAnalysisStore } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import { ValidationError } from '../../errors'
+import type { ManagerReentryState } from '../../mcp/tools/coordination-events'
 import type { CheckVerdict } from './completion-gate'
 import {
   admitContinuationPolicy,
@@ -19,6 +20,7 @@ import {
   type PanelFinding,
 } from './continuation'
 import type { DriverProgressMark } from './driver-retry'
+import { composeReentryTask } from './reentry'
 import { rootStreamToolSpans } from './run-traces'
 
 /** A one-call director trace, as the panel reads it. */
@@ -540,5 +542,41 @@ describe('one manager continuation keeper', () => {
     expect(note).not.toContain('FAIL')
     expect(JSON.stringify(keeper.read(undefined))).not.toContain('FAIL')
     expect(keeper.entries()[0]?.switches.failures).toBe('off')
+  })
+})
+
+describe('barren reentry advice', () => {
+  const state: ManagerReentryState = {
+    journalRows: 1,
+    journalReadTo: 1,
+    live: [],
+    settled: [],
+    waiting: [],
+    unacknowledged: [],
+  }
+  const task = (steer: string) =>
+    composeReentryTask({
+      originalTask: 'count',
+      attempt: 2,
+      continuity: { session: 'continued', environment: 'same', workspace: 'kept' },
+      state,
+      reentry: {
+        reason: 'unmet-contract',
+        steer,
+        continuation: 2,
+        barren: { streak: 2, pausedMs: 300_000 },
+      },
+    })
+
+  it('tells a root waiting on an unjudged check to end its turn', () => {
+    const text = task('the check has not judged this run yet. Its verdict reaches you as feedback.')
+    expect(text).toContain('End your turn and let that verdict wake you.')
+    expect(text).not.toContain('Wait inside the turn')
+  })
+
+  it('tells a root with its own long work to wait inside the turn', () => {
+    const text = task('The completion check has not passed.')
+    expect(text).toContain('Wait inside the turn')
+    expect(text).not.toContain('End your turn and let that verdict wake you.')
   })
 })

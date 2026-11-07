@@ -156,16 +156,11 @@ describe('materializeLocalMcp', () => {
     let sent: Record<string, unknown> | undefined
     const fetchMock = vi.fn(async (_url: string, init: { body?: string }) => {
       sent = JSON.parse(init.body ?? '{}') as Record<string, unknown>
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          model: 'offline-test-model',
-          choices: [{ message: { content: 'done' } }],
-          usage: { prompt_tokens: 3, completion_tokens: 2 },
-        }),
-        text: async () => '',
-      }
+      return Response.json({
+        model: 'offline-test-model',
+        choices: [{ message: { content: 'done' } }],
+        usage: { prompt_tokens: 3, completion_tokens: 2 },
+      })
     })
     vi.stubGlobal('fetch', fetchMock)
     const client = localSandboxClient({

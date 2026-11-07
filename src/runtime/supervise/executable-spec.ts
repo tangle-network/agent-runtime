@@ -1,5 +1,5 @@
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
-import { isRuntimeFlowAgent } from './flow-brain'
+import { isRuntimeCheckFactory, isRuntimeFlowAgent } from './flow-brain'
 import { assertExecutableAgentProfile } from './model-policy'
 import { detachedSnapshot } from './snapshot'
 import type { AgentSpec } from './types'
@@ -28,7 +28,9 @@ export function executableAgentSpecSnapshot(raw: AgentSpec, context: string): Ag
   } = raw as AgentSpec & Readonly<Record<string, unknown>>
   // Only model-backed resolution requires an executable model identity.
   const profile =
-    raw.executor === undefined && !isRuntimeFlowAgent(runtimeExtensions.driver)
+    raw.executor === undefined &&
+    !isRuntimeFlowAgent(runtimeExtensions.driver) &&
+    !isRuntimeCheckFactory(raw.executorFactory)
       ? executableAgentProfileSnapshot(rawProfile, context)
       : authoredAgentProfileSnapshot(rawProfile, context)
   const execution =

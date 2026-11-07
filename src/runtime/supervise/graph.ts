@@ -33,6 +33,10 @@ import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
+import {
+  type PortableContinuationPolicy,
+  portableContinuationPolicySchema,
+} from './continuation-data'
 import { runtimeFlowBrain } from './flow-brain'
 import { graphExecutionOptions } from './graph-backend'
 import {
@@ -52,7 +56,13 @@ import {
 } from './graph-topology'
 import { kernelPromptRegistry, type PromptHandle, type PromptRegistry } from './prompt-registry'
 import { createFileRunContext, createInMemoryRunContext, withRunContext } from './run-context'
-import { bindGraphCommand, type GraphCommandCheck } from './stored-graph-check'
+import {
+  bindGraphCheckNodes,
+  bindGraphCommand,
+  type GraphCheckNode,
+  type GraphCheckPlacement,
+  type GraphCommandCheck,
+} from './stored-graph-check'
 import {
   profileGuidanceComposer,
   type SuperviseOptions,
@@ -81,6 +91,9 @@ export { defaultEdgeTraversalCap } from './graph-topology'
 export interface GraphNode {
   readonly id: NodeId
   readonly profile: AgentProfile
+  /** A check node: Runtime runs this command instead of an agent (flow graphs only). Its profile is
+   *  `{ name: id }`; `graphFromStored` writes both. */
+  readonly check?: GraphCheckNode
 }
 
 export type GraphEdge =
@@ -250,6 +263,12 @@ export interface AgentGraph {
    *  `{ pointer: '/choice', equals: <choice> }`. A `finish` leaving a gate outputs
    *  `{ [gate]: { choice, by } }`. */
   readonly gates?: ReadonlyArray<RouteGate>
+  /** Where nodes run: `cwd` (default) is the run's working directory; `fresh` is a new empty
+   *  directory the run owns, which the host creates and passes as that working directory
+   *  (`graphWorkspace`). */
+  readonly workspace?: 'cwd' | 'fresh'
+  /** The authored root's continuation; a flow has no root manager. */
+  readonly continuation?: PortableContinuationPolicy
 }
 
 // ── The edge ledger ────────────────────────────────────────────────────────────
@@ -345,6 +364,8 @@ const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'mapOnSettle',
   // A flow graph's entries and routes edges; its runtime-owned root runs them.
   'routeFlow',
+  // A flow graph's check nodes, bound from `checkPlacement` or the run's working directory.
+  'checkNodes',
   'continuityByProfile',
   // A graph pins every node and its delegation edges; a node never gains spawn rights it lacks.
   'inheritSpawnRights',
@@ -465,6 +486,7 @@ const runGraphOptionKeys = [
   ...GRAPH_TRANSFORMED_SUPERVISE_OPTIONS,
   ...GRAPH_REFUSED_SUPERVISE_OPTIONS,
   'brain',
+  'checkPlacement',
 ] as const
 
 type UnlistedRunGraphOption = Exclude<keyof RunGraphOptions, (typeof runGraphOptionKeys)[number]>
@@ -604,6 +626,10 @@ export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSu
   /** Product authority over every steer/answer instruction (the filter seam). `runGraph` observes
    *  what it CHANGES: a narrowed instruction ledgers its steer traversal as `stripped`. */
   readonly authorizeMessage?: SuperviseOptions['authorizeMessage']
+  /** Where check nodes run: a fresh Sandbox box per check, created by `client` on the check account,
+   *  from each node's `environment`. Absent = locally, in the run's working directory (a loopback
+   *  Bridge `cwd` or a `cli-in-place` workspace). */
+  readonly checkPlacement?: GraphCheckPlacement
 }
 
 export interface GraphResult<Out = unknown> {
@@ -707,6 +733,15 @@ export function assertRunGraphAuthoring(
   brain?: ToolLoopChat,
 ): ReturnType<typeof validateGraph> {
   assertRunGraphOptionKeys(opts)
+  if (graph.continuation !== undefined) {
+    portableContinuationPolicySchema.parse(graph.continuation)
+    if (opts.continuation !== undefined)
+      throw new ValidationError(
+        'runGraph: graph.continuation and opts.continuation have two policy owners',
+      )
+    if (graph.entry !== undefined)
+      throw new ValidationError('runGraph: graph.continuation with graph.entry has no root manager')
+  }
   const registry = opts.registry ?? kernelPromptRegistry()
   const validated = validateGraph(graph, registry, opts.analysts)
   const requireLeaves = (): void => {
@@ -738,6 +773,8 @@ export function assertRunGraphAuthoring(
     return validated
   }
   const { root } = validated as RootValidatedGraph
+  if (graph.continuation !== undefined && !harnessRunsAgent(root.profile.harness))
+    throw new ValidationError('runGraph: graph.continuation requires an external-harness root')
   // A caller brain and a harness driver are two answers to WHO makes the root's calls: refuse the
   // contradiction before any compute, and refuse a harness-driven root outright — the harness IS
   // that root's brain, so a supplied one would be silently ignored downstream.
@@ -760,6 +797,13 @@ export function superviseAgentGraph(
   opts: RunGraphOptions,
   brain?: ToolLoopChat,
 ): Promise<GraphResult> {
+  const { continuation, ...topology } = graph
+  graph = {
+    ...topology,
+    ...(continuation === undefined
+      ? {}
+      : { continuation: portableContinuationPolicySchema.parse(continuation) }),
+  }
   if (graph.deliverable.command !== undefined) {
     const bound = bindGraphCommand(graph, opts)
     return superviseAgentGraph(bound.graph, bound.options, brain)
@@ -791,6 +835,7 @@ export function superviseAgentGraph(
     opts.runContext?.runId ??
     `graph-${canonicalCandidateDigest(graph.nodes.map((n) => n.id)).slice('sha256:'.length, 'sha256:'.length + 12)}`
   const now = opts.now ?? Date.now
+  const checkNodes = bindGraphCheckNodes(graph, { ...opts, runId })
 
   // The graph layer: node pinning, analyst routes, continuity defaults and the edge ledger. A
   // `run_graph` subtask builds the same overlay around its nested manager.
@@ -850,6 +895,7 @@ export function superviseAgentGraph(
       rootDriverFromBackend: flow !== undefined,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
+      ...(graph.continuation === undefined ? {} : { continuation: graph.continuation }),
       deliverable: flow?.routeCheck(graph.deliverable) ?? graph.deliverable,
       authorizeSpawn: overlay.authorizeSpawn,
       resolveSpawnProfile: overlay.resolveSpawnProfile,
@@ -888,6 +934,7 @@ export function superviseAgentGraph(
         ? {}
         : {
             routeFlow: routeFlowOf(validated),
+            ...(checkNodes && { checkNodes }),
             ...(opts.decideGate && {
               decideGate: journaledGateDecider(opts.decideGate, journal, runId),
             }),

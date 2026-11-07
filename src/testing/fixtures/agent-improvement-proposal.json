@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:e926b7151f367c67b3ff8c65d2175a7cc27a2c8f516ff6474623cc8bff4ecca5",
+  "digest": "sha256:90bff2e0f902056ad17551329fac1269efe181efc70b608e97987dfb2087b188",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -285,7 +285,7 @@
     "measurements": [
       {
         "baseline": {
-          "digest": "sha256:ac9e955fb115e1a1614a16ee3507d6996b75b02e9774d00e10ddffbfe2a969b2",
+          "digest": "sha256:7814a62fe7086c50dadf007d7b55e4611142ed2f81572dd21864e9b28fd6550d",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -538,7 +538,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:f78e5ae8bd3284d0d9b2937a878c7c86b1056d932b767f43cfd9bc1c3b742c6d",
+            "digest": "sha256:1029b5170c9359381b78c67cf4abd721422bec222d9b9c56b8fa8e835f13c67f",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:ef70b720a2e555d904d3f5686efa53be9e553be796630631e72bd383c9629da9",
             "executorCapture": {
@@ -642,10 +642,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/e63bc3dd01c06a1f1e3621bd89f38c55db5b124bf631bfb7ef2cfe7a5f062aa4",
+                  "key": "trace/fa5c357efde109f839abb48e325b14d1eead24731e952df31183b66c11fbf2a4",
                   "kind": "s3"
                 },
-                "sha256": "sha256:e63bc3dd01c06a1f1e3621bd89f38c55db5b124bf631bfb7ef2cfe7a5f062aa4"
+                "sha256": "sha256:fa5c357efde109f839abb48e325b14d1eead24731e952df31183b66c11fbf2a4"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -653,7 +653,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:9ea5489fedae093ad9412525dec3741d50cc85e50bd44406d6ee133de3b147aa",
+          "digest": "sha256:67209c6e7dd95d7c2ee3da84d34bc484aa827f8e8f7597cc092f2842fdbdee90",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -934,7 +934,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:4051d765e8142c0e35ee81c6f7e812f8a9aa0af15254bec0d54cf8abc4f0421c",
+            "digest": "sha256:1f6480cd536038849e5dc9dea4303b2dc513923bbfeec1ad481505df57e6d9f9",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:cbd278afbb6a9294c2fb5500d2934015fc6ed297470b13d6cdbab3947fca09fe",
             "executorCapture": {
@@ -1038,10 +1038,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/315520102b7dbdc6b60c90a9f3efebd212a8fc82da91cdc64861b036a9389943",
+                  "key": "trace/e1e1517a30915c5b14ca3961e2a817bd50a749b22f8cac16ae65722929aa6d2c",
                   "kind": "s3"
                 },
-                "sha256": "sha256:315520102b7dbdc6b60c90a9f3efebd212a8fc82da91cdc64861b036a9389943"
+                "sha256": "sha256:e1e1517a30915c5b14ca3961e2a817bd50a749b22f8cac16ae65722929aa6d2c"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -1051,7 +1051,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:d6a65645722a9e76a303fd8c609276b02d2978b6a6a68e522e6807fa4b442433",
+          "digest": "sha256:7cffbab0d4167bd5a0e226ba9446c7621ee9067f8b05af160c5a8c09968113b1",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1304,7 +1304,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:ee5d4acd8474534e3f93f3cb77ae05f32d167448c428b6647a22777449c94fbf",
+            "digest": "sha256:2ecfd8fd5a3ecde41e008c94e5306f1fb3e565028c41433b81d351c9d427721e",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:48f94432fd5383bd2c05cf534d7069c352d3e4410194ec6d1d29e10a7dc510d3",
             "executorCapture": {
@@ -1408,10 +1408,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/9b6f050d994f787286a6c86c74eabeb788df151039fdf3c3fad1a75fa6776b55",
+                  "key": "trace/09ca1167513a0c506b2fc6ef725d943bb4e900959e332584d29482c5134093dc",
                   "kind": "s3"
                 },
-                "sha256": "sha256:9b6f050d994f787286a6c86c74eabeb788df151039fdf3c3fad1a75fa6776b55"
+                "sha256": "sha256:09ca1167513a0c506b2fc6ef725d943bb4e900959e332584d29482c5134093dc"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -1419,7 +1419,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:dae68b3b6f105ce2068d4185f8c63900cff7c6e3928de06d129592b30ac65946",
+          "digest": "sha256:8d4b74803dbf75a0a0e1c81b45149c7261736c25fefa5defcfa58c3405299cce",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1700,7 +1700,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:7a6284ca9e019520a4b02efc6870314a6cc53062a5d052410fb12b28ba3d3138",
+            "digest": "sha256:806ac018557cb0b1c6ba642b1b4cf1001d26631b33da67ffa2a9591d596720f8",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:751168e2e19e5b9bff41736412cb5c57b09b26d2822cc640e7462acdf489192b",
             "executorCapture": {
@@ -1804,10 +1804,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/cd9ccfbff9e6acf3bd18c4b910ae18c126aaf66a28e7fd95e1cf7952c585eb47",
+                  "key": "trace/ff7aed368757ab086ab58ef8857b6dfd635921ad34e115409926934311d2114f",
                   "kind": "s3"
                 },
-                "sha256": "sha256:cd9ccfbff9e6acf3bd18c4b910ae18c126aaf66a28e7fd95e1cf7952c585eb47"
+                "sha256": "sha256:ff7aed368757ab086ab58ef8857b6dfd635921ad34e115409926934311d2114f"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -1817,7 +1817,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:79c104debb3e1e658ee1ea836fe1b027ea0ce36eba22f3db88bcc3aca6b84870",
+          "digest": "sha256:f1fcb5c0b7a59d9c0e61c302a8463595866488c888f5a7a554b3c8d45d7d8faf",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2070,7 +2070,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:85482a0364965d905311c93efa777129a165d2f78cc497620b9b9243acc4d6db",
+            "digest": "sha256:20941c4bd940af06784ac3928b55a47e799976ee3d4f665de1925fec87a810d7",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:2f85735fb92bfc5804b84651fc6cf1d22f96167d3519b7b1cc47f448326adc8f",
             "executorCapture": {
@@ -2174,10 +2174,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/101dc0f689ee31ba9ef1b151bc5699cdf668a66175df4063910e09af6000863a",
+                  "key": "trace/a4aef246aa0ea4af8871d97ec7baa2201838929770cfb6230770b31aae91b2e4",
                   "kind": "s3"
                 },
-                "sha256": "sha256:101dc0f689ee31ba9ef1b151bc5699cdf668a66175df4063910e09af6000863a"
+                "sha256": "sha256:a4aef246aa0ea4af8871d97ec7baa2201838929770cfb6230770b31aae91b2e4"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -2185,7 +2185,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:a7985b9fbfd1f1514012dd96a1bbb2198a51ca9bfb526171809c50a4c51e88c0",
+          "digest": "sha256:7e234a562c38989def2a5a6909ff792b69bc929f330fddbc59c5c2acaa49ff3b",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2466,7 +2466,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:ca8efd822d2069027327e6ccada648032e98892229ace86c8feedb11a7345693",
+            "digest": "sha256:07e9e91349ede3f5984af8e21c002858d8b12d002f5ffdebceae40e0f0e4d0b4",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:87cb693825b3844e413a736cb0d820a96930bc22e1af7f6bfd718e145d9bb9ab",
             "executorCapture": {
@@ -2570,10 +2570,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/d77b1afa9228f9ddb19b77eca5b1265b4faf81d3b50e189a5698e1a872c9d76e",
+                  "key": "trace/37978eafb778f758322e4bfade89bf77043bdaa19455738fde997200c494be00",
                   "kind": "s3"
                 },
-                "sha256": "sha256:d77b1afa9228f9ddb19b77eca5b1265b4faf81d3b50e189a5698e1a872c9d76e"
+                "sha256": "sha256:37978eafb778f758322e4bfade89bf77043bdaa19455738fde997200c494be00"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -2583,7 +2583,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:8f1eac055606da15c3f8e3b6b2de992eedcb969389b92a5bd6d824f6292a8f16",
+          "digest": "sha256:6dbff6540f2e2fc1a5e0fb4f6efd5163636149eb634049345dcd2604bba9097d",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2836,7 +2836,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:c62dce3b3993245cc42296474116a90386ad614f78d2ded7b6699ded7ae08668",
+            "digest": "sha256:04b2f2aacc02c5c1aa433789c408cb4ce7319ba411b7322af04e3867bc3c8b31",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:a25e4c57b90cc470f75794d91d545977003bf298c89916af598befa868cbccf4",
             "executorCapture": {
@@ -2940,10 +2940,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/f65575d0db197f56e6039aae6a31739f32cc776bec2ee975518a8d8b3dbf7c80",
+                  "key": "trace/10d8c18e21cbc97b599764169a5ddb770ffd698fcad102447598540a82d982eb",
                   "kind": "s3"
                 },
-                "sha256": "sha256:f65575d0db197f56e6039aae6a31739f32cc776bec2ee975518a8d8b3dbf7c80"
+                "sha256": "sha256:10d8c18e21cbc97b599764169a5ddb770ffd698fcad102447598540a82d982eb"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -2951,7 +2951,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:bc6c0f77af9a76e188c600e3bf1d31e5da49d1beac096d092f089959e1e6ce1c",
+          "digest": "sha256:44557a718ab8e80b73c1995b44587a35be5f9a160dcadc220fc3d54558f38757",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -3232,7 +3232,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:f09ea8662383b7ad4819a28d198bbbb24a440efe0b363d759805021cb0df1566",
+            "digest": "sha256:2352a09a79a724580c6d6c2df9c7817cb5c35d03240ba765e038a702a651f091",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:8a3dedcf11f85df53397c00609377a37c7e85ed4f048b234de77b046aa6aedbe",
             "executorCapture": {
@@ -3336,10 +3336,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/02c64982ee27ee6b62767118c038068e4a39c5832967b7961da9cf60f4d215be",
+                  "key": "trace/909d49fe669a96202b354148bec735705733684b862a0f9b2366a32295e63904",
                   "kind": "s3"
                 },
-                "sha256": "sha256:02c64982ee27ee6b62767118c038068e4a39c5832967b7961da9cf60f4d215be"
+                "sha256": "sha256:909d49fe669a96202b354148bec735705733684b862a0f9b2366a32295e63904"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -3349,7 +3349,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:763a387d0f3f9fa4a1a36e6a609e1c5beeb0c782d07ab50f7d5fab9da6887cbe",
+          "digest": "sha256:96dfa9ff33719b626ef283f31b6280853c1fa83c0d64cb35336ec14b4866a4be",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -3602,7 +3602,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:b8719642c6599ef6f8db4be2818c791689d20e523bd4c27d38aec79c12a8e6e9",
+            "digest": "sha256:7845249d43cf5ebad8a67b9f29149d700a59b5b7e3a8fda470e2cab6b1421116",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:77184474b3a762f797d232866f84234a0c132da1bf432ca923a6e0c9de0cee8d",
             "executorCapture": {
@@ -3706,10 +3706,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/60a03fa34a1c30d810cf919a06d7bdffda94a4926659484fd613502ea4fc19d2",
+                  "key": "trace/16ca066278e1e44717605638ed41b2b1349cef4f4b46e96e3952d4a2cb132a6c",
                   "kind": "s3"
                 },
-                "sha256": "sha256:60a03fa34a1c30d810cf919a06d7bdffda94a4926659484fd613502ea4fc19d2"
+                "sha256": "sha256:16ca066278e1e44717605638ed41b2b1349cef4f4b46e96e3952d4a2cb132a6c"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -3717,7 +3717,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:908e364e4dc10b81812ea11171538461d46bf8766fa2fc705524d029e899be17",
+          "digest": "sha256:7827b6291b5403432539c6c27178e5fd1aa4ddf9bda401289ed340cbf390f557",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -3998,7 +3998,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:30f9d474ff09e19b644d43cbe3960967cf781df42951e105e0f21a131bd7374f",
+            "digest": "sha256:c1b51732e97944b7ad99fee11c4007e784273bb3899425db05c4e905a27f5c5a",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:bb877ebad161b600382b51631bf041e324fad159450cb3f8951fc5fc07f9b3a3",
             "executorCapture": {
@@ -4102,10 +4102,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/55636e5a03e140bb5ff947504eb4f689bf8716517d9a8de9ea247206045811f7",
+                  "key": "trace/c6f5f5e90236c6711d7603f7d35202c6337de04b73e73cda6b778f2ccfd97406",
                   "kind": "s3"
                 },
-                "sha256": "sha256:55636e5a03e140bb5ff947504eb4f689bf8716517d9a8de9ea247206045811f7"
+                "sha256": "sha256:c6f5f5e90236c6711d7603f7d35202c6337de04b73e73cda6b778f2ccfd97406"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -4115,7 +4115,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:fe7ae1537377a567b7eda2171b5f0b8c8479f29c20a3c59e2e864a7baf4297fc",
+          "digest": "sha256:31d0bc5bfd2027a053f1ab1b40e8a18fb28284098c2d57937822cc2617f7040d",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -4368,7 +4368,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:b9d19b19dde68c405b04b37e78cb551351e4f5b194ef58ae47232077506953e5",
+            "digest": "sha256:103ee1ca72dd6a496ee2ce6729647456c52f5770a0de00130fe2de6330d8599b",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:7ddfacb9cc7a5cec624f442e224490304a8003f16165947df2a5728c4acb67f1",
             "executorCapture": {
@@ -4472,10 +4472,10 @@
                 "byteLength": 748,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/e87a7dc8b1d7d349afe5ea682070358ea6e6daebc0c645eb77c297b2d0d0f702",
+                  "key": "trace/e151cc2f1bc9eb6e0956de727b5932967414da9b36dc40eb5ed987cb3c6a1b49",
                   "kind": "s3"
                 },
-                "sha256": "sha256:e87a7dc8b1d7d349afe5ea682070358ea6e6daebc0c645eb77c297b2d0d0f702"
+                "sha256": "sha256:e151cc2f1bc9eb6e0956de727b5932967414da9b36dc40eb5ed987cb3c6a1b49"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -4483,7 +4483,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:b7b884dbb3cfcc3ece99bad1b512362cb000d4ce1cf8e3d6e833b28ec72c540a",
+          "digest": "sha256:26d9604518e6a55f1571c8efe763c3fd063821e5f57cd71c6bad6f7342b29d37",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -4764,7 +4764,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:685deac75255ea5d9fed153ccc9b3575542f8eb06c7662104b81d4b9b6f8be94",
+            "digest": "sha256:60e55b578fce1ba2caa9c49967222da3ccd91f47b67b734c484f72808e62eefd",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:1031e58c5280c3956cf5f011e49cc377e57b00015edfbef05171d2ff20507428",
             "executorCapture": {
@@ -4868,10 +4868,10 @@
                 "byteLength": 750,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "trace/495123f73769a41ed444a5fd4f785de956691b52490b69f4fc97933e2203a9c3",
+                  "key": "trace/2b7bc3ffb8e40571cfe60b1e68a90f048554cd5d872102003b7d6838c50a4f62",
                   "kind": "s3"
                 },
-                "sha256": "sha256:495123f73769a41ed444a5fd4f785de956691b52490b69f4fc97933e2203a9c3"
+                "sha256": "sha256:2b7bc3ffb8e40571cfe60b1e68a90f048554cd5d872102003b7d6838c50a4f62"
               },
               "eventCount": 1,
               "modelCallCount": 0
@@ -4882,7 +4882,7 @@
     ],
     "metadata": {
       "fixture": "agent-improvement-proposal",
-      "runtimeVersion": "7.0.0"
+      "runtimeVersion": "8.0.2"
     },
     "objectives": [
       {
@@ -4993,8 +4993,8 @@
       "baselineContentHash": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
       "candidateContentHash": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:268a66d077a8162b0e8f2c9b61147dd39a3866ecfdabab3991fb5899642a80ae",
-      "runId": "agent-runtime-7.0.0-proposal-fixture",
+      "recordDigest": "sha256:b4c17317dccbe81696481f7cecd4c65d43b6529fecd1ab85f08760212828dd02",
+      "runId": "agent-runtime-8.0.2-proposal-fixture",
       "schema": "agent-candidate-experiment"
     }
   },
@@ -5021,5 +5021,5 @@
   ],
   "kind": "agent-improvement-proposal",
   "proposedAt": "2026-07-10T01:00:00.000Z",
-  "runId": "agent-runtime-7.0.0-proposal-fixture"
+  "runId": "agent-runtime-8.0.2-proposal-fixture"
 }

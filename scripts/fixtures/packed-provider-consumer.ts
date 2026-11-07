@@ -170,8 +170,8 @@ const adapters: AgentEnvironmentProvider[] = [
       baseUrl: 'https://packed-sandbox.invalid',
     }),
   }),
-  createDaytonaProvider(),
-  createE2BProvider(),
+  createDaytonaProvider({ router: { baseUrl: 'https://packed-provider.invalid', key: 'fixture-not-a-key' } }),
+  createE2BProvider({ router: { baseUrl: 'https://packed-provider.invalid', key: 'fixture-not-a-key' } }),
 ]
 const registry = createAgentEnvironmentProviderRegistry(adapters)
 assert.deepEqual(registry.names(), ['cli-bridge', 'daytona', 'e2b', 'tangle-sandbox'])

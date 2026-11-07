@@ -76,15 +76,12 @@ describe('RouterConfig.complete — the injected completion transport', () => {
   })
 
   it('without `complete`, the fetch path runs unchanged (the live router stays the default)', async () => {
-    const fetchSpy = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({
+    const fetchSpy = vi.fn(async () =>
+      Response.json({
         choices: [{ message: { content: 'live' } }],
         usage: { prompt_tokens: 1, completion_tokens: 1 },
       }),
-      text: async () => '',
-    }))
+    )
     vi.stubGlobal('fetch', fetchSpy)
     const res = await routerChatWithUsage(
       { routerBaseUrl: 'http://router.test/v1', routerKey: 'k', model: 'deepseek-v4-flash' },
@@ -102,15 +99,10 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       idempotencyKeys.push((init.headers as Record<string, string>)['idempotency-key'] ?? '')
       calls += 1
       if (calls === 1) throw new TypeError('fetch failed: socket reset')
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          choices: [{ message: { content: 'recovered' } }],
-          usage: { prompt_tokens: 2, completion_tokens: 1 },
-        }),
-        text: async (): Promise<string> => '',
-      }
+      return Response.json({
+        choices: [{ message: { content: 'recovered' } }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      })
     })
     vi.stubGlobal('fetch', fetchSpy)
 
@@ -233,11 +225,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
           )
         })
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ choices: [{ message: { content: 'after timeout' } }] }),
-      }
+      return Response.json({ choices: [{ message: { content: 'after timeout' } }] })
     })
     vi.stubGlobal('fetch', fetchSpy)
 
@@ -271,11 +259,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     const fetchSpy = vi.fn(async () => {
       attemptTimes.push(Date.now() - startedAt)
       if (attemptTimes.length < 3) throw new TypeError('fetch failed')
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ choices: [{ message: { content: 'third try' } }] }),
-      }
+      return Response.json({ choices: [{ message: { content: 'third try' } }] })
     })
     vi.stubGlobal('fetch', fetchSpy)
 

@@ -34,6 +34,7 @@ import {
   withJsonlFileLock,
 } from '../../durable/jsonl-file'
 import { ValidationError } from '../../errors'
+import { portableContinuationPolicySchema } from './continuation-data'
 import { writeAtomicDurableFile } from './durable-file'
 import type { AgentGraph, GraphEdge } from './graph'
 import { checkGraphRoute } from './graph-file-schema'
@@ -45,16 +46,28 @@ import {
 
 export type { GraphTriggerBinding } from './graph-parameters'
 
-import type { GraphFromStoredOptions } from './stored-graph-check'
+import type { GraphCheckNode, GraphFromStoredOptions } from './stored-graph-check'
 
-export type { GraphCommandCheck, GraphFromStoredOptions } from './stored-graph-check'
+export type {
+  GraphCheckNode,
+  GraphCheckNodes,
+  GraphCheckOutput,
+  GraphCheckPlacement,
+  GraphCommandCheck,
+  GraphFromStoredOptions,
+} from './stored-graph-check'
 
 /** @inline */
 interface StoredGraphContent {
   readonly digest: string
   /** Authored trigger-slot provenance; present (even empty) on compiled loader output. */
   readonly triggerBindings?: readonly GraphTriggerBinding[]
-  readonly nodes: ReadonlyArray<{ readonly id: string; readonly profile: AgentProfile }>
+  readonly nodes: ReadonlyArray<{
+    readonly id: string
+    readonly profile: AgentProfile
+    /** A check node; its profile is `{ name: id }`. */
+    readonly check?: GraphCheckNode
+  }>
   readonly deliverable: Pick<
     AgentGraph['deliverable'],
     'describe' | 'checkRef' | 'command' | 'when'
@@ -62,6 +75,8 @@ interface StoredGraphContent {
   /** A flow graph's entry and gates; absent for any other graph. */
   readonly entry?: AgentGraph['entry']
   readonly gates?: AgentGraph['gates']
+  readonly workspace?: AgentGraph['workspace']
+  readonly continuation?: AgentGraph['continuation']
 }
 
 /** A graph as stored. Observed imports retain unknown directives and budgets;
@@ -176,7 +191,14 @@ function canonicalJson(value: unknown): string {
  *  entry and gates). An absent key is not serialized, so a graph without `entry` keeps the digest
  *  it had before flow graphs were stored. */
 export function graphDigest(graph: Omit<StoredGraph, 'digest'>): string {
-  return sha256(canonicalJson(graph))
+  const { continuation, ...content } = graph
+  const policy =
+    continuation === undefined ? undefined : portableContinuationPolicySchema.parse(continuation)
+  if (policy !== undefined && content.entry !== undefined)
+    throw new ValidationError('graph continuation with entry has no root manager')
+  return sha256(
+    canonicalJson({ ...content, ...(policy === undefined ? {} : { continuation: policy }) }),
+  )
 }
 
 /** Digest of the normalized task shape a designer looks records up by. */
@@ -193,6 +215,7 @@ export function digestOfGraph(graph: AgentGraph): string {
 
 function storeGraph(graph: AgentGraph): StoredGraph {
   const { describe, checkRef, command, when } = graph.deliverable
+  const continuation = graph.continuation
   const content = {
     nodes: graph.nodes,
     edges: graph.edges,
@@ -206,6 +229,10 @@ function storeGraph(graph: AgentGraph): StoredGraph {
     },
     ...(graph.entry === undefined ? {} : { entry: graph.entry }),
     ...(graph.gates === undefined ? {} : { gates: graph.gates }),
+    ...(graph.workspace === undefined ? {} : { workspace: graph.workspace }),
+    ...(continuation === undefined
+      ? {}
+      : { continuation: portableContinuationPolicySchema.parse(continuation) }),
   }
   return { digest: graphDigest(content), ...content }
 }
@@ -279,7 +306,13 @@ export async function recordStoredGraphRun(
   record?: GraphRunRecord,
   options: { readonly preserveLabels?: boolean } = {},
 ): Promise<StoredGraph> {
-  const { digest, ...content } = definition
+  const { digest, continuation, ...topology } = definition
+  const content = {
+    ...topology,
+    ...(continuation === undefined
+      ? {}
+      : { continuation: portableContinuationPolicySchema.parse(continuation) }),
+  }
   const stored = { ...content, digest: digest ?? graphDigest(content) } as StoredGraph
   if (stored.observed && !record)
     throw new ValidationError('graph-registry: observed graphs require a source run identity')
@@ -648,7 +681,12 @@ export function graphFromStored(
     throw new ValidationError(
       `graphFromStored: unknown checkRef ${deliverable.checkRef ?? '(missing)'}`,
     )
-  const materialized = stored.triggerBindings === undefined ? {} : { triggerBindings: [] as const }
+  const materialized = {
+    ...(stored.triggerBindings === undefined ? {} : { triggerBindings: [] as const }),
+    ...(topology.continuation === undefined
+      ? {}
+      : { continuation: portableContinuationPolicySchema.parse(topology.continuation) }),
+  }
   if (typeof selected === 'function') {
     const { command: _command, ...description } = deliverable
     return { ...topology, ...materialized, deliverable: { ...description, check: selected } }

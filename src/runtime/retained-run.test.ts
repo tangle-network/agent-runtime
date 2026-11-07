@@ -3443,7 +3443,12 @@ describe('retained runtime run control', () => {
     })
 
     expect(createInputs).toHaveLength(2)
-    expect(createInputs[1]).toEqual(createInputs[0])
+    // Each create carries its own materialization deadline signal (#2463); the rest is stable.
+    const [firstInput, secondInput] = createInputs.map(({ signal, ...input }) => {
+      expect(signal).toBeInstanceOf(AbortSignal)
+      return input
+    })
+    expect(secondInput).toEqual(firstInput)
     expect(createInputs[0]?.metadata).toEqual({
       tenant: 'acme',
       retainedIdempotencyKey: 'environment-stable',

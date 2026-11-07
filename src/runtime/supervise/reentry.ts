@@ -1,41 +1,19 @@
-/**
- * The task a re-entered external driver receives, composed from Runtime's own records.
- *
- * A re-prompt used to send the unmet items alone, on the claim that it re-entered the SAME live
- * session. That holds on a backend that reattaches the harness session. It does not hold when the
- * previous environment is gone: the driver then starts in a new sandbox, with a new harness
- * session, and the unmet-items text is all it knows. Measured in Autopsy A: three
- * root attempts, each in a new sandbox; the third reported an empty workspace, spent 20 minutes
- * and about 2.0M input tokens investigating infrastructure, and never consumed the child result
- * that had settled while it was gone.
- *
- * So the composer takes the drive harness's statement of what the next drive continues, and
- * writes the whole run state whenever the harness session is not proven continuous: the original
- * objective and completion contract, where the journal was read to, the events waiting and the
- * events delivered to a turn that died, every live and settled worker, the last refusal, and what
- * became of the workspace. A proven-continuous session gets the unmet items plus what changed.
- */
-
 import type { ManagerReentryState } from '../../mcp/tools/coordination-events'
 import type { DriverReentry } from './driver-retry'
 
-/** What the next drive continues, as the drive harness can prove it before the turn starts. */
 export interface ReentryContinuity {
-  /** `continued`: the next turn is sent into the harness session that received the last one.
-   *  `new`: a new harness session, which knows only what its task says. */
+  /** `continued` reuses the harness session. `new` knows only this task. */
   readonly session: 'continued' | 'new'
-  /** Whether the next drive runs in the environment the previous drive used. `replaced` names a
-   *  previous environment the provider no longer holds. */
+  /** `replaced` names an environment the provider no longer holds. */
   readonly environment: 'same' | 'replaced' | 'unknown'
   readonly environmentId?: string
   readonly previousEnvironmentId?: string
-  /** What the next environment holds of the previous one's files. `restored`: the files as of
-   *  the checkpoint taken at `checkpointAt`; anything written after it is gone. */
+  /** `restored` is the checkpoint at `checkpointAt`. Later writes are gone. */
   readonly workspace: 'kept' | 'restored' | 'lost' | 'unknown'
   readonly checkpointAt?: string
 }
 
-/** Continuity when nothing is proven: compose the full state. */
+/** What a re-entry may assume when nothing proved its session, environment or workspace. */
 export const UNPROVEN_CONTINUITY: ReentryContinuity = Object.freeze({
   session: 'new',
   environment: 'unknown',
@@ -43,20 +21,16 @@ export const UNPROVEN_CONTINUITY: ReentryContinuity = Object.freeze({
 })
 
 export interface ReentryTaskInput {
-  /** The run's original task, exactly as the first drive received it. */
   readonly originalTask: unknown
-  /** What the completion check requires, when the caller described it. */
   readonly contract?: string
-  /** Coordination tools served to this manager. Absent means none are proven available. */
   readonly tools?: ReadonlyArray<string>
   readonly reentry: DriverReentry
   readonly continuity: ReentryContinuity
   readonly state: ManagerReentryState
-  /** 1-based driver attempt this task starts. */
   readonly attempt: number
 }
 
-/** Compose the task for one re-entered drive. */
+/** The task a re-entered driver receives: what changed, why it re-entered, and its objective. */
 export function composeReentryTask(input: ReentryTaskInput): string {
   const { reentry, continuity, state } = input
   if (reentry.reason === 'unmet-contract' && continuity.session === 'continued') {
@@ -67,7 +41,6 @@ export function composeReentryTask(input: ReentryTaskInput): string {
       ...(changes.length > 0 ? ['', ...changes] : []),
     ].join('\n')
   }
-  // A woken manager in the same session already holds everything but what happened.
   if (reentry.reason === 'wake' && continuity.session === 'continued') return reentry.input
   const lines: string[] = [
     `You are re-entering a run that is already in progress (driver attempt ${input.attempt}). ` +
@@ -100,9 +73,6 @@ export function composeReentryTask(input: ReentryTaskInput): string {
     '## What to do now',
     '',
     'Continue the run from this state.',
-    // Measured 2026-09-24 (autopsy-a-restore-after-20260924c): the restored workspace held the
-    // first turn's objective.md, and the re-entered director, told only that its files were
-    // restored, re-ran the task's first step and overwrote the file without reading it.
     ...(continuity.workspace === 'kept' || continuity.workspace === 'restored'
       ? [
           'Read the files you already wrote before you repeat any step of the task. A step whose file is there is done, and its content stands.',
@@ -119,12 +89,6 @@ export function composeReentryTask(input: ReentryTaskInput): string {
   return lines.join('\n')
 }
 
-/**
- * Why the driver is back, in one clause. The failure's own text stays in the attempt records and
- * never reaches the driver: a continuation told the details of a provider
- * failure spent two of its first four children probing the infrastructure, while its peer, told
- * only what to continue, spent all forty-five on the research.
- */
 function whyLine(reentry: DriverReentry): string {
   if (reentry.reason === 'unmet-contract') {
     return `Your previous turn ended with the completion check unmet (continuation ${reentry.continuation}).`
@@ -133,25 +97,25 @@ function whyLine(reentry: DriverReentry): string {
     return 'Your previous turn ended while your workers ran, and Runtime woke you with what happened.'
   }
   if (reentry.reason === 'run-reentered') return restartLine(reentry)
-  // A pause names no provider and no code: the operator owns the upstream, and the driver's
-  // budget belongs to the objective.
   return reentry.reason === 'upstream-unavailable'
     ? 'Your previous turn was interrupted before it finished; the run itself is intact.'
     : `Your previous turn ended before it finished (retry ${reentry.retry}); the run itself is intact.`
 }
 
-/**
- * What a root re-entered after a barren pause is told: its last turns delivered nothing, and how
- * to wait on long work of its own instead of ending the turn. Measured 2026-10-21 on
- * magnetar-rust-20261021a: the root ended two turns to wait on its own 2^20 prove, and both
- * counted as barren.
- */
 function barrenLines(reentry: Extract<DriverReentry, { reason: 'unmet-contract' }>): string[] {
   if (reentry.barren === undefined) return []
   const minutes = Math.round(reentry.barren.pausedMs / 60_000)
+  const unjudged =
+    reentry.steer.includes('has not judged') && reentry.steer.includes('verdict reaches you')
   return [
     `Your last ${reentry.barren.streak} turns ended with the check unmet and delivered nothing: no accepted result, no worker that passed its check, and no rise in the check's score. Runtime waited ${minutes} minutes before this turn.`,
-    'If you are waiting on long work of your own, such as a build, a proof or a job you started, do not end your turn to wait for it. Wait inside the turn with your wake or wait tool, or a command that blocks until the work finishes, then act on its result. Each turn in a row that ends with nothing delivered doubles the wait before the next, up to an hour.',
+    unjudged
+      ? [
+          'The check has not judged this run yet, and its verdict reaches you as feedback.',
+          'End your turn and let that verdict wake you.',
+          'Do not sleep, poll, or record another release to poke the check.',
+        ].join(' ')
+      : 'If you are waiting on long work of your own, such as a build, a proof or a job you started, do not end your turn to wait for it. Wait inside the turn with your wake or wait tool, or a command that blocks until the work finishes, then act on its result. Each turn in a row that ends with nothing delivered doubles the wait before the next, up to an hour.',
   ]
 }
 
@@ -238,9 +202,6 @@ function stateLines(
     lines.push('Events waiting for you: none.')
   }
   if (state.unacknowledged.length > 0) {
-    // In full: magnetar-rust-20261017c's 09:59Z and 20:41Z operator steers were delivered to turns
-    // that a usage limit ended, and the re-entry named them only by sequence number, so neither
-    // steer ever reached a prompt.
     lines.push(
       `Events delivered to a turn that has not finished, so treat them as unread (${state.unacknowledged.length}):`,
       ...state.unacknowledged.map((event) => `- ${JSON.stringify(event.event)}`),

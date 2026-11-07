@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { resolveJsonPointer } from '../../mcp/tools/coordination-map-routing'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
+import { portableContinuationPolicySchema } from './continuation-data'
 
 const scalar = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
 const pointer = z.string().regex(/^(?:\/(?:[^~]|~[01])*)*$/)
@@ -23,6 +24,22 @@ const command = z.strictObject({
 })
 const nonnegativeInteger = z.number().int().nonnegative()
 
+/** A check node's command: no model, no seat. Params substitute as elsewhere. */
+export const graphCheckNodeSchema = z.strictObject({
+  command: z.string().min(1),
+  timeoutMs: z.number().int().positive().optional(),
+  environment: z.string().min(1).optional(),
+  egress: z.array(z.string().min(1)).optional(),
+  secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
+  resources: z
+    .strictObject({
+      cpuCores: z.number().positive().optional(),
+      memoryMB: z.number().int().positive().optional(),
+      diskGB: z.number().positive().optional(),
+    })
+    .optional(),
+})
+
 /** Authoring envelope. Canonical profiles and topology are validated by their existing owners. */
 export const graphFileSchema = z.strictObject({
   digest: z.string().min(1).optional(),
@@ -36,9 +53,12 @@ export const graphFileSchema = z.strictObject({
         profile: z.record(z.string(), z.unknown()).optional(),
         seat: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
         needs: z.array(z.string().min(1)).optional(),
+        check: graphCheckNodeSchema.optional(),
       }),
     )
     .min(1),
+  workspace: z.enum(['cwd', 'fresh']).optional(),
+  continuation: portableContinuationPolicySchema.optional(),
   entry: z
     .array(
       z.union([z.string().min(1), z.strictObject({ node: z.string().min(1), task: z.unknown() })]),

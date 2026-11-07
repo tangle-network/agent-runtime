@@ -99,7 +99,7 @@ function modelIdentityParts(model: string): ModelIdentityParts | null {
 function equivalentModelBase(observed: string, declared: string): boolean {
   const observedPath = modelBaseParts(observed)
   const declaredPath = modelBaseParts(declared)
-  if (!samePath(observedPath.path, declaredPath.path)) return false
+  if (!samePath(observedPath.path, declaredPath.path)) return servesClaudeAlias(observed, declared)
 
   // A bare id omits provider routing. It can match an explicitly qualified spelling
   // only when the model path is otherwise identical.
@@ -124,6 +124,13 @@ function equivalentModelBase(observed: string, declared: string): boolean {
   }
 
   return false
+}
+
+// Claude Code serves a family alias (`anthropic/opus`) as its current model (`claude-opus-5-5`).
+function servesClaudeAlias(observed: string, declared: string): boolean {
+  const route = '^(?:claude-code/)?(?:anthropic/)?'
+  const alias = new RegExp(`${route}(opus|sonnet|haiku)$`, 'u').exec(declared)?.[1]
+  return alias !== undefined && new RegExp(`${route}claude-${alias}-[\\w.-]+$`, 'u').test(observed)
 }
 
 /**

@@ -928,11 +928,7 @@ The conversation the executor retained at settlement, when it retained one.
 
 **`Experimental`**
 
-Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
- an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
- not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
- turn whose provider reported no usage is recorded with this flag rather than omitted, because
- omitting it makes the turn look free.
+False marks work that happened with an unreported count. `tokens` is then a floor, not the total.
 
 ###### Inherited from
 
@@ -1107,11 +1103,7 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 **`Experimental`**
 
-Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
- an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
- not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
- turn whose provider reported no usage is recorded with this flag rather than omitted, because
- omitting it makes the turn look free.
+False marks work that happened with an unreported count. `tokens` is then a floor, not the total.
 
 ###### Inherited from
 
