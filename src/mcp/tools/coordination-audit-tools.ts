@@ -6,12 +6,10 @@ import { obj, str } from './coordination-input'
 import { runWithin } from './coordination-tool-timeout'
 export function createAuditTools({
   opts,
-  tools,
   blockedReports,
   readJournal,
 }: {
   readonly opts: CoordinationToolsOptions
-  readonly tools: () => ReadonlyArray<McpToolDescriptor>
   readonly blockedReports: BlockedToolReport[]
   readonly readJournal: (raw: unknown, trackOwnRead?: boolean) => JournalPage
 }): McpToolDescriptor[] {
@@ -54,7 +52,8 @@ export function createAuditTools({
             reason: `${bare} changes the run, so the coordinator does not call it for you`,
           }
         }
-        const target = opts.resolveProbeTool?.(bare) ?? tools().find((tool) => tool.name === bare)
+        // The grant is the only source: a name the resolver does not serve is never probed.
+        const target = opts.resolveProbeTool?.(bare)
         if (target === undefined) {
           return {
             blocked: false,

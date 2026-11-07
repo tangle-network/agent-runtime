@@ -252,7 +252,6 @@ function assembleTools(parts: ManagerParts): McpToolDescriptor[] {
     }),
     ...createAuditTools({
       opts,
-      tools: () => tools,
       blockedReports: state.blockedReports,
       readJournal: journal.readJournal,
     }),
