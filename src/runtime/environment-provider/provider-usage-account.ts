@@ -56,18 +56,13 @@ export class ProviderUsageAccount {
     yield* this.credit(this.ledger.settleTurn(this.worker))
   }
 
-  /**
-   * Interim missing prices and catalog estimates may be covered by a later cumulative bill.
-   * Only unresolved work becomes unknown at settlement; do not add a quote to that bill.
-   */
+  /** Unresolved work stays unknown. Do not add a quote to a bill that already arrived. */
   *settleUnpricedWork(): Iterable<UsageEvent> {
     if (!this.pendingUnpricedWork) return
-    // A provider reporting tokens and no dollars used to settle a bare `$0`. The catalog says what
-    // it WOULD bill, so the amount rides `usdEstimated` and `usdKnown` stays false: a price is not
-    // a receipt. Priced only when NO dollars reached the channel, because `tokens` is the
-    // execution's cumulative total and pricing it beside any receipt would charge them twice; a
-    // partially billed execution keeps its unresolved part unknown.
-    const estimated = this.pendingEstimate ?? (this.usd === 0 ? this.catalogPrice() : undefined)
+    // A subscription seat stays unpriced. Otherwise price only when no dollars arrived.
+    const estimated = this.subscriptionSeat()
+      ? undefined
+      : (this.pendingEstimate ?? (this.usd === 0 ? this.catalogPrice() : undefined))
     const estimate = estimated ?? 0
     this.sawUnknownCostReceipt = true
     this.usd += estimate
@@ -94,8 +89,7 @@ export class ProviderUsageAccount {
         ? {}
         : { tokensKnown: false }),
       usd: this.usd,
-      // A dollar total is known only when a canonical receipt arrived and none was marked
-      // unknown. Bare provider numbers remain untrusted; Router billing receipts survive.
+      // Known only when a canonical receipt arrived and none was marked unknown.
       usdKnown: this.sawCostReceipt && !this.sawUnknownCostReceipt,
       // Only unverified amounts are estimates; a mixed run must retain its billed subtotal.
       ...(this.sawCostEstimate ? { usdEstimated: this.usdEstimated } : {}),
@@ -123,8 +117,16 @@ export class ProviderUsageAccount {
     }
   }
 
+  /** A subscription seat is unpriced. Its profile declares no per-call bill. */
+  private subscriptionSeat(): boolean {
+    return [this.args.profile, this.args.createProfile].some(
+      (profile) => profile.model?.metadata?.credentialSource === 'subscription',
+    )
+  }
+
   /** Catalog price of the whole token total, or undefined when nothing could be priced. */
   private catalogPrice(): number | undefined {
+    if (this.subscriptionSeat()) return undefined
     const { tokens } = this
     for (const model of [
       this.observedModel,
@@ -144,8 +146,7 @@ export class ProviderUsageAccount {
     return undefined
   }
 
-  /** This invocation's cumulative tokens as the execution's: a continuation adds what its earlier
-   *  invocations already reported. */
+  /** This invocation's tokens plus what a continuation already carried. */
   private executionTokens(own: ReturnType<UsageLedger['tokenUsage']>) {
     const { carried } = this.args
     if (carried === undefined) return own
@@ -216,8 +217,7 @@ function streamBroke(event: SandboxEvent): boolean {
   return event.data.eventStreamComplete === false
 }
 
-/** Counters the recorded total gained after `streamed`. A cache class that does not fit the input
- *  gap is omitted: a remainder is still one token record. */
+/** Counters gained after `streamed`. A cache class past the input gap is omitted. */
 function tokenGap(
   streamed: ReturnType<typeof cloneTokenUsage>,
   recorded: ReturnType<typeof cloneTokenUsage>,

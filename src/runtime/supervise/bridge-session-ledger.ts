@@ -54,10 +54,7 @@ function newTurnTally(): BridgeTurnTally {
   }
 }
 
-/**
- * Open the harness store named on the seam, or nothing when the caller named none. A harness with
- * no reader is REFUSED: ignoring it would hand back the same `{0, 0}` the store was meant to fix.
- */
+/** Open the named harness store. No reader is a refusal, not a silent `{0, 0}`. */
 export function openBridgeHarnessStore(
   store: BridgeHarnessStore | undefined,
 ): CodexRolloutStoreReader | undefined {
@@ -74,8 +71,7 @@ export function openBridgeHarnessStore(
   return createCodexRolloutStoreReader(ref)
 }
 
-/** Read one turn's worth of the harness store. A failed read is noted on the activity log and
- *  returns nothing: the store is extra evidence and must never end a turn whose work happened. */
+/** One turn of the harness store. A failed read is noted and returns nothing. */
 export async function readHarnessStoreDelta(
   reader: CodexRolloutStoreReader,
   observation: BridgeObservation,
@@ -93,16 +89,8 @@ export async function readHarnessStoreDelta(
   }
 }
 
-/**
- * The tokens one cli-bridge turn's own materialization receipt states, or the reason it states
- * none. cli-bridge counts the model traffic through its scoped-loopback endpoint and publishes it
- * as `inference.observation.usage`, harness-agnostic BY CONSTRUCTION, so the runtime holds NO
- * per-harness bridge decoder (`harness-usage.ts` serves the sandbox stream).
- *
- * A receipt states a turn's tokens only when it names BOTH totals; anything less leaves the turn
- * unknown with the reason named, never a zero. The counters beside the totals CLASSIFY the prompt
- * total and add nothing to it (the receipt carries no reasoning counter).
- */
+/** Receipt tokens, or why none. Both totals required; cache counters only classify.
+ *  No per-harness bridge decoder. */
 function readBridgeReceiptTokens(
   usage: BridgeInferenceUsage | undefined,
 ): { event: TokensEvent } | { reason: string } {
@@ -125,10 +113,7 @@ function readBridgeReceiptTokens(
       ? {}
       : { writeTokens: usage.cacheWriteInputTokens }),
   })
-  // The receipt's own fresh count is carried when the cache counters did not already imply the
-  // partition (one class of three classifies PART of the total, so the split stays incomplete). A
-  // fresh count that CONTRADICTS the implied partition keeps both counters and declares the
-  // remainder unclassified rather than picking a winner.
+  // Carry a fresh count the cache split missed. A contradiction stays unclassified.
   const declaredFresh =
     classes.freshInput === undefined && fresh !== undefined && fresh <= input
       ? { freshInput: fresh, cacheBreakdownKnown: false as const }
@@ -149,15 +134,11 @@ function readBridgeReceiptTokens(
   }
 }
 
-/**
- * The accounting of one cli-bridge session across its turns: what each turn's stream, receipt,
- * and harness store proved, what stayed unknown and why, and the artifact the session settles as.
- */
+/** One cli-bridge session: what each turn proved, what stayed unknown, and the settled artifact. */
 export class BridgeSessionLedger {
   readonly tokens = zeroTokenUsage()
   tokensKnown = true
-  // Why the token channel is a floor, named under the key `sumSandboxUsage` uses so one reader
-  // serves the sandbox and bridge streams.
+  // Floor reason, under the key `sumSandboxUsage` reads.
   tokensUnknownReason: string | undefined
   usd = 0
   usdKnown = true
@@ -172,8 +153,7 @@ export class BridgeSessionLedger {
   observedModel: string | undefined
   observedSystemFingerprint: string | undefined
   readonly toolCalls: ExecutorToolCall[] = []
-  // Keyed by the `PromptCacheUsage` vocabulary (consumers read `readTokens` / `writeTokens`): a
-  // private dialect here reads as no cache report and charges a re-read prefix in full.
+  // `PromptCacheUsage` keys. A private dialect charges a re-read prefix in full.
   readonly promptCache: { freshInput?: number; readTokens?: number; writeTokens?: number } = {}
   // Which evidence the tokens came from; `undefined` until the first count lands.
   tokensProvenance: TokenUsageProvenance | undefined
@@ -271,19 +251,15 @@ export class BridgeSessionLedger {
     }
   }
 
-  /**
-   * Close the turn's accounting after its stream: the receipt, the harness store, and a price for
-   * what no receipt billed. Every channel nothing proved stays unknown, never zero.
-   */
+  /** Close the turn. Every unproven channel stays unknown, never zero. */
   async *settleTurn(
     receiptUsage: BridgeInferenceUsage | undefined,
     harnessStore: CodexRolloutStoreReader | undefined,
     observation: BridgeObservation,
     providerModel: string,
+    credentialSource?: unknown,
   ): AsyncGenerator<UsageEvent> {
-    // A turn with no usage frame is not free: cli-bridge's accounting rides the turn's
-    // materialization receipt. Read after the stream so frames win and a turn reporting both is
-    // charged once (the precedence `SandboxUsageLedger` holds).
+    // No usage frame is not free. Read the receipt after the stream so both are charged once.
     if (!this.turn.sawTokenUsage) {
       const receipt = readBridgeReceiptTokens(receiptUsage)
       if ('event' in receipt) {
@@ -300,13 +276,11 @@ export class BridgeSessionLedger {
     if (!turn.sawTokenUsage || !turn.tokensKnown) this.tokensKnown = false
     if (!turn.sawCostStatus || !turn.usdKnown) {
       this.usdKnown = false
-      yield this.priceUnreceiptedTurn(providerModel)
+      yield this.priceUnreceiptedTurn(providerModel, credentialSource)
     }
   }
 
-  // The harness store is read on EVERY turn: a stream receipt reports the seat's turn while a
-  // harness-native child spends in its own rollout. A turn with a receipt still credits the
-  // native children, one without credits both — never the same tokens twice.
+  // Every turn: a seat receipt still credits native children, never the same tokens twice.
   private async *creditHarnessStore(
     harnessStore: CodexRolloutStoreReader,
     observation: BridgeObservation,
@@ -340,10 +314,8 @@ export class BridgeSessionLedger {
     }
   }
 
-  // Missing billing proof is not a free turn: price what the turn presented (the event is always
-  // `usdKnown: false`, the priced part rides `usdEstimated`). Only a turn that billed NOTHING is
-  // priced; a partial receipt already put real dollars on the channel.
-  private priceUnreceiptedTurn(providerModel: string): UsageEvent {
+  // Price only a turn that billed nothing. The event stays `usdKnown: false`.
+  private priceUnreceiptedTurn(providerModel: string, credentialSource?: unknown): UsageEvent {
     const { turn } = this
     const priced =
       turn.knownCostSubtotal === 0
@@ -351,6 +323,7 @@ export class BridgeSessionLedger {
             inputTokens: turn.inputTokens,
             outputTokens: turn.outputTokens,
             model: this.observedModel ?? providerModel,
+            ...(credentialSource === 'subscription' ? { credentialSource } : {}),
           })
         : {
             kind: 'cost' as const,

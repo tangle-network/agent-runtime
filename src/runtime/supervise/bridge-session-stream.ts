@@ -62,23 +62,19 @@ interface StreamBridgeArgs {
   onProfileMaterialization: (receipt: BridgeProfileMaterializationReceipt) => void
 }
 
-/** One resumable cli-bridge session as a streamed turn loop: turn 0 sends the task, each later
- *  turn fires ONLY when the inbox has a steer/answer to fold, re-calling the SAME `session_id`.
- *  Mirrors `routerToolsInlineExecutor`'s take→turn→settle loop with a full harness call per turn. */
+/** Resumable cli-bridge loop. Later turns fire only for a folded steer, on the same session. */
 export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
   const { seam, inbox, observation } = args
   const started = Date.now()
   const external = linkAbort(args.signal, args.controller.signal).signal
   const ledger = new BridgeSessionLedger()
-  // The harness's own store, when the caller named one. Opened BEFORE turn 0 and baselined on the
-  // first read, so rows this run did not write are consumed and credited to nothing.
+  // Opened before turn 0 and baselined, so rows this run did not write credit nothing.
   const harnessStore = openBridgeHarnessStore(seam.harnessStore)
   if (harnessStore) await readHarnessStoreDelta(harnessStore, observation)
 
   // Turn 0 is the task; later turns carry the folded steer/answer on the SAME session.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
-  // The messages this turn's prompt carries. Committed once the bridge streams the run, so a turn
-  // that fails or is interrupted before then hands them back to the next prompt.
+  // Committed once the bridge streams the run; a turn that fails before then returns them.
   let lease: InboxLease | undefined
   for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; ) {
     lease?.release()
@@ -96,8 +92,7 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
     if (nextPrompt === undefined) break
     observation.note = `turn ${t}`
 
-    // Each turn sends ONLY the new task/steer: the profile's standing prompt is materialized once,
-    // and duplicating it as a system message makes precedence backend-dependent.
+    // Only the new task or steer. The standing prompt is materialized once.
     const messages: Array<{ role: string; content: string }> = []
     messages.push({ role: 'user', content: nextPrompt })
     nextPrompt = undefined
@@ -126,6 +121,7 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
       harnessStore,
       observation,
       seam.providerModel,
+      args.profile.model?.metadata?.credentialSource,
     )
     yield { kind: 'iteration' }
     if (!interrupted) {
@@ -143,9 +139,7 @@ export async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterabl
       break
     }
 
-    // Before settling, take once more: a worker can't finish with an unread steer pending, which
-    // becomes the next resume turn (else `failPendingAfter` reports it failed). AUTHORITY messages
-    // only, or a sibling's mail could hold a finished worker open indefinitely.
+    // An unread authority steer becomes the next turn. Peer mail must not hold the worker open.
     if (inbox.pendingAuthority() === 0) break
   }
 
@@ -179,9 +173,7 @@ type BridgePreflight =
   | { readonly kind: 'stopped' }
   | { readonly kind: 'interrupted' }
 
-/** Prove this bridge can accept the turn before allocating a remote run id. A refusal still becomes
- *  an attempt with no-dispatch evidence; the empty active-run map keeps teardown from cancelling
- *  work the bridge never accepted. */
+/** Prove the bridge can accept the turn before a remote run id. A refusal dispatches nothing. */
 async function preflightBridgeTurn(
   args: StreamBridgeArgs,
   signals: BridgeTurnSignals,
@@ -330,18 +322,14 @@ async function* streamBridgeTurn(
     ledger.transportAttempts += activeRun.transportAttempts
     signals.cleanup()
   }
-  // Some transports can finish a buffered body normally after their signal fires. The forceful
-  // steer still wins and must become a new turn rather than letting this response settle.
+  // A buffered body after the signal still loses to a forceful steer.
   if (signals.interrupt.aborted && !args.signal.aborted && !args.controller.signal.aborted) {
     interrupted = true
   }
   return { activeRun, interrupted }
 }
 
-/**
- * A failed turn stream: a forceful steer's interruption returns once the durable run is terminal;
- * anything else throws, as the turn failure it is.
- */
+/** A forceful steer returns after the run is terminal. Anything else throws. */
 async function settleFailedTurn(
   error: unknown,
   args: StreamBridgeArgs,
@@ -350,8 +338,7 @@ async function settleFailedTurn(
   external: AbortSignal,
 ): Promise<void> {
   const { seam } = args
-  // A forceful steer detaches this reader, cancels the durable run and waits for terminal proof;
-  // resuming earlier would race two harness processes against one session.
+  // Wait for terminal proof before resume, or two processes share one session.
   const interruptAbort =
     signals.interrupt.aborted && !args.signal.aborted && !args.controller.signal.aborted
   if (interruptAbort) {
@@ -374,9 +361,7 @@ async function settleFailedTurn(
   }
   if (signals.timedOut) {
     if (!activeRun.terminal) await requestBridgeRunCancellation(seam, activeRun, 0)
-    // The turn ran out its own deadline: it failed, the run did not stop. As the transport's
-    // AbortError it classified terminal (one silent 4-hour turn settled magnetar-rust-20261019b, a
-    // 48-hour run); as a failed turn the driver re-enters it, bounded like any other failure.
+    // A deadline fails the turn and the driver re-enters it. It does not stop the run.
     throw new HarnessTurnFailedError('bridge', {
       error: `the turn ran out its ${seam.timeoutMs} ms deadline; cancellation of bridge run ${activeRun.id} requested`,
       errorCode: 'timeout',
