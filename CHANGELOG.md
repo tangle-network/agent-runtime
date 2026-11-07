@@ -1,3 +1,9 @@
+## 7.0.5
+
+A control poll reads only new steer, cancel, and spawn-journal bytes. A quiet poll no longer rereads every worker and the whole journal.
+
+Preserve SearchSpec flow admission when its compiler supplies continuation options, including the original gate and root-driver refusals.
+
 ## 7.0.4
 
 Authored and stored graphs retain an explicit portable continuation policy for harness-driven roots, including checked replay and content identity.
