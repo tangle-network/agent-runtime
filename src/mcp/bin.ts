@@ -51,7 +51,7 @@
  * @experimental
  */
 
-import { isAbsolute } from 'node:path'
+import { basename, isAbsolute } from 'node:path'
 import { FileObserverJournal } from '../durable/observer-journal'
 import type { SandboxClient } from '../runtime'
 import { delegateEnabled, resolveDelegateSupervisor } from './delegate-supervisor-provisioning'
@@ -59,7 +59,11 @@ import { FileDelegationStore } from './delegation-store'
 import { createMcpServer } from './server'
 import { DelegationTaskQueue } from './task-queue'
 import type { DelegateHandlerOptions } from './tools/delegate'
-import { type McpEventSource, observerJournalEventSource } from './tools/events'
+import {
+  type McpEventSource,
+  observerJournalEventSource,
+  rootStreamEventSource,
+} from './tools/events'
 import { readTraceContextFromEnv, type TraceContext } from './trace-propagation'
 
 const DEFAULT_SANDBOX_BASE_URL = 'https://sandbox.tangle.tools'
@@ -151,6 +155,10 @@ async function main(): Promise<void> {
  *  aggregation belongs to the host/platform layer, not this bin. */
 async function buildEventSourceFromEnv(): Promise<McpEventSource | undefined> {
   if (process.env.MCP_ENABLE_EVENTS !== '1') return undefined
+  // `AGENT_RUNTIME_EVENTS_ROOT_STREAM=<runDir>` serves that run's committed root stream instead.
+  const runDir = process.env.AGENT_RUNTIME_EVENTS_ROOT_STREAM
+  if (runDir && isAbsolute(runDir))
+    return rootStreamEventSource(runDir, { pursuitId: basename(runDir) })
   const journalPath = process.env.AGENT_RUNTIME_EVENTS_JOURNAL
   if (!journalPath || !isAbsolute(journalPath)) {
     process.stderr.write(

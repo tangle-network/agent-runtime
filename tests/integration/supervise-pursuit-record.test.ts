@@ -31,6 +31,11 @@ import { closesCursorSlot } from '../../src/durable/spawn-journal/event-index'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
 import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination-contracts'
+import {
+  createEventsTools,
+  type McpEventRecord,
+  rootStreamEventSource,
+} from '../../src/mcp/tools/events'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import {
   type RetainedExecutorContext,
@@ -576,7 +581,10 @@ describe('supervisePursuit root stream', () => {
    * parts are handed to Runtime and the event loop turns once, the session reads the run directory
    * before yielding anything else, so `seenDuringTurn` is what was on disk while the turn was open.
    */
-  function rootProvider(seen: { duringTurn?: number }): AgentEnvironmentProvider {
+  function rootProvider(seen: {
+    duringTurn?: number
+    midTurn?: () => Promise<void>
+  }): AgentEnvironmentProvider {
     const base = durableRetainedProvider(join(runDir, 'provider.json'))
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
       ...environment,
@@ -593,6 +601,7 @@ describe('supervisePursuit root stream', () => {
                   .split('\n')
                   .filter((line) => line.length > 0).length
               : 0
+            await seen.midTurn?.()
             yield* session.events(eventOptions)
           },
         }
@@ -722,6 +731,50 @@ describe('supervisePursuit root stream', () => {
       ['root-stream-settle', 'assistant_text', 'the root says'],
       ['root-stream-settle', 'read', 'notes'],
     ])
+  })
+
+  // #1565: an observer reads the root's committed batches over `events_*` while the turn runs,
+  // acks, and after the run gets only what is new; a resubscribe keeps its cursor, an unacked
+  // page is redelivered, and a torn tail is never served.
+  it('serves the committed root stream as events while the root runs, from an acked cursor', async () => {
+    const tools = createEventsTools({
+      eventSource: rootStreamEventSource(runDir, { pursuitId: 'pursuit:root-stream' }),
+    })
+    type Page = { records: McpEventRecord[]; highWatermark: number }
+    const { subscriptionId } = (await tools.subscribeTool.handler({ key: 'lab' })) as {
+      subscriptionId: string
+    }
+    const fetchPage = async () => (await tools.fetchTool.handler({ subscriptionId })) as Page
+    let midTurn: Page | undefined
+    await providerRootRun('root-stream-events', {
+      backend: {
+        backend: 'provider',
+        provider: rootProvider({
+          midTurn: async () => {
+            midTurn = await fetchPage()
+          },
+        }),
+      },
+    })
+    expect(midTurn?.records.map((r) => (r.payload as { event: unknown }).event)).toEqual(
+      rootProgress,
+    )
+    const watermark = midTurn?.records.at(-1)
+    await tools.ackTool.handler({ subscriptionId, sequence: watermark?.sequence })
+    await appendFile(streamPath(), '{"seq":6,"at":"torn')
+    const after = await fetchPage()
+    expect(
+      after.records.map((r) => [r.sequence, (r.payload as { attempt: number }).attempt]),
+    ).toEqual([[5, 1]])
+    expect(after.highWatermark).toBe(5)
+    const reread = await rootStreamEventSource(runDir, { pursuitId: 'pursuit:root-stream' }).read()
+    expect(reread[rootProgress.length - 1]?.digest).toBe(watermark?.digest)
+    expect((await fetchPage()).records.map((r) => r.sequence)).toEqual([5])
+    const again = (await tools.subscribeTool.handler({ key: 'lab' })) as {
+      subscriptionId: string
+      cursor: number
+    }
+    expect(again).toMatchObject({ subscriptionId, cursor: rootProgress.length })
   })
 
   it('references the partial root stream from failure.json when the run throws after the root streamed', async () => {
