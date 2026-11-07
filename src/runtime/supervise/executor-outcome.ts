@@ -16,8 +16,7 @@ const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true, f
   })
   .strict()
 
-/** Why an executor's own envelope says the execution failed, with the provider's machine code
- *  when it reported one. */
+/** Why the executor envelope says the execution failed, including a provider machine code. */
 export interface ExecutorFailure {
   readonly failure?: AgentTurnFailure
   readonly error: string
@@ -110,24 +109,32 @@ export const PLATFORM_FAILURE_CODES: ReadonlySet<string> = new Set(
   ].map((code) => code.toLowerCase()),
 )
 
+/** A harness process died mid-step. The sandbox can still name that execution as the session owner. */
+const HARNESS_PROCESS_DEATH =
+  /killed by SIGKILL|OpenCode exited while a model step was still in progress/u
+
+export function harnessProcessDied(text: string): boolean {
+  return HARNESS_PROCESS_DEATH.test(text)
+}
+
 const PLATFORM_FAILURE_MESSAGES: ReadonlyArray<RegExp> = [
-  /^terminated$/u, // the box was terminated under the execution: 25
-  /Execution exceeded its time limit/u, // the platform's execution TTL: 4
-  /Platform key[- ]verification/u, // key-verification brownout: 9
+  /^terminated$/u,
+  /Execution exceeded its time limit/u,
+  /Platform key[- ]verification/u,
   /Platform key delegation failed/u,
-  /Bad Gateway/iu, // egress proxy header timeout, router 502: 4
-  /Cannot connect to API/u, // egress proxy killed by downloads: 3
-  /Failed to connect to Sandbox API/u, // the driver lost its box environment (discovery-lab#888)
+  /Bad Gateway/iu,
+  /Cannot connect to API/u,
+  /Failed to connect to Sandbox API/u,
   /fetch failed/u,
-  /A sandbox lifecycle operation is already in progress/u, // 2
-  /exceeded its string bound/u, // Tangle Sandbox event data exceeded its string bound: 4
-  /exceeds its JSON bound/u, // 3
-  /No provider served model/u, // router capacity: 7
-  /Invalid API key/u, // the sandbox model key expired mid-turn: 2
+  /A sandbox lifecycle operation is already in progress/u,
+  /exceeded its string bound/u,
+  /exceeds its JSON bound/u,
+  /No provider served model/u,
+  /Invalid API key/u,
   /provider_quota_exceeded|provider_quota_exhausted|QUOTA_EXCEEDED|rate limit/iu,
-  /is at its box cap/u, // seat capacity: 4
-  /could not materialize the seat credential/u, // 3
-  /OpenCode exited while a model step was still in progress/u, // tmpfs OOM, SIGKILL: 4
+  /is at its box cap/u,
+  /could not materialize the seat credential/u,
+  HARNESS_PROCESS_DEATH,
 ]
 
 /** Producer-owned classification first; legacy platform codes/messages otherwise leave attribution unknown. */
@@ -138,8 +145,7 @@ export function executorFailureInfra(failure: ExecutorFailure): true | undefined
   return PLATFORM_FAILURE_MESSAGES.some((pattern) => pattern.test(failure.error)) ? true : undefined
 }
 
-/** Preserve deterministic result pointers across built-in executors and replay.
- * FNV-1a is an identity convention here, not a cryptographic integrity check. */
+/** Deterministic result pointer. FNV-1a identifies the value. It is not an integrity check. */
 export function contentRef(prefix: string, value: unknown): string {
   const str = jsonContentText(value)
   return `${prefix}:${fnv1a32Hex(str)}`

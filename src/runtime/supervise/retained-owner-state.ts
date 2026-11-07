@@ -24,18 +24,15 @@ export interface OwnerState {
   priorSession?: RetainedRunEnvironmentAdmission
   /** A changed native provider starts a new harness session from a verified checkpoint. */
   forceNewSession?: boolean
-  /** `continuation.session: 'fresh'`: a later invocation keeps the environment and starts a new
-   *  harness session in it. Set on every prepare, so a recovered invocation replays the identity
-   *  it committed. */
+  /** Set on every prepare so a recovered invocation replays the committed identity. */
   freshSessions?: boolean
+  /** The previous harness process died. Release that execution before the next dispatch. */
+  replaceDeadExecution?: boolean
   provider?: AgentEnvironmentProvider
-  /** The owner's current environment id, from its executor's materialization receipt. Set by the
-   *  drive harness; populated on the retained AND non-retained provider paths, where an
-   *  `environment` admission exists only on the retained one. */
+  /** Current environment id. Admissions miss a provider that never writes one. */
   liveEnvironmentId?: () => string | undefined
   nextSequence: () => number
-  /** Whether the last release left an environment that another release could still destroy: a
-   *  failed or unanswered destroy, not a source preserved on purpose. */
+  /** A failed or unanswered destroy, not a source preserved on purpose. */
   releaseRetriable?: boolean
   taskRef?: string
   accepted?: ExecutorResult<unknown>
@@ -48,11 +45,9 @@ export interface OwnerState {
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
-  /** Checkpoints whose capture failed in this process. Rotation keeps them without forking them
-   *  again; the release tries each once more. */
+  /** Captures this process refused. Rotation keeps them; release tries each once more. */
   captureRefused?: Set<string>
-  /** Cuts short the captures a checkpoint rotation is running, when a turn's own workspace
-   *  capture starts. */
+  /** Stops a rotation's captures when the turn's own workspace capture starts. */
   rotationCaptures?: AbortController
   /** The drive in progress: from before its executor exists until its turn has ended. */
   drive?: Promise<void>
