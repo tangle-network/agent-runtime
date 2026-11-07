@@ -1,5 +1,6 @@
 import { mkdirSync, realpathSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import type { SandboxResources } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/content-address'
@@ -16,6 +17,7 @@ import { runIsolatedCheck } from '../isolated-checker'
 import type { CompletionCheckContext } from './completion-gate'
 import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
+import { retainedExecutorContext } from './retained-executor'
 import type { Agent, AgentSpec, ExecutorFactory, ExecutorResult } from './types'
 
 /** An environment-owned check command, run outside the agent's conversation. */
@@ -450,6 +452,23 @@ function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutpu
   }
 }
 
+/** The receipt a run context's journal holds for this binding, as executor evidence. */
+async function replayContextReceipt(
+  context: NonNullable<RunGraphOptions['runContext']>,
+  runId: string,
+  binding: string,
+  checkDigest: string,
+): Promise<GraphCheckOutput | undefined> {
+  for (const event of (await context.journal.loadTree(runId)) ?? []) {
+    if (event.kind !== 'execution-evidence') continue
+    const row = ((await context.blobs.get(event.outRef)) as { graphCheckReceipt?: unknown })
+      ?.graphCheckReceipt
+    if (isReceipt(row) && row.binding === binding && row.checkDigest === checkDigest)
+      return checkOutput(row)
+  }
+  return undefined
+}
+
 /** A node attempt's journaled settle, so a resumed run never runs a settled command again. */
 async function replayCheckReceipt(
   file: string,
@@ -501,8 +520,11 @@ export function bindGraphCheckNodes(
   }
   const local = placement === undefined ? localCheckDirectories(options) : undefined
   const workspace = local?.cwd ?? backendWorkspace(options)
-  const runDir = local?.runDir ?? driverRunDir(options, workspace)
-  const file = join(runDir, 'command-checks.jsonl')
+  // A box placement with a run context and no runDir (a hosted SQL run) keeps its receipts in
+  // that context's journal, so whichever worker resumes the run replays them.
+  const context = local || options.runDir ? undefined : options.runContext
+  const runDir = context ? undefined : (local?.runDir ?? driverRunDir(options, workspace))
+  const file = runDir === undefined ? undefined : join(runDir, 'command-checks.jsonl')
   const runId = options.runId ?? options.runContext?.runId
   const leaf: MakeWorkerAgent = (profile, spawn) => {
     const id = profile.name as string
@@ -515,7 +537,7 @@ export function bindGraphCheckNodes(
     })
     // The spawn's assignment is stable across a resume, so a settled traversal replays its receipt.
     const binding = contentAddress({ runId, node: id, checkDigest, at: spawn?.assignmentId })
-    const executorFactory: ExecutorFactory<unknown> = (_spec, context) => {
+    const executorFactory: ExecutorFactory<unknown> = (_spec, context_) => {
       let artifact: ExecutorResult<unknown> | undefined
       const settle = (out: GraphCheckOutput, ms: number): ExecutorResult<unknown> => {
         artifact = {
@@ -534,22 +556,30 @@ export function bindGraphCheckNodes(
         return artifact
       }
       const execute = async (task: unknown, signal: AbortSignal) => {
-        const node = context.node
+        const node = context_.node
         if (!node?.nodeId || !node.attemptId || !spawn)
           throw new ValidationError(`runGraph: check node ${id} ran outside a supervised node`)
         const attempt = { binding, checkDigest, nodeId: node.nodeId, attemptId: node.attemptId }
-        const prior = await replayCheckReceipt(file, binding, checkDigest)
+        const prior = file
+          ? await replayCheckReceipt(file, binding, checkDigest)
+          : await replayContextReceipt(context!, runId!, binding, checkDigest)
         if (prior) return settle(prior, 0)
         const started = Date.now()
+        const staged = runDir ? undefined : await mkdtemp(join(tmpdir(), 'graph-check-'))
         const evidence = join(
-          runDir,
+          runDir ?? (staged as string),
           'graph-evidence',
           contentAddress(attempt).slice('sha256:'.length, 'sha256:'.length + 24),
         )
-        await writeEvidence(evidence, task)
-        const ran = local
-          ? await runLocalCheck(check, id, local.cwd, evidence, signal)
-          : await runBoxCheck(check, id, placement as GraphCheckPlacement, evidence, signal)
+        let ran: Awaited<ReturnType<typeof runLocalCheck>>
+        try {
+          await writeEvidence(evidence, task)
+          ran = local
+            ? await runLocalCheck(check, id, local.cwd, evidence, signal)
+            : await runBoxCheck(check, id, placement as GraphCheckPlacement, evidence, signal)
+        } finally {
+          if (staged) await rm(staged, { recursive: true, force: true })
+        }
         const { output, truncated } = tail(ran.output)
         const json = lastJsonObject(ran.stdout)
         const receipt: Omit<CommandCheckReceipt, 'key'> = {
@@ -564,7 +594,13 @@ export function bindGraphCheckNodes(
           valid: ran.exitCode === 0,
           ...(json === undefined ? {} : { json }),
         }
-        await appendReceipt(file, workspace, receipt)
+        if (file) await appendReceipt(file, workspace, receipt)
+        else {
+          const record = retainedExecutorContext(context_)?.onEvidence
+          if (!record)
+            throw new ValidationError(`runGraph: check node ${id} has no durable receipt channel`)
+          await record({ graphCheckReceipt: { ...receipt, key: receiptKey(receipt) } })
+        }
         return settle(checkOutput(receipt), Date.now() - started)
       }
       return {
