@@ -53,7 +53,7 @@ it('runs check nodes, loops on /pass=false, and hands evidence to a downstream c
     expect(loaded.graph.nodes[0]).toEqual({
       id: 'build',
       profile: { name: 'build' },
-      check: { command: expect.stringContaining('echo $n > count') },
+      check: { command: expect.stringContaining('echo $n > count'), secrets: ['GITHUB_TOKEN'] },
     })
     const cwd = await graphWorkspace(loaded.graph, { cwd: join(directory, 'work'), runId: 'x' })
     await mkdir(cwd)
