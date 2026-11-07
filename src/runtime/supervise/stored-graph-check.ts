@@ -362,7 +362,6 @@ async function readSecrets(
 /** Run one check node's command locally, in the run's working directory. */
 async function runLocalCheck(
   check: GraphCheckNode,
-  node: string,
   cwd: string,
   evidence: string,
   signal: AbortSignal,
@@ -590,7 +589,7 @@ export function bindGraphCheckNodes(
         try {
           await writeEvidence(evidence, task)
           ran = local
-            ? await runLocalCheck(check, id, local.cwd, evidence, signal, secrets)
+            ? await runLocalCheck(check, local.cwd, evidence, signal, secrets)
             : await runBoxCheck(
                 check,
                 id,
