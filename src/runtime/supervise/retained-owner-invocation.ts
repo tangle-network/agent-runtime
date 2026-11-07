@@ -126,10 +126,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         traceRoots,
       }),
       onEndOfTurnWork: (work) => {
-        // The handed-over work starts with the turn's final session copy, before its workspace
-        // capture: on test-acceptance-canary-20261019m (Runtime 0.331.0) that copy ran 77 s beside
-        // a rotation capture, which ran to its 120 s bound, so the capture started 77.8 s after the
-        // turn ended. The rotation yields when the turn ends, not when its capture starts.
+        // The rotation yields when the turn ends, not when its capture starts.
         preemptRotationCaptures(state)
         const prior = state.turnEnd
         const settled = work.catch(() => undefined)
@@ -166,9 +163,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
   owners.set(scope, state)
 }
 
-/** The environment admission an invocation starting at `before` continues in: the latest earlier
- *  committed invocation's, past abandoned ones. A live process keeps its session across an
- *  abandonment, so a resumed one derives it the same way or its replay would not match. */
+/** Continue the latest committed environment, past abandoned ones. A live session stays. */
 function committedSession(
   events: readonly SpawnEvent[],
   before: number,
@@ -196,13 +191,28 @@ function committedSession(
   }
 }
 
-/** Bounds the stop Runtime asks for before abandoning a dispatched invocation. */
 const ABANDON_STOP_TIMEOUT_MS = 30_000
 
-/** Abandon the owner's in-flight invocation when its reconciliation keeps failing the same way
- *  (`DriverRetryRun.resolvePending`), only once the provider confirms the dispatched execution
- *  stopped or is not live; the journal then refuses its later admissions and results. Answers
- *  `false`, journaling nothing, without an unfinished invocation or a confirmed native stop. */
+async function releaseDeadRetainedExecution(
+  state: OwnerState,
+  events: readonly SpawnEvent[],
+  scope: Scope<unknown>,
+): Promise<void> {
+  if (state.provider === undefined) return
+  const dispatched = [...events]
+    .reverse()
+    .find((event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched')
+  if (dispatched?.kind !== 'execution-admitted' || dispatched.admission.phase !== 'dispatched')
+    return
+  await stopRetainedNativeExecution({
+    provider: state.provider,
+    controlRef: dispatched.admission.controlRef,
+    signal: AbortSignal.any([scope.signal, AbortSignal.timeout(ABANDON_STOP_TIMEOUT_MS)]),
+    now: state.args.now,
+  })
+}
+
+/** Abandon only after a confirmed stop. Without one, journal nothing. */
 export async function abandonScopeRetainedOwnerInvocation(
   scope: Scope<unknown>,
   failure: RetainedExecutionPendingError,
@@ -238,9 +248,7 @@ export async function abandonScopeRetainedOwnerInvocation(
         })
   scope.signal.throwIfAborted()
   const stopped = stop?.effect === 'cancelled' || stop?.effect === 'not_live'
-  // A timeout or an unavailable stop cannot prove that a keyed create or dispatch ended.
-  // Keep this invocation's task and admissions recoverable: an abandonment closes their journal
-  // identity and the next drive would provision under a new key beside the unresolved original.
+  // A timeout cannot prove the keyed create ended. Do not open a new key beside it.
   if (!stopped) return false
   await args.journal.appendEvent(args.rootId, {
     kind: 'execution-abandoned',
@@ -265,9 +273,7 @@ export async function abandonScopeRetainedOwnerInvocation(
   return true
 }
 
-/** Resume the original backend prompt; rebuilt coordination observations cannot replace it.
- *  `session: 'fresh'` makes every invocation after the first start a new harness session in the
- *  environment it continues. */
+/** Resume the original prompt. A fresh session starts a new harness session in the environment. */
 export async function prepareScopeRetainedOwnerTask(
   scope: Scope<unknown>,
   task: unknown,
@@ -280,7 +286,6 @@ export async function prepareScopeRetainedOwnerTask(
   scope.signal.throwIfAborted()
   const journal = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = journal.filter((event) => event.id === args.nodeId)
-  // Restore the exact invocation and its historical evidence obligations.
   const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
   if (latestInput?.kind === 'execution-input') {
     const attempt = owned.slice(owned.indexOf(latestInput))
@@ -294,8 +299,7 @@ export async function prepareScopeRetainedOwnerTask(
     const accepted = [...attempt].reverse().find((event) => event.kind === 'execution-result')
     if (accepted?.kind === 'execution-result') state.acceptedRef = accepted
   }
-  // Older coordinators could admit the next input before the previous capture finished.
-  // Recovery must not dispatch that pending input over an uncertified historical workspace.
+  // Do not dispatch a pending input over an uncertified historical workspace.
   if (state.taskRef !== undefined && state.acceptedRef === undefined) {
     const indebted = await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
     await abandonInputAdmittedIntoDebt(state, indebted)
@@ -307,9 +311,7 @@ export async function prepareScopeRetainedOwnerTask(
     currentEnvironment?.phase === 'environment' &&
     unusable.has(currentEnvironment.environmentId)
   ) {
-    // Only loss of this invocation's admitted target can close it. An older accepted turn's lost
-    // environment says nothing about a new intent whose create may still be running elsewhere.
-    // The current target is absent or terminal, so nothing of this invocation can still run there.
+    // Only loss of this invocation's admitted target closes it.
     delete state.inputSequence
     delete state.taskRef
     state.admissions.length = 0
@@ -320,8 +322,7 @@ export async function prepareScopeRetainedOwnerTask(
     state.inputSequence === latestInput.seq &&
     owned.slice(owned.indexOf(latestInput)).some((event) => event.kind === 'execution-abandoned')
   ) {
-    // Nothing of an abandoned invocation is recovered. The next drive is a new invocation in the
-    // session the abandoned one continued, and the journal admits its input.
+    // An abandoned invocation is not recovered. The next drive is new in its session.
     delete state.inputSequence
     delete state.taskRef
     state.admissions.length = 0
@@ -356,8 +357,7 @@ export async function prepareScopeRetainedOwnerTask(
     latestSeat.provider !== previousSeat.provider &&
     owned.indexOf(latestSeat) > owned.indexOf(latestInput as SpawnEvent)
   ) {
-    // A coordinator that died after recording the new segment but before dispatch still starts
-    // a fresh native session from the committed checkpoint, never the old provider's session.
+    // A segment recorded before dispatch starts fresh from the checkpoint, not the old session.
     state.forceNewSession = true
   }
   const rootSegment = owned
@@ -371,10 +371,7 @@ export async function prepareScopeRetainedOwnerTask(
     rootSegment.from.harness !== rootSegment.to.harness &&
     owned.indexOf(rootSegment) > owned.indexOf(latestInput as SpawnEvent)
   ) {
-    // A root resumed in another harness: a native session of one harness cannot continue in
-    // another. An in-flight turn of the old harness is still recovered as it committed; every
-    // invocation after it starts a new session, from the latest checkpoint when the provider holds
-    // one, exactly as a seat that changed provider does.
+    // A native session cannot continue in another harness. Later invocations start fresh.
     state.forceNewSession = true
   }
   if (state.forceNewSession) {
@@ -382,8 +379,7 @@ export async function prepareScopeRetainedOwnerTask(
     delete state.forceNewSession
   }
   state.prepared = true
-  // The invocation's restore point is fixed by the journal before its input, so a recovered
-  // invocation replays the same create it committed.
+  // The journal fixes the restore point before input, so recovery replays that create.
   const capable = await restoreCapable(state.provider)
   const restoreFor = (inputIndex: number): RetainedWorkspaceRestore | undefined => {
     if (!capable || state.priorSession !== undefined) return undefined
@@ -394,6 +390,10 @@ export async function prepareScopeRetainedOwnerTask(
           checkpoint: point.checkpoint,
           ...(point.marker === undefined ? {} : { marker: point.marker }),
         }
+  }
+  if (state.replaceDeadExecution === true) {
+    state.replaceDeadExecution = false
+    if (state.taskRef === undefined) await releaseDeadRetainedExecution(state, owned, scope)
   }
   if (state.taskRef !== undefined) {
     const original = await args.blobs.get(state.taskRef)

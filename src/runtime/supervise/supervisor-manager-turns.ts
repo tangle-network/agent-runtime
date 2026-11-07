@@ -19,10 +19,12 @@ import {
   type DriverStopPause,
   runDriverWithRetry,
 } from './driver-retry'
+import { harnessProcessDied } from './executor-outcome'
 import { bestDelivered, runFinalizer, runTree } from './finalizer'
 import type { InboxLease } from './inbox'
 import { isLiveNodeStatus } from './node-status'
 import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from './reentry'
+import { owners } from './retained-owner-state'
 import { abandonScopeRetainedOwnerInvocation } from './retained-scope-owner'
 import { readRootStream } from './root-stream'
 import { applyRunCancellation } from './run-cancellation'
@@ -54,8 +56,7 @@ export interface ManagerTurnInputs {
 
 /** The turn loop's own record of what its drives did, read when the loop settles. */
 interface ManagerTurnLoop extends ManagerTurnInputs {
-  /** `tokensLeft` only falls, so the difference from this first reading is everything this run has
-   *  spent from the shared pool — the driver's own turns and any child's. */
+  /** Spend since this reading: this driver's turns and any child's. `tokensLeft` only falls. */
   readonly baseTokensLeft: number
   readonly startedAt: number
   readonly describe: string | undefined
@@ -81,8 +82,7 @@ export function managerFinalizer(
 ): () => Promise<unknown> {
   const { mcp, controls } = session
   const { scope } = session.state
-  // The finalizer's check of the best delivered child is a check read like any other: the
-  // continuation note reports what the check said about the candidate the run would return.
+  // The finalizer's check is a check read. The continuation note reports that verdict.
   const finalizerDeliverable =
     deps.deliverable === undefined
       ? undefined
@@ -113,16 +113,12 @@ export function managerFinalizer(
     })
 }
 
-/**
- * Drive the manager's harness until its retry loop ends, and report the loop. Returns the checked
- * candidate a turn that ended with the contract declared and no work open selected.
- */
+/** Drive until the retry loop ends. Return the checked candidate when the contract is met. */
 export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unknown> {
   const { config, session } = inputs
   const { deps, driveHarness } = config
   const { scope } = session.state
-  // The retry's progress mark: spend and settlements are the BURN rate, not the goal, so the retry
-  // policy reads them beside the contract verdict (with a check unmet they buy no attempt).
+  // Spend is the burn rate, not the goal. An unmet check buys no attempt.
   const baseTokensLeft = scope.budget.tokensLeft
   const continuation = deps.continuation
   if (continuation !== undefined && deps.deliverable !== undefined) {
@@ -154,8 +150,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       session.state.nextTurnInbox.pendingAuthority() === 0,
   )
   const keeper = session.state.keeper
-  // A run this process took over after the process driving it stopped: its first drive names the
-  // workers that were open, and which of them this process re-places.
+  // A taken-over run names the workers that were open and which of them this process re-places.
   const reenteredWorkers = scope.resume?.reentered
   const reentered =
     reenteredWorkers === undefined
@@ -179,12 +174,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
           handedOff = error instanceof RunParkedError && error.runId === scope.view.root
           throw error
         } finally {
-          // A native turn may finish before the observer's timer runs. Drain it before choosing
-          // the next wake or barren pause: admit a steer addressed to the root's own inbox and
-          // reconcile what live polls applied. A control first seen here is never applied — the
-          // live timer owns that while the run continues, close expires it once the run ends —
-          // and the drain never awaits a worker delivery still in flight. Parking has already
-          // sealed admission.
+          // Drain first. Do not apply a new control or await a worker. Parking sealed admission.
           if (!handedOff) await loop.controlPass?.()
         }
       },
@@ -217,15 +207,12 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
                 ? {}
                 : { deadlineMs: config.continuationDeadlineMs }),
               compose: (context) => (keeper as ContinuationKeeper).compose(context),
-              // A run the coordination server closed ended on purpose — the manager's own
-              // `stop` (served only without a check), or a progress stop rule that aborted
-              // the stop signal. A continuation would re-enter a harness told to stop.
+              // A close ended on purpose. Continuing would re-enter a harness told to stop.
               closed: () => mcp.isStopped() || session.state.progressStopReason !== undefined,
             },
           }
         : {}),
       onAttempt: (record) => recordManagerAttempt(loop, record),
-      // A barren streak paces the root and the run's own journal records each pause.
       onBarrenPause: (pause) => recordScopeOwnerBarrenPause(loop.session.state.scope, pause),
     })
     driverFailed = false
@@ -243,14 +230,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
   return loop.candidate
 }
 
-/**
- * The stop-pause of an opted-in ROOT (`SupervisorAgentDeps.pauseRootStops`, which `supervise()`
- * sets on the root's deps alone); a nested manager keeps its stops and settles `down` for its
- * parent. A root steer between turns reaches the coordinator as a lead message, and one an ended
- * invocation still held waits in `nextTurnInbox`. Either ends a pause once and stays queued for
- * the next turn: a steer that turn never read, or a pool still spent, would otherwise end every
- * later pause at once.
- */
+/** Root-only. A nested manager keeps its stops. One steer ends one pause and stays queued. */
 function rootStopPause(
   config: ExternalManagerConfig,
   session: ManagerSession,
@@ -258,8 +238,7 @@ function rootStopPause(
   if (config.deps.pauseRootStops !== true) return {}
   const { controls } = session
   const { nextTurnInbox } = session.state
-  // The steers that already ended a pause: queued lead messages by bus sequence, and how many
-  // authority messages `nextTurnInbox` then held (a completed drive consumes them).
+  // Steers that already ended a pause: lead sequences, and the inbox count a drive then consumes.
   let answeredLead = new Set<number>()
   let answeredInbox = 0
   const unanswered = (): boolean =>
@@ -371,11 +350,7 @@ function readManagerProgress(loop: ManagerTurnLoop): DriverProgressMark {
   }
 }
 
-/**
- * The check runs when a turn ends without an accepted result. A read already taken in this turn
- * stands (the manager just heard it); otherwise a check that judges state reads the run now. A
- * check that could not run is not a verdict: the loop pauses.
- */
+/** A check already read this turn stands. A check that could not run is not a verdict. */
 async function readCheckAtTurnEnd(loop: ManagerTurnLoop, attempt: number): Promise<void> {
   const deliverable = loop.config.deps.deliverable
   const { controls } = loop.session
@@ -436,16 +411,18 @@ async function driveManagerTurn(
   const { deps, runtimeToolNames } = loop.config
   const { mcp, controls, state } = loop.session
   const { scope, task } = state
+  const owner = owners.get(scope)
+  if (owner)
+    owner.replaceDeadExecution =
+      reentry?.reason === 'driver-failure' && harnessProcessDied(reentry.failure)
   loop.candidate = undefined
   if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
     applyRunCancellation(deps.controlDir, deps.abortRun, () => new Date().toISOString())
   }
   scope.signal.throwIfAborted()
-  // Every drive after the first is a new execution attempt of the root.
   beginScopeOwnerAttempt(scope, attempt)
   controls.beginDriverAttempt(attempt)
-  // A re-entered drive receives the original objective and run state unless the harness proves the
-  // turn continues the same session; only then are the unmet items the whole turn.
+  // A re-entry gets the original task unless the harness proves the same session.
   const turn: { current: DriverReentry | undefined } = { current: reentry }
   const held = loop.pendingWake?.attempt === attempt ? loop.pendingWake : undefined
   loop.pendingWake = undefined
@@ -453,8 +430,7 @@ async function driveManagerTurn(
     held === undefined || turn.current?.reason !== 'wake'
       ? undefined
       : () => refreshWakeInput(loop, attempt, held, turn)
-  // A fresh session holds no earlier turn, so whatever a harness claims about the session, the
-  // task it composes is the full re-entry task.
+  // A fresh session composes the full re-entry task, whatever the harness claims.
   const session = loop.continuationSession
   const describe = loop.describe
   const compose =
@@ -477,8 +453,7 @@ async function driveManagerTurn(
     carriedText === undefined
       ? input
       : `${typeof input === 'string' ? input : (JSON.stringify(input) ?? String(input))}\n\n${carriedText}`
-  // Built inside the harness call's try, as the call argument always was: a throw while composing
-  // still releases the carried lease and ends the attempt as failed.
+  // Composed inside the harness try, so a throw still releases the carried lease.
   await invokeManagerHarness(loop, attempt, carried, () => ({
     task: withCarried(compose === undefined ? task : compose(UNPROVEN_CONTINUITY)),
     ...(compose === undefined
@@ -495,9 +470,7 @@ async function driveManagerTurn(
           },
         }),
   }))
-  // Decide this parent's completion before the retry loop reads progress. Cache the checked
-  // candidate so neither the finalizer nor its oracle runs twice on return. A turn that ended
-  // with work open is a wait: the manager decides when it is done.
+  // Judge this parent before the retry loop reads progress. Open work is a wait, not a candidate.
   if (loop.contractDeclared && !mcp.submittedResult() && !controls.hasOpenWork()) {
     await mcp.drainResolved()
     loop.candidate = await loop.finalize()
@@ -578,15 +551,13 @@ async function invokeManagerHarness(
     if (!mcp.submittedResult() && !mcp.isStopped()) throw error
     completed = true
   } finally {
-    // A completed invocation read what it carried; a failed one hands it to the next.
     if (completed) {
       for (const message of carried.messages) {
         carried.commit(`${scope.view.root}#attempt-${attempt}`, message.id)
       }
     } else carried.release()
     state.harnessInvocationActive = false
-    // A completed turn processed what it received; a failed one leaves it for the next
-    // re-entry to name. Recorded before the retry decision reads the run.
+    // Record the attempt before the retry decision reads the run.
     if (completed) await controls.endDriverAttempt('completed')
     else await controls.endDriverAttempt('failed').catch(() => undefined)
   }
@@ -612,7 +583,6 @@ async function wakeManager(
     const wake = await session.controls.awaitWake({
       attempt: nextAttempt,
       quietWhileProgressing: true,
-      // A stop (accepted result, stop rule, the manager's own stop) ends the wait too.
       signal: AbortSignal.any([scope.signal, stopController.signal]),
       heartbeatMs: config.wakePolicy.heartbeatMs,
       alsoWakeOn: nextTurnInbox.pending() > 0 ? Promise.resolve() : nextTurnInbox.nextDelivery(),
@@ -641,12 +611,10 @@ async function recordManagerAttempt(
 ): Promise<void> {
   const { scope } = loop.session.state
   loop.records.push(record)
-  // The record that ends the loop is reported at once: a cancel settles the run without waiting
-  // for the root's act to unwind, and the settle record must still carry how the loop ended.
+  // Report the ending record at once. A cancel must still say how the loop ended.
   if (record.stop !== undefined) reportManagerLoop(loop)
   await recordScopeOwnerDriverAttempt(scope, record)
-  // A pause on an unavailable upstream is infrastructure time, and a stop-pause is the operator's
-  // alarm, so the run's own journal records each; the caller's observer still sees every attempt.
+  // The journal records an upstream pause and a stop-pause. The observer still sees each attempt.
   if (
     record.replacesStop !== undefined &&
     record.retryInMs !== undefined &&
