@@ -2990,7 +2990,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-5)
 
 ##### childSettleGraceMs?
 
@@ -4259,7 +4259,7 @@ manager, which runs its turn loop in process.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`continuation`](runtime.md#continuation-5)
 
 ##### childSettleGraceMs?
 
