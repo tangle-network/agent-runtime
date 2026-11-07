@@ -2742,11 +2742,12 @@ pre-flight that fails open would hand back exactly the silent admission it exist
 > `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
 
 OPT-IN pre-journal PROFILE resolution: maps the profile a driver authored to the profile that
-will actually run, before `preflightSpawn` asks the backend about it. A layer that pins
-profiles by name (an agent graph) installs this so the gate judges the canonical profile —
-its real model, tools and harness — never the `{ name }` stub the driver wrote. Synchronous,
-throw-on-refusal, identity-free: it sees only the profile, never the assignment or budget,
-because both are minted AFTER the pre-journal point. Omit = the authored profile is used.
+will actually run — both the spawn and `preflightSpawn`'s gate see the resolved profile. A
+layer that pins profiles by name (an agent graph) installs this so the canonical profile —
+its real model, tools and harness — runs, never the `{ name }` stub the driver wrote (#1281).
+Synchronous, throw-on-refusal, identity-free: it sees only the profile, never the assignment
+or budget, because both are minted AFTER the pre-journal point. Omit = the authored profile
+is used.
 
 ###### Parameters
 
@@ -5277,9 +5278,14 @@ delivered output with its conserved cost.
 > **environmentReader**(`environment`): [`SpawnResourceReader`](#spawnresourcereader-1)
 
 The environment reader: a manager running inside a provider environment whose `read()` serves
-its own workspace. The provider owns containment — it will not serve a path outside the box —
-but the relative-path and `..` rules are enforced here too, so the refusal names the rule the
-manager broke rather than whatever the provider says about an escape it declined.
+its own workspace. Containment of relative paths is the provider's property, not this
+function's: the tangle sidecar enforces it in `resolveWorkspacePath`
+(apps/sidecar/src/lib/workspace.ts:98-155, agent-dev-container) — relative paths stay inside
+the sandbox workspace, absolute paths only through an allowlist, `.sidecar/` refused at any
+depth because that tree holds the guest's orchestrator token. If that enforcement widened,
+this reader would serve files from outside the workspace; the absolute, `..`, and `.sidecar`
+refusals below are belt-and-braces so it stays correct for every path shape they can name
+(#1284).
 
 `read()` returns a string, so an environment cannot hand back bytes that are not UTF-8; the
 provider has already decoded. The size bound is checked on what arrives.

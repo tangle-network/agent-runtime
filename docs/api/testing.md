@@ -125,6 +125,10 @@ What a pre-flight sees: the authored child profile and the spawn it is being ask
 
 > `readonly` **task**: `unknown`
 
+##### resources?
+
+> `readonly` `optional` **resources?**: `ResourceRequest`
+
 ***
 
 ### PriorCoordination
@@ -855,6 +859,18 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 ###### Inherited from
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`authorizeMessage`](runtime.md#authorizemessage)
+
+##### checkPlacement?
+
+> `readonly` `optional` **checkPlacement?**: [`DeclaredCheckPlacement`](runtime.md#declaredcheckplacement)
+
+Where check nodes run: a fresh Sandbox box per check, created by `client` on the check account,
+ from each node's `environment`. Absent = locally, in the run's working directory (a loopback
+ Bridge `cwd` or a `cli-in-place` workspace).
+
+###### Inherited from
+
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`checkPlacement`](runtime.md#checkplacement)
 
 ##### brain
 
@@ -2176,10 +2192,11 @@ When `driverBackend` is absent, whether an external-harness ROOT may default to 
 
 > `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
 
-Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
- the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
- sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
- canonical profile. Identity-free and synchronous; throw to refuse.
+Pre-journal profile resolution: the profile a driver authored → the profile that will run
+ (`CoordinationToolsOptions.resolveSpawnProfile`), for the spawn itself and its pre-flight
+ gate alike (#1281). A pinning layer sets this alongside `authorizeSpawn` so the backend
+ gate and the authorization see the same canonical profile. Identity-free and synchronous;
+ throw to refuse.
 
 ###### Parameters
 
@@ -2614,6 +2631,17 @@ The flow the root manager runs: an AgentGraph with `entry` sets it, together wit
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`routeFlow`](runtime.md#routeflow)
+
+##### checkNodes?
+
+> `readonly` `optional` **checkNodes?**: [`GraphCheckNodes`](runtime.md#graphchecknodes)
+
+The leaves of `routeFlow`'s check nodes: a route spawn of one runs its command, not an agent.
+ An AgentGraph's check nodes set it. Omit = none.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`checkNodes`](runtime.md#checknodes)
 
 ##### decideGate?
 
