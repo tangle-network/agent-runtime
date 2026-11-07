@@ -4,6 +4,7 @@ import type {
   AgentEnvironmentEvent,
   AgentTurnInput,
 } from '@tangle-network/agent-interface/environment-provider'
+import { recordValue } from '../../record-value'
 import { exactSession, retainedSessionReplaced } from '../retained-run-binding'
 import {
   assertRetainedRunReplayMaterial,
@@ -47,6 +48,16 @@ function retainedDispatchMaterial(
   // A new environment that replaces one the provider lost starts from its latest checkpoint, so
   // the re-entered manager keeps its files. An environment that is continued needs none.
   const restore = priorSession === undefined ? retention.restoreWorkspace : undefined
+  // A provider reloads a continued environment by id, without the create input that carried its
+  // MCP attachments, and a new session there mounts only what its turn names. Measured 2026-11-07
+  // (setup-smoke-daff6bf7): the woken root's new session had no coordination tools.
+  const attachments = priorSession && args.options.defaults?.runtimeAttachments?.mcp
+  const backend = recordValue(selectedTurn.providerOptions?.backend)
+  const mcp = { ...attachments, ...recordValue(recordValue(backend?.runtimeAttachments)?.mcp) }
+  const providerOptions = {
+    ...selectedTurn.providerOptions,
+    backend: { ...backend, runtimeAttachments: { mcp } },
+  }
   const material = {
     environment: {
       ...args.options.defaults,
@@ -57,7 +68,7 @@ function retainedDispatchMaterial(
       idempotencyKey: environmentKey,
       signal,
     },
-    turn: { ...selectedTurn, turnId },
+    turn: { ...selectedTurn, turnId, ...(attachments ? { providerOptions } : {}) },
     preserveEnvironment: retention.preserveEnvironment,
     ...(priorSession === undefined
       ? {}
