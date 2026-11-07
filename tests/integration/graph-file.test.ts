@@ -12,6 +12,7 @@ import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { superviseGraphPursuit } from '../../src/durable/supervise-pursuit'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
 import { runSettledCommand } from '../../src/mcp/worktree-harness'
+import type { PortableContinuationPolicy } from '../../src/runtime/supervise/continuation-data'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import {
@@ -635,3 +636,214 @@ it('resumes an entry node under the profile its session started with', async () 
     await rm(directory, { recursive: true, force: true })
   }
 }, 60_000)
+
+it('stores an authored root policy and continues a real driver process after its check refuses a submission', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-file-root-policy-'))
+  const file = join(directory, 'root.graph.json')
+  const policy = {
+    maxBarren: 2,
+    failures: 'verbatim',
+    panel: 'off',
+    bar: 'on',
+    profile: {
+      id: 'authored-root-integration',
+      opening: 'The outside graph check refused the submission.',
+      plan: 'Read the settled worker and submit its checked result.',
+      rules: 'Never change the outside check.',
+      headings: {
+        failures: 'Failures',
+        protected: 'Passing',
+        changed: 'Changes',
+        findings: 'Findings',
+        bar: 'Bar',
+        plan: 'Next',
+        rules: 'Rules',
+      },
+    },
+  } satisfies PortableContinuationPolicy
+  const definition = {
+    nodes: [
+      {
+        id: 'lead',
+        profile: {
+          harness: 'opencode',
+          model: { provider: 'fixture', default: 'fixture/native' },
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_submit_result: true,
+          },
+        },
+      },
+      {
+        id: 'worker',
+        profile: {
+          harness: 'cli-base',
+          model: { provider: 'fixture', default: 'fixture/process' },
+        },
+      },
+    ],
+    edges: [
+      {
+        kind: 'delegates',
+        from: 'lead',
+        to: 'worker',
+        directive: { surface: 'delegates/worker-brief', version: 1 },
+      },
+    ],
+    budget: { maxIterations: 12, maxTokens: 10000, deadlineMs: 10000 },
+    check: { node: 'worker', pointer: '/done', equals: true },
+    continuation: policy,
+  }
+  try {
+    const load = (value: unknown) => loadGraphFile(file, { source: JSON.stringify(value) })
+    const loaded = await load(definition)
+    const changed = await load({ ...definition, continuation: { ...policy, maxBarren: 3 } })
+    expect(changed.graph.digest).not.toBe(loaded.graph.digest)
+    for (const invalid of [
+      { ...policy, runPanel: 'ignored' },
+      { ...policy, panel: 'on' },
+      { ...policy, unknownControl: true },
+      { ...policy, reference: 9 },
+      { ...policy, best: { label: 'bad', verdict: { pass: 'yes' } } },
+      { ...policy, profile: { ...policy.profile, panelModel: 3 } },
+      { ...policy, profile: { ...policy.profile, questions: null } },
+      { ...policy, profile: { ...policy.profile, unknownControl: true } },
+    ])
+      await expect(load({ ...definition, continuation: invalid })).rejects.toThrow()
+    await expect(load({ ...definition, entry: [{ node: 'worker', task: {} }] })).rejects.toThrow(
+      'no root manager',
+    )
+    const templated = await load({
+      ...definition,
+      continuation: { ...policy, profile: { ...policy.profile, opening: '${trigger.reason}' } },
+    })
+    expect(templated.graph.triggerBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ['continuation', 'profile', 'opening'] }),
+      ]),
+    )
+    const triggerRegistry = { root: join(directory, 'trigger-registry') }
+    await recordStoredGraphRun(triggerRegistry, templated.graph)
+    const triggerStored = await loadGraph(triggerRegistry, templated.graph.digest)
+    if (!triggerStored) throw new Error('triggered root policy was not persisted')
+    const hydrated = graphFromStored(validateStoredGraph(triggerStored), {
+      trigger: { reason: 'Literal ${trigger.other}', other: 'must not be substituted' },
+    })
+    expect(hydrated.continuation?.profile.opening).toBe('Literal ${trigger.other}')
+    expect(hydrated.triggerBindings).toEqual([])
+    expect(() => graphFromStored(triggerStored)).toThrow('missing trigger.reason')
+    expect(() => graphFromStored(triggerStored, { trigger: { reason: 42 } })).toThrow()
+    const registry = { root: join(directory, 'registry') }
+    await recordStoredGraphRun(registry, loaded.graph)
+    const stored = await loadGraph(registry, loaded.graph.digest)
+    if (!stored) throw new Error('authored root graph was not persisted')
+    expect(stored.continuation).toEqual(policy)
+    const graph = graphFromStored(validateStoredGraph(stored))
+    expect(digestOfGraph(graph)).toBe(loaded.graph.digest)
+    const tasks: string[] = []
+    const mutablePolicy = structuredClone(policy)
+    const options = {
+      runId: 'authored-root-policy',
+      runDir: join(directory, 'run'),
+      makeLeafAgent: processStages(directory, 'process.stdout.write(JSON.stringify({done:true}))'),
+      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      driverRetry: { enabled: false },
+      driveHarness: async ({
+        coordinationMcpUrl,
+        coordinationMcpHeaders,
+        task,
+      }: Parameters<import('../../src/runtime/supervise/supervisor-agent').DriveHarness>[0]) => {
+        tasks.push(String(task))
+        mutablePolicy.profile.opening = 'caller changed this after admission'
+        // This OS process calls Runtime's actual HTTP MCP surface. It is an offline driver,
+        // not a substitute for the consumer's real native model/harness qualification.
+        const program = `
+const fs=require('node:fs'); const [url, headers, attempt]=process.argv.slice(1); const n=Number(attempt);
+const name=n===1?'spawn_worker':'submit_result';
+const args=n===1?{profile:{name:'worker'},task:'compute the result'}:{result:{worker:{done:n>=3}}};
+fetch(url,{method:'POST',headers:{'content-type':'application/json',...JSON.parse(headers)},body:JSON.stringify({jsonrpc:'2.0',id:n,method:'tools/call',params:{name,arguments:args}})})
+.then(async r=>{const body=await r.json();if(!r.ok||body.error||body.result?.isError)throw Error(JSON.stringify(body));fs.appendFileSync('root-attempts.jsonl',JSON.stringify({attempt:n,name,result:body.result})+'\\n')})
+.catch(e=>{console.error(e);process.exitCode=1});`
+        const child = await runSettledCommand({
+          command: process.execPath,
+          args: [
+            '-e',
+            program,
+            coordinationMcpUrl,
+            JSON.stringify(coordinationMcpHeaders ?? {}),
+            String(tasks.length),
+          ],
+          cwd: directory,
+          timeoutMs: 5000,
+        })
+        if (child.exitCode !== 0) throw new Error(child.stderr)
+      },
+    }
+    expect(() => runGraph(graph, { ...options, continuation: policy })).toThrow('two policy owners')
+    expect(() =>
+      runGraph(
+        { ...graph, continuation: { ...policy, append: 'ignored' } } as typeof graph,
+        options,
+      ),
+    ).toThrow()
+    expect(() =>
+      runGraph(
+        {
+          ...graph,
+          nodes: graph.nodes.map((node) =>
+            node.id === 'lead'
+              ? { ...node, profile: { ...node.profile, harness: 'cli-base' } }
+              : node,
+          ),
+        },
+        options,
+      ),
+    ).toThrow('external-harness root')
+    const { continuation: _policy, ...noPolicy } = graph
+    await expect(
+      superviseGraphPursuit(noPolicy, {
+        ...options,
+        pursuitId: 'missing-root-policy',
+        runDir: join(directory, 'missing-policy'),
+      }),
+    ).rejects.toThrow('continuation policy')
+    expect(tasks).toHaveLength(0)
+    await expect(
+      recordStoredGraphRun(registry, {
+        ...loaded.graph,
+        continuation: { ...policy, runPanel: 'ignored' },
+      } as typeof loaded.graph),
+    ).rejects.toThrow()
+    expect(() =>
+      digestOfGraph({
+        ...graph,
+        continuation: { ...policy, append: () => 'ignored' },
+      } as typeof graph),
+    ).toThrow()
+    const completed = await superviseGraphPursuit(
+      { ...graph, continuation: mutablePolicy },
+      {
+        ...options,
+        pursuitId: loaded.graph.digest,
+      },
+    )
+    const result = completed.result
+    expect(result.result).toMatchObject({ kind: 'winner', out: { worker: { done: true } } })
+    expect(tasks).toHaveLength(3)
+    expect(tasks[2]).toContain(policy.profile.opening)
+    const attempts = (await readFile(join(directory, 'root-attempts.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    expect(attempts.map((row) => row.name)).toEqual([
+      'spawn_worker',
+      'submit_result',
+      'submit_result',
+    ])
+    const replay = await runGraph(graph, options)
+    expect(replay.result.kind).toBe('winner')
+    expect(tasks).toHaveLength(3)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 20000)
