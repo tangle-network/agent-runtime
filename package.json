@@ -163,7 +163,7 @@
     "@tangle-network/agent-provider-daytona": "0.8.0",
     "@tangle-network/agent-provider-e2b": "0.7.0",
     "@tangle-network/agent-provider-tangle": "5.0.14",
-    "@tangle-network/sandbox": "1.0.278",
+    "@tangle-network/sandbox": "1.0.279",
     "@tangle-network/sandbox-ui": "7.0.7",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.5",
