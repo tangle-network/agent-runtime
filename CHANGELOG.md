@@ -1,3 +1,7 @@
+## 8.0.2
+
+`report_blocked` resolves its probe target only through the caller's granted tools: a tool the grant does not serve is refused (`unknown-tool`) instead of falling back to the full coordination verb list, so the probe can never run an ungranted coordination verb.
+
 ## 8.0.1
 
 A profile that declares a Claude family alias (`opus`, `sonnet`, `haiku`) accepts the concrete model of that family that the bridge serves, such as `claude-opus-5-5`; any other provider or family substitution still fails the turn.
