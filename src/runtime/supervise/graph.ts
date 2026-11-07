@@ -755,7 +755,7 @@ export function assertRunGraphAuthoring(
     // A flow's root is Runtime's own: nothing a caller sets for a root manager has a reader.
     const rootOptions = [
       ...(brain ? ['brain'] : []),
-      ...(['driverBackend', 'finalizer', 'maxTurns', 'compaction', 'continuation'] as const).filter(
+      ...(['driverBackend', 'finalizer', 'maxTurns', 'compaction'] as const).filter(
         (key) => opts[key] !== undefined,
       ),
     ]
