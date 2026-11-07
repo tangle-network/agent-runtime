@@ -1,5 +1,9 @@
 ## 7.0.1
 
+A subscription seat with no receipt stays unpriced. No catalog estimate is written onto it.
+
+A provider root woken into a new harness session in its retained environment keeps its coordination tools. The environment is reloaded by id, and that handle holds none of the create input that carried the runtime MCP attachments, so a turn into a continued environment now restates the create-time `runtimeAttachments.mcp`.
+
 Materialization receipts now record the applied box sizes (`resources`) the created environment reported through its observation — with provenance (`origin`, `observedAt`) — or an explicit unknown naming why, never the create request. Bridge spawn admission reads the host executor's capacity gate from `GET /health` when the bridge reports it, so a spawn that would wait on the host semaphore and die as capacity is refused up front with the counters in the signal. Spawn admission settles exactly once, and provider `environmentReader` documents sidecar handling.
 
 A cancelled run stops starting checkpoint deletes, lookups, and capture-fork cleanup when its signal aborts.
