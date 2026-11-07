@@ -27,7 +27,7 @@ type FailureClass = NonNullable<RunRecord['failureClass']>
 /** One agent run, framework-agnostic. A shape produces a list of these. */
 export interface AgentRun {
   runId: string
-  /** Snapshot model id, e.g. `claude-sonnet-4-6@2025-05-08`. */
+  /** Model id, e.g. `claude-sonnet-5-5`; `fromOtelSpans` appends `@otlp` when it has no snapshot. */
   model: string
   /** Outcome quality on 0..1 (your judge / eval / rubric score). */
   score: number

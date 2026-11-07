@@ -70,7 +70,7 @@ function batch(spec: BatchSpec): AgentRun[] {
 export function tangleRuntimeRuns(): AgentRun[] {
   return batch({
     shape: 'tangle-runtime',
-    model: 'tcloud/claude-sonnet-4-6@2026-05-08',
+    model: 'tcloud/claude-sonnet-5-5',
     n: 12,
     failRate: 0.17,
     failureClass: 'tool_recovery_failure',
@@ -131,7 +131,7 @@ export function mastraRuns(): AgentRun[] {
 export function claudeAgentSdkRuns(): AgentRun[] {
   return batch({
     shape: 'claude-agent-sdk',
-    model: 'anthropic/claude-sonnet-4-6@2026-05-08',
+    model: 'anthropic/claude-sonnet-5-5',
     n: 10,
     failRate: 0.12,
     failureClass: 'reasoning_error',
