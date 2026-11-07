@@ -16,8 +16,9 @@
  * @experimental
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { ValidationError } from '../../errors'
+import { readRootStream } from '../../runtime/supervise/root-stream'
 import type { McpToolDescriptor } from '../protocol'
 
 /** One immutable journaled record exposed through the subscription surface. @experimental */
@@ -459,6 +460,38 @@ export function observerJournalEventSource(journal: ObserverJournalLike): McpEve
         ...(record.previousDigest !== undefined ? { previousDigest: record.previousDigest } : {}),
         payload: record.event ?? record.decision ?? null,
       }))
+    },
+  }
+}
+
+/** A run directory's committed root stream (or one node's stream) as an `McpEventSource` (#1565).
+ *  The sequence is the line's own `seq`, which continues across drive attempts and processes, so
+ *  an acknowledged cursor survives a crash and a continuation; each record carries its `attempt`.
+ *  A torn tail is not served. The chain digests each record over the previous digest, so a
+ *  consumer that keeps the digest at its cursor detects rewritten history on its next read. */
+export function rootStreamEventSource(
+  runDir: string,
+  options: { readonly pursuitId: string; readonly nodeId?: string },
+): McpEventSource {
+  return {
+    async read() {
+      let previousDigest: string | undefined
+      return ((await readRootStream(runDir, options)) ?? []).map((record) => {
+        const digest = createHash('sha256')
+          .update(`${previousDigest ?? ''}\n${JSON.stringify(record)}`)
+          .digest('hex')
+        const out = {
+          sequence: record.seq,
+          pursuitId: options.pursuitId,
+          kind: 'event' as const,
+          observedAt: Date.parse(record.at),
+          digest,
+          ...(previousDigest ? { previousDigest } : {}),
+          payload: record,
+        }
+        previousDigest = digest
+        return out
+      })
     },
   }
 }
