@@ -9,9 +9,8 @@ Published as `@tangle-network/agent-bench`, with independent CI and release chec
 This package publishes from its own tag. A root `v*` tag publishes `@tangle-network/agent-runtime` only.
 
 ```bash
-# after bench/package.json holds the new version on the tip of main
-git tag -a agent-bench-v<version> -m "agent-bench <version>"
-git push origin agent-bench-v<version>
+# after bench/package.json holds the new version on main; also admits the tag's qualifier to its runner group
+pnpm release:tag agent-bench@<version> --commit <merged-sha>
 ```
 
 Bump `bench/package.json` and cut the tag in the same release. The manifest resolves the first-party cohort through the workspace catalog, so a catalog move changes what this package publishes. `publish.yml` skips a version the registry already holds, so a bump without a tag leaves the registry serving the previous cohort to every consumer.
