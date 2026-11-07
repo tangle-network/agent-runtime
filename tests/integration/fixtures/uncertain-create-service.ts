@@ -298,7 +298,7 @@ async function act(run: NativeRun): Promise<void> {
         JSON.stringify({ executionId: run.executionId, sessionId: run.sessionId }),
       ],
       cwd: directory,
-      timeoutMs: 5000,
+      timeoutMs: 15_000,
       signal: new AbortController().signal,
     })
     run.processResult = {
