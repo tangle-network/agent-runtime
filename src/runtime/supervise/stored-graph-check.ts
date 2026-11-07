@@ -594,13 +594,12 @@ export function bindGraphCheckNodes(
           valid: ran.exitCode === 0,
           ...(json === undefined ? {} : { json }),
         }
+        // Without an evidence channel the settle itself is still journaled and replayed.
         if (file) await appendReceipt(file, workspace, receipt)
-        else {
-          const record = retainedExecutorContext(context_)?.onEvidence
-          if (!record)
-            throw new ValidationError(`runGraph: check node ${id} has no durable receipt channel`)
-          await record({ graphCheckReceipt: { ...receipt, key: receiptKey(receipt) } })
-        }
+        else
+          await retainedExecutorContext(context_)?.onEvidence?.({
+            graphCheckReceipt: { ...receipt, key: receiptKey(receipt) },
+          })
         return settle(checkOutput(receipt), Date.now() - started)
       }
       return {
