@@ -9,6 +9,7 @@ import type {
 import type { AgentSession } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/in-memory-spawn-stores'
+import { priceTokens } from '../pricing/router-prices'
 import { providerAsExecutor } from './environment-provider/provider-executor-admission'
 import type { RetainedRunAdmission } from './retained-run-types'
 import { createBudgetPool } from './supervise/budget'
@@ -814,5 +815,57 @@ describe('retained provider observation', () => {
     expect(dispatches).toBe(1)
     expect(acceptedResults).toBe(1)
     expect(executor.resultArtifact().spent.tokens).toMatchObject({ input: 3, output: 4 })
+  })
+
+  it('leaves a subscription seat unpriced instead of catalog-pricing its tokens', async () => {
+    const priced = priceTokens({ model: 'glm-5.2', inputTokens: 1000, outputTokens: 100 })
+    expect(priced).toBeGreaterThan(0)
+    const run = async (subscription: boolean) => {
+      const provider = pendingRetainedProvider({
+        events: async function* () {
+          yield {
+            id: 'usage-1',
+            type: 'usage',
+            data: { usageMode: 'delta' },
+            usage: { inputTokens: 1000, outputTokens: 100 },
+          }
+          yield { id: 'done-1', type: 'done', data: { finalText: 'finished' } }
+        },
+        result: async () => ({ text: 'finished', success: true }),
+      })
+      const retention: RetainedExecutorContext = {
+        executionId: subscription ? 'subscription-unpriced' : 'catalog-priced',
+        admissions: [],
+        onAdmission: async () => {},
+        onResult: async () => {},
+      }
+      const signal = new AbortController().signal
+      const executor = providerAsExecutor(provider)(
+        {
+          profile: {
+            name: 'priced-seat',
+            harness: 'opencode',
+            model: {
+              provider: 'zai',
+              default: 'glm-5.2',
+              ...(subscription ? { metadata: { credentialSource: 'subscription' as const } } : {}),
+            },
+          },
+          harness: null,
+        },
+        { signal, seams: { [retainedExecutorSeamKey]: retention } },
+      )
+      for await (const _event of executor.execute('task', signal) as AsyncIterable<UsageEvent>) {
+      }
+      return executor.resultArtifact().spent
+    }
+    const seat = await run(true)
+    expect(seat.usd).toBe(0)
+    expect(seat.usdKnown).toBe(false)
+    expect(seat.usdEstimated).toBeUndefined()
+    const billed = await run(false)
+    expect(billed.usdKnown).toBe(false)
+    expect(billed.usdEstimated).toBe(priced)
+    expect(billed.usd).toBe(priced)
   })
 })
