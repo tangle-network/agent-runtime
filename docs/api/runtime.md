@@ -25038,23 +25038,19 @@ Capability-derived terminal takeover requirement.
 
 ### ReentryContinuity
 
-What the next drive continues, as the drive harness can prove it before the turn starts.
-
 #### Properties
 
 ##### session
 
 > `readonly` **session**: `"continued"` \| `"new"`
 
-`continued`: the next turn is sent into the harness session that received the last one.
- `new`: a new harness session, which knows only what its task says.
+`continued` reuses the harness session. `new` knows only this task.
 
 ##### environment
 
 > `readonly` **environment**: `"unknown"` \| `"same"` \| `"replaced"`
 
-Whether the next drive runs in the environment the previous drive used. `replaced` names a
- previous environment the provider no longer holds.
+`replaced` names an environment the provider no longer holds.
 
 ##### environmentId?
 
@@ -25068,8 +25064,7 @@ Whether the next drive runs in the environment the previous drive used. `replace
 
 > `readonly` **workspace**: `"unknown"` \| `"kept"` \| `"restored"` \| `"lost"`
 
-What the next environment holds of the previous one's files. `restored`: the files as of
- the checkpoint taken at `checkpointAt`; anything written after it is gone.
+`restored` is the checkpoint at `checkpointAt`. Later writes are gone.
 
 ##### checkpointAt?
 
@@ -25085,19 +25080,13 @@ What the next environment holds of the previous one's files. `restored`: the fil
 
 > `readonly` **originalTask**: `unknown`
 
-The run's original task, exactly as the first drive received it.
-
 ##### contract?
 
 > `readonly` `optional` **contract?**: `string`
 
-What the completion check requires, when the caller described it.
-
 ##### tools?
 
 > `readonly` `optional` **tools?**: readonly `string`[]
-
-Coordination tools served to this manager. Absent means none are proven available.
 
 ##### reentry
 
@@ -25114,8 +25103,6 @@ Coordination tools served to this manager. Absent means none are proven availabl
 ##### attempt
 
 > `readonly` **attempt**: `number`
-
-1-based driver attempt this task starts.
 
 ***
 
@@ -39014,7 +39001,7 @@ The pass branch of the dumb steering control — see [dumbContinuationFailPrompt
 
 > `const` **UNPROVEN\_CONTINUITY**: [`ReentryContinuity`](#reentrycontinuity)
 
-Continuity when nothing is proven: compose the full state.
+What a re-entry may assume when nothing proved its session, environment or workspace.
 
 ***
 
@@ -44221,7 +44208,7 @@ connection selection; Runtime does not infer them from process environment varia
 
 > **composeReentryTask**(`input`): `string`
 
-Compose the task for one re-entered drive.
+The task a re-entered driver receives: what changed, why it re-entered, and its objective.
 
 #### Parameters
 

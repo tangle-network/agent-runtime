@@ -1,5 +1,7 @@
 ## 7.0.1
 
+An unjudged check tells a barren root to end its turn. Own long work still waits inside the turn.
+
 A subscription seat with no receipt stays unpriced. No catalog estimate is written onto it.
 
 A provider root woken into a new harness session in its retained environment keeps its coordination tools. The environment is reloaded by id, and that handle holds none of the create input that carried the runtime MCP attachments, so a turn into a continued environment now restates the create-time `runtimeAttachments.mcp`.
