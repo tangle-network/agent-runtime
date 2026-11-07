@@ -572,3 +572,66 @@ it('judges a check that names a maps join by its settled output', async () => {
     await rm(directory, { recursive: true, force: true })
   }
 }, 60_000)
+
+it('resumes an entry node under the profile its session started with', async () => {
+  // Graph runs 86e4c408 and e09645de (#2479): a resume route back into an entry node added the
+  // route directive to the profile, so the bridge refused to rebind the entry session (409).
+  const directory = await mkdtemp(join(tmpdir(), 'graph-file-resume-entry-'))
+  const script = [
+    "const fs=require('node:fs');",
+    "if(process.argv[1]==='checker'){const again=!fs.existsSync('checked');fs.writeFileSync('checked','');",
+    "process.stdout.write(JSON.stringify({again}))}else process.stdout.write(JSON.stringify({answer:'x'}))",
+  ].join('')
+  const brief = { surface: 'delegates/worker-brief', version: 1 }
+  const loaded = await loadGraphFile(join(directory, 'resume-entry.graph.json'), {
+    source: JSON.stringify({
+      graph: 'resume-entry',
+      nodes: ['worker', 'checker'].map((id) => ({
+        id,
+        profile: {
+          name: id,
+          harness: 'cli-base',
+          model: { provider: 'offline', default: 'offline/local-process' },
+        },
+      })),
+      entry: ['worker'],
+      edges: [
+        { kind: 'routes', from: 'worker', to: 'checker', directive: brief, evidence: ['worker'] },
+        {
+          kind: 'routes',
+          from: 'checker',
+          to: 'worker',
+          when: { pointer: '/again', equals: true },
+          continuity: 'resume',
+          maxTraversals: 1,
+          directive: brief,
+        },
+        { kind: 'routes', from: 'checker', to: { finish: 'again' }, directive: brief },
+      ],
+      budget: { maxIterations: 8, maxTokens: 10000 },
+      check: {
+        describe: 'checker settled',
+        all: [{ node: 'checker', pointer: '/again', exists: true }],
+      },
+    }),
+  })
+  const stages = processStages(directory, script)
+  const worker: unknown[] = []
+  try {
+    const result = await runGraph(graphFromStored(loaded.graph, { trigger: {} }), {
+      makeLeafAgent: (profile, ...rest) => {
+        if (profile.name === 'worker') worker.push(profile)
+        return stages(profile, ...rest)
+      },
+      runDir: join(directory, 'run'),
+      runId: 'resume-entry',
+      perWorker: { maxIterations: 1, maxTokens: 1000 },
+      driverRetry: { enabled: false },
+    })
+    expect(result.result.kind, JSON.stringify(result.result)).toBe('winner')
+    expect(worker).toHaveLength(2)
+    expect(worker[1]).toEqual(worker[0])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 60_000)
