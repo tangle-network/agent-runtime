@@ -44,8 +44,18 @@ export interface GraphCheckNode {
 
 /** Where check nodes run in boxes: the run owner's own account. A check node is a step of the
  *  graph, not a judge, so `builderAccounts` is optional and never refuses the owner's account. */
-export interface GraphCheckPlacement extends Omit<DeclaredCheckPlacement, 'builderAccounts'> {
+export interface GraphCheckPlacement
+  extends Omit<DeclaredCheckPlacement, 'builderAccounts' | 'env'> {
   readonly builderAccounts?: DeclaredCheckPlacement['builderAccounts']
+  /** The owner's secrets, or a resolver called before each box run so short-lived tokens stay
+   *  fresh. Absent: no secrets. */
+  readonly env?:
+    | Readonly<Record<string, string | undefined>>
+    | ((request: {
+        readonly node: string
+        readonly secrets: readonly string[]
+        readonly signal: AbortSignal
+      }) => Promise<Readonly<Record<string, string | undefined>>>)
 }
 
 /** A check node's settled output. `json` is the last stdout line when it parses as an object. */
@@ -395,7 +405,13 @@ async function runBoxCheck(
       ],
       timeoutMs: check.timeoutMs ?? CHECK_TIMEOUT_MS,
       maxOutputBytes: 16 * CHECK_OUTPUT_LIMIT,
-      env: await readSecrets(check.secrets, placement.env ?? {}, node),
+      env: await readSecrets(
+        check.secrets,
+        typeof placement.env === 'function'
+          ? await placement.env({ node, secrets: check.secrets ?? [], signal })
+          : (placement.env ?? {}),
+        node,
+      ),
       signal,
       box: {
         client: placement.client,
