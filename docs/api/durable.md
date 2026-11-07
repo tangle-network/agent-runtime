@@ -3862,7 +3862,7 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ##### checkPlacement?
 
-> `readonly` `optional` **checkPlacement?**: [`DeclaredCheckPlacement`](runtime.md#declaredcheckplacement)
+> `readonly` `optional` **checkPlacement?**: [`GraphCheckPlacement`](runtime.md#graphcheckplacement)
 
 Where check nodes run: a fresh Sandbox box per check, created by `client` on the check account,
  from each node's `environment`. Absent = locally, in the run's working directory (a loopback
