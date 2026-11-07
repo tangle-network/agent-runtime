@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+The first published 1.x build. The 1.0.0 tag resolved `@tangle-network/agent-runtime` to `^7.0.2`, which never reached npm (7.0.2 to 7.0.5 failed to publish), so its Publish waited on a dependency that could not arrive; this build resolves to `^8.0.0`. No code change.
+
 ## 1.0.0
 
 First stable release, graduating from 0.14.4, the last version on npm; 0.14.5 to 0.14.10 were never published.
