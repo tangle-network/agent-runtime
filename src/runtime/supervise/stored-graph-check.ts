@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
+import type { SandboxResources } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/content-address'
 import {
   appendCommittedJsonLine,
@@ -34,8 +35,17 @@ export interface GraphCheckNode {
   readonly environment?: string
   /** Domains a box may reach. Absent or empty: egress is blocked. Unused locally. */
   readonly egress?: readonly string[]
-  /** Environment variable names the command needs; a missing one fails the node. */
+  /** Environment variable names the command needs; a missing one fails the node. In a box they
+   *  resolve only from the placement's `env`, the run owner's secrets. */
   readonly secrets?: readonly string[]
+  /** The box's size under `checkPlacement`. */
+  readonly resources?: SandboxResources
+}
+
+/** Where check nodes run in boxes: the run owner's own account. A check node is a step of the
+ *  graph, not a judge, so `builderAccounts` is optional and never refuses the owner's account. */
+export interface GraphCheckPlacement extends Omit<DeclaredCheckPlacement, 'builderAccounts'> {
+  readonly builderAccounts?: DeclaredCheckPlacement['builderAccounts']
 }
 
 /** A check node's settled output. `json` is the last stdout line when it parses as an object. */
@@ -366,7 +376,7 @@ async function runLocalCheck(
 async function runBoxCheck(
   check: GraphCheckNode,
   node: string,
-  placement: DeclaredCheckPlacement,
+  placement: GraphCheckPlacement,
   evidence: string,
   signal: AbortSignal,
 ): Promise<{ exitCode: number | null; stdout: string; output: string }> {
@@ -385,13 +395,16 @@ async function runBoxCheck(
       ],
       timeoutMs: check.timeoutMs ?? CHECK_TIMEOUT_MS,
       maxOutputBytes: 16 * CHECK_OUTPUT_LIMIT,
-      env: await readSecrets(check.secrets, placement.env ?? process.env, node),
+      env: await readSecrets(check.secrets, placement.env ?? {}, node),
       signal,
       box: {
         client: placement.client,
-        builderAccounts: placement.builderAccounts,
+        // Not consulted for an owner step; carried only because judges require it.
+        builderAccounts: placement.builderAccounts ?? ['run-owner'],
+        ownerStep: true,
         environment: check.environment as string,
         ...(check.egress === undefined ? {} : { egress: check.egress }),
+        ...(check.resources === undefined ? {} : { resources: check.resources }),
       },
     })
     if (result.succeeded)
@@ -520,7 +533,7 @@ export function bindGraphCheckNodes(
         await writeEvidence(evidence, task)
         const ran = local
           ? await runLocalCheck(check, id, local.cwd, evidence, signal)
-          : await runBoxCheck(check, id, placement as DeclaredCheckPlacement, evidence, signal)
+          : await runBoxCheck(check, id, placement as GraphCheckPlacement, evidence, signal)
         const { output, truncated } = tail(ran.output)
         const json = lastJsonObject(ran.stdout)
         const receipt: Omit<CommandCheckReceipt, 'key'> = {
