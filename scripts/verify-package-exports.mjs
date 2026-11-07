@@ -236,7 +236,7 @@ try {
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
-  run('npm', ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
+  run('npm', ['install', '--strict-peer-deps', '--no-audit', '--no-fund'], appDir)
   const installedScope = join(appDir, 'node_modules', '@tangle-network')
   const expectedFirstPartyVersions = {
     ...providerDependencies,
@@ -315,9 +315,8 @@ try {
   `)
   run(process.execPath, ['code-mode-consumer.mjs'], appDir)
 
-  // Verify the install a new Runtime consumer actually performs. The app has
-  // no direct peer declarations, so npm must install every required peer from
-  // Runtime's metadata before any public entrypoint can load.
+  // A new consumer declares no peers; npm must install Runtime's required peers
+  // before any public entrypoint can load.
   writeFileSync(
     join(standaloneAppDir, 'package.json'),
     `${JSON.stringify(
@@ -334,7 +333,7 @@ try {
   )
   run(
     'npm',
-    ['install', '--strict-peer-deps', '--ignore-scripts', '--no-audit', '--no-fund'],
+    ['install', '--strict-peer-deps', '--no-audit', '--no-fund'],
     standaloneAppDir,
   )
   const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
