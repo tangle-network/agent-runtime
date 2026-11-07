@@ -544,7 +544,7 @@ function managerDriverPlan(
   const spawnPreflight: typeof agentPreflight =
     agentPreflight && checkNames
       ? (profile, context) =>
-          checkNames.includes(profile.name ?? '')
+          checkNames.includes(profile.name ?? '') && !profile.harness && !profile.model
             ? Promise.resolve(undefined)
             : agentPreflight(profile, context)
       : agentPreflight

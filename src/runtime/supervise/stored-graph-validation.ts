@@ -188,7 +188,8 @@ export function validateStoredGraph(
   }
   for (const item of graph.nodes) {
     if (item.check === undefined) continue
-    if (!graph.entry) refuse('check nodes run only in a flow graph (one with entry)')
+    if (!graph.entry || check.command)
+      refuse('check nodes need a flow graph without a command check')
     if (item.profile.name !== item.id || Object.keys(item.profile).length !== 1)
       refuse(`check node ${item.id} carries a profile; its profile is { name: id }`)
   }

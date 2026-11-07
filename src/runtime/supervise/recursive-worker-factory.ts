@@ -51,7 +51,7 @@ export function recursiveWorkerFactoryFor(env: WorkerTreeEnv, seat: ParentSeat):
     const admitted = admitSpawn(env, seat, authoredProfile, spawnContext, recovering)
     return admitted.usesRuntimeCoordination
       ? managedWorker(env, seat, admitted, spawnContext)
-      : leafWorker(env, seat, admitted, spawnContext)
+      : leafWorker(env, seat, admitted, spawnContext, recovering)
   }
   registerRecovery(env, makeRecursiveWorker)
   return makeRecursiveWorker
@@ -62,16 +62,16 @@ function leafWorker(
   seat: ParentSeat,
   admitted: AdmittedSpawn,
   spawnContext: WorkerSpawnContext,
+  recovering: boolean,
 ): ReturnType<MakeWorkerAgent> {
   const { options, deliverable, runNamespace } = env.setup
   const { childDeliverable } = admitted
-  // A check node of the run's own flow runs its command; only that flow's route spawns reach it.
-  const routed = spawnContext.route?.node ?? ''
+  // A check node of the run's own flow runs its command: its route spawns, and their recovery.
+  const name = admitted.authorized.name ?? ''
   if (
-    options.checkNodes &&
+    options.checkNodes?.names.includes(name) &&
     seat.depth === 1 &&
-    routed === admitted.authorized.name &&
-    options.checkNodes.names.includes(routed)
+    (recovering || spawnContext.route?.node === name)
   )
     return options.checkNodes.leaf(admitted.authorized, admitted.authorizedContext)
   if (childDeliverable !== deliverable && !options.backend) {

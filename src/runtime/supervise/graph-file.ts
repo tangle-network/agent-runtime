@@ -330,11 +330,8 @@ export async function loadGraphFile(
   const triggerBindings = compiled.triggerBindings.flatMap((slot): GraphTriggerBinding[] => {
     const [top, index, field, ...tail] = slot.path
     if (top === 'nodes') {
-      if (field === 'check') return [slot]
-      if (field === 'id')
-        return nodes[index as number]!.check
-          ? [slot]
-          : [slot, { ...slot, path: ['nodes', index!, 'profile', 'name'] }]
+      if (field === 'check') refuse('trigger slots in a check node command are not shell data')
+      if (field === 'id') return [slot, { ...slot, path: ['nodes', index!, 'profile', 'name'] }]
       if (field === 'profile') {
         if (tail[0] === 'name') return [] // Profile names come from node IDs, never this field.
         // Seat materialization owns these identity fields and can replace authored values.

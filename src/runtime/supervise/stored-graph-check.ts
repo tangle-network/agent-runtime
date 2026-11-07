@@ -135,25 +135,28 @@ function within(directory: string, path: string): boolean {
 /** The run's working directory (a loopback Bridge cwd or local CLI workspace) and its driver-owned
  *  run directory, which must lie outside it. */
 function localCheckDirectories(options: RunGraphOptions): { cwd: string; runDir: string } {
+  const cwd = backendWorkspace(options)
+  if (!cwd)
+    throw new ValidationError(
+      'runGraph: command checks require a loopback Bridge or local CLI workspace; provider node binding is unsupported',
+    )
+  return { cwd, runDir: driverRunDir(options, cwd) }
+}
+
+function backendWorkspace(options: RunGraphOptions): string | undefined {
   const backend = options.backend
-  if (!backend)
-    throw new ValidationError('runGraph: command checks require an explicit execution backend')
+  if (!backend) return undefined
   const workspace =
     backend.backend === 'bridge'
       ? backend.cwd
       : backend.backend === 'cli-in-place'
         ? backend.workspacePath
         : undefined
-  if (
-    !workspace ||
+  return !workspace ||
     (backend.backend === 'bridge' &&
       !['localhost', '127.0.0.1', '[::1]'].includes(new URL(backend.bridgeUrl).hostname))
-  )
-    throw new ValidationError(
-      'runGraph: command checks require a loopback Bridge or local CLI workspace; provider node binding is unsupported',
-    )
-  const cwd = realpathSync(workspace)
-  return { cwd, runDir: driverRunDir(options, cwd) }
+    ? undefined
+    : realpathSync(workspace)
 }
 
 function driverRunDir(options: RunGraphOptions, workspace: string | undefined): string {
@@ -184,8 +187,8 @@ export function bindGraphCommand(
     throw new ValidationError(
       'graphFromStored: command check needs a command and positive timeoutMs',
     )
-  if (options.makeLeafAgent)
-    throw new ValidationError('runGraph: command checks require an explicit execution backend')
+  if (options.makeLeafAgent || graph.nodes.some((node) => node.check))
+    throw new ValidationError('runGraph: command checks need a backend and no check nodes')
   const { cwd, runDir } = localCheckDirectories(options)
   const file = join(runDir, 'command-checks.jsonl')
   const checkDigest = contentAddress({ command, timeoutMs, cwd })
@@ -421,19 +424,14 @@ function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutpu
 /** A node attempt's journaled settle, so a resumed run never runs a settled command again. */
 async function replayCheckReceipt(
   file: string,
-  attempt: { binding: string; checkDigest: string; nodeId: string; attemptId: string },
+  binding: string,
+  checkDigest: string,
 ): Promise<GraphCheckOutput | undefined> {
   return withJsonlFileLock(file, async (canonicalPath) => {
     for await (const row of readCommittedJsonLines<unknown>(canonicalPath, {
       allowMissing: true,
     })) {
-      if (
-        isReceipt(row) &&
-        row.binding === attempt.binding &&
-        row.checkDigest === attempt.checkDigest &&
-        row.nodeId === attempt.nodeId &&
-        row.attemptId === attempt.attemptId
-      )
+      if (isReceipt(row) && row.binding === binding && row.checkDigest === checkDigest)
         return checkOutput(row)
     }
     return undefined
@@ -473,10 +471,11 @@ export function bindGraphCheckNodes(
       throw new ValidationError(`runGraph: check node ${id} needs environment for box placement`)
   }
   const local = placement === undefined ? localCheckDirectories(options) : undefined
-  const runDir = local?.runDir ?? driverRunDir(options, undefined)
+  const workspace = local?.cwd ?? backendWorkspace(options)
+  const runDir = local?.runDir ?? driverRunDir(options, workspace)
   const file = join(runDir, 'command-checks.jsonl')
   const runId = options.runId ?? options.runContext?.runId
-  const leaf: MakeWorkerAgent = (profile) => {
+  const leaf: MakeWorkerAgent = (profile, spawn) => {
     const id = profile.name as string
     const check = checks.get(id)
     if (check === undefined) throw new ValidationError(`runGraph: ${id} is not a check node`)
@@ -485,7 +484,8 @@ export function bindGraphCheckNodes(
       timeoutMs: check.timeoutMs ?? CHECK_TIMEOUT_MS,
       at: local?.cwd ?? 'box',
     })
-    const binding = contentAddress({ runId, node: id, checkDigest })
+    // The spawn's assignment is stable across a resume, so a settled traversal replays its receipt.
+    const binding = contentAddress({ runId, node: id, checkDigest, at: spawn?.assignmentId })
     const executorFactory: ExecutorFactory<unknown> = (_spec, context) => {
       let artifact: ExecutorResult<unknown> | undefined
       const settle = (out: GraphCheckOutput, ms: number): ExecutorResult<unknown> => {
@@ -504,42 +504,45 @@ export function bindGraphCheckNodes(
         }
         return artifact
       }
+      const execute = async (task: unknown, signal: AbortSignal) => {
+        const node = context.node
+        if (!node?.nodeId || !node.attemptId || !spawn)
+          throw new ValidationError(`runGraph: check node ${id} ran outside a supervised node`)
+        const attempt = { binding, checkDigest, nodeId: node.nodeId, attemptId: node.attemptId }
+        const prior = await replayCheckReceipt(file, binding, checkDigest)
+        if (prior) return settle(prior, 0)
+        const started = Date.now()
+        const evidence = join(
+          runDir,
+          'graph-evidence',
+          contentAddress(attempt).slice('sha256:'.length, 'sha256:'.length + 24),
+        )
+        await writeEvidence(evidence, task)
+        const ran = local
+          ? await runLocalCheck(check, id, local.cwd, evidence, signal)
+          : await runBoxCheck(check, id, placement as DeclaredCheckPlacement, evidence, signal)
+        const { output, truncated } = tail(ran.output)
+        const json = lastJsonObject(ran.stdout)
+        const receipt: Omit<CommandCheckReceipt, 'key'> = {
+          version: 1,
+          ...attempt,
+          nodeName: id,
+          outputDigest: contentAddress(task),
+          exitCode: ran.exitCode,
+          output,
+          outputTruncated: truncated,
+          nativeValid: true,
+          valid: ran.exitCode === 0,
+          ...(json === undefined ? {} : { json }),
+        }
+        await appendReceipt(file, workspace, receipt)
+        return settle(checkOutput(receipt), Date.now() - started)
+      }
       return {
         runtime: 'graph-check',
-        async execute(task, signal) {
-          const node = context.node
-          if (!node?.nodeId || !node.attemptId)
-            throw new ValidationError(`runGraph: check node ${id} ran outside a supervised node`)
-          const attempt = { binding, checkDigest, nodeId: node.nodeId, attemptId: node.attemptId }
-          const prior = await replayCheckReceipt(file, attempt)
-          if (prior) return settle(prior, 0)
-          const started = Date.now()
-          const evidence = join(
-            runDir,
-            'graph-evidence',
-            contentAddress(attempt).slice('sha256:'.length, 'sha256:'.length + 24),
-          )
-          await writeEvidence(evidence, task)
-          const ran = local
-            ? await runLocalCheck(check, id, local.cwd, evidence, signal)
-            : await runBoxCheck(check, id, placement as DeclaredCheckPlacement, evidence, signal)
-          const { output, truncated } = tail(ran.output)
-          const json = lastJsonObject(ran.stdout)
-          const receipt: Omit<CommandCheckReceipt, 'key'> = {
-            version: 1,
-            ...attempt,
-            nodeName: id,
-            outputDigest: contentAddress(task),
-            exitCode: ran.exitCode,
-            output,
-            outputTruncated: truncated,
-            nativeValid: true,
-            valid: ran.exitCode === 0,
-            ...(json === undefined ? {} : { json }),
-          }
-          await appendReceipt(file, local?.cwd, receipt)
-          return settle(checkOutput(receipt), Date.now() - started)
-        },
+        execute,
+        // A recovered check replays its receipt, or runs the idempotent command again.
+        recover: execute,
         async teardown() {
           return { destroyed: true }
         },
