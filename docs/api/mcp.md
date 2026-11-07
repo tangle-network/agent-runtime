@@ -2863,9 +2863,9 @@ that one row (it returns a `redaction-failed` marker), never a reason to return 
 
 > `readonly` `optional` **resolveProbeTool?**: (`name`) => [`McpToolDescriptor`](#mcptooldescriptor) \| `undefined`
 
-The served tools `report_blocked` may probe, by bare name: the coordination verbs plus the
-node tools bound to this manager. The transport that serves both supplies it; without it the
-probe reaches the coordination verbs only.
+The granted tools `report_blocked` may probe, by bare name: the coordination verbs and node
+tools served to this manager. The transport that serves them supplies it; a name it does not
+return, and every name when it is absent, is refused `unknown-tool` without running anything.
 
 ###### Parameters
 
