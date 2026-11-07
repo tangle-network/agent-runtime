@@ -21,6 +21,8 @@ import type { Agent, AgentSpec, ExecutorFactory } from '../../src/runtime/superv
 import { testAgentProfile } from '../kernel/test-agent-profile'
 import { readyAdmissionProcess } from './fixtures/child-admission-process'
 
+const grantMs = 3000 // A grant clock no admitted run races; queueing and the crash gap outlast it.
+
 it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
   'admits real process children against current funds and their grant deadline (%s)',
   async (mode) => {
@@ -50,7 +52,7 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
         {
           name: 'parent',
           async act(_task, scope: Scope<unknown>) {
-            const first = scope.spawn(processChild('first', 300), null, {
+            const first = scope.spawn(processChild('first', grantMs + 100), null, {
               key: 'first',
               budget: { maxTokens: 80, maxIterations: 3 },
             })
@@ -66,7 +68,7 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
                 budget: {
                   maxTokens: mode === 'unfunded' ? 60 : 10,
                   maxIterations: 3,
-                  deadlineMs: 200,
+                  deadlineMs: grantMs,
                 },
               },
             )
@@ -92,7 +94,7 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
           runId,
           journal,
           blobs,
-          budget: { maxTokens: 100, maxIterations: 10, deadlineMs: 5000 },
+          budget: { maxTokens: 100, maxIterations: 10, deadlineMs: 60_000 },
           workerSlots: 1,
           deadlineCheckIn: false,
           executors: withDriverExecutor(createExecutorRegistry()),
@@ -122,14 +124,12 @@ it.each(['unfunded', 'slot-queued', 'cancel-queued'] as const)(
         const queued = events.find((event) => event.kind === 'admission-queued' && event.id === id)
         const grant = events.find((event) => event.kind === 'admission-granted' && event.id === id)
         expect(queued).toMatchObject({ gate: 'slot' })
-        expect(grant).toBeDefined()
         if (grant?.kind !== 'admission-granted') throw new Error('grant missing')
-        expect(Date.parse(grant.at) - Date.parse(queued!.at)).toBeGreaterThan(200)
-        expect(Date.parse(grant.deadlineAt!) - Date.parse(grant.deadlineArmedAt)).toBe(200)
+        expect(Date.parse(grant.at) - Date.parse(queued!.at)).toBeGreaterThan(grantMs)
+        expect(Date.parse(grant.deadlineAt!) - Date.parse(grant.deadlineArmedAt)).toBe(grantMs)
         expect(materializeTreeView(events).nodes.find((node) => node.id === id)?.status).toBe(
           'done',
         )
-        expect(await readFile(path, 'utf8')).toContain('admission-granted')
         const lines = (await readFile(path, 'utf8')).trim().split('\n')
         const boundary = lines.findIndex(
           (line) => line.includes('admission-granted') && line.includes(`"id":"${id}"`),
@@ -189,7 +189,7 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
   const common = {
     runId: 'pregrant-root',
     blobs,
-    budget: { maxTokens: 100, maxIterations: 10, deadlineMs: 5000 },
+    budget: { maxTokens: 100, maxIterations: 10, deadlineMs: 60_000 },
     workerSlots: 1,
     deadlineCheckIn: false as const,
     executors: withDriverExecutor(createExecutorRegistry()),
@@ -208,7 +208,7 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
           expect(
             scope.spawn(child(), 'same task', {
               key: 'child',
-              budget: { maxTokens: 20, maxIterations: 3, deadlineMs: 150 },
+              budget: { maxTokens: 20, maxIterations: 3, deadlineMs: grantMs },
             }).ok,
           ).toBe(true)
           expect((await scope.next())?.kind).toBe('done')
@@ -236,7 +236,7 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
     expect(
       prefix.some((event) => event.kind === 'admission-granted' && event.id === spawned.id),
     ).toBe(false)
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    await new Promise((done) => setTimeout(done, Date.parse(spawned.at) + grantMs + 1 - Date.now()))
     phase = 'recovered'
     let observed: unknown
     await createSupervisor().run(
@@ -255,10 +255,9 @@ it('recovers an actual spawn-group crash prefix with its first full grant clock'
     const grant = events.find(
       (event) => event.kind === 'admission-granted' && event.id === spawned.id,
     )
-    expect(grant?.kind).toBe('admission-granted')
     if (grant?.kind !== 'admission-granted') throw new Error('recovered grant missing')
-    expect(Date.parse(grant.deadlineArmedAt) - Date.parse(spawned.at)).toBeGreaterThan(150)
-    expect(Date.parse(grant.deadlineAt!) - Date.parse(grant.deadlineArmedAt)).toBe(150)
+    expect(Date.parse(grant.deadlineArmedAt) - Date.parse(spawned.at)).toBeGreaterThan(grantMs)
+    expect(Date.parse(grant.deadlineAt!) - Date.parse(grant.deadlineArmedAt)).toBe(grantMs)
   } finally {
     await Promise.all([...processes.values()].map((process) => process.close()))
     await rm(directory, { recursive: true, force: true })
