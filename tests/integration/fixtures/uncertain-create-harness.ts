@@ -78,16 +78,9 @@ export class ProcessFixture {
         scenario === 'unsupported-intent',
         scenario === 'unsupported-environment' ? 1 : undefined,
       )
-      const service = fixture.launch(executables.service, [directory, scenario], 'service')
-      // Startup is CPU-bound; it fails when the service exits, not on a timer shorter than the test.
-      await fixture.wait(
-        'service ready',
-        async () => {
-          if (service.exitCode !== null || service.signalCode !== null)
-            throw new Error(`service exited before ready; retained ${directory}`)
-          return existsSync(join(directory, 'service-ready.json'))
-        },
-        180_000,
+      fixture.launch(executables.service, [directory, scenario], 'service')
+      await fixture.wait('service ready', async () =>
+        existsSync(join(directory, 'service-ready.json')),
       )
       fixture.url = String(
         object(JSON.parse(readFileSync(join(directory, 'service-ready.json'), 'utf8'))).url,
