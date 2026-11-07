@@ -30,6 +30,13 @@ export const graphCheckNodeSchema = z.strictObject({
   environment: z.string().min(1).optional(),
   egress: z.array(z.string().min(1)).optional(),
   secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
+  resources: z
+    .strictObject({
+      cpuCores: z.number().positive().optional(),
+      memoryMB: z.number().int().positive().optional(),
+      diskGB: z.number().positive().optional(),
+    })
+    .optional(),
 })
 
 /** Authoring envelope. Canonical profiles and topology are validated by their existing owners. */

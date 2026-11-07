@@ -51,6 +51,7 @@ export type {
   GraphCheckNode,
   GraphCheckNodes,
   GraphCheckOutput,
+  GraphCheckPlacement,
   GraphCommandCheck,
   GraphFromStoredOptions,
 } from './stored-graph-check'

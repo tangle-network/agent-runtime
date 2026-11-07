@@ -30,7 +30,6 @@ import type {
   RouteWhen,
 } from '../../mcp/tools/coordination-route-contracts'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import type { DeclaredCheckPlacement } from '../declared-check'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -57,6 +56,7 @@ import {
   bindGraphCheckNodes,
   bindGraphCommand,
   type GraphCheckNode,
+  type GraphCheckPlacement,
   type GraphCommandCheck,
 } from './stored-graph-check'
 import {
@@ -623,7 +623,7 @@ export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSu
   /** Where check nodes run: a fresh Sandbox box per check, created by `client` on the check account,
    *  from each node's `environment`. Absent = locally, in the run's working directory (a loopback
    *  Bridge `cwd` or a `cli-in-place` workspace). */
-  readonly checkPlacement?: DeclaredCheckPlacement
+  readonly checkPlacement?: GraphCheckPlacement
 }
 
 export interface GraphResult<Out = unknown> {

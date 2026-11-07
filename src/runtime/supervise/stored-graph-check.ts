@@ -1,6 +1,8 @@
 import { mkdirSync, realpathSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
+import type { SandboxResources } from '@tangle-network/sandbox'
 import { contentAddress } from '../../durable/content-address'
 import {
   appendCommittedJsonLine,
@@ -15,6 +17,7 @@ import { runIsolatedCheck } from '../isolated-checker'
 import type { CompletionCheckContext } from './completion-gate'
 import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
+import { retainedExecutorContext } from './retained-executor'
 import type { Agent, AgentSpec, ExecutorFactory, ExecutorResult } from './types'
 
 /** An environment-owned check command, run outside the agent's conversation. */
@@ -34,8 +37,27 @@ export interface GraphCheckNode {
   readonly environment?: string
   /** Domains a box may reach. Absent or empty: egress is blocked. Unused locally. */
   readonly egress?: readonly string[]
-  /** Environment variable names the command needs; a missing one fails the node. */
+  /** Environment variable names the command needs; a missing one fails the node. In a box they
+   *  resolve only from the placement's `env`, the run owner's secrets. */
   readonly secrets?: readonly string[]
+  /** The box's size under `checkPlacement`. */
+  readonly resources?: SandboxResources
+}
+
+/** Where check nodes run in boxes: the run owner's own account. A check node is a step of the
+ *  graph, not a judge, so `builderAccounts` is optional and never refuses the owner's account. */
+export interface GraphCheckPlacement
+  extends Omit<DeclaredCheckPlacement, 'builderAccounts' | 'env'> {
+  readonly builderAccounts?: DeclaredCheckPlacement['builderAccounts']
+  /** The owner's secrets, or a resolver called before each box run so short-lived tokens stay
+   *  fresh. Absent: no secrets. */
+  readonly env?:
+    | Readonly<Record<string, string | undefined>>
+    | ((request: {
+        readonly node: string
+        readonly secrets: readonly string[]
+        readonly signal: AbortSignal
+      }) => Promise<Readonly<Record<string, string | undefined>>>)
 }
 
 /** A check node's settled output. `json` is the last stdout line when it parses as an object. */
@@ -344,6 +366,7 @@ async function runLocalCheck(
   cwd: string,
   evidence: string,
   signal: AbortSignal,
+  secrets: Record<string, string>,
 ): Promise<{ exitCode: number | null; stdout: string; output: string }> {
   const timeoutMs = check.timeoutMs ?? CHECK_TIMEOUT_MS
   const result = await runSettledCommand({
@@ -352,7 +375,7 @@ async function runLocalCheck(
     cwd,
     timeoutMs,
     signal,
-    env: { ...(await readSecrets(check.secrets, process.env, node)), GRAPH_EVIDENCE: evidence },
+    env: { ...secrets, GRAPH_EVIDENCE: evidence },
   })
   const timedOut = result.timedOut ? `\n[check timed out after ${timeoutMs} ms]` : ''
   return {
@@ -366,9 +389,10 @@ async function runLocalCheck(
 async function runBoxCheck(
   check: GraphCheckNode,
   node: string,
-  placement: DeclaredCheckPlacement,
+  placement: GraphCheckPlacement,
   evidence: string,
   signal: AbortSignal,
+  secrets: Record<string, string>,
 ): Promise<{ exitCode: number | null; stdout: string; output: string }> {
   const workspaceRoot = await mkdtemp(join(evidence, '..', 'box-'))
   try {
@@ -385,13 +409,16 @@ async function runBoxCheck(
       ],
       timeoutMs: check.timeoutMs ?? CHECK_TIMEOUT_MS,
       maxOutputBytes: 16 * CHECK_OUTPUT_LIMIT,
-      env: await readSecrets(check.secrets, placement.env ?? process.env, node),
+      env: secrets,
       signal,
       box: {
         client: placement.client,
-        builderAccounts: placement.builderAccounts,
+        // Not consulted for an owner step; carried only because judges require it.
+        builderAccounts: placement.builderAccounts ?? ['run-owner'],
+        ownerStep: true,
         environment: check.environment as string,
         ...(check.egress === undefined ? {} : { egress: check.egress }),
+        ...(check.resources === undefined ? {} : { resources: check.resources }),
       },
     })
     if (result.succeeded)
@@ -406,10 +433,19 @@ async function runBoxCheck(
       return { exitCode: result.exitCode, stdout, output }
     if (result.reason === 'timeout')
       return { exitCode: null, stdout, output: `${output}\n[check timed out]` }
-    throw new Error(`runGraph: check node ${node} box ${result.reason}: ${result.diagnostic}`)
+    throw new Error(
+      redact(`runGraph: check node ${node} box ${result.reason}: ${result.diagnostic}`, secrets),
+    )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }
+}
+
+/** Every resolved secret value becomes `[redacted:NAME]` before output leaves the check. */
+function redact(text: string, secrets: Record<string, string>): string {
+  return Object.entries(secrets)
+    .sort(([, a], [, b]) => b.length - a.length)
+    .reduce((out, [name, value]) => out.replaceAll(value, `[redacted:${name}]`), text)
 }
 
 function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutput {
@@ -419,6 +455,23 @@ function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutpu
     output: receipt.output,
     ...(receipt.json === undefined ? {} : { json: receipt.json }),
   }
+}
+
+/** The receipt a run context's journal holds for this binding, as executor evidence. */
+async function replayContextReceipt(
+  context: NonNullable<RunGraphOptions['runContext']>,
+  runId: string,
+  binding: string,
+  checkDigest: string,
+): Promise<GraphCheckOutput | undefined> {
+  for (const event of (await context.journal.loadTree(runId)) ?? []) {
+    if (event.kind !== 'execution-evidence') continue
+    const row = ((await context.blobs.get(event.outRef)) as { graphCheckReceipt?: unknown })
+      ?.graphCheckReceipt
+    if (isReceipt(row) && row.binding === binding && row.checkDigest === checkDigest)
+      return checkOutput(row)
+  }
+  return undefined
 }
 
 /** A node attempt's journaled settle, so a resumed run never runs a settled command again. */
@@ -472,8 +525,11 @@ export function bindGraphCheckNodes(
   }
   const local = placement === undefined ? localCheckDirectories(options) : undefined
   const workspace = local?.cwd ?? backendWorkspace(options)
-  const runDir = local?.runDir ?? driverRunDir(options, workspace)
-  const file = join(runDir, 'command-checks.jsonl')
+  // A box placement with a run context and no runDir (a hosted SQL run) keeps its receipts in
+  // that context's journal, so whichever worker resumes the run replays them.
+  const context = local || options.runDir ? undefined : options.runContext
+  const runDir = context ? undefined : (local?.runDir ?? driverRunDir(options, workspace))
+  const file = runDir === undefined ? undefined : join(runDir, 'command-checks.jsonl')
   const runId = options.runId ?? options.runContext?.runId
   const leaf: MakeWorkerAgent = (profile, spawn) => {
     const id = profile.name as string
@@ -486,7 +542,7 @@ export function bindGraphCheckNodes(
     })
     // The spawn's assignment is stable across a resume, so a settled traversal replays its receipt.
     const binding = contentAddress({ runId, node: id, checkDigest, at: spawn?.assignmentId })
-    const executorFactory: ExecutorFactory<unknown> = (_spec, context) => {
+    const executorFactory: ExecutorFactory<unknown> = (_spec, context_) => {
       let artifact: ExecutorResult<unknown> | undefined
       const settle = (out: GraphCheckOutput, ms: number): ExecutorResult<unknown> => {
         artifact = {
@@ -505,24 +561,49 @@ export function bindGraphCheckNodes(
         return artifact
       }
       const execute = async (task: unknown, signal: AbortSignal) => {
-        const node = context.node
+        const node = context_.node
         if (!node?.nodeId || !node.attemptId || !spawn)
           throw new ValidationError(`runGraph: check node ${id} ran outside a supervised node`)
         const attempt = { binding, checkDigest, nodeId: node.nodeId, attemptId: node.attemptId }
-        const prior = await replayCheckReceipt(file, binding, checkDigest)
+        const prior = file
+          ? await replayCheckReceipt(file, binding, checkDigest)
+          : await replayContextReceipt(context!, runId!, binding, checkDigest)
         if (prior) return settle(prior, 0)
         const started = Date.now()
+        const staged = runDir ? undefined : await mkdtemp(join(tmpdir(), 'graph-check-'))
         const evidence = join(
-          runDir,
+          runDir ?? (staged as string),
           'graph-evidence',
           contentAddress(attempt).slice('sha256:'.length, 'sha256:'.length + 24),
         )
-        await writeEvidence(evidence, task)
-        const ran = local
-          ? await runLocalCheck(check, id, local.cwd, evidence, signal)
-          : await runBoxCheck(check, id, placement as DeclaredCheckPlacement, evidence, signal)
-        const { output, truncated } = tail(ran.output)
-        const json = lastJsonObject(ran.stdout)
+        const box = placement as GraphCheckPlacement
+        const secrets = await readSecrets(
+          check.secrets,
+          local
+            ? process.env
+            : typeof box.env === 'function'
+              ? await box.env({ node: id, secrets: check.secrets ?? [], signal })
+              : (box.env ?? {}),
+          id,
+        )
+        let ran: Awaited<ReturnType<typeof runLocalCheck>>
+        try {
+          await writeEvidence(evidence, task)
+          ran = local
+            ? await runLocalCheck(check, id, local.cwd, evidence, signal, secrets)
+            : await runBoxCheck(
+                check,
+                id,
+                placement as GraphCheckPlacement,
+                evidence,
+                signal,
+                secrets,
+              )
+        } finally {
+          if (staged) await rm(staged, { recursive: true, force: true })
+        }
+        const { output, truncated } = tail(redact(ran.output, secrets))
+        const json = lastJsonObject(redact(ran.stdout, secrets))
         const receipt: Omit<CommandCheckReceipt, 'key'> = {
           version: 1,
           ...attempt,
@@ -535,7 +616,12 @@ export function bindGraphCheckNodes(
           valid: ran.exitCode === 0,
           ...(json === undefined ? {} : { json }),
         }
-        await appendReceipt(file, workspace, receipt)
+        // Without an evidence channel the settle itself is still journaled and replayed.
+        if (file) await appendReceipt(file, workspace, receipt)
+        else
+          await retainedExecutorContext(context_)?.onEvidence?.({
+            graphCheckReceipt: { ...receipt, key: receiptKey(receipt) },
+          })
         return settle(checkOutput(receipt), Date.now() - started)
       }
       return {

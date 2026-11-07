@@ -97,6 +97,9 @@ export interface IsolatedCheckBox {
   }
   /** `customerId` from `Sandbox.getIdentity()` for every Sandbox key the judged run holds. */
   builderAccounts: readonly [string, ...string[]]
+  /** The check is the run's own step in its owner's account (a graph check node), not a judge:
+   *  `builderAccounts` is not consulted, and the box keeps a durable home. */
+  ownerStep?: true
   /** Sandbox environment or image that holds the check's toolchain. */
   environment: string
   /** Set `memoryMB` to require the API to report a finite granted limit before upload. */
@@ -476,7 +479,11 @@ async function runInBox(
       },
     })
     if (retention) assertOutputPathsUnoccupied(retention.paths, captured.manifest)
-    if (placement.builderAccounts.length === 0 || placement.builderAccounts.some((id) => !id))
+    const judge = placement.ownerStep !== true
+    if (
+      judge &&
+      (placement.builderAccounts.length === 0 || placement.builderAccounts.some((id) => !id))
+    )
       throw new Error('builderAccounts must name the account of every key the judged run holds')
     const memoryMB = placement.resources?.memoryMB
     if (
@@ -489,7 +496,7 @@ async function runInBox(
       throw new Error('Check box requires an explicit finite resources.memoryMB limit')
     const account = (await placement.client.getIdentity()).customerId
     if (!account) throw new Error('Sandbox returned no account for the check key')
-    if (placement.builderAccounts.includes(account))
+    if (judge && placement.builderAccounts.includes(account))
       throw new Error(
         `Check account ${account} is an account the judged run holds a key to, so the run can reach the check box`,
       )
@@ -499,7 +506,7 @@ async function runInBox(
         environment: placement.environment,
         agent: placement.containers === true,
         bare: false,
-        ephemeral: placement.containers !== true,
+        ephemeral: placement.containers !== true && judge,
         egressPolicy: egressFor(placement),
         ...(placement.resources ? { resources: placement.resources } : {}),
         maxLifetimeSeconds,
