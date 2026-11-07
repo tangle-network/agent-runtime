@@ -193,6 +193,8 @@ export function admitContinuationPolicy(
   if (policy.session !== undefined && policy.session !== 'native' && policy.session !== 'fresh') {
     throw new ValidationError(`${context}: continuation.session must be 'native' or 'fresh'`)
   }
+  if (policy.reference !== undefined && typeof policy.reference !== 'string')
+    throw new ValidationError(`${context}: continuation.reference must be a string`)
   admitContinuationProfile(policy.profile, context)
   return deadlineMs
 }
@@ -302,6 +304,10 @@ function admitContinuationProfile(profile: ContinuationProfile, context: string)
   if (profile.opening.trim() === '') {
     throw new ValidationError(`${context}: continuation.profile.opening must be non-empty`)
   }
+  if (profile.panelModel !== undefined && typeof profile.panelModel !== 'string')
+    throw new ValidationError(`${context}: continuation.profile.panelModel must be a string`)
+  if (profile.questions !== undefined && !Array.isArray(profile.questions))
+    throw new ValidationError(`${context}: continuation.profile.questions must be an array`)
   for (const [index, question] of (profile.questions ?? []).entries()) {
     if (typeof question !== 'string' || question.trim() === '') {
       throw new ValidationError(

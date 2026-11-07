@@ -493,6 +493,10 @@ export {
   type PanelFinding,
   type VerdictSummary,
 } from './supervise/continuation'
+export {
+  type PortableContinuationPolicy,
+  portableContinuationPolicySchema,
+} from './supervise/continuation-data'
 export type * from './supervise/contracts/accounting'
 export type * from './supervise/contracts/agent-scope'
 export type * from './supervise/contracts/execution-events'
