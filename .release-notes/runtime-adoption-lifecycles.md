@@ -1,3 +1,3 @@
 type: patch
 ---
-Run the reviewed protobuf dependency postinstall and exercise lifecycle-enabled strict packed consumers.
+Adopt the current dependency cohort, refresh its generated proposal fixture, and run reviewed lifecycles in strict packed consumers.
