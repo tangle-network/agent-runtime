@@ -13,8 +13,9 @@ import { defaultRunCommand, runSettledCommand } from '../../mcp/worktree-harness
 import type { DeclaredCheckPlacement } from '../declared-check'
 import { runIsolatedCheck } from '../isolated-checker'
 import type { CompletionCheckContext } from './completion-gate'
+import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
-import type { Agent, AgentSpec, ExecutorResult } from './types'
+import type { Agent, AgentSpec, ExecutorFactory, ExecutorResult } from './types'
 
 /** An environment-owned check command, run outside the agent's conversation. */
 export interface GraphCommandCheck {
@@ -485,7 +486,7 @@ export function bindGraphCheckNodes(
       at: local?.cwd ?? 'box',
     })
     const binding = contentAddress({ runId, node: id, checkDigest })
-    const executorFactory: AgentSpec['executorFactory'] = (_spec, context) => {
+    const executorFactory: ExecutorFactory<unknown> = (_spec, context) => {
       let artifact: ExecutorResult<unknown> | undefined
       const settle = (out: GraphCheckOutput, ms: number): ExecutorResult<unknown> => {
         artifact = {
@@ -548,7 +549,11 @@ export function bindGraphCheckNodes(
         },
       }
     }
-    const spec: AgentSpec = { profile, harness: null, executorFactory }
+    const spec: AgentSpec = {
+      profile,
+      harness: null,
+      executorFactory: runtimeCheckFactory(executorFactory),
+    }
     return { name: id, act: async () => '', executorSpec: spec } as Agent<unknown, unknown> & {
       executorSpec: AgentSpec
     }

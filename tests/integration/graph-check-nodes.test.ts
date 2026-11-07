@@ -63,7 +63,7 @@ it('runs check nodes, loops on /pass=false, and hands evidence to a downstream c
       runId: 'check-loop',
       driverRetry: { enabled: false },
     })
-    expect(result.result.kind, JSON.stringify(result.result)).toBe('winner')
+    expect(result.result.kind, JSON.stringify([result.stopped, result.ledger])).toBe('winner')
     // build ran twice: verify failed at count 1, the /pass=false route looped back, then passed.
     expect((await readFile(join(cwd, 'count'), 'utf8')).trim()).toBe('2')
     if (result.result.kind === 'winner') {
