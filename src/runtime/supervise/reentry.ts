@@ -13,6 +13,7 @@ export interface ReentryContinuity {
   readonly checkpointAt?: string
 }
 
+/** What a re-entry may assume when nothing proved its session, environment or workspace. */
 export const UNPROVEN_CONTINUITY: ReentryContinuity = Object.freeze({
   session: 'new',
   environment: 'unknown',
@@ -29,6 +30,7 @@ export interface ReentryTaskInput {
   readonly attempt: number
 }
 
+/** The task a re-entered driver receives: what changed, why it re-entered, and its objective. */
 export function composeReentryTask(input: ReentryTaskInput): string {
   const { reentry, continuity, state } = input
   if (reentry.reason === 'unmet-contract' && continuity.session === 'continued') {
