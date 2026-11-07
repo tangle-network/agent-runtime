@@ -1,9 +1,12 @@
 name: Adopt stack
 
-# Adopts each new @tangle-network release through agent-eval's reusable
-# workflow, which owns the pinning, peer-range widening and PR rules.
 on:
   workflow_dispatch:
+    inputs:
+      merge:
+        description: Merge the adoption PR when its gate passes
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -17,5 +20,5 @@ jobs:
       gate: pnpm install --frozen-lockfile && pnpm typecheck && pnpm build
       post-pin: node scripts/release-notes.mjs --adoption
       default-branch: main
-      merge: true
+      merge: ${{ inputs.merge }}
     secrets: inherit
