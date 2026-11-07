@@ -4,7 +4,8 @@ import { isDeepStrictEqual } from 'node:util'
 
 import { attestReleaseGate } from './release-gate.mjs'
 
-const [version, ...options] = process.argv.slice(2)
+const [spec, ...options] = process.argv.slice(2)
+const [pkg, version] = spec?.includes('@') ? spec.split('@') : ['agent-runtime', spec]
 let requested, gated
 for (let i = 0; i < options.length; i += 2) {
   const [flag, value] = options.slice(i, i + 2)
@@ -13,11 +14,11 @@ for (let i = 0; i < options.length; i += 2) {
   if (flag === '--commit') requested = value
   else gated = value
 }
-if (!/^\d+\.\d+\.\d+$/u.test(version ?? '')) {
-  console.error('usage: node scripts/tag-release.mjs <major.minor.patch> [--commit <full-sha>] [--gate <gated-sha>]')
+if (!['agent-runtime', 'agent-bench'].includes(pkg) || !/^\d+\.\d+\.\d+$/u.test(version ?? '')) {
+  console.error('usage: node scripts/tag-release.mjs [agent-bench@]<major.minor.patch> [--commit <full-sha>] [--gate <gated-sha>]')
   process.exit(2)
 }
-const tag = `v${version}`
+const [tag, manifest] = pkg === 'agent-bench' ? [`agent-bench-v${version}`, 'bench/package.json'] : [`v${version}`, 'package.json']
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim()
 const refuse = (reason) => {
   console.error(`refused: ${reason}`)
@@ -38,7 +39,7 @@ git('fetch', '--quiet', 'origin', 'main')
 const main = git('rev-parse', 'FETCH_HEAD')
 const commit = requested ? git('rev-parse', '--verify', `${requested}^{commit}`) : main
 if (git('merge-base', commit, main) !== commit) refuse(`${commit} is not merged into origin/main ${main}`)
-const selected = JSON.parse(git('show', `${commit}:package.json`)).version
+const selected = JSON.parse(git('show', `${commit}:${manifest}`)).version
 if (selected !== version) refuse(`${commit} carries ${selected}, not ${version}; merge the release PR first`)
 if (git('ls-remote', '--tags', 'origin', `refs/tags/${tag}`) !== '') refuse(`${tag} already exists on origin`)
 if (git('tag', '--list', tag)) refuse(`${tag} already exists locally`)
