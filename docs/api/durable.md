@@ -2823,10 +2823,11 @@ When `driverBackend` is absent, whether an external-harness ROOT may default to 
 
 > `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
 
-Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
- the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
- sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
- canonical profile. Identity-free and synchronous; throw to refuse.
+Pre-journal profile resolution: the profile a driver authored → the profile that will run
+ (`CoordinationToolsOptions.resolveSpawnProfile`), for the spawn itself and its pre-flight
+ gate alike (#1281). A pinning layer sets this alongside `authorizeSpawn` so the backend
+ gate and the authorization see the same canonical profile. Identity-free and synchronous;
+ throw to refuse.
 
 ###### Parameters
 
@@ -3246,6 +3247,17 @@ The flow the root manager runs: an AgentGraph with `entry` sets it, together wit
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`routeFlow`](runtime.md#routeflow)
+
+##### checkNodes?
+
+> `readonly` `optional` **checkNodes?**: [`GraphCheckNodes`](runtime.md#graphchecknodes)
+
+The leaves of `routeFlow`'s check nodes: a route spawn of one runs its command, not an agent.
+ An AgentGraph's check nodes set it. Omit = none.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`checkNodes`](runtime.md#checknodes)
 
 ##### decideGate?
 
@@ -3847,6 +3859,18 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 ###### Inherited from
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`authorizeMessage`](runtime.md#authorizemessage)
+
+##### checkPlacement?
+
+> `readonly` `optional` **checkPlacement?**: [`DeclaredCheckPlacement`](runtime.md#declaredcheckplacement)
+
+Where check nodes run: a fresh Sandbox box per check, created by `client` on the check account,
+ from each node's `environment`. Absent = locally, in the run's working directory (a loopback
+ Bridge `cwd` or a `cli-in-place` workspace).
+
+###### Inherited from
+
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`checkPlacement`](runtime.md#checkplacement)
 
 ##### runContext?
 
@@ -5697,46 +5721,16 @@ before its first page.
 
 > **RetainedPendingCause** = `"unobservable"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"`
 
-Why a retained execution has no accepted terminal result, classified where the cause is still
-a typed value rather than a string in a journal.
-
-One reason string used to cover two situations that call for opposite operator responses
-(#1204): an execution whose status genuinely cannot be determined — refusing to replace it is
-correct, and the operator must reconcile before retrying or pay twice for one turn — and a
-provider that broke its contract, where the reader or provider needs repair before the original
-execution can be reconciled. Six exhibits in three days wore the first name for the second fault.
-
-- `'unobservable'`: the execution may have run and nothing local can say. The safety refusal.
-  Anything unclassifiable lands here, and so does a 4xx, a not-found, or a client deadline hit
-  AFTER admission: the provider cannot resolve what it admitted, which is exactly the case the
-  refusal exists for, not a rejected request.
-- `'provider-contract'`: the provider answered with something its own contract forbids — a
-  `RetainedRunProviderContractError` naming a broken answer (an `*_INVALID`, `*_CHANGED`,
-  `*_DUPLICATE`, `*_MISSING` code), an event bound to another run.
-- `'request-rejected'`: the request itself was refused BEFORE it ran — a schema violation
-  (`ZodError`), an HTTP 4xx at admission, a capacity refusal at admission that carries an
-  upstream capacity `code` and no HTTP status (the account owner's credential command refused a
-  fresh dispatch before the dispatch request existed), an unsupported credential route, or a
-  dispatch that Sandbox did not admit
-  because another execution owns the session or turn. Never named after admission.
-- `'transport'`: the provider or a gateway in front of it failed — an HTTP 5xx, a socket
-  error, a platform service answering with a server error. Status is in doubt only because
-  the transport was.
-- `'nested-recovery'`: a nested manager's own recovery could not be reconstructed. Stated by
-  the thrower, never inferred.
-
-Classification reads the cause's structure — class name, `code`, HTTP `status`, a Zod issue
-list — and two untyped Sandbox refusals' text, never other message text: the provider is not a
-dependency of this package and its messages are not a contract. #1204's exhibit 3 (an event
-without a stable id) is delivered rather than thrown since agent-provider-tangle 1.4.0; its
-exhibit 6 is typed as `JsonBoundError` (`code: 'JSON_BOUND_VIOLATION'`) since 1.5.0 and lands
-with the schema violations. A provider still throwing plain `Error`s lands on `'unobservable'`,
-which is the safe side.
-
-One `RetainedRunProviderContractError` is NOT one meaning. The runtime mints it both when the
-provider answered wrongly and when a READ of the provider failed (`RETAINED_RESULT_READ_FAILED`,
-`RETAINED_CONTROL_REF_READ_FAILED`). The second kind is a wrapper: what it wraps decides, in a
-post-admission context, and a wrapper around nothing classifiable is exhibit 4.
+Why a retained execution has no accepted terminal result. `unobservable` means it may have run
+and nothing local can say, including a 4xx, not-found, or client deadline after admission, and
+any plain `Error`. `provider-contract` is an answer the provider's contract forbids, or an event
+bound to another run. `request-rejected` is a refusal before the request ran: schema, admission
+4xx, admission capacity code, unsupported credential route, or a session owned by another
+execution. `transport` is HTTP 5xx, a socket error, or a platform server error. `nested-recovery`
+is stated by the thrower. Classification reads class, `code`, HTTP `status`, and a Zod issue
+list, plus two untyped Sandbox refusal strings, never other message text. A
+`RetainedRunProviderContractError` for `RETAINED_RESULT_READ_FAILED` or
+`RETAINED_CONTROL_REF_READ_FAILED` is classified by what it wraps.
 
 ***
 

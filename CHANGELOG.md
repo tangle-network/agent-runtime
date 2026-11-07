@@ -1,3 +1,47 @@
+## 7.0.1
+
+An unjudged check tells a barren root to end its turn. Own long work still waits inside the turn.
+
+A subscription seat with no receipt stays unpriced. No catalog estimate is written onto it.
+
+A provider root woken into a new harness session in its retained environment keeps its coordination tools. The environment is reloaded by id, and that handle holds none of the create input that carried the runtime MCP attachments, so a turn into a continued environment now restates the create-time `runtimeAttachments.mcp`.
+
+Materialization receipts now record the applied box sizes (`resources`) the created environment reported through its observation — with provenance (`origin`, `observedAt`) — or an explicit unknown naming why, never the create request. Bridge spawn admission reads the host executor's capacity gate from `GET /health` when the bridge reports it, so a spawn that would wait on the host semaphore and die as capacity is refused up front with the counters in the signal. Spawn admission settles exactly once, and provider `environmentReader` documents sidecar handling.
+
+A cancelled run stops starting checkpoint deletes, lookups, and capture-fork cleanup when its signal aborts.
+
+A retained run whose harness was SIGKILLed releases that execution before the next dispatch, so the replacement is admitted.
+
+Flow graphs gain check nodes (`{ id, check: { command, timeoutMs?, environment?, egress?, secrets? } }`): Runtime runs the command instead of an agent and settles `{ pass, exitCode, output, json }`, with evidence at `$GRAPH_EVIDENCE/<nodeId>.json`, journaled receipts, and box placement through `RunGraphOptions.checkPlacement`. Graph files and stored graphs gain `workspace: cwd | fresh`, resolved by `graphWorkspace`.
+
+Retained native inventory digests written as bare hex are admitted (runs no longer skip every file as unverifiable), and a root stream receipt now carries `subagentSessionIds`, the subagent sessions the harness's own `task` tool results named (#1264).
+
+A retained owner keeps its box when the final native session copy is incomplete (`nativeStore` not complete, or an `over_bound:` / `store_file_` reason) and journals `environment-teardown` with `destroyed: false` and that reason. Process I/O or event-log gaps alone still allow release to destroy the box.
+
+A retained run that stays at intent past the materialization bound fails with that stage instead of retrying the create with no environment.
+
+- `spawn_worker` accepts an optional `resources` request (`cpu`, `memoryMb`, `diskMb`, `gpu`) that sizes a provider worker's create over `defaults.resources`; the provider backend's `maxWorkerResources` is the ceiling, and a request above it (or with no ceiling) is refused before any create, naming the ceiling (#1277).
+- `fileEscalateQuestion(runDir, runId)` writes each `ask_parent` question to `questions/<id>.json` under the run, so an out-of-process observer can read it and answer with a root `writeWorkerSteer` (#1165).
+
+- `spawn_worker` admits `successorOf` for a worker that is still live, so a director that revises a stalled worker keeps the lineage on the `spawned` event; `successor-live` is no longer a refusal (#1588).
+- An AgentGraph `delegates` edge may start at any node that holds the spawn tool: the nested supervisor spawns only its own edges' targets, and the ledger row records the real `from` (#1774).
+- A buffered Router completion whose usage reports no cost takes the exact `x-tangle-cost-usd` charge, so router workers settle with known USD; a router-tools graph worker may declare the caller tools its backend supplies (`AgentProfile.tools`) (#1587).
+- A graph analyst node on a backend is no longer graded by the worker's deliverable check or the backend `validator`: an analyst that attacks the worker's output settles ungraded (#1775).
+- A manager whose profile declares coordination tools the run does not serve is refused with every unserved name, and the served list, in one error before its harness runs a turn (#1219).
+
+A settled record's `tree` and `spendGaps` read the whole spawn forest, so a nested driver's grandchildren appear in `tree.nodes` and stay nameable in `spendGaps` (`#1189`).
+
+- `scope.spawn` refuses a not-yet-executable profile with every missing field named in one rejection (`harness`, `model.default`, `model.provider`) instead of one field per call, and the `spawn_worker` tool description states the required execution fields (#1329).
+- A retained-run read that receives a gateway HTML error page (a Cloudflare 502) is classified as a transport failure carrying the HTTP status and a bounded excerpt, not a provider contract violation (#1203).
+- Driver-attempt records carry the deepest cause's redacted, frame-bounded stack, so a failure the messages alone cannot place still names its throw site; redaction runs per line, so a credential on the message line cannot erase the frames (#2347).
+- An unconfirmed checkpoint cleanup journals and settles with its reason — the provider's acknowledgement status or the delete's error text (#1594).
+
+A broken stream keeps the tokens its live events carried and the remainder that arrived only on the exact result. The iteration count stays the provider invocation and is marked unknown when that remainder is non-zero.
+
+The live graph viewer keeps serving when the host has no inotify watches left (ENOSPC) instead of ending the run it views; it falls back to its reconcile interval.
+
+A retained worker whose provider returns a different session settles down and keeps its environment, so the same key can be replaced with spawn_worker.
+
 ## 7.0.0
 
 `reconcileUnconfirmedTeardowns` reads a settled run's unconfirmed environments by id and deletes only the ones the provider still holds. It returns confirmed, deleted, and unknown sets, and it refuses a live directory lock or a run with no settle record.

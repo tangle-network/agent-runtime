@@ -2453,6 +2453,12 @@ The exact allocation this node receives after the tool's optional override is me
 
 Detached, deeply immutable task bytes from this spawn request.
 
+##### resources?
+
+> `readonly` `optional` **resources?**: `ResourceRequest`
+
+The machine `spawn_worker` requested, admitted under the backend's `maxWorkerResources`.
+
 ##### label
 
 > `readonly` **label**: `string`
@@ -2506,8 +2512,8 @@ Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches
 
 > `readonly` `optional` **successorOf?**: `string`
 
-The settled worker this spawn replaces, when the manager named one (`spawn_worker`'s
- `successorOf`). Runtime admits only a settled worker of the same manager and journals the
+The worker this spawn revises or replaces, when the manager named one (`spawn_worker`'s
+ `successorOf`). Runtime admits only a worker of the same manager, live or settled, and journals the
  relation on the new node, so the run record shows who took over whose work. A seam may read
  it to hand the successor its predecessor's workspace or retained output; Runtime mounts
  nothing on its behalf. Independent of `resume`, which re-attaches the same node's session.
@@ -9712,7 +9718,7 @@ Source-reported coverage retained with the verified archive reference.
 
 ##### status
 
-> `readonly` **status**: `"unavailable"` \| `"reported"`
+> `readonly` **status**: `"reported"` \| `"unavailable"`
 
 ##### provider?
 
@@ -10656,10 +10662,7 @@ Options for an idempotent retained cancellation.
 
 **`Stable`**
 
-Admission and terminal result for one same-session continuation.
-
-The provider resolves `admission` after it durably owns the next exact run
-reference. `result` resolves when that run reaches its terminal result.
+Admission once the next exact reference is durable, and the terminal result.
 
 #### Properties
 
@@ -10827,11 +10830,7 @@ Capabilities measured from the exact environment that owns this run.
 
 **`Stable`**
 
-Sanitized headless intent durable before environment creation.
-
-The request digest binds the public create and turn material without
-retaining secret values. The original start material is required to replay
-this record after a process crash.
+Intent durable before create. The digest omits secrets; replay needs the original start material.
 
 #### Properties
 
@@ -10945,11 +10944,7 @@ The verified exact reference, durable before the start promise resolves.
 
 **`Stable`**
 
-Sanitized intent durable before an interactive environment create begins.
-
-The digest covers the public start and create material without retaining that
-material. It never carries environment variables, secret values, or provider
-options. The replay input supplies private values after this check.
+Interactive intent durable before create. The digest omits secrets, env, and provider options.
 
 #### Properties
 
@@ -11099,9 +11094,7 @@ Accepted destination to attach, without creating or replacing its environment.
 
 > `readonly` `optional` **identity?**: `object`
 
-Explicit dispatch coordinates. When omitted, the runtime mints
-deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
-so every process derives the same values.
+Explicit coordinates. Omitted values are minted from the environment key and turn id.
 
 ###### sessionId
 
@@ -11181,9 +11174,7 @@ Accepted destination to attach, without creating or replacing its environment.
 
 > `readonly` `optional` **identity?**: `object`
 
-Explicit dispatch coordinates. When omitted, the runtime mints
-deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
-so every process derives the same values.
+Explicit coordinates. Omitted values are minted from the environment key and turn id.
 
 ###### sessionId
 
@@ -11218,6 +11209,12 @@ A previously persisted intent used to replay the exact create operation.
 ###### Returns
 
 `number`
+
+##### materializationTimeoutMs?
+
+> `readonly` `optional` **materializationTimeoutMs?**: `number`
+
+How long create may take after intent is durable. Absent uses the retained materialization bound.
 
 ##### journalRoot?
 
@@ -11354,10 +11351,7 @@ The exact original environment, turn, and optional identity material.
 
 **`Stable`**
 
-Pre-dispatch admission coordinates for one recovery attempt.
-
-A `phase: 'environment'` admission record carries these fields, so a caller
-can pass that record after a crash before the dispatched record landed.
+Environment-phase coordinates, enough to recover before a dispatched record lands.
 
 #### Properties
 
@@ -11381,13 +11375,7 @@ can pass that record after a crash before the dispatched record landed.
 
 > `readonly` `optional` **contextTransfer?**: `object`
 
-Transfer replay identity, when the crashed run started from an ACCEPTED
-context transfer: the original request and its authoritative receipt.
-Recovery repeats the receipt-authorized lookup and verifies the receipt's
-run binding — without it, an adapter that requires receipt-authorized
-lookup answers not_found, and one that does not can return a run the
-receipt never bound. Callers that persisted the turn's context-transfer
-material supply these; behavior is unchanged for runs that had none.
+Accepted transfer request. Recovery repeats the receipt-authorized lookup; omit it only when the run had none.
 
 ##### transferReceipt?
 
@@ -15377,49 +15365,14 @@ The specific reasons it is thin (empty when rich) — used in the finding's acti
 
 ### BridgeSeam
 
-cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
-(claude-code / opencode / kimi / pi) behind one HTTP surface. The spawned
-`AgentProfile` is the sole harness/provider/model and behavioral authority and
-is forwarded verbatim per request; this seam carries transport data only.
-
-The executor opens a resumable cli-bridge session. `sessionId` identifies the
-harness conversation across turns; each turn also receives its own durable run id.
-A dropped HTTP reader reattaches to that exact run and explicit cancel is the only
-operation allowed to stop it. Omit `sessionId` and the executor mints one per spawn.
-
-── HOW TO CONTROL WHAT THE HARNESS LOADS (there is no argv field, by design) ──
-
-A worker often needs the harness started in a KNOWN state — no ambient extensions, skills,
-context files, or prompt templates — because ambient state is how a paired experiment silently
-loses its pairing: an installed extension that persists memory across runs carries arm A's state
-into arm B, and nothing reports it.
-
-That is what the spawned `AgentProfile` is FOR. `agent_profile`
-rides every request verbatim, and cli-bridge maps it onto each harness's own native controls:
-
-  - Materializing any profile at all already starts the harness isolated from ambient
-    workspace state — for pi that is `--no-context-files --no-skills --no-prompt-templates`,
-    applied to every request that carries an `agent_profile`.
-  - `AgentProfile.extensions.<harness>` is the named, per-harness control channel. An explicit
-    `extensions: { pi: { load: [] } }` disables ambient extension discovery outright
-    (pi's `--no-extensions`); listing package names loads exactly those and nothing else.
-  - `permissions` / `tools` / `mcp` map onto the harness's native tool and server controls.
-
-A caller therefore does NOT need to hand-roll an `Executor` to isolate a harness run, and the
-profile expressing it stays portable: the same declaration means the same thing on a different
-harness, whereas an argv string means nothing anywhere else.
-
-WHY NOT A GENERAL ARGV PASSTHROUGH. `bridgeUrl` addresses a process-spawning server. Forwarding
-an arbitrary argv array to it would let any caller holding a bearer token choose the flags of a
-process on the bridge host — which for real harness CLIs includes flags that load code from a
-path, read a file into the prompt, redirect the working directory, or turn off the isolation the
-bridge applies. cli-bridge deliberately confines workers (a filesystem jail and deny-by-default
-network egress), and every one of those confinements is expressed as spawn configuration, so an
-argv channel is a channel for unwinding them. It would also break this executor's own contract:
-the durable-run replay protocol, session pinning, and streaming mode are all argv the bridge
-owns, and a caller-supplied duplicate silently wins or corrupts the parse. The structured profile
-channel is validated, per-harness, portable, and refuses controls it does not understand — keep
-new harness capability there.
+cli-bridge transport seam. The spawned `AgentProfile` is the harness authority and is forwarded
+verbatim; this seam carries transport only. `sessionId` is the harness conversation; each turn has
+its own run id. A dropped reader reattaches to that run, and explicit cancel is the only stop.
+Omit `sessionId` and the executor mints one. There is no argv field: materializing a profile
+isolates the harness from ambient workspace state, `extensions.<harness>` chooses which extensions
+load, and `permissions` / `tools` / `mcp` map to the harness's own controls. An argv array would
+let a bearer token unwind the bridge's jail and egress policy and collide with the replay,
+session, and streaming flags the bridge owns.
 
 #### Properties
 
@@ -16894,12 +16847,8 @@ Explicit ceilings on a spawn or root. An omitted channel is uncapped and reserve
 
 ### Spend
 
-Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd are separate
-channels (never folded).
-
-`boxMinutes` is a REPORTED channel, not a conserved one: it is summed across a run and carried
-in the journal, and the budget pool never reserves, commits, or refunds against it. `budget.ts`
-holds the reason.
+Conserved spend from the `UsageEvent` stream. Tokens and dollars stay separate.
+ `boxMinutes` is reported only: the pool does not reserve against it.
 
 #### Properties
 
@@ -16919,11 +16868,7 @@ holds the reason.
 
 > `optional` **tokensKnown?**: `boolean`
 
-Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
- an unreported token count: `tokens` then carries the known subtotal (often `{0,0}`) and must
- not be read as the measured total. The twin of `usdKnown` on the token channel — an inference
- turn whose provider reported no usage is recorded with this flag rather than omitted, because
- omitting it makes the turn look free.
+False marks work that happened with an unreported count. `tokens` is then a floor, not the total.
 
 ##### usdKnown?
 
@@ -16940,10 +16885,7 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 > `optional` **usdEstimated?**: `number`
 
-The part of `usd` that is a PRICE rather than a charge, because no provider receipt covered
- the work: a model catalog's own number, or a figure a provider stated but did not bill.
- `usd - usdEstimated` is what a provider is known to have billed. Present only with
- `usdKnown: false`; absence means nothing here was priced, not that `usd` is measured.
+The priced part of `usd`, present only with `usdKnown: false`. `usd - usdEstimated` was billed.
 
 ##### ms
 
@@ -16953,49 +16895,44 @@ The part of `usd` that is a PRICE rather than a charge, because no provider rece
 
 > `optional` **boxMinutes?**: `number`
 
-Platform box wall time in minutes — the third conserved channel, beside tokens and dollars.
-
-A run on a subscription seat has no marginal dollar per model call, so box time is the only
-real resource it consumes. Before this channel existed such a run reported `$0` with nothing
-beside it and was unaccountable by construction.
-
-ABSENT when nothing was measured. Never `0` for unknown: a zero would claim the box consumed
-no platform time, which is a different fact from a box nobody metered. The field is absent
-entirely on a run with no box (router, cli-bridge, inline), because "not applicable" is not
-the same fact as "unmeasured" either.
+Platform box minutes. Absent when unmeasured or when no box ran. Never `0` for unknown.
 
 ##### boxMinutesKnown?
 
 > `optional` **boxMinutesKnown?**: `boolean`
 
-True when this record states its box time. `false` says a box RAN and its lifetime could not
- be paired, so `boxMinutes` — when present at all — is a floor, never the total. The twin of
- `tokensKnown` and `usdKnown` on the platform channel.
+False: a box ran and `boxMinutes`, if present, is a floor.
 
 ##### boxMinutesProvenance?
 
 > `optional` **boxMinutesProvenance?**: `"observed"` \| `"estimated"` \| `"uncaptured"`
 
-How `boxMinutes` was obtained, in the vocabulary `agent-eval`'s cost ledger already uses
-(`CostProvenance`, `cost-ledger.ts`).
-
-`'observed'` — the platform itself reported the minutes.
-`'estimated'` — this runtime derived them from the box lifetime it watched. A derived number
-  is not a platform receipt, and the conserved pool never reserves against it.
-`'uncaptured'` — a box ran and nothing measured its time. Comes WITHOUT `boxMinutes`.
+`observed` is the platform's number. `estimated` is derived and not reserved against.
+ `uncaptured` means a box ran and comes without `boxMinutes`.
 
 ##### tokensProvenance?
 
 > `optional` **tokensProvenance?**: [`TokenUsageProvenance`](#tokenusageprovenance)
 
-How the token counters in `tokens` were obtained, when this record states it.
+Where `tokens` came from. Absent means the live stream. A store read still has `tokensKnown: true`.
 
-ABSENT means every count came from the executor's live stream, which is what every path
-reported before harness stores were readable. `'harness-store'` says the harness's own file was
-the receipt; `'mixed'` says both sources contributed to this settlement.
+##### streamedTokens?
 
-This is a provenance fact, not a confidence one: a store read is the provider's own number and
-carries `tokensKnown: true`. The twin of `boxMinutesProvenance` on the token channel.
+> `optional` **streamedTokens?**: [`LoopTokenUsage`](#looptokenusage)
+
+Tokens the live stream had reported when a broken stream's exact result arrived. `tokens` stays the recorded total.
+
+##### unobservedTokens?
+
+> `optional` **unobservedTokens?**: [`LoopTokenUsage`](#looptokenusage)
+
+Recorded total minus `streamedTokens`, for each counter that grew. Absent when the exact result did not exceed the stream.
+
+##### iterationsKnown?
+
+> `optional` **iterationsKnown?**: `false`
+
+False when `iterations` is only the provider-invocation floor: the exact result exceeded the stream, so this count does not name the model calls.
 
 ***
 
@@ -17053,13 +16990,7 @@ One channel on which a settled reservation's measured spend exceeded what it res
 
 ### BudgetViolation
 
-A settled reservation whose measured spend exceeded what it reserved.
-
-It records an accounting fact, not an outcome. A child that completed stays `done` with its
-artifact, and a child that failed stays `down`. The pool commits the true spend, so its free
-balance already carries the overspend and later reservations are refused on their own.
-Spend the pool cannot verify (unknown dollars under a dollar cap, unknown or overflowing
-resource usage) is not an overspend: it fails the child closed instead.
+Measured spend past the reservation. The child stays done or down; unverifiable spend fails closed.
 
 #### Properties
 
@@ -17879,6 +17810,12 @@ Concrete backend or harness selected for this run.
 > `readonly` **model**: [`MaterializedModelIdentity`](#materializedmodelidentity)
 
 Exact selected model, or an explicit unknown reason.
+
+##### resources?
+
+> `readonly` `optional` **resources?**: [`MaterializedResources`](#materializedresources)
+
+Applied resources the created environment reported, or an explicit unknown reason.
 
 ##### execution
 
@@ -18808,9 +18745,9 @@ always run.
 
 > `readonly` `optional` **successorOf?**: `string`
 
-The settled sibling node this spawn replaces, so a run's record names which worker took over
- whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits only
- a settled worker of the same manager. Journaled on `spawned` and on the `agent.spawn` hook.
+The sibling node this spawn revises or replaces, so a run's record names which worker took over
+ whose work. The caller asserts the relation; the coordination `spawn_worker` tool admits any
+ worker of the same manager, live or settled. Journaled on `spawned` and on the `agent.spawn` hook.
 
 ##### continueHeld?
 
@@ -19868,6 +19805,13 @@ Root executor progress, when captured; outRef instead names selected output.
 
 Committed lines in the file. `0` is a root that drove and produced no observable output.
 
+##### subagentSessionIds?
+
+> `readonly` `optional` **subagentSessionIds?**: readonly `string`[]
+
+Subagent sessions the harness itself spawned, as its `task` tool results named them
+ (#1264: a completed subagent reached no record before). Absent when none were observed.
+
 ***
 
 ### ProviderModelAttemptEvidence
@@ -20653,6 +20597,13 @@ One attempt's record, emitted per attempt so an operator sees each legible failu
 > `readonly` `optional` **error?**: `string`
 
 Absent when the attempt completed.
+
+##### errorStack?
+
+> `readonly` `optional` **errorStack?**: `string`
+
+With `error`: the deepest cause's stack, redacted and bounded, so a failure the message
+ alone cannot place still names its throw site (#2347).
 
 ##### failure?
 
@@ -22081,6 +22032,13 @@ A graph node: an id and a canonical `AgentProfile`. The profile is the ONLY way 
 
 > `readonly` **profile**: `AgentProfile`
 
+##### check?
+
+> `readonly` `optional` **check?**: [`GraphCheckNode`](#graphchecknode)
+
+A check node: Runtime runs this command instead of an agent (flow graphs only). Its profile is
+ `{ name: id }`; `graphFromStored` writes both.
+
 ***
 
 ### GraphTopology
@@ -22175,6 +22133,14 @@ Flow-graph vertices that are not agents: a routes edge into one awaits
  `RunGraphOptions.decideGate`, and one edge per choice leaves it, matching
  `{ pointer: '/choice', equals: <choice> }`. A `finish` leaving a gate outputs
  `{ [gate]: { choice, by } }`.
+
+##### workspace?
+
+> `readonly` `optional` **workspace?**: `"cwd"` \| `"fresh"`
+
+Where nodes run: `cwd` (default) is the run's working directory; `fresh` is a new empty
+ directory the run owns, which the host creates and passes as that working directory
+ (`graphWorkspace`).
 
 ***
 
@@ -22404,6 +22370,14 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 ###### Returns
 
 [`AuthorizedDownMessage`](durable.md#authorizeddownmessage)
+
+##### checkPlacement?
+
+> `readonly` `optional` **checkPlacement?**: [`DeclaredCheckPlacement`](#declaredcheckplacement)
+
+Where check nodes run: a fresh Sandbox box per check, created by `client` on the check account,
+ from each node's `environment`. Absent = locally, in the run's working directory (a loopback
+ Bridge `cwd` or a `cli-in-place` workspace).
 
 ##### runContext?
 
@@ -25064,23 +25038,19 @@ Capability-derived terminal takeover requirement.
 
 ### ReentryContinuity
 
-What the next drive continues, as the drive harness can prove it before the turn starts.
-
 #### Properties
 
 ##### session
 
 > `readonly` **session**: `"continued"` \| `"new"`
 
-`continued`: the next turn is sent into the harness session that received the last one.
- `new`: a new harness session, which knows only what its task says.
+`continued` reuses the harness session. `new` knows only this task.
 
 ##### environment
 
 > `readonly` **environment**: `"unknown"` \| `"same"` \| `"replaced"`
 
-Whether the next drive runs in the environment the previous drive used. `replaced` names a
- previous environment the provider no longer holds.
+`replaced` names an environment the provider no longer holds.
 
 ##### environmentId?
 
@@ -25094,8 +25064,7 @@ Whether the next drive runs in the environment the previous drive used. `replace
 
 > `readonly` **workspace**: `"unknown"` \| `"kept"` \| `"restored"` \| `"lost"`
 
-What the next environment holds of the previous one's files. `restored`: the files as of
- the checkpoint taken at `checkpointAt`; anything written after it is gone.
+`restored` is the checkpoint at `checkpointAt`. Later writes are gone.
 
 ##### checkpointAt?
 
@@ -25111,19 +25080,13 @@ What the next environment holds of the previous one's files. `restored`: the fil
 
 > `readonly` **originalTask**: `unknown`
 
-The run's original task, exactly as the first drive received it.
-
 ##### contract?
 
 > `readonly` `optional` **contract?**: `string`
 
-What the completion check requires, when the caller described it.
-
 ##### tools?
 
 > `readonly` `optional` **tools?**: readonly `string`[]
-
-Coordination tools served to this manager. Absent means none are proven available.
 
 ##### reentry
 
@@ -25140,8 +25103,6 @@ Coordination tools served to this manager. Absent means none are proven availabl
 ##### attempt
 
 > `readonly` **attempt**: `number`
-
-1-based driver attempt this task starts.
 
 ***
 
@@ -26453,6 +26414,12 @@ boxes, and keep a dedicated environment from `provider` for every other profile.
 `sharedBoxPlacement`. A manager never uses it: its coordination credential is create-time
 environment that every co-tenant of a shared box could read.
 
+##### maxWorkerResources?
+
+> `optional` **maxWorkerResources?**: `ResourceRequest`
+
+Largest `spawn_worker` `resources` a worker may request; above it is refused (#1277).
+
 ***
 
 ### RouterToolsSeam
@@ -27681,6 +27648,70 @@ An environment-owned check command, run outside the agent's conversation.
 
 ***
 
+### GraphCheckNode
+
+A graph node that runs a command instead of an agent: no model, no seat. Locally it runs in the
+ run's working directory; with `RunGraphOptions.checkPlacement` it runs in a fresh Sandbox box
+ built from `environment`, through the box runner a declared check uses.
+
+#### Properties
+
+##### command
+
+> `readonly` **command**: `string`
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Default 15 minutes.
+
+##### environment?
+
+> `readonly` `optional` **environment?**: `string`
+
+The box image under `checkPlacement`; required there, unused locally.
+
+##### egress?
+
+> `readonly` `optional` **egress?**: readonly `string`[]
+
+Domains a box may reach. Absent or empty: egress is blocked. Unused locally.
+
+##### secrets?
+
+> `readonly` `optional` **secrets?**: readonly `string`[]
+
+Environment variable names the command needs; a missing one fails the node.
+
+***
+
+### GraphCheckOutput
+
+A check node's settled output. `json` is the last stdout line when it parses as an object.
+
+#### Properties
+
+##### pass
+
+> `readonly` **pass**: `boolean`
+
+##### exitCode
+
+> `readonly` **exitCode**: `number` \| `null`
+
+##### output
+
+> `readonly` **output**: `string`
+
+The last 64 KiB of stdout followed by stderr.
+
+##### json?
+
+> `readonly` `optional` **json?**: `Record`\<`string`, `unknown`\>
+
+***
+
 ### GraphFromStoredOptions
 
 #### Properties
@@ -27692,6 +27723,22 @@ An environment-owned check command, run outside the agent's conversation.
 ##### checks?
 
 > `readonly` `optional` **checks?**: `Readonly`\<`Record`\<`string`, ((`out`, `context?`) => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>) \| [`GraphCommandCheck`](#graphcommandcheck)\>\>
+
+***
+
+### GraphCheckNodes
+
+The leaves of a flow's check nodes, for `supervise()`'s leaf path.
+
+#### Properties
+
+##### names
+
+> `readonly` **names**: readonly `string`[]
+
+##### leaf
+
+> `readonly` **leaf**: [`MakeWorkerAgent`](#makeworkeragent)
 
 ***
 
@@ -28029,10 +28076,11 @@ When `driverBackend` is absent, whether an external-harness ROOT may default to 
 
 > `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
 
-Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
- the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
- sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
- canonical profile. Identity-free and synchronous; throw to refuse.
+Pre-journal profile resolution: the profile a driver authored → the profile that will run
+ (`CoordinationToolsOptions.resolveSpawnProfile`), for the spawn itself and its pre-flight
+ gate alike (#1281). A pinning layer sets this alongside `authorizeSpawn` so the backend
+ gate and the authorization see the same canonical profile. Identity-free and synchronous;
+ throw to refuse.
 
 ###### Parameters
 
@@ -28355,6 +28403,13 @@ Maps the runtime expands when their source worker settles: fan-out over a list i
 
 The flow the root manager runs: an AgentGraph with `entry` sets it, together with its
  runtime-owned root, which makes no model call. See `RouteFlow`. Omit = none.
+
+##### checkNodes?
+
+> `readonly` `optional` **checkNodes?**: [`GraphCheckNodes`](#graphchecknodes)
+
+The leaves of `routeFlow`'s check nodes: a route spawn of one runs its command, not an agent.
+ An AgentGraph's check nodes set it. Omit = none.
 
 ##### decideGate?
 
@@ -34136,12 +34191,7 @@ One detached-run admission record the runtime persists before creation or dispat
 
 **`Stable`**
 
-Awaited durability hook for retained admission records.
-
-The runtime blocks after the pre-create intent, environment creation, and
-provider work until the hook resolves. No retained run becomes caller-visible
-before its exact recovery record is durable. A rejection keeps provider state
-for recovery when provider work has already started.
+Blocks until the admission is durable. A rejection keeps provider state already started.
 
 #### Parameters
 
@@ -34161,18 +34211,7 @@ for recovery when provider work has already started.
 
 **`Stable`**
 
-Outcome of one recovery attempt.
-
-`recovered` with `via: 'reattached'`: the provider self-identified the
-original session with a strict exact reference matching the recorded
-environment coordinates. `recovered` with `via: 'resumed'`: a pre-create
-intent was replayed through the exact, idempotent create and dispatch; the
-handle controls the admitted run, whether this call or the crashed one
-dispatched it. `not_found`: the provider no longer holds the environment;
-nothing remains to destroy. `unverifiable`: the environment exists but the
-provider cannot self-identify the session. Never destroy on this outcome:
-keep the environment, retry `reconnectRetainedRun` with a dispatched
-admission record, or inspect it with provider-native tools.
+`reattached` matched the recorded session. `resumed` replayed intent. `not_found` has nothing to destroy. `unverifiable` keeps the environment.
 
 ***
 
@@ -34675,6 +34714,19 @@ A named model carried into an execution, or an explicit reason the exact model i
 
 ***
 
+### MaterializedResources
+
+> **MaterializedResources** = \{ `status`: `"known"`; `cpu?`: `number`; `memoryMb?`: `number`; `diskMb?`: `number`; `accelerator?`: \{ `kind`: `string`; `count`: `number`; `memoryMb?`: `number`; \}; `origin`: `"estimated"` \| `"measured"` \| `"reported"`; `observedAt`: `string`; \} \| \{ `status`: `"unknown"`; `reason`: `string`; \}
+
+The box sizes the created environment reported as applied, or an explicit unknown. Known
+values come from the environment's normalized observation (`resources.effective`), never from
+the create input: the request was admission-validated, not applied, and the applied sizes stay
+comparable against what the guest itself reads from its cgroup limits. `origin` and
+`observedAt` carry the observation's provenance so an estimate is never mistaken for a
+provider-applied size; `accelerator` is the observation's hardware shape.
+
+***
+
 ### UnknownMaterializationReason
 
 > **UnknownMaterializationReason** = `"executor-did-not-report"` \| `"executor-failed-before-receipt"` \| `"executor-receipt-pending"` \| `"invalid-executor-report"` \| `"root-agent-did-not-report"`
@@ -34692,7 +34744,7 @@ already finished.
 
 ### ProfileMaterializationReceipt
 
-> **ProfileMaterializationReceipt** = \{ `status`: `"known"`; `authoredProfileDigest`: `Sha256Digest`; `effectiveProfileDigest`: `Sha256Digest`; `materializationPlanDigest`: `Sha256Digest`; `platformAttachmentsDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-6); `backend`: `string`; `model`: [`MaterializedModelIdentity`](#materializedmodelidentity); `execution`: [`MaterializedExecutionIdentity`](#materializedexecutionidentity); `materializer`: `string`; \} \| \{ `status`: `"unknown"`; `authoredProfileDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-6); `reason`: [`UnknownMaterializationReason`](#unknownmaterializationreason); \}
+> **ProfileMaterializationReceipt** = \{ `status`: `"known"`; `authoredProfileDigest`: `Sha256Digest`; `effectiveProfileDigest`: `Sha256Digest`; `materializationPlanDigest`: `Sha256Digest`; `platformAttachmentsDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-6); `backend`: `string`; `model`: [`MaterializedModelIdentity`](#materializedmodelidentity); `resources`: [`MaterializedResources`](#materializedresources); `execution`: [`MaterializedExecutionIdentity`](#materializedexecutionidentity); `materializer`: `string`; \} \| \{ `status`: `"unknown"`; `authoredProfileDigest?`: `Sha256Digest`; `runtime`: [`Runtime`](#runtime-6); `reason`: [`UnknownMaterializationReason`](#unknownmaterializationreason); \}
 
 What the kernel can prove about one node's actual execution plan.
 
@@ -35248,7 +35300,7 @@ Manager-scoped assignment identity used to join unkeyed and keyed work alike.
 
 > `optional` **successorOf?**: [`NodeId`](#nodeid-5)
 
-The settled sibling node this spawn replaces (`SpawnOpts.successorOf`).
+The sibling node this spawn revises or replaces (`SpawnOpts.successorOf`).
 
 ###### continues?
 
@@ -37737,15 +37789,7 @@ Why a completed drive with an unmet contract was not re-entered. `closed` means 
 
 > **DriverFailureClass** = `"transient"` \| `"terminal"` \| `"unavailable"`
 
-How one driver failure is answered.
-
- - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
- - `transient`: a foreign accident. A streak in which nothing ran is retried as an outage for
-   `transientOutageMs`; after that, and for a failure that did work, `maxAttempts` and the
-   barren streak bound it.
- - `unavailable`: the upstream cannot serve now (quota, rate limit, overload, or the router's
-   own provider credential refused). The driver pauses and re-enters, and only the deadline, the
-   budget, and cancellation bound the pauses.
+`terminal` ends the run. `transient` is an outage until `transientOutageMs`, then the attempt bounds. `unavailable` pauses until the deadline, budget, or cancel.
 
 ***
 
@@ -37994,6 +38038,10 @@ A flow graph's entry and gates; absent for any other graph.
 ##### gates?
 
 > `readonly` `optional` **gates?**: readonly [`RouteGate`](#routegate)[]
+
+##### workspace?
+
+> `readonly` `optional` **workspace?**: `"cwd"` \| `"fresh"`
 
 ***
 
@@ -38841,7 +38889,7 @@ The same data grammar as routes; no executable expressions or additional operato
 
 ### graphFileSchema
 
-> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; \}, `$strict`\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
+> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `check`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; `environment`: `ZodOptional`\<`ZodString`\>; `egress`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `secrets`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; \}, `$strict`\>\>; \}, `$strict`\>\>; `workspace`: `ZodOptional`\<`ZodEnum`\<\{ `cwd`: `"cwd"`; `fresh`: `"fresh"`; \}\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
 
 Authoring envelope. Canonical profiles and topology are validated by their existing owners.
 
@@ -38953,7 +39001,7 @@ The pass branch of the dumb steering control — see [dumbContinuationFailPrompt
 
 > `const` **UNPROVEN\_CONTINUITY**: [`ReentryContinuity`](#reentrycontinuity)
 
-Continuity when nothing is proven: compose the full state.
+What a re-entry may assume when nothing proved its session, environment or workspace.
 
 ***
 
@@ -41542,13 +41590,7 @@ Rebuild controls for one exact provider-owned coding-agent process.
 
 **`Stable`**
 
-Dispatch one detached, replayable run and return only after exact durable
-coordinates are confirmed by the provider and persisted by the caller.
-
-The required `onAdmission` hook first records a digest-only intent before
-creation or receipt-authorized attachment, then records recovery coordinates and the verified exact control
-reference. The returned promise resolves only after the dispatched admission
-is durable, so a crash cannot lose a successful start's exact reference.
+Dispatch one replayable run. Intent is durable before create; the promise resolves after dispatch is durable.
 
 #### Parameters
 
@@ -41568,11 +41610,7 @@ is durable, so a crash cannot lose a successful start's exact reference.
 
 **`Stable`**
 
-Dispatch a fresh retained session inside an existing provider environment.
-
-This operation reuses only the environment. It does not append to a prior
-harness chat and does not claim native conversation continuity. The caller
-must use `RetainedRunHandle.continueNative` for a verified same-chat turn.
+Fresh session in an existing environment. A same-chat turn uses `continueNative`.
 
 #### Parameters
 
@@ -41594,22 +41632,7 @@ must use `RetainedRunHandle.continueNative` for a verified same-chat turn.
 
 **`Stable`**
 
-Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
-admission coordinates, or report why the provider cannot prove it.
-
-An intent recovery replays the exact original start material through
-`startRetainedRun`; a changed replay is rejected before provider creation.
-
-`not_found`: the provider no longer holds the environment, so nothing
-remains to destroy. `recovered`: the provider self-identified the session
-with a strict exact reference matching the recorded coordinates.
-`unverifiable`: the environment exists but the provider cannot
-self-identify the session — no session accessor, an accessor that throws,
-a lazy accessor with no stored reference, or a loose reference. That
-outcome is never destroy-safe: keep the environment, retry
-`reconnectRetainedRun` with a dispatched admission record, or inspect the
-environment with provider-native tools. A session that self-identifies
-with different coordinates throws: something live is not the recorded run.
+Replay a persisted intent, or reattach coordinates the provider can prove. `unverifiable` keeps the environment; different coordinates throw.
 
 ##### Parameters
 
@@ -41627,22 +41650,7 @@ with different coordinates throws: something live is not the recorded run.
 
 **`Stable`**
 
-Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
-admission coordinates, or report why the provider cannot prove it.
-
-An intent recovery replays the exact original start material through
-`startRetainedRun`; a changed replay is rejected before provider creation.
-
-`not_found`: the provider no longer holds the environment, so nothing
-remains to destroy. `recovered`: the provider self-identified the session
-with a strict exact reference matching the recorded coordinates.
-`unverifiable`: the environment exists but the provider cannot
-self-identify the session — no session accessor, an accessor that throws,
-a lazy accessor with no stored reference, or a loose reference. That
-outcome is never destroy-safe: keep the environment, retry
-`reconnectRetainedRun` with a dispatched admission record, or inspect the
-environment with provider-native tools. A session that self-identifies
-with different coordinates throws: something live is not the recorded run.
+Replay a persisted intent, or reattach coordinates the provider can prove. `unverifiable` keeps the environment; different coordinates throw.
 
 ##### Parameters
 
@@ -43363,6 +43371,41 @@ Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may 
 
 ***
 
+### graphWorkspace()
+
+> **graphWorkspace**(`graph`, `options`): `Promise`\<`string`\>
+
+The directory a graph run's nodes work in. `workspace: cwd` (the default) is `cwd`. `workspace:
+fresh` is a new empty directory the run owns, `<root>/<runId>` (default root
+`~/.tangle/workspaces`); a resumed run with the same id reuses it. The host passes the result as
+the backend's working directory, where agent and check nodes both run.
+
+#### Parameters
+
+##### graph
+
+`Pick`\<[`AgentGraph`](#agentgraph), `"workspace"`\>
+
+##### options
+
+###### cwd
+
+`string`
+
+###### runId
+
+`string`
+
+###### root?
+
+`string`
+
+#### Returns
+
+`Promise`\<`string`\>
+
+***
+
 ### graphDigest()
 
 > **graphDigest**(`graph`): `string`
@@ -44165,7 +44208,7 @@ connection selection; Runtime does not infer them from process environment varia
 
 > **composeReentryTask**(`input`): `string`
 
-Compose the task for one re-entered drive.
+The task a re-entered driver receives: what changed, why it re-entered, and its objective.
 
 #### Parameters
 
@@ -44398,6 +44441,29 @@ existing consumer writes to disk or resumes unless it asks for this.
 #### Returns
 
 [`InMemoryRunContext`](#inmemoryruncontext)
+
+***
+
+### fileEscalateQuestion()
+
+> **fileEscalateQuestion**(`rootDir`, `runId`): [`EscalateQuestion`](durable.md#escalatequestion-2)
+
+An `escalateQuestion` that writes each `ask_parent` question to `questions/<id>.json` for an
+ out-of-process observer, who answers through `writeWorkerSteer` on the root (#1165).
+
+#### Parameters
+
+##### rootDir
+
+`string`
+
+##### runId
+
+`string`
+
+#### Returns
+
+[`EscalateQuestion`](durable.md#escalatequestion-2)
 
 ***
 
@@ -45278,7 +45344,7 @@ containing a `.git` segment, and loop-infra dirs are skipped.
 
 ### withUntrackedArtifacts()
 
-> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace-2)
+> **withUntrackedArtifacts**(`ws`, `sourceDir`, `log?`): [`Workspace`](#workspace-3)
 
 Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside
 `runInWorkspace`) is followed by the untracked-artifact copy above — the clone
@@ -45289,7 +45355,7 @@ the worker starts in matches the source WORKING TREE, not just its history.
 
 ##### ws
 
-[`Workspace`](#workspace-2)
+[`Workspace`](#workspace-3)
 
 ##### sourceDir
 
@@ -45301,7 +45367,7 @@ the worker starts in matches the source WORKING TREE, not just its history.
 
 #### Returns
 
-[`Workspace`](#workspace-2)
+[`Workspace`](#workspace-3)
 
 ***
 
@@ -45658,7 +45724,7 @@ Host-process `Shell`: run a command via `execFile`, resolving `{ stdout, stderr,
 
 ### gitWorkspace()
 
-> **gitWorkspace**(`opts`): [`Workspace`](#workspace-2)
+> **gitWorkspace**(`opts`): [`Workspace`](#workspace-3)
 
 A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned.
 
@@ -45670,13 +45736,13 @@ A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, co
 
 #### Returns
 
-[`Workspace`](#workspace-2)
+[`Workspace`](#workspace-3)
 
 ***
 
 ### jjWorkspace()
 
-> **jjWorkspace**(`opts`): [`Workspace`](#workspace-2)
+> **jjWorkspace**(`opts`): [`Workspace`](#workspace-3)
 
 A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
  Same port, same `Shell` — a drop-in for `gitWorkspace`. jj suits agent loops:
@@ -45691,7 +45757,7 @@ A jj-backed `Workspace` (Jujutsu, colocated with git for the durable remote).
 
 #### Returns
 
-[`Workspace`](#workspace-2)
+[`Workspace`](#workspace-3)
 
 ***
 
@@ -45715,7 +45781,7 @@ The clone is removed after; durable state lives only in the ref.
 
 ##### ws
 
-[`Workspace`](#workspace-2)
+[`Workspace`](#workspace-3)
 
 ##### body
 

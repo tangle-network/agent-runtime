@@ -63,6 +63,10 @@ branch on the upstream status code.
 
 `"not_started"`
 
+###### capacity?
+
+`true`
+
 ###### Returns
 
 [`BackendTransportError`](#backendtransporterror)
@@ -89,6 +93,14 @@ Router-owned proof that a rejected request never reached a provider.
 
 This is intentionally one-sided. An absent value, or any value this
 package does not understand, remains unknown to Runtime.
+
+##### capacity?
+
+> `readonly` `optional` **capacity?**: `true`
+
+Bridge-owned proof that the refusal came from a full executor semaphore, not a
+provider: the request waited on the host's concurrency gate and was refused as
+capacity (`executor_saturated`, HTTP 429). Retryable after `Retry-After`.
 
 ##### upstreamCode?
 
@@ -3047,7 +3059,7 @@ Cells the lane runs at once.
 
 ###### Inherited from
 
-[`SearchLane`](#searchlane).[`capacity`](#capacity)
+[`SearchLane`](#searchlane).[`capacity`](#capacity-1)
 
 ##### costCap
 
