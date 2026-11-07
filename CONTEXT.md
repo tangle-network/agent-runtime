@@ -1,5 +1,7 @@
 # Portable workspace composition
 
+**Graph continuation.** A root graph's authored continuation policy is portable data in its content identity. Runtime admits it through the canonical continuation contract; host callbacks and panel execution remain outside that portable authority. A flow has no root policy.
+
 **Observed graph.** A topology imported from normalized execution evidence into the graph registry. Unknown directives and budgets stay absent, and an observed graph cannot authorize executable replay.
 
 **Topology digest.** The content digest of canonical ordered node adjacency, independent of source session identities, timestamps, token counts, and profile choices. It groups exact ordered shapes and does not claim graph-isomorphism canonicalization.

@@ -33,6 +33,10 @@ import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
+import {
+  type PortableContinuationPolicy,
+  portableContinuationPolicySchema,
+} from './continuation-data'
 import { runtimeFlowBrain } from './flow-brain'
 import { graphExecutionOptions } from './graph-backend'
 import {
@@ -263,6 +267,8 @@ export interface AgentGraph {
    *  directory the run owns, which the host creates and passes as that working directory
    *  (`graphWorkspace`). */
   readonly workspace?: 'cwd' | 'fresh'
+  /** The authored root's continuation; a flow has no root manager. */
+  readonly continuation?: PortableContinuationPolicy
 }
 
 // ── The edge ledger ────────────────────────────────────────────────────────────
@@ -727,6 +733,15 @@ export function assertRunGraphAuthoring(
   brain?: ToolLoopChat,
 ): ReturnType<typeof validateGraph> {
   assertRunGraphOptionKeys(opts)
+  if (graph.continuation !== undefined) {
+    portableContinuationPolicySchema.parse(graph.continuation)
+    if (opts.continuation !== undefined)
+      throw new ValidationError(
+        'runGraph: graph.continuation and opts.continuation have two policy owners',
+      )
+    if (graph.entry !== undefined)
+      throw new ValidationError('runGraph: graph.continuation with graph.entry has no root manager')
+  }
   const registry = opts.registry ?? kernelPromptRegistry()
   const validated = validateGraph(graph, registry, opts.analysts)
   const requireLeaves = (): void => {
@@ -758,6 +773,8 @@ export function assertRunGraphAuthoring(
     return validated
   }
   const { root } = validated as RootValidatedGraph
+  if (graph.continuation !== undefined && !harnessRunsAgent(root.profile.harness))
+    throw new ValidationError('runGraph: graph.continuation requires an external-harness root')
   // A caller brain and a harness driver are two answers to WHO makes the root's calls: refuse the
   // contradiction before any compute, and refuse a harness-driven root outright — the harness IS
   // that root's brain, so a supplied one would be silently ignored downstream.
@@ -780,6 +797,13 @@ export function superviseAgentGraph(
   opts: RunGraphOptions,
   brain?: ToolLoopChat,
 ): Promise<GraphResult> {
+  const { continuation, ...topology } = graph
+  graph = {
+    ...topology,
+    ...(continuation === undefined
+      ? {}
+      : { continuation: portableContinuationPolicySchema.parse(continuation) }),
+  }
   if (graph.deliverable.command !== undefined) {
     const bound = bindGraphCommand(graph, opts)
     return superviseAgentGraph(bound.graph, bound.options, brain)
@@ -871,6 +895,7 @@ export function superviseAgentGraph(
       rootDriverFromBackend: flow !== undefined,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
+      ...(graph.continuation === undefined ? {} : { continuation: graph.continuation }),
       deliverable: flow?.routeCheck(graph.deliverable) ?? graph.deliverable,
       authorizeSpawn: overlay.authorizeSpawn,
       resolveSpawnProfile: overlay.resolveSpawnProfile,

@@ -1,3 +1,17 @@
+## 8.0.0
+
+`ProfileMaterializationReceipt` now requires `resources` when `status` is `known`. Consumers that construct these receipts must provide `MaterializedResources`: the observed resource values and their provenance, or `{ status: 'unknown', reason: '...' }` when no resource observation is available.
+
+## 7.0.5
+
+A control poll reads only new steer, cancel, and spawn-journal bytes. A quiet poll no longer rereads every worker and the whole journal.
+
+Preserve SearchSpec flow admission when its compiler supplies continuation options, including the original gate and root-driver refusals.
+
+## 7.0.4
+
+Authored and stored graphs retain an explicit portable continuation policy for harness-driven roots, including checked replay and content identity.
+
 ## 7.0.3
 
 7.0.1 failed its Publish typecheck (#2475) and 7.0.2 failed the qualify suite: the `graph-check-nodes` assertion lacked the `secrets` that #2469 declared. The runtime code of 7.0.2 ships unchanged.

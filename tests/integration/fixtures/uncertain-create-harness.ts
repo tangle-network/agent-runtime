@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { build } from 'tsdown'
+import { onTestFinished } from 'vitest'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
 import {
@@ -70,6 +71,8 @@ export class ProcessFixture {
     const directory =
       options.directory ?? (await mkdtemp(join(tmpdir(), 'uncertain-create-integration-')))
     const fixture = new ProcessFixture(directory, scenario, executables, options.holdCreateFailure)
+    // A timed-out test never reaches its own cleanup; ending its processes ends its waits too.
+    onTestFinished(() => fixture.close())
     try {
       fixture.credentialMode(
         scenario === 'unsupported-intent',
@@ -269,21 +272,19 @@ export class ProcessFixture {
   outcomes() {
     return readRecords(join(this.directory, 'outcome.jsonl'))
   }
-  async wait(label: string, predicate: () => Promise<boolean>, limitMs = 20000): Promise<void> {
-    const deadline = Date.now() + limitMs
-    while (Date.now() < deadline) {
+  /** Poll until `predicate` holds. No clock: it fails once the process that would make it hold
+   *  (the live coordinator, else the service) has exited; the test's own timeout guards a hang. */
+  async wait(label: string, predicate: () => Promise<boolean>): Promise<void> {
+    for (;;) {
+      const owner = this.coordinator ?? this.children[0]?.process
+      const ended = owner !== undefined && (owner.exitCode !== null || owner.signalCode !== null)
       if (await predicate()) return
-      if (
-        this.coordinator &&
-        (this.coordinator.exitCode !== null || this.coordinator.signalCode !== null)
-      ) {
+      if (ended)
         throw new Error(
-          `${label}: coordinator ended early; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`,
+          `${label}: ${this.coordinator ? 'coordinator' : 'service'} ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`,
         )
-      }
       await delay(20)
     }
-    throw new Error(`${label} did not happen within ${limitMs}ms; retained ${this.directory}`)
   }
   async captureCheckedFrontier(phase = 'assertions-checked-before-cleanup'): Promise<void> {
     const failures: unknown[] = []

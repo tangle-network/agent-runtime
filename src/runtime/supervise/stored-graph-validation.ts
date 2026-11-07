@@ -1,6 +1,7 @@
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { z } from 'zod'
 import { ValidationError } from '../../errors'
+import { assertJsonData } from '../../json-data'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { GraphEdge, GraphTopology } from './graph'
 import { graphCheckNodeSchema, graphFileSchema, graphRouteWhenSchema } from './graph-file-schema'
@@ -100,6 +101,7 @@ const storedGraphSchema = graphFileSchema
     triggerBindings: graphTriggerBindingsSchema.optional(),
     nodes: z.array(node.extend({ check: graphCheckNodeSchema.optional() })).min(1),
     workspace: graphFileSchema.shape.workspace,
+    continuation: graphFileSchema.shape.continuation,
     edges: z.array(edge),
     entry: entry.optional(),
     gates: gates.optional(),
@@ -107,33 +109,6 @@ const storedGraphSchema = graphFileSchema
 
 function refuse(message: string): never {
   throw new ValidationError(`validateStoredGraph: ${message}`)
-}
-
-/** Inspect descriptors instead of invoking accessors; JSON has no getters, symbols, prototypes,
- * sparse arrays, undefined, closures or cycles. Repeated non-cyclic references remain JSON data. */
-function assertJsonData(value: unknown, visiting = new Set<object>()): void {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return
-  if (typeof value === 'number' && Number.isFinite(value)) return
-  if (!value || typeof value !== 'object' || visiting.has(value))
-    refuse('expected finite, acyclic JSON data without executable values')
-  const array = Array.isArray(value)
-  const prototype = Object.getPrototypeOf(value)
-  if (array ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null)
-    refuse('expected plain JSON objects and arrays')
-  visiting.add(value)
-  const descriptors = Object.getOwnPropertyDescriptors(value)
-  const keys = Reflect.ownKeys(descriptors)
-  if (array && keys.length !== value.length + 1) refuse('sparse arrays are not canonical JSON')
-  for (const key of keys) {
-    if (array && key === 'length') continue
-    const property = typeof key === 'string' ? descriptors[key] : undefined
-    if (!property || !property.enumerable || !('value' in property))
-      refuse('JSON data cannot contain symbols, hidden properties or accessors')
-    if (array && (!/^(0|[1-9]\d*)$/.test(key as string) || Number(key) >= value.length))
-      refuse('arrays may contain only indexed JSON values')
-    assertJsonData(property.value, visiting)
-  }
-  visiting.delete(value)
 }
 
 function assertExecutableNodes(graph: GraphTopology): void {
@@ -151,10 +126,11 @@ export function validateStoredGraph(
   value: unknown,
   options: ValidateStoredGraphOptions = {},
 ): StoredGraph {
-  assertJsonData(value)
+  assertJsonData(value, 'validateStoredGraph')
   const parsed = storedGraphSchema.safeParse(value)
   if (!parsed.success) refuse(parsed.error.message)
   const graph = parsed.data
+  if (graph.entry && graph.continuation) refuse('continuation with entry has no root manager')
   if (graph.triggerBindings !== undefined) assertGraphTriggerBindings(graph, graph.triggerBindings)
   const check = graph.deliverable
   if (check.checkRef === 'command') {

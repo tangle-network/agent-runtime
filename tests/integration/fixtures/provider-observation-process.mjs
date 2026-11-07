@@ -24,10 +24,9 @@ const profile = {
 }
 let delivered
 let budget
-const deadlineMs = 8000
 if (process.send) {
   const start = new Promise((resolve) => process.once('message', resolve))
-  process.send({ phase: 'ready', deadlineMs })
+  process.send({ phase: 'ready' })
   assert.equal(await start, 'start')
 }
 const result = await createSupervisor().run(
@@ -64,7 +63,7 @@ const result = await createSupervisor().run(
     retainedAtSettlement: 'keep',
     workerSlots: 1,
     teardownConfirmMs: 0,
-    budget: { maxIterations: 2, maxTokens: 200, deadlineMs },
+    budget: { maxIterations: 2, maxTokens: 200 },
   },
 )
 await writeFile(join(directory, 'observed.json'), JSON.stringify({ delivered, budget, result }))

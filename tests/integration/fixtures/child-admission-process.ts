@@ -31,14 +31,12 @@ export async function readyAdmissionProcess(cwd: string) {
   const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
     child.once('close', (code, signal) => resolve({ code, signal }))
   })
-  let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
       new Promise<void>((resolve, reject) => {
         child.once('message', (message) =>
           message === 'ready' ? resolve() : reject(new Error('invalid worker readiness')),
         )
-        timer = setTimeout(() => reject(new Error('worker startup exceeded 5000ms')), 5000)
       }),
       closed.then((exit) => {
         throw new Error(
@@ -50,8 +48,6 @@ export async function readyAdmissionProcess(cwd: string) {
     child.kill('SIGKILL')
     await closed
     throw error
-  } finally {
-    clearTimeout(timer)
   }
   return {
     async run(marker: string, output: string, delay: number, signal: AbortSignal) {
@@ -60,11 +56,6 @@ export async function readyAdmissionProcess(cwd: string) {
         child.kill('SIGTERM')
       }
       signal.addEventListener('abort', abort, { once: true })
-      let timedOut = false
-      const watchdog = setTimeout(() => {
-        timedOut = true
-        child.kill('SIGKILL')
-      }, 5000)
       try {
         child.send({ marker, output, delay }, (error) => {
           if (error) {
@@ -73,14 +64,13 @@ export async function readyAdmissionProcess(cwd: string) {
           }
         })
         const exit = await closed
-        if (!timedOut) signal.throwIfAborted()
-        if (timedOut || exit.code !== 0 || exit.signal || spawnError)
+        signal.throwIfAborted()
+        if (exit.code !== 0 || exit.signal || spawnError)
           throw new Error(
-            `worker did not exit naturally: ${JSON.stringify({ ...exit, timedOut, spawnError: String(spawnError), stderr })}`,
+            `worker did not exit naturally: ${JSON.stringify({ ...exit, spawnError: String(spawnError), stderr })}`,
           )
         return stdout
       } finally {
-        clearTimeout(watchdog)
         signal.removeEventListener('abort', abort)
       }
     },

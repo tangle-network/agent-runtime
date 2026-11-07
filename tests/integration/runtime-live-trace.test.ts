@@ -11,7 +11,7 @@ import {
   decodeOtlpAttributes,
   decodeOtlpTraceExport,
 } from '@tangle-network/agent-trace-contract/otlp'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
 import { runSettledCommand } from '../../src/mcp/worktree-harness'
@@ -31,6 +31,10 @@ import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 import { nativeSeatProvider } from '../helpers/native-seat-provider'
 import { createLiveTraceFixture, waitFor } from '../helpers/runtime-live-trace'
 import { testAgentProfile } from '../kernel/test-agent-profile'
+
+// Waits are on events; the collector is held until the work finishes, so neither the export
+// nor the test may expire before a hang would: 2 s alone, 15 s with dozens of busy loops on its core.
+vi.setConfig({ testTimeout: 180_000 })
 
 it.each([false, true])(
   'exports live native/inline work without duplicate node streams (private details=%s)',
@@ -59,7 +63,7 @@ it.each([false, true])(
         endpoint,
         batchSize: 1,
         flushIntervalMs: 10,
-        timeoutMs: 5000,
+        timeoutMs: 180_000,
       },
     })!
     const provider = nativeSeatProvider(directory)
@@ -136,11 +140,11 @@ it.each([false, true])(
       {
         name: 'root',
         async act(_task, scope) {
-          const budget = { maxTokens: 50, maxIterations: 5, deadlineMs: 8000 }
+          const budget = { maxTokens: 50, maxIterations: 5 }
           const router = scope.spawn(inline, sentinel, { label: 'inline', budget })
           if (!router.ok) throw new Error('inline admission refused')
           ids.push(router.handle.id)
-          await waitFor('model request', modelEntered.wait)
+          await modelEntered.wait
           expect(scope.send(router.handle.id, { steer: sentinel, interrupt: false })).toBe(true)
           const refused = scope.spawn(native, sentinel, { label: 'cancelled', budget })
           if (!refused.ok) throw new Error('queued native admission refused')
@@ -191,7 +195,7 @@ it.each([false, true])(
         executors: createExecutorRegistry(),
         workerSlots: 1,
         interactiveBindingDir: directory,
-        budget: { maxTokens: 1000, maxIterations: 50, deadlineMs: 10000 },
+        budget: { maxTokens: 1000, maxIterations: 50 },
         hooks: {
           onEvent(event, context) {
             hooks.push(event)
@@ -201,7 +205,7 @@ it.each([false, true])(
       },
     )
     try {
-      await waitFor('native admission', admissionEntered.wait)
+      await waitFor('native admission', admissionEntered.wait, running)
       expect(hooks.filter((event) => event.target === 'agent.execution')).toEqual([])
       const beforeAck = await new FileSpawnJournal(join(directory, 'spawn-journal.jsonl')).loadTree(
         'live-trace',
@@ -216,7 +220,7 @@ it.each([false, true])(
       if (actualSpawn?.kind !== 'spawned' || !actualSpawn.attemptId)
         throw new Error('native spawn omitted its real kernel attempt identity')
       admissionAck.release()
-      await waitFor('completed work', workFinished.wait)
+      await waitFor('completed work', workFinished.wait, running)
       expect(fixture.collectorAcknowledgements).toBe(0)
       expect(bodies.length).toBeGreaterThan(0)
       const nativeReceipt = JSON.parse(
@@ -327,5 +331,4 @@ it.each([false, true])(
       await fixture.close()
     }
   },
-  15000,
 )

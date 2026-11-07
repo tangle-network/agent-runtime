@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { resolveJsonPointer } from '../../mcp/tools/coordination-map-routing'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
+import { portableContinuationPolicySchema } from './continuation-data'
 
 const scalar = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
 const pointer = z.string().regex(/^(?:\/(?:[^~]|~[01])*)*$/)
@@ -57,6 +58,7 @@ export const graphFileSchema = z.strictObject({
     )
     .min(1),
   workspace: z.enum(['cwd', 'fresh']).optional(),
+  continuation: portableContinuationPolicySchema.optional(),
   entry: z
     .array(
       z.union([z.string().min(1), z.strictObject({ node: z.string().min(1), task: z.unknown() })]),

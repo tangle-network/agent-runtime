@@ -14,18 +14,14 @@ function barrier() {
   return { wait, release }
 }
 
-export async function waitFor(label: string, promise: Promise<unknown>): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`fixture never reached ${label}`)), 5000)
-      }),
-    ])
-  } finally {
-    clearTimeout(timer)
+/** Resolves when `event` happens; fails with the run's own outcome if `running` settles first. */
+export function waitFor(label: string, event: Promise<unknown>, running: Promise<unknown>) {
+  const settled = (outcome: unknown) => {
+    throw new Error(
+      `run settled before ${label}: ${outcome instanceof Error ? outcome.stack : JSON.stringify(outcome)}`,
+    )
   }
+  return Promise.race([event, running.then(settled, settled)])
 }
 
 export async function createLiveTraceFixture() {
@@ -102,10 +98,7 @@ export async function createLiveTraceFixture() {
     override async appendEvent(root: string, event: SpawnEvent): Promise<void> {
       await super.appendEvent(root, event)
       if (event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
-        const acknowledged = await fetch(`${endpoint}/journal-ack`, {
-          method: 'POST',
-          signal: AbortSignal.timeout(5000),
-        })
+        const acknowledged = await fetch(`${endpoint}/journal-ack`, { method: 'POST' })
         if (!acknowledged.ok) throw new Error('journal acknowledgement refused')
       }
     }
