@@ -366,6 +366,7 @@ async function runLocalCheck(
   cwd: string,
   evidence: string,
   signal: AbortSignal,
+  secrets: Record<string, string>,
 ): Promise<{ exitCode: number | null; stdout: string; output: string }> {
   const timeoutMs = check.timeoutMs ?? CHECK_TIMEOUT_MS
   const result = await runSettledCommand({
@@ -374,7 +375,7 @@ async function runLocalCheck(
     cwd,
     timeoutMs,
     signal,
-    env: { ...(await readSecrets(check.secrets, process.env, node)), GRAPH_EVIDENCE: evidence },
+    env: { ...secrets, GRAPH_EVIDENCE: evidence },
   })
   const timedOut = result.timedOut ? `\n[check timed out after ${timeoutMs} ms]` : ''
   return {
@@ -391,6 +392,7 @@ async function runBoxCheck(
   placement: GraphCheckPlacement,
   evidence: string,
   signal: AbortSignal,
+  secrets: Record<string, string>,
 ): Promise<{ exitCode: number | null; stdout: string; output: string }> {
   const workspaceRoot = await mkdtemp(join(evidence, '..', 'box-'))
   try {
@@ -407,13 +409,7 @@ async function runBoxCheck(
       ],
       timeoutMs: check.timeoutMs ?? CHECK_TIMEOUT_MS,
       maxOutputBytes: 16 * CHECK_OUTPUT_LIMIT,
-      env: await readSecrets(
-        check.secrets,
-        typeof placement.env === 'function'
-          ? await placement.env({ node, secrets: check.secrets ?? [], signal })
-          : (placement.env ?? {}),
-        node,
-      ),
+      env: secrets,
       signal,
       box: {
         client: placement.client,
@@ -437,10 +433,19 @@ async function runBoxCheck(
       return { exitCode: result.exitCode, stdout, output }
     if (result.reason === 'timeout')
       return { exitCode: null, stdout, output: `${output}\n[check timed out]` }
-    throw new Error(`runGraph: check node ${node} box ${result.reason}: ${result.diagnostic}`)
+    throw new Error(
+      redact(`runGraph: check node ${node} box ${result.reason}: ${result.diagnostic}`, secrets),
+    )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }
+}
+
+/** Every resolved secret value becomes `[redacted:NAME]` before output leaves the check. */
+function redact(text: string, secrets: Record<string, string>): string {
+  return Object.entries(secrets)
+    .sort(([, a], [, b]) => b.length - a.length)
+    .reduce((out, [name, value]) => out.replaceAll(value, `[redacted:${name}]`), text)
 }
 
 function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutput {
@@ -571,17 +576,34 @@ export function bindGraphCheckNodes(
           'graph-evidence',
           contentAddress(attempt).slice('sha256:'.length, 'sha256:'.length + 24),
         )
+        const box = placement as GraphCheckPlacement
+        const secrets = await readSecrets(
+          check.secrets,
+          local
+            ? process.env
+            : typeof box.env === 'function'
+              ? await box.env({ node: id, secrets: check.secrets ?? [], signal })
+              : (box.env ?? {}),
+          id,
+        )
         let ran: Awaited<ReturnType<typeof runLocalCheck>>
         try {
           await writeEvidence(evidence, task)
           ran = local
-            ? await runLocalCheck(check, id, local.cwd, evidence, signal)
-            : await runBoxCheck(check, id, placement as GraphCheckPlacement, evidence, signal)
+            ? await runLocalCheck(check, id, local.cwd, evidence, signal, secrets)
+            : await runBoxCheck(
+                check,
+                id,
+                placement as GraphCheckPlacement,
+                evidence,
+                signal,
+                secrets,
+              )
         } finally {
           if (staged) await rm(staged, { recursive: true, force: true })
         }
-        const { output, truncated } = tail(ran.output)
-        const json = lastJsonObject(ran.stdout)
+        const { output, truncated } = tail(redact(ran.output, secrets))
+        const json = lastJsonObject(redact(ran.stdout, secrets))
         const receipt: Omit<CommandCheckReceipt, 'key'> = {
           version: 1,
           ...attempt,

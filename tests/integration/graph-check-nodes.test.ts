@@ -17,7 +17,8 @@ params:
 nodes:
   - id: build
     check:
-      command: 'n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo "{\\"count\\": $n}"'
+      command: 'echo "token=$GITHUB_TOKEN" >&2; n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo "{\\"count\\": $n}"'
+      secrets: [GITHUB_TOKEN]
   - id: verify
     check:
       command: 'echo "count=$(cat count) target=\${params.target}"; test "$(cat count)" -ge \${params.target}'
@@ -57,6 +58,7 @@ it('runs check nodes, loops on /pass=false, and hands evidence to a downstream c
     const cwd = await graphWorkspace(loaded.graph, { cwd: join(directory, 'work'), runId: 'x' })
     await mkdir(cwd)
     const runDir = join(directory, 'run')
+    process.env.GITHUB_TOKEN = 'ghs_check_node_proof_secret'
     const result = await runGraph(graphFromStored(loaded.graph), {
       backend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
       runDir,
@@ -86,6 +88,12 @@ it('runs check nodes, loops on /pass=false, and hands evidence to a downstream c
       ['report', 0],
     ])
     expect(receipts[1]).toMatchObject({ valid: false, output: 'count=1 target=2\n' })
+    // A resolved secret never leaves the check: not in a receipt, not in downstream evidence.
+    const journal = await readFile(file, 'utf8')
+    expect(journal).not.toContain('ghs_check_node_proof_secret')
+    expect(receipts[0]?.output).toContain('token=[redacted:GITHUB_TOKEN]')
+    if (result.result.kind === 'winner')
+      expect(JSON.stringify(result.result.out)).toContain('[redacted:GITHUB_TOKEN]')
 
     const fresh = await graphWorkspace(
       { workspace: 'fresh' },
