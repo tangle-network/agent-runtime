@@ -121,13 +121,7 @@ export type DriverRepromptRefusal =
   | 'closed'
   | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
 
-/**
- * The pending invocation a failure left, when abandoning it is the resolution: the provider could
- * not resolve the execution (`unobservable`), or a nested manager's recovery could not be rebuilt
- * (`nested-recovery`). A lost transport waits in the outage window instead, and a capacity refusal
- * pauses, so neither starts a second execution beside one that may still run. A request refused
- * before it ran has nothing to abandon. A contract violation stays terminal (#1204).
- */
+/** Abandon only `unobservable` or `nested-recovery`. Transport and capacity stay; a refused request and a contract violation do not start a second execution. */
 export function abandonablePending(error: unknown): RetainedExecutionPendingError | undefined {
   return error instanceof RetainedExecutionPendingError &&
     (error.pendingCause === 'unobservable' || error.pendingCause === 'nested-recovery')
@@ -144,11 +138,7 @@ const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
   'SEAT_NOT_LOGGED_IN',
 ])
 
-/**
- * A model provider's content-filter refusal, which Codex names only in text under the generic
- * `AGENT_EXECUTION_FAILED`. It stays transient; the retry loop bounds a streak of them and stops
- * with this reason, for the parent to reword or re-scope the task.
- */
+/** Content-filter text under `AGENT_EXECUTION_FAILED` stays transient; a streak of it stops for the parent to reword. */
 const CONTENT_FILTER_REASON = "refused by the model provider's content filter"
 export const isContentFilterRefusal = (error: unknown): boolean =>
   causeChain(error).some(
@@ -186,17 +176,7 @@ export class HarnessTurnFailedError extends Error {
   }
 }
 
-/**
- * How one driver failure is answered.
- *
- *  - `terminal`: Runtime's own refusal, or a request that fails identically forever. The run ends.
- *  - `transient`: a foreign accident. A streak in which nothing ran is retried as an outage for
- *    `transientOutageMs`; after that, and for a failure that did work, `maxAttempts` and the
- *    barren streak bound it.
- *  - `unavailable`: the upstream cannot serve now (quota, rate limit, overload, or the router's
- *    own provider credential refused). The driver pauses and re-enters, and only the deadline, the
- *    budget, and cancellation bound the pauses.
- */
+/** `terminal` ends the run. `transient` is an outage until `transientOutageMs`, then the attempt bounds. `unavailable` pauses until the deadline, budget, or cancel. */
 export type DriverFailureClass = 'transient' | 'terminal' | 'unavailable'
 
 /** Provider schemas and JSON bounds reject the request deterministically. */
@@ -255,6 +235,14 @@ export function upstreamUnavailableSignal(error: unknown): string | undefined {
   )
 }
 
+function materializationTimedOut(error: unknown): boolean {
+  return causeChain(error).some(
+    (cause) =>
+      cause instanceof Error &&
+      errorProperty(cause, 'name') === 'RetainedMaterializationTimeoutError',
+  )
+}
+
 /** Capacity encountered while reconciling an admitted execution pauses that same execution. */
 function reconciliationCapacityRefusal(error: unknown): Error | undefined {
   if (!(error instanceof RetainedExecutionPendingError) || error.phase !== 'execution')
@@ -286,6 +274,7 @@ export function classifyDriverFailure(
   stopSignal?: AbortSignal,
 ): DriverFailureClass {
   if (signal?.aborted) return 'terminal'
+  if (materializationTimedOut(error)) return 'terminal'
   if (error instanceof CheckUnavailableError || error instanceof CoordinationUnreachableError)
     return 'unavailable'
   // A failed retained read does not settle or replace its execution. A contract violation
@@ -399,12 +388,7 @@ function retainedAdmissionCause(error: unknown): Error | undefined {
   return undefined
 }
 
-/**
- * A foreign error's HTTP status, read by the transport branch's rule: 408 and 5xx are a bad
- * moment, any other 4xx fails identically forever. A provider SDK's own classes reach here: a
- * Sandbox create refused `HTTP 400 {"code":"CONFIG_ERROR"}` for a fully reserved key was retried
- * 14-22 times per node as transient. Capacity statuses were answered before this point.
- */
+/** 408 and 5xx are transient. Any other 4xx fails identically, including a sandbox `CONFIG_ERROR`. Capacity was already classified. */
 function foreignHttpStatusVerdict(error: unknown): 'transient' | 'terminal' | undefined {
   // Only a thrown Error: `status` is a common field on settlements and run states. The reader is
   // the one the persisted message quotes.
@@ -505,14 +489,7 @@ export class DriverAttemptsExhaustedError extends RuntimeRunStateError {
   }
 }
 
-/**
- * What one driver loop did, counted from its attempt records: the numbers a run's settle record
- * carries so a reader can tell genuine continuations from failure retries without the journal.
- *
- * Measured motive: the most genuine continuations in any recorded lab run was 11
- * (evidence-compiler-j, which won), while the two larger counts, 32 and 12, were re-entries after
- * failed turns. One `attempts` number hid which was which.
- */
+/** Attempt counts split continuations from failure retries. One `attempts` number hid which was which. */
 export interface DriverLoopRecord {
   /** Driver invocations started (the attempt numbers the loop reached). */
   readonly attempts: number

@@ -135,6 +135,48 @@ describe('retained provider admission retry', () => {
     expect(fixture.counts).toEqual({ creates: 1, dispatches: 1 })
   })
 
+  it('stops at stage intent when create never materializes an environment', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'runtime-intent-timeout-'))
+    roots.push(root)
+    const base = durableRetainedProvider(join(root, 'provider.json'))
+    const admissions: RetainedRunAdmission[] = []
+    const attempts: number[] = []
+    const records: DriverAttemptRecord[] = []
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      create: () => new Promise(() => {}),
+    }
+    const signal = new AbortController().signal
+    const failure: unknown = await runDriverWithRetry({
+      drive: async (attempt) => {
+        attempts.push(attempt)
+        await startRetainedRun({
+          provider,
+          environment: { profile, idempotencyKey: 'runtime:stuck-intent' },
+          turn: { prompt: 'produce result', turnId: 'stuck:turn:0' },
+          materializationTimeoutMs: 30,
+          async onAdmission(admission) {
+            admissions.push(admission)
+          },
+        })
+      },
+      progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+      budget: () => budget,
+      signal,
+      policy: { maxAttempts: 5 },
+      sleep: async () => {},
+      onAttempt: (record) => {
+        records.push(record)
+      },
+    }).catch((error: unknown) => error)
+    expect(admissions.map((admission) => admission.phase)).toEqual(['intent'])
+    expect(attempts).toEqual([1])
+    expect(records.at(-1)?.classification).toBe('terminal')
+    expect(records.at(-1)?.stop).toBe('terminal-error')
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toMatch(/stage intent/)
+  })
+
   it.each(['lookup', 'result'] as const)(
     'keeps an accepted execution uncertain when its %s fails with nested HTTP 400',
     async (stage) => {

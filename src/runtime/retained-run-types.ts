@@ -81,13 +81,7 @@ export type RetainedRunTurnInput = Omit<AgentTurnInput, 'contextTransfer'> & {
   readonly contextTransfer?: ContextTransferRequest
 }
 
-/**
- * Admission and terminal result for one same-session continuation.
- *
- * The provider resolves `admission` after it durably owns the next exact run
- * reference. `result` resolves when that run reaches its terminal result.
- * @stable
- */
+/** Admission once the next exact reference is durable, and the terminal result. @stable */
 export interface NativeContextContinuationHandle {
   readonly admission: Promise<AgentExactRunControlRef>
   readonly result: Promise<NativeContextContinuationExecution>
@@ -117,14 +111,7 @@ export interface RetainedRunHandle {
   cancel(options: RetainedRunCancelOptions): Promise<RetainedRunCancellation>
 }
 
-/**
- * Sanitized headless intent durable before environment creation.
- *
- * The request digest binds the public create and turn material without
- * retaining secret values. The original start material is required to replay
- * this record after a process crash.
- * @stable
- */
+/** Intent durable before create. The digest omits secrets; replay needs the original start material. @stable */
 export interface RetainedRunIntentAdmission {
   readonly phase: 'intent'
   readonly provider: string
@@ -158,14 +145,7 @@ export interface RetainedRunDispatchedAdmission {
   readonly turnId: string
 }
 
-/**
- * Sanitized intent durable before an interactive environment create begins.
- *
- * The digest covers the public start and create material without retaining that
- * material. It never carries environment variables, secret values, or provider
- * options. The replay input supplies private values after this check.
- * @stable
- */
+/** Interactive intent durable before create. The digest omits secrets, env, and provider options. @stable */
 export interface RetainedInteractiveIntentAdmission {
   readonly phase: 'interactive_intent'
   readonly provider: string
@@ -208,16 +188,7 @@ export type RetainedRunAdmission =
   | RetainedRunEnvironmentAdmission
   | RetainedRunDispatchedAdmission
 
-/**
- * Awaited durability hook for retained admission records.
- *
- * The runtime blocks after the pre-create intent, environment creation, and
- * provider work until the hook resolves. No retained run becomes caller-visible
- * before its exact recovery record is durable. A rejection keeps provider state
- * for recovery when provider work has already started.
- *
- * @stable
- */
+/** Blocks until the admission is durable. A rejection keeps provider state already started. @stable */
 export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Promise<void>
 
 /** Environment, turn, and optional identity needed to replay one retained start. @stable */
@@ -230,11 +201,7 @@ export interface RetainedRunStartMaterial {
   readonly turn: RetainedRunTurnInput
   /** Accepted destination to attach, without creating or replacing its environment. */
   readonly contextTransferReceipt?: ContextTransferReceipt
-  /**
-   * Explicit dispatch coordinates. When omitted, the runtime mints
-   * deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
-   * so every process derives the same values.
-   */
+  /** Explicit coordinates. Omitted values are minted from the environment key and turn id. */
   readonly identity?: {
     readonly sessionId: string
     readonly executionId: string
@@ -248,6 +215,8 @@ export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
   readonly intent?: RetainedRunIntentAdmission
   readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
+  /** How long create may take after intent is durable. Absent uses the retained materialization bound. */
+  readonly materializationTimeoutMs?: number
   /** Directory whose `<runId>/observer.jsonl` (intent run id) receives admissions for agent-runtime-top. */
   readonly journalRoot?: string
 }
@@ -291,49 +260,19 @@ export interface RecoverRetainedRunIntentOptions {
   readonly now?: () => number
 }
 
-/**
- * Pre-dispatch admission coordinates for one recovery attempt.
- *
- * A `phase: 'environment'` admission record carries these fields, so a caller
- * can pass that record after a crash before the dispatched record landed.
- *
- * @stable
- */
+/** Environment-phase coordinates, enough to recover before a dispatched record lands. @stable */
 export interface RecoverRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly environmentId: string
   readonly sessionId: string
   readonly executionId: string
-  /**
-   * Transfer replay identity, when the crashed run started from an ACCEPTED
-   * context transfer: the original request and its authoritative receipt.
-   * Recovery repeats the receipt-authorized lookup and verifies the receipt's
-   * run binding — without it, an adapter that requires receipt-authorized
-   * lookup answers not_found, and one that does not can return a run the
-   * receipt never bound. Callers that persisted the turn's context-transfer
-   * material supply these; behavior is unchanged for runs that had none.
-   */
+  /** Accepted transfer request. Recovery repeats the receipt-authorized lookup; omit it only when the run had none. */
   readonly contextTransfer?: ContextTransferRequest
   readonly transferReceipt?: ContextTransferReceipt
   readonly now?: () => number
 }
 
-/**
- * Outcome of one recovery attempt.
- *
- * `recovered` with `via: 'reattached'`: the provider self-identified the
- * original session with a strict exact reference matching the recorded
- * environment coordinates. `recovered` with `via: 'resumed'`: a pre-create
- * intent was replayed through the exact, idempotent create and dispatch; the
- * handle controls the admitted run, whether this call or the crashed one
- * dispatched it. `not_found`: the provider no longer holds the environment;
- * nothing remains to destroy. `unverifiable`: the environment exists but the
- * provider cannot self-identify the session. Never destroy on this outcome:
- * keep the environment, retry `reconnectRetainedRun` with a dispatched
- * admission record, or inspect it with provider-native tools.
- *
- * @stable
- */
+/** `reattached` matched the recorded session. `resumed` replayed intent. `not_found` has nothing to destroy. `unverifiable` keeps the environment. @stable */
 export type RecoverRetainedRunResult =
   | {
       readonly outcome: 'recovered'
