@@ -1,3 +1,7 @@
+## 8.0.0
+
+`ProfileMaterializationReceipt` now requires `resources` when `status` is `known`. Consumers that construct these receipts must provide `MaterializedResources`: the observed resource values and their provenance, or `{ status: 'unknown', reason: '...' }` when no resource observation is available.
+
 ## 7.0.5
 
 A control poll reads only new steer, cancel, and spawn-journal bytes. A quiet poll no longer rereads every worker and the whole journal.
