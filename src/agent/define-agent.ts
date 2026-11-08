@@ -136,7 +136,7 @@ export interface RubricDimension<TRunOutput> {
 export interface JudgeConfig<TRunOutput> {
   /** Judge identifier — appears in trace spans + manifest. */
   id: string
-  /** Model snapshot to invoke. Pin the snapshot (`claude-sonnet-4-6@2025-04-15`); the validator rejects bare aliases. */
+  /** Model id to invoke (`claude-sonnet-5-5`). RunRecords reject an id without a snapshot (`@<token>` or a date suffix). */
   model: string
   /** Dimensions this judge scores. */
   dimensions: ReadonlyArray<string>
