@@ -1,8 +1,10 @@
 // Flow graph check nodes -> real /bin/sh processes in the run's working directory; no model.
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { Sandbox } from '@tangle-network/sandbox'
 import { expect, it, onTestFinished } from 'vitest'
 import { parseCommittedJsonLines } from '../../src/durable/jsonl-file'
@@ -10,6 +12,8 @@ import { runGraph } from '../../src/runtime/supervise/graph'
 import { graphWorkspace, loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import { graphFromStored } from '../../src/runtime/supervise/graph-registry'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
+
+const run = promisify(execFile)
 
 const yaml = `
 graph: check-loop
@@ -159,36 +163,86 @@ check: { node: intake, pointer: /pass, equals: true }
   }
 }, 60_000)
 
-/** Run one box check node against a Sandbox HTTP peer that answers the owner's identity, then
- *  refuses each create and keeps its body. */
-async function boxCreateBodies(runtimeField: string): Promise<Record<string, unknown>[]> {
+/** Run one box check node against a Sandbox HTTP peer: a box whose image has no /bin/sh. The peer
+ *  runs the box's `find` for real over the uploaded tree and refuses the check's `/bin/sh` the way
+ *  the box's sidecar refuses an executable it cannot start. */
+async function boxCheck(runtimeField: string) {
   const directory = await mkdtemp(join(tmpdir(), 'graph-check-runtime-'))
   onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const root = join(directory, 'box')
   const creates: Record<string, unknown>[] = []
+  const requests: string[] = []
+  const ran: { stdout: string; exitCode: number }[] = []
+  const box = {
+    id: 'sandbox-check-box',
+    status: 'running',
+    createdAt: new Date(0).toISOString(),
+    filesystemIncarnationId: '11111111-1111-4111-8111-111111111111',
+    filesystemIncarnationProvenance: 'fresh',
+    filesystemIncarnationReadiness: 'ready',
+    resources: { cpuCores: 8, memoryMB: 16384, diskGB: 10 },
+    egressPolicy: { mode: 'blocked' },
+    createReceipt: {
+      outcome: 'created',
+      idempotencyKeyApplied: true,
+      ownerContext: 'isolated',
+      injectedSecrets: [],
+    },
+  }
+  const answer = async (method: string, path: string, body: Buffer, type = '') => {
+    const runtime = `/v1/sandboxes/${box.id}/runtime`
+    if (path === '/v1/me') {
+      const id = 'cust_graph_owner'
+      const me = { customer_id: id, billing_owner_id: id, api_key_id: null }
+      return { data: { ...me, billing_delegation_authorized: false }, success: true }
+    }
+    if (method === 'POST' && path === '/v1/sandboxes') {
+      creates.push(JSON.parse(body.toString('utf8')))
+      return box
+    }
+    if (path === `/v1/sandboxes/${box.id}`) return method === 'DELETE' ? { outcome: 'destroyed' } : box
+    if (path === `${runtime}/fs/upload-dir`) {
+      const form = await new Response(body, { headers: { 'content-type': type } }).formData()
+      const archive = form.get('archive') as Blob
+      await mkdir(join(root, String(form.get('path'))), { recursive: true })
+      await writeFile(join(directory, 'upload.tar.gz'), Buffer.from(await archive.arrayBuffer()))
+      await run('tar', ['-xzf', join(directory, 'upload.tar.gz'), '-C', join(root, String(form.get('path')))])
+      return { success: true }
+    }
+    if (path === `${runtime}/process/spawn`) {
+      const spawn = JSON.parse(body.toString('utf8'))
+      if (spawn.executable === '/bin/sh') {
+        const message = 'Command setup failed (identity, cwd or exec): ENOENT'
+        return { status: 500, body: { success: false, error: { code: 'SPAWN_FAILED', message } } }
+      }
+      const done = await run(spawn.executable, spawn.args, { cwd: join(root, spawn.cwd) })
+      ran.push({ stdout: done.stdout, exitCode: 0 })
+      return { data: { pid: ran.length } }
+    }
+    const pid = Number(/\/process\/(\d+)/.exec(path)?.[1])
+    if (path.endsWith('/logs')) {
+      const output = { data: ran[pid - 1]?.stdout, timestamp: 1 }
+      return `event: stdout\ndata: ${JSON.stringify(output)}\n\nevent: exit\ndata: {}\n\n`
+    }
+    if (pid) return { data: { pid, running: false, exitCode: 0, startedAt: box.createdAt } }
+    return { status: 404, body: { error: { code: 'NOT_FOUND', message: path } } }
+  }
   const peer = createServer((request, response) => {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))
-    request.on('end', () => {
-      response.setHeader('content-type', 'application/json')
-      if (request.method === 'GET' && request.url === '/v1/me') {
-        const id = 'cust_graph_owner'
-        response.end(
-          JSON.stringify({
-            success: true,
-            data: {
-              customer_id: id,
-              billing_owner_id: id,
-              api_key_id: null,
-              billing_delegation_authorized: false,
-            },
-          }),
-        )
-        return
+    request.on('end', async () => {
+      const path = new URL(request.url ?? '/', 'http://peer').pathname
+      requests.push(`${request.method} ${path}`)
+      const type = request.headers['content-type']
+      const out = await answer(request.method ?? '', path, Buffer.concat(chunks), type)
+      if (typeof out === 'string') {
+        response.setHeader('content-type', 'text/event-stream')
+        return response.end(out)
       }
-      if (request.method === 'POST' && request.url === '/v1/sandboxes')
-        creates.push(JSON.parse(Buffer.concat(chunks).toString('utf8')))
-      response.statusCode = 400
-      response.end(JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'proof only' } }))
+      response.setHeader('content-type', 'application/json')
+      const failed = 'status' in out && typeof out.status === 'number'
+      response.statusCode = failed ? out.status : 200
+      response.end(JSON.stringify(failed ? out.body : out))
     })
   })
   await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve))
@@ -219,7 +273,7 @@ check: { node: verify, pointer: /pass, equals: true }
   })
   const cwd = join(directory, 'work')
   await mkdir(cwd)
-  await runGraph(graphFromStored(loaded.graph), {
+  const outcome = await runGraph(graphFromStored(loaded.graph), {
     backend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
     runDir: join(directory, 'run'),
     runId: 'check-box-runtime',
@@ -228,17 +282,28 @@ check: { node: verify, pointer: /pass, equals: true }
       client: new Sandbox({
         apiKey: 'no-live-credentials',
         baseUrl: `http://127.0.0.1:${address.port}`,
+        directExec: false,
       }),
     },
   }).catch((error: unknown) => error)
   expect(creates.length).toBeGreaterThan(0)
   for (const body of creates)
     expect(body).toMatchObject({ environment: 'agent-container', ownerContext: 'isolated' })
-  return creates
+  const said = outcome instanceof Error ? outcome.message : JSON.stringify(outcome)
+  return { creates, requests, said }
 }
 
 it('a box check node sends its runtime in the Sandbox create, and none when unset', async () => {
-  for (const body of await boxCreateBodies('\n      runtime: firecracker'))
+  for (const body of (await boxCheck('\n      runtime: firecracker')).creates)
     expect(body.runtime).toBe('firecracker')
-  for (const body of await boxCreateBodies('')) expect(body).not.toHaveProperty('runtime')
+  for (const body of (await boxCheck('')).creates) expect(body).not.toHaveProperty('runtime')
+}, 60_000)
+
+it('a box that cannot start the check command refuses it and is deleted', async () => {
+  const { requests, said } = await boxCheck('')
+  expect(said, requests.join('\n')).toContain(
+    'check node verify box refused: Command setup failed (identity, cwd or exec): ENOENT',
+  )
+  expect(requests.filter((line) => line.endsWith('/process/spawn'))).toHaveLength(2)
+  expect(requests).toContain('DELETE /v1/sandboxes/sandbox-check-box')
 }, 60_000)
