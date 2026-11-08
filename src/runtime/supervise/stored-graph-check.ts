@@ -13,7 +13,7 @@ import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import { defaultRunCommand, runSettledCommand } from '../../mcp/worktree-harness'
 import type { DeclaredCheckPlacement } from '../declared-check'
-import { runIsolatedCheck } from '../isolated-checker'
+import { type IsolatedCheckBox, runIsolatedCheck } from '../isolated-checker'
 import type { CompletionCheckContext } from './completion-gate'
 import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
@@ -37,6 +37,8 @@ export interface GraphCheckNode {
   readonly environment?: string
   /** Domains a box may reach. Absent or empty: egress is blocked. Unused locally. */
   readonly egress?: readonly string[]
+  /** The box's Sandbox runtime under `checkPlacement`. Absent: the Sandbox default. */
+  readonly runtime?: IsolatedCheckBox['runtime']
   /** Environment variable names the command needs; a missing one fails the node. In a box they
    *  resolve only from the placement's `env`, the run owner's secrets. */
   readonly secrets?: readonly string[]
@@ -417,6 +419,7 @@ async function runBoxCheck(
         ownerStep: true,
         environment: check.environment as string,
         ...(check.egress === undefined ? {} : { egress: check.egress }),
+        ...(check.runtime === undefined ? {} : { runtime: check.runtime }),
         ...(check.resources === undefined ? {} : { resources: check.resources }),
       },
     })
