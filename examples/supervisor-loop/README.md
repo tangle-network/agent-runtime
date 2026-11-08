@@ -21,7 +21,7 @@ Build once (the examples import the built package), then pick a backend:
 pnpm build
 
 # Workers = real local coding CLIs (claude-code / codex / opencode / …), via a local bridge:
-WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
+WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-5-5 \
   pnpm tsx examples/supervisor-loop/run.ts
 
 # The SAME code, workers in real cloud boxes:
@@ -61,7 +61,7 @@ Start it, then point a worker at it:
 
 ```bash
 cd ~/code/cli-bridge && pnpm install && pnpm install:harness -- opencode && pnpm start   # → http://127.0.0.1:3344
-WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
+WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-5-5 \
   pnpm tsx examples/supervisor-loop/run.ts
 ```
 
