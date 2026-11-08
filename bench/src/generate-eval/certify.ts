@@ -18,7 +18,7 @@
  *       exit 0 admitted · 1 rejected · 2 malformed/infra
  * Env:  EVAL_GATE_BASE_URL (default https://router.tangle.tools/v1)
  *       EVAL_GATE_API_KEY  (default $TANGLE_API_KEY)
- *       EVAL_GATE_MODEL    (default gpt-4.1)
+ *       EVAL_GATE_MODEL    (default deepseek/deepseek-v4.1-flash)
  */
 import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -119,14 +119,14 @@ export async function discriminationGate(
 ): Promise<{ passed: boolean; detail: string }> {
   const baseUrl = opts.gateBaseUrl ?? process.env.EVAL_GATE_BASE_URL ?? 'https://router.tangle.tools/v1'
   const apiKey = opts.gateApiKey ?? process.env.EVAL_GATE_API_KEY ?? process.env.TANGLE_API_KEY
-  const model = opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek-v4-flash'
+  const model = opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek/deepseek-v4.1-flash'
   if (!apiKey) throw new Error('discrimination gate needs EVAL_GATE_API_KEY (or TANGLE_API_KEY)')
   const res = await runBenchRouterTurn(
     {
       routerBaseUrl: baseUrl,
       routerKey: apiKey,
       profile: {
-        name: 'generated-eval-parametric-check',
+        name: 'generated-eval-parametric-check', harness: 'cli-base',
         model: { provider: 'tangle-router', default: model },
       },
     },
@@ -150,7 +150,7 @@ export async function certifyEval(candidate: GeneratedEval, opts: CertifyOpts = 
       schemaVersion: generatedEvalSchemaVersion,
       groundingPassed: true,
       parametricFailed: true,
-      parametricModel: opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek-v4-flash',
+      parametricModel: opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek/deepseek-v4.1-flash',
       resolvedTarget: declaredTarget(candidate.setup),
       certifiedAt: new Date().toISOString(),
       certifier: certifierId,

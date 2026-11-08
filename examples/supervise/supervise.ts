@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   const routerBaseUrl = process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools/v1'
   const routerKey = process.env.TANGLE_API_KEY
   if (!routerKey) throw new Error('set TANGLE_API_KEY (your Tangle router key)')
-  const model = process.env.MODEL ?? 'gemini-2.5-pro'
+  const model = process.env.MODEL ?? 'gemini-3.1-pro-preview'
 
   // WHERE the workers run. Swap this one value to change the worker backend — e.g.
   // `{ backend: 'sandbox', harness: 'opencode', sandboxClient }` runs each worker as a real coding

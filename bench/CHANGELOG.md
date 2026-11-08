@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+
+Default judge and worker models move to the newest Router model in their tier: `deepseek/deepseek-v4.1-flash` for `deepseek-v4-flash` (bare `deepseek-v4.1-flash` where a slash would select a harness), `gemini-3.1-pro-preview` for the Trata hedge judge's `gemini-2.5-pro`, and `opencode/zai-coding-plan/glm-5.3` for atom-mcp-e2e's `glm-5-turbo`, which the bridge no longer serves. The Trata hedge and CADBench judges and the generated-eval discrimination gate now build profiles Runtime accepts (`maxVisibleOutputTokens`, `harness: 'cli-base'`); before, each was refused before any model call.
+
 ## 1.0.3
 
 Release qualification grades the three recorded 2026-09-24 agent outputs (Terminal-Bench `hello-world` and `fix-permissions`, SWE-bench Verified `astropy__astropy-12907`) with their official judges through the packed archive, and refuses unless each grade matches its recorded verdict.

@@ -25,8 +25,8 @@ async function main(): Promise<void> {
   const routerKey = process.env.TANGLE_API_KEY
   if (!routerKey) throw new Error('TANGLE_API_KEY required (worker + author call the router)')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const workerModel = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
-  const authorModel = process.env.AUTHOR_MODEL ?? 'deepseek-v4-flash'
+  const workerModel = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash'
+  const authorModel = process.env.AUTHOR_MODEL ?? 'deepseek/deepseek-v4.1-flash'
   const innerTurns = Number(process.env.INNER_TURNS ?? 40)
   const workerProfile: AgentProfile = {
     name: 'swe-worker',
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
       profile: authorProfile(authorModel, 'swe-strategy-author'),
       executor: { backend: 'router', routerBaseUrl, routerKey },
       fallbackProfile: authorProfile(
-        process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+        process.env.AUTHOR_FALLBACK ?? 'deepseek/deepseek-v4.1-flash',
         'swe-strategy-author-fallback',
       ),
     },

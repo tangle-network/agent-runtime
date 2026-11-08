@@ -48,7 +48,7 @@ const PROFILE_AGENT_IMPORT = 'tb_agents.opencode_router_agent:OpenCodeRouterAgen
 const CORPUS = process.env.CORPUS ?? join(BENCH_ROOT, 'corpus', 'terminal.jsonl')
 
 const DATASET = process.env.TB_DATASET ?? 'terminal-bench-core==0.1.1'
-const MODEL = process.env.TB_MODEL ?? 'deepseek-v4-flash'
+const MODEL = process.env.TB_MODEL ?? 'deepseek-v4.1-flash'
 const PROVIDER = process.env.TB_PROVIDER ?? 'tangle-router'
 const PROFILE = agentProfileSchema.parse({
   name: 'terminal-compare-worker',

@@ -148,7 +148,7 @@ async function main(): Promise<void> {
       routerKey,
       workerProfile: benchRouterProfile(
         'lean-proof-worker',
-        process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+        process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash',
         {
           systemPrompt: 'Construct and verify Lean proofs with the available checker before answering.',
           maxTurns: 8,

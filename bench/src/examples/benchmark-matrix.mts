@@ -18,9 +18,9 @@ import { type BenchCell, type BenchShot, printBenchmarksReport, runBenchmarks } 
 
 /** The matrix: three cells spanning harnesses, models, and transports. */
 const cells: BenchCell[] = [
-  { label: 'opencode/glm-4.6', harness: 'opencode', model: 'glm-4.6', backend: 'sandbox' },
-  { label: 'codex/gpt-5', harness: 'codex', model: 'gpt-5', backend: 'sandbox' },
-  { label: 'router/deepseek-v4-flash', model: 'deepseek-v4-flash', backend: 'router' },
+  { label: 'opencode/glm-5.3', harness: 'opencode', model: 'glm-5.3', backend: 'sandbox' },
+  { label: 'codex/gpt-6.1-sol', harness: 'codex', model: 'gpt-6.1-sol', backend: 'sandbox' },
+  { label: 'router/deepseek-v4.1-flash', model: 'deepseek/deepseek-v4.1-flash', backend: 'router' },
 ]
 
 async function live(): Promise<void> {
@@ -68,9 +68,9 @@ async function demo(): Promise<void> {
 
   // Cell ability: opencode/glm solves the most, router the least — deterministic by task index.
   const ability: Record<string, number> = {
-    'opencode/glm-4.6': 0.88,
-    'codex/gpt-5': 0.62,
-    'router/deepseek-v4-flash': 0.38,
+    'opencode/glm-5.3': 0.88,
+    'codex/gpt-6.1-sol': 0.62,
+    'router/deepseek-v4.1-flash': 0.38,
   }
   const shot: BenchShot = async ({ task, cell }) => {
     const idx = Number(task.id.split('-').pop())

@@ -8,7 +8,7 @@
  * sampleThenRefine (both). Swap the `check` and this same file grades a tax return value,
  * a rubric score, anything answer-shaped.
  *
- * Run from bench/ (needs a router key; default model deepseek-v4-flash):
+ * Run from bench/ (needs a router key; default model deepseek/deepseek-v4.1-flash):
  *   TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini BUDGET=3 tsx src/examples/math-demo.mts
  */
 import {
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
       routerKey,
       workerProfile: benchRouterProfile(
         'math-worker',
-        process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+        process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash',
         {
           systemPrompt: 'Solve the requested math task with the available tools and verify the result.',
           maxTurns: 6,

@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   // No key → inject the deterministic `complete` transport (offline, no network, no server).
   // A key → use the live Tangle router. EITHER WAY the worker drives the SAME `runBenchmark` below.
   const routerKey = process.env.TANGLE_API_KEY
-  const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
+  const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash'
   const worker = {
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey: routerKey ?? 'offline',
