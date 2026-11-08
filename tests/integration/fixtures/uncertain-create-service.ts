@@ -181,7 +181,7 @@ async function replay(
     })
     return
   }
-  if (scenario === 'json-incomplete' && !exactResult) {
+  if (scenario.endsWith('-incomplete') && !exactResult) {
     subscribeAccepted(run, response, exactResult)
     return
   }
@@ -613,7 +613,7 @@ async function runtime(
     if (
       scenario.startsWith('create-') ||
       ((scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
-        scenario !== 'json-incomplete' &&
+        !scenario.endsWith('-incomplete') &&
         !scenario.startsWith('json-observation-'))
     ) {
       let observed!: () => void

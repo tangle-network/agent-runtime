@@ -11,6 +11,7 @@ export type Scenario =
   | 'json-observation-long-success'
   | 'json-observation-long-failed'
   | 'json-incomplete'
+  | 'json-malformed-incomplete'
   | 'json-owner-capture'
   | 'json-output'
   | 'json-fenced'
@@ -278,7 +279,7 @@ export function terminal(run: NativeRun, scenario: Scenario) {
           success,
           status: success ? 'success' : 'failed',
           finalText:
-            scenario === 'json-incomplete'
+            scenario.endsWith('-incomplete')
               ? processResult.output
               : tools
                 ? scenario === 'json-ambiguous'
