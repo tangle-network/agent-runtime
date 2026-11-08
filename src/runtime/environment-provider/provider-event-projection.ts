@@ -15,7 +15,6 @@ import { isSandboxTerminalEvent, sandboxTerminalUsageField } from '../sandbox-ev
 import { turnFailureOf } from '../supervise/executor-outcome'
 import type { ExecutorResult } from '../supervise/types'
 import type { ProviderLeafOut } from './provider-executor-admission'
-import { ValidationError } from './provider-validation-error'
 
 export function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): SandboxEvent {
   const normalized = event.normalized
@@ -332,12 +331,13 @@ function finalJsonValue(text: string | undefined): string {
   return /```(?:json)?[ \t]*\r?\n((?:(?!```)[\s\S])*)```\s*$/i.exec(text)?.[1] ?? text
 }
 
-/** Decode only the final assistant message, keeping the unmodified stream as evidence. */
+/** Decode only the final assistant message, keeping the stream as evidence. A stream not wholly
+ *  read is refused, not left pending: no later read completes an ended turn's stream. */
 export function jsonResultFromEvents(
   events: AgentEnvironmentEvent[],
 ): Pick<ExecutorResult<unknown>, 'out' | 'outcome'> {
   if (events.some((event) => event.type === 'result' && event.data.eventStreamComplete === false))
-    throw new ValidationError('provider JSON output: complete native event observation is required')
+    return refusedJson('complete native event observation is required')
   const projected = events.map(sandboxEventFromEnvironmentEvent)
   const text =
     collectAgentFinalMessageText(projected) ??
@@ -352,15 +352,15 @@ export function jsonResultFromEvents(
     }
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error
-    return {
-      out: null,
-      outcome: {
-        success: false,
-        error: `provider JSON output: ${text === undefined ? 'missing final assistant message' : 'invalid final assistant JSON'}; return only a JSON value after tool use`,
-        errorCode: 'RUNTIME_OUTPUT_FORMAT_INVALID',
-      },
-    }
+    return refusedJson(
+      `${text === undefined ? 'missing final assistant message' : 'invalid final assistant JSON'}; return only a JSON value after tool use`,
+    )
   }
+}
+
+function refusedJson(reason: string): Pick<ExecutorResult<unknown>, 'out' | 'outcome'> {
+  const outcome = { success: false, error: `provider JSON output: ${reason}` }
+  return { out: null, outcome: { ...outcome, errorCode: 'RUNTIME_OUTPUT_FORMAT_INVALID' } }
 }
 
 export function textFromEnvironmentEvent(event: AgentEnvironmentEvent): string {
