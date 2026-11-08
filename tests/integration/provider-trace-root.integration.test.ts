@@ -65,6 +65,28 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
         await fixture.wait('owner settled', async () =>
           fixture.outcomes().some((row) => row.kind === 'settled'),
         )
+      if (scenario === 'trace-owner-evidence') {
+        // The in-place subprocess journals its post-result execution-evidence COPY of the committed
+        // snapshot just after `settled`, so the single read below raced it and lost under host-CPU
+        // starvation (the flake: `expect(copies).toBeGreaterThan(0)` saw 0). Wait for the copy first;
+        // a real regression (copy never produced) still fails, named, when the settle owner ends.
+        const settledBlobs = new FileResultBlobStore(join(fixture.directory, 'run', 'blobs'))
+        await fixture.wait(
+          'trace-owner execution-evidence copy of the committed snapshot journaled',
+          async () => {
+            const rows = await fixture.events()
+            const result = rows.find((row) => row.kind === 'execution-result')
+            if (result?.kind !== 'execution-result') return false
+            const original = object(await settledBlobs.get(result.outRef))
+            for (const row of rows.filter((row) => row.kind === 'execution-evidence')) {
+              const out = object(await settledBlobs.get(row.outRef))
+              if (out.workspaceSnapshot !== undefined && isDeepStrictEqual(original.events, out.events))
+                return true
+            }
+            return false
+          },
+        )
+      }
       const events = await fixture.events()
       const results = events.filter((row) => row.kind === 'execution-result')
       expect(results).toHaveLength(1)
