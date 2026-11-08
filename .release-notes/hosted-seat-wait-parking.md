@@ -1,3 +1,0 @@
-type: patch
----
-`parking` now works for a hosted run with a SQL `runContext` and no `runDir`: the journal's `run-parked` event is the durable record and `parking.json` is written only with a `runDir`. A run whose every live node, children included, waits on a seat reset at least `SEAT_PARK_MIN_MS` (5 min) away rejects with `RunParkedError(runId, { reason: 'seat-wait', since, wakeAt })` instead of holding its worker; resuming before `wakeAt` rejects again at once, and resuming after it rechecks the seat chain and continues. A seat reset nearer than 5 min is now slept through in place, for a root as for a child.

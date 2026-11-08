@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,8 +27,8 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
     const overrun = mode === 'overrun'
     const directory = await mkdtemp(join(tmpdir(), 'seat-pause-'))
     const context = createFileRunContext(directory, { withDriver: true })
-    // Presence, not JSON content: a reader racing writeFile's truncate saw '' and failed the manager.
-    const control = join(directory, 'seat-available')
+    // In memory: rewriting a file here let `select` parse its truncated, empty bytes.
+    let available = false
     const provider = durableRetainedProvider(join(directory, 'provider.json'))
     const profile = testAgentProfile('seat-manager', {
       harness: 'opencode',
@@ -113,8 +112,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
                 journal: context.journal,
                 rootId: 'seat-root',
                 select: async () => {
-                  if (!existsSync(control))
-                    throw new SeatPauseError(new Date(Date.now() + 200).toISOString())
+                  if (!available) throw new SeatPauseError(new Date(Date.now() + 200).toISOString())
                   return { seat: 'local-seat', backend: { backend: 'provider', provider } }
                 },
                 onPause: async (_id, _at, phase) => {
@@ -190,7 +188,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
               })
               expect(scope.workerCapacity).toMatchObject({ working: 1, queued: 1 })
               if (overrun) {
-                await writeFile(control, '')
+                available = true
                 await executed('after-reset')
                 expect(scope.budget.reservedTokens).toBe(120)
               }
@@ -213,7 +211,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
             expect(first).toMatchObject({ kind: 'done', out: 'sibling' })
             expect(scope.budget.tokensLeft).toBe(overrun ? 130 : nested ? 70 : 80)
             if (mode === 'cancel') admitted.handle.abort('cancel while seat waits')
-            else await writeFile(control, '')
+            else available = true
             expect(await scope.next()).toMatchObject(
               mode === 'cancel' ? { kind: 'down' } : { kind: 'done', out: 'after-reset' },
             )

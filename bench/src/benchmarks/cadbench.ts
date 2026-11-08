@@ -59,10 +59,8 @@ async function judgeCriteria(
         model: {
           provider: 'tangle-router',
           default: model,
-          metadata: {
-            temperature: 0,
-            maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 1500),
-          },
+          maxVisibleOutputTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 1500),
+          metadata: { temperature: 0 },
         },
       },
     },

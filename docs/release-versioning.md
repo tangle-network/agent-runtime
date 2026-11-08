@@ -16,7 +16,7 @@ agent-runtime owns release and adoption rules for published `@tangle-network/*` 
 | Rule | Check | Runs in |
 |---|---|---|
 | A change pays for itself; a minor or a break-free major is refused | `check-version-bump.mjs` | each library's merge gate |
-| Every archive pays its compatibility bump; a major needs a named break; no minor on 1.x+ | `check-version-bump.mjs --archive <tgz> --consumer <who>` | local release gate and exact archive publication admission |
+| Every archive pays its compatibility bump; a major needs a named break; no minor on 1.x+ | `check-version-bump.mjs --archive <tgz> --consumer <who>` | `release:prepare`, local release gate and exact archive publication admission |
 | Installed versions meet every declared peer floor | `agent-app-peer-check` | each app's adopt gate and release preflight |
 | One copy of each first-party package in an app | `pnpm dedupe` in `adopt-stack` | every adoption |
 | A Runtime release publishes only after its upstream contracts passed on the qualified archive, and is adopted only after that `evidence` job passed | `publish-npm` needs `evidence` in `publish.yml`; agent-eval `adopt-stack` reads the tag's `evidence` jobs | every Runtime publication; every adoption |

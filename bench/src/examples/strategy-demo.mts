@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     routerKey: process.env.TANGLE_API_KEY ?? '',
     workerProfile: benchRouterProfile(
       'strategy-demo-worker',
-      process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+      process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash',
       {
         systemPrompt: 'Use the available tools to complete and verify the task.',
         maxTurns: 6,

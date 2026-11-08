@@ -270,7 +270,7 @@ function observeAgentTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       'stalled, how many turns it has taken, the last tools/files it touched ' +
       '(`recentActivity`), what its executor CHANGED about the profile you gave it ' +
       '(`derived` — an MCP config it materialized, an extension it had to add), whether a ' +
-      'steer can even reach it (`steerable`), and how many ' +
+      'steer can reach it (the `steerable` field, not a tool), and how many ' +
       'steers it has not yet read (`pendingMessages`). For a worker that leads its own team, ' +
       '`progress.team` counts the agents below it (working, queued, done, down) and its idle ' +
       'clock reads the newest activity anywhere in that team, so a lead whose workers are busy ' +

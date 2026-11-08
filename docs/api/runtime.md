@@ -18735,18 +18735,14 @@ Teardown grace handed to the executor when this node is reaped.
 
 > `readonly` `optional` **key?**: `string`
 
-Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
-idempotent per key: once a child spawned under a key settles `done` — in this process or in a
-journaled prior one — spawning the same key returns that committed result (`prior.state:
-'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
-`down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
-its process — so a worker killed mid-flight under a plain in-process executor retries under
-its own key instead of wedging. A key whose un-settled prior attempt may still exist
-elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
-may still be running and must be recovered before replacement. A key that is currently LIVE
-is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
-always run.
+Semantic identity of this assignment ACROSS process lifetimes; a keyed spawn is idempotent per
+key. A key that settled `done` (here or in a journaled prior process) returns that committed
+result (`prior.state: 'completed'`) without paying again. A key that settled `down` spawns
+fresh (`prior.state: 'retried'`); a resume derives that `down` for an interrupted `inline`
+attempt, which cannot outlive its process. A key whose un-settled attempt may still run
+elsewhere (`sandbox`/`cli`/`router`) is refused (`'in-doubt'`) until it is recovered. A
+resume's recovered LIVE child goes to the key's first spawn (`prior.state: 'recovered'`); any
+other spawn of a LIVE key is refused (`'duplicate-key'`). Unkeyed spawns always run.
 
 ##### successorOf?
 
@@ -23049,10 +23045,12 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **parking?**: [`RunParkingPolicy`](durable.md#runparkingpolicy)
 
-Hand a root with only a long wait and no live descendants to the caller's existing keeper.
-Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+Hand a run whose every live node only waits to the caller's existing keeper: the root on a
+long wait, any node on a seat reset at least SEAT_PARK_MIN_MS (5 min) away. Requires runDir
+or a SQL runContext. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
 the spawn journal without writing a terminal result. The caller must handle parking and
-resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+resume the same run (runDir or runContext, and runId) at wakeAt; an earlier resume rejects
+again at once. Omit to keep waits in this process.
 
 ###### Inherited from
 
@@ -28574,10 +28572,12 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **parking?**: [`RunParkingPolicy`](durable.md#runparkingpolicy)
 
-Hand a root with only a long wait and no live descendants to the caller's existing keeper.
-Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+Hand a run whose every live node only waits to the caller's existing keeper: the root on a
+long wait, any node on a seat reset at least SEAT_PARK_MIN_MS (5 min) away. Requires runDir
+or a SQL runContext. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
 the spawn journal without writing a terminal result. The caller must handle parking and
-resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+resume the same run (runDir or runContext, and runId) at wakeAt; an earlier resume rejects
+again at once. Omit to keep waits in this process.
 
 ##### resume?
 
@@ -35060,13 +35060,12 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 > **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"scope-aborted"` \| `"scope-settled"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
- no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
- still LIVE in this scope, a key whose prior remote execution has no terminal receipt, or a run
- that has already reached its join barrier.
+ no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` already
+ claimed LIVE in this scope, a key whose prior remote execution has no terminal receipt, or a
+ run that has already reached its join barrier.
 
-`usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
- responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
-refuses every amount until the ROOT budget names a `maxUsd`.
+`usd-unbudgeted` is separate from `budget-exhausted`: an exhausted pool may admit a smaller
+request, while an unbudgeted dollar channel refuses every amount until the ROOT names `maxUsd`.
 
 `scope-settled` is separate from `scope-aborted` for the same reason: nothing cancelled this
 run, its driver simply finished. A caller that outlived the request it was serving (a background
@@ -35077,14 +35076,12 @@ child nobody joins.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"continued"`; `priorId`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-5); `reason`: `string`; \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](#settled-4)\<`Out`\> & `object`; \} \| \{ `state`: `"continued"`; `priorId`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-5); `reason`: `string`; \} \| \{ `state`: `"recovered"`; `priorId`: [`NodeId`](#nodeid-5); \}
 
-What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
-every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
-references the prior settled node and `settled` is the committed result. `'retried'` DID spawn
-fresh because the prior attempt settled `down`. A start with no terminal receipt is not a prior
-result: `spawn` refuses it as `'in-doubt'`, retains its charged reservation, and requires exact
-recovery before a replacement can run.
+What a KEYED spawn resolved to when the key had a prior attempt; absent on a fresh or unkeyed
+spawn. `'completed'` spawned NOTHING: the handle is the prior settled node and `settled` its
+committed result. `'retried'` spawned fresh after a `down`. A start with no terminal receipt is
+refused as `'in-doubt'`, keeps its charged reservation, and needs exact recovery first.
 
 #### Type Parameters
 
@@ -35111,6 +35108,14 @@ A NEW node continues the prior node's held environment and session (`SpawnOpts.c
 ##### Type Literal
 
 \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-5); `reason`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `state`: `"recovered"`; `priorId`: [`NodeId`](#nodeid-5); \}
+
+Nothing new ran: the handle is the live child this scope's resume recovered (`priorId`).
 
 ***
 
@@ -43854,6 +43859,50 @@ readonly [`ObservedSessionFacts`](#observedsessionfacts)[]
 ##### record
 
 > `readonly` **record**: [`GraphRunRecord`](#graphrunrecord)
+
+***
+
+### readGraphStrings()
+
+> **readGraphStrings**(`graphText`): `Record`\<`string`, `string`\>
+
+Node id → its prompt string, for each node whose prompt is its own and unshared: an anchored
+ (`&shared`) or aliased (`*shared`) prompt is left out.
+
+#### Parameters
+
+##### graphText
+
+`string`
+
+#### Returns
+
+`Record`\<`string`, `string`\>
+
+***
+
+### setGraphStrings()
+
+> **setGraphStrings**(`graphText`, `map`): `string`
+
+Replace the named nodes' prompt strings in the graph's text and leave every other byte as it
+was. Each string is written double-quoted over the old scalar's own span, so flow, quoted, `|`
+and `>-` prompts are replaced alike. Throws `ValidationError` for a node without an unshared
+prompt of its own, and when the masked graph changed or the strings do not read back as `map`.
+
+#### Parameters
+
+##### graphText
+
+`string`
+
+##### map
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+#### Returns
+
+`string`
 
 ***
 

@@ -322,6 +322,16 @@ export function resultFromEvents(
   return { content: fallbackText, events }
 }
 
+/** A non-JSON final message settles the fenced block ending it; trailing text keeps it refused. */
+function finalJsonValue(text: string | undefined): string {
+  if (text === undefined) return ''
+  try {
+    JSON.parse(text)
+    return text
+  } catch {}
+  return /```(?:json)?[ \t]*\r?\n((?:(?!```)[\s\S])*)```\s*$/i.exec(text)?.[1] ?? text
+}
+
 /** Decode only the final assistant message, keeping the unmodified stream as evidence. */
 export function jsonResultFromEvents(
   events: AgentEnvironmentEvent[],
@@ -334,7 +344,7 @@ export function jsonResultFromEvents(
     (projected.some(isToolBearingEvent) ? undefined : collectAgentResponseText(projected))
   try {
     return {
-      out: JSON.parse(text ?? '', (_key, value) => {
+      out: JSON.parse(finalJsonValue(text), (_key, value) => {
         if (typeof value === 'number' && !Number.isFinite(value))
           throw new SyntaxError('JSON number is not finite')
         return value

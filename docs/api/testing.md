@@ -1550,10 +1550,12 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **parking?**: [`RunParkingPolicy`](durable.md#runparkingpolicy)
 
-Hand a root with only a long wait and no live descendants to the caller's existing keeper.
-Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+Hand a run whose every live node only waits to the caller's existing keeper: the root on a
+long wait, any node on a seat reset at least SEAT_PARK_MIN_MS (5 min) away. Requires runDir
+or a SQL runContext. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
 the spawn journal without writing a terminal result. The caller must handle parking and
-resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+resume the same run (runDir or runContext, and runId) at wakeAt; an earlier resume rejects
+again at once. Omit to keep waits in this process.
 
 ###### Inherited from
 
@@ -2754,10 +2756,12 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 > `readonly` `optional` **parking?**: [`RunParkingPolicy`](durable.md#runparkingpolicy)
 
-Hand a root with only a long wait and no live descendants to the caller's existing keeper.
-Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+Hand a run whose every live node only waits to the caller's existing keeper: the root on a
+long wait, any node on a seat reset at least SEAT_PARK_MIN_MS (5 min) away. Requires runDir
+or a SQL runContext. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
 the spawn journal without writing a terminal result. The caller must handle parking and
-resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+resume the same run (runDir or runContext, and runId) at wakeAt; an earlier resume rejects
+again at once. Omit to keep waits in this process.
 
 ###### Inherited from
 

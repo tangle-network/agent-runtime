@@ -207,12 +207,8 @@ export function createWorktreeCliExecutor(
             'createWorktreeCliExecutor: metered harness run returned no token usage',
           )
         }
-        // A budget-exempt run has no usage receipt, so its `{0,0}` is a FLOOR, not a measurement.
-        // Left unmarked it is byte-identical to a run that truly cost nothing, and a token-priced
-        // ceiling over this leaf then reads as enforced while enforcing nothing. `tokensKnown`
-        // is the marker; the dollar channel is left alone because `usdKnown: false` under a
-        // dollar-capped root is a reconcile REFUSAL in `budget.ts`, which would contradict the
-        // exemption this leaf was granted (see `unmeteredSpend` in ./runtime).
+        // Missing token receipts leave a floor. Neither ordinary CLI execution nor a Codex
+        // token receipt measures dollars; budget exemption cannot make that unknown cost zero.
         const spent: Spend = {
           iterations: 1,
           tokens: usage
@@ -220,7 +216,7 @@ export function createWorktreeCliExecutor(
             : { input: 0, output: 0 },
           ...(usage ? {} : { tokensKnown: false }),
           usd: 0,
-          ...(usage ? { usdKnown: false } : {}),
+          usdKnown: false,
           ms: Date.now() - started,
         }
         artifact = { outRef: contentAddress(run.result), out: run.result, spent }

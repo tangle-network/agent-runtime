@@ -1892,6 +1892,34 @@ The three sets one reconcile call returns. A repeated id is acted on once and re
 
 ***
 
+### RunEvidenceBounds
+
+Caps in characters, except `toolCalls`; `totalChars` is measured on `JSON.stringify`.
+
+#### Properties
+
+##### settledChars?
+
+> `readonly` `optional` **settledChars?**: `number`
+
+##### toolCalls?
+
+> `readonly` `optional` **toolCalls?**: `number`
+
+##### toolCallChars?
+
+> `readonly` `optional` **toolCallChars?**: `number`
+
+##### messageChars?
+
+> `readonly` `optional` **messageChars?**: `number`
+
+##### totalChars?
+
+> `readonly` `optional` **totalChars?**: `number`
+
+***
+
 ### PursuitFork
 
 Start a run as a version of a settled run: the parent's recorded root inputs plus one change.
@@ -3339,10 +3367,12 @@ Worker output store. Defaults to in-memory.
 
 > `readonly` `optional` **parking?**: [`RunParkingPolicy`](#runparkingpolicy)
 
-Hand a root with only a long wait and no live descendants to the caller's existing keeper.
-Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+Hand a run whose every live node only waits to the caller's existing keeper: the root on a
+long wait, any node on a seat reset at least SEAT_PARK_MIN_MS (5 min) away. Requires runDir
+or a SQL runContext. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
 the spawn journal without writing a terminal result. The caller must handle parking and
-resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+resume the same run (runDir or runContext, and runId) at wakeAt; an earlier resume rejects
+again at once. Omit to keep waits in this process.
 
 ###### Inherited from
 
@@ -4483,10 +4513,12 @@ How Runtime wakes a manager that ended its turn with work open: the heartbeat, t
 
 > `readonly` `optional` **parking?**: [`RunParkingPolicy`](#runparkingpolicy)
 
-Hand a root with only a long wait and no live descendants to the caller's existing keeper.
-Requires runDir. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
+Hand a run whose every live node only waits to the caller's existing keeper: the root on a
+long wait, any node on a seat reset at least SEAT_PARK_MIN_MS (5 min) away. Requires runDir
+or a SQL runContext. Rejects with RunParkedError after the idle threshold, retaining wakeAt in
 the spawn journal without writing a terminal result. The caller must handle parking and
-resume the same runDir/runId at wakeAt. Omit to keep waits in this process.
+resume the same run (runDir or runContext, and runId) at wakeAt; an earlier resume rejects
+again at once. Omit to keep waits in this process.
 
 ###### Inherited from
 
@@ -5624,6 +5656,15 @@ What a delete of one environment the read found present proved.
 
 ***
 
+### RunEvidence
+
+> **RunEvidence** = `Awaited`\<`ReturnType`\<*typeof* [`runEvidence`](#runevidence-1)\>\>
+
+Per node: `node` is its label, `message` its last assistant text after its final tool call.
+ `truncated` is true when any text was cut or any node dropped to meet a cap.
+
+***
+
 ### SpawnJournalReadRecord
 
 > **SpawnJournalReadRecord** = \{ `kind`: `"begin"`; `root`: [`NodeId`](runtime.md#nodeid-5); `at`: `string`; \} \| \{ `kind`: `"event"`; `root`: [`NodeId`](runtime.md#nodeid-5); `event`: [`SpawnEvent`](runtime.md#spawnevent); \}
@@ -6028,6 +6069,30 @@ Finish unconfirmed teardowns named by a settled run's `result.json`.
 #### Returns
 
 `Promise`\<[`UnconfirmedTeardownReconcile`](#unconfirmedteardownreconcile)\>
+
+***
+
+### runEvidence()
+
+> **runEvidence**(`runDir`, `bounds?`): `Promise`\<\{ `nodes`: `object`[]; `truncated`: `boolean`; \}\>
+
+What each node of a run did, from the directory `superviseGraphPursuit` wrote: outcome and tokens
+from the observer journal, settled output from `blobs/`, tool calls and the final message from
+`streams/`. Over `totalChars` every cap halves, then the earliest nodes drop; size never throws.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+##### bounds?
+
+[`RunEvidenceBounds`](#runevidencebounds) = `{}`
+
+#### Returns
+
+`Promise`\<\{ `nodes`: `object`[]; `truncated`: `boolean`; \}\>
 
 ***
 

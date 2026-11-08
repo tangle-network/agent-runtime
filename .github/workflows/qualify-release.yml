@@ -313,6 +313,20 @@ jobs:
           sha256=$(sha256sum "$package" | cut -d' ' -f1)
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           echo "agent-bench archive locked: $package ($sha256)"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
+      # The recorded agent outputs, graded by the official judges through the exact archive; no model runs.
+      - name: Grade the recorded benchmark runs with the archive's official judges
+        run: |
+          grader="$RUNNER_TEMP/agent-bench-grades"
+          python -m venv "$grader/swebench" && "$grader/swebench/bin/pip" install -q swebench==4.1.0
+          python -m venv "$grader/terminal-bench" && "$grader/terminal-bench/bin/pip" install -q terminal-bench==0.2.18
+          npm install --prefix "$grader" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/agent-bench-package/*.tgz
+          package="$grader/node_modules/@tangle-network/agent-bench"
+          PYTHONPATH="$package" AGENT_BENCH_PYTHON="$grader/swebench/bin/python" TERMINAL_BENCH_VENV="$grader/terminal-bench" \
+            node "$package/scripts/grade-recorded-evidence.mjs" \
+            "$GITHUB_WORKSPACE/bench/evidence/public-agent-benchmarks-20260924"
       - name: Upload exact agent-bench archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

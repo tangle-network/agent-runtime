@@ -13,6 +13,8 @@ export type Scenario =
   | 'json-incomplete'
   | 'json-owner-capture'
   | 'json-output'
+  | 'json-fenced'
+  | 'json-fence-then-text'
   | 'json-authority'
   | 'json-overflow'
   | 'json-no-terminal'

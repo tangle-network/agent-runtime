@@ -32,7 +32,7 @@ if (!process.env.TANGLE_API_KEY)
   throw new Error('set TANGLE_API_KEY (the worker — the agent under test — calls the router)')
 const apiKey: string = process.env.TANGLE_API_KEY
 const baseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4-flash'
+const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash'
 const provider = process.env.WORKER_PROVIDER ?? 'deepseek'
 
 // The agent under test — its full profile; the seams below read its prompt.systemPrompt.

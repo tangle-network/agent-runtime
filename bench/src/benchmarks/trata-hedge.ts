@@ -40,8 +40,8 @@ const WORKER_SUFFIX = [
   'Take a clear position on the topic. Every factual claim must name the file it comes from.',
 ].join('\n')
 
-// Judge model: Gemini 2.5 Pro via router (matches gemini-3.1-pro-preview tier used by grade.py).
-const JUDGE_MODEL = 'gemini-2.5-pro'
+// Judge model: Gemini 3.1 Pro preview via router, the model grade.py uses.
+const JUDGE_MODEL = 'gemini-3.1-pro-preview'
 
 interface TrataTaskMeta {
   taskDir: string
@@ -203,10 +203,8 @@ async function callJudge(router: JudgeRouter, prompt: string, maxAttempts = 2): 
             model: {
               provider: 'tangle-router',
               default: router.model,
-              metadata: {
-                temperature: 0,
-                maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 16384),
-              },
+              maxVisibleOutputTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 16384),
+              metadata: { temperature: 0 },
             },
           },
         },

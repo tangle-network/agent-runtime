@@ -155,7 +155,7 @@ async function main() {
     harness: 'cli-base',
     model: {
       provider: process.env.MODEL_PROVIDER ?? 'deepseek',
-      default: process.env.MODEL ?? 'deepseek/deepseek-v4-flash',
+      default: process.env.MODEL ?? 'deepseek/deepseek-v4.1-flash',
     },
     prompt: { systemPrompt: 'Answer in exactly five words.' },
   }
