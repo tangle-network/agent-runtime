@@ -866,6 +866,8 @@ const server = createServer((request, response) => {
     else response.destroy()
   })
 })
+// No idle close: a loaded test process reused a socket the 5 s keep-alive had just closed (ECONNRESET).
+server.keepAliveTimeout = 0
 server.listen(0, '127.0.0.1', () => {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('no HTTP address')
