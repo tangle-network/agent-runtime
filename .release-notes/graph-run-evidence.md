@@ -1,3 +1,0 @@
-type: patch
----
-Add `runEvidence(runDir | runId, bounds)` to `/durable`: per-node outcome, settled JSON, last tool calls, final assistant message and tokens from a `superviseGraphPursuit` run directory, ANSI-free, with every cap a parameter and a whole-result cap on serialized size that truncates instead of throwing. Add `setGraphStrings(graphText, map)` and `readGraphStrings(graphText)` to `/kernel`: rewrite only the named nodes' `profile.prompt.systemPrompt` (or `appendSystemPrompt`) in a graph's YAML, across flow, quoted, `|` and `>-` scalars, and refuse any write whose prompt-masked graph or read-back strings differ.
