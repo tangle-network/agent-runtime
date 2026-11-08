@@ -237,15 +237,16 @@ async function publishOwnerMaterialization(
     }
   }
   if (state.prior !== undefined && state.receipt === undefined) {
-    if (canonicalCandidateDigest(state.prior) !== canonicalCandidateDigest(receipt)) {
+    if (changedRunIdentityFields(state.prior, receipt, false).length > 0) {
       await rejectOwnerMaterialization(state)
       throw new ValidationError(
         'scope owner materialization changed across resume; backend, model, execution identity, and plan must match',
       )
     }
     state.receipt = state.prior
-    await appendOwnerBinding(state, binding)
-    state.onReceipt?.(state.prior, binding)
+    const boundToPrior = knownExecutionBindingReceipt(state.prior, bindingInput)
+    await appendOwnerBinding(state, boundToPrior)
+    state.onReceipt?.(state.prior, boundToPrior)
     state.publishedThisProcess = true
     return
   }
@@ -474,10 +475,9 @@ async function rejectOwnerMaterialization(state: OwnerMaterializationState): Pro
 }
 
 /**
- * The fields two known receipts disagree on, ignoring which execution instance served the attempt.
- * Empty means only the instance moved, which a re-prompted attempt is allowed to do: Runtime asks
- * the provider for a new environment when it re-prompts an unmet completion check, and a retained
- * environment can be replaced between attempts.
+ * The fields two known receipts disagree on, ignoring each attempt's applied resources (an
+ * observation: `observedAt` always moves) and, unless `ignoreInstance` is false, which execution
+ * instance served it: a re-prompt or a replaced retained environment gets a new one.
  *
  * This answers WHICH field moved, not just THAT one did. The guard used to return a boolean, so a
  * production rejection named four candidate fields and identified none of them. Measured on
@@ -488,16 +488,16 @@ async function rejectOwnerMaterialization(state: OwnerMaterializationState): Pro
 function changedRunIdentityFields(
   prior: ProfileMaterializationReceipt,
   next: ProfileMaterializationReceipt,
+  ignoreInstance = true,
 ): readonly string[] {
   if (prior.status !== 'known' || next.status !== 'known') return ['status']
-  const withoutInstance = (
+  const runIdentity = (
     receipt: Extract<ProfileMaterializationReceipt, { status: 'known' }>,
   ): Record<string, unknown> => {
-    const { execution, ...rest } = receipt
-    return { ...rest, execution: { kind: execution.kind } }
+    const { execution, resources: _applied, ...rest } = receipt
+    return { ...rest, execution: ignoreInstance ? { kind: execution.kind } : execution }
   }
-  const before = withoutInstance(prior)
-  const after = withoutInstance(next)
+  const [before, after] = [runIdentity(prior), runIdentity(next)] as const
   const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()
   return names.filter(
     (name) => canonicalCandidateDigest(before[name]) !== canonicalCandidateDigest(after[name]),

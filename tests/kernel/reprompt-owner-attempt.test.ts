@@ -136,7 +136,19 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
   // mech-interp-foundations-pi-20260914e, -20260915g and -20260915h: the first turn completes, the
   // reprompt fires, and every attempt after it is refused. This drives the real supervisor and
   // the real reprompt loop with no sandbox and no model, so the guard is the only thing under test.
-  it('accepts the second attempt when only the execution instance moved', async () => {
+  // Runtime 8 receipts also carry the resources applied to each attempt, observed afresh each time
+  // (`observedAt` always moves): canary-chain-20261107j's root was refused "changed mid-run:
+  // resources" on its second attempt with the same environment.
+  const resourcesObservedAt = (attempt: number) => ({
+    status: 'known' as const,
+    memoryMb: 8192 - attempt,
+    origin: 'measured' as const,
+    observedAt: `2026-11-07T23:5${attempt}:00.000Z`,
+  })
+  it.each([
+    ['the execution instance', (attempt: number) => `sandbox-${attempt}`, () => undefined],
+    ['the applied resources', () => 'sandbox-1', resourcesObservedAt],
+  ])('accepts the second attempt when only %s moved', async (_, environmentOf, resourcesOf) => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const profile = testAgentProfile('sup', {
@@ -149,7 +161,8 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, scope }) => {
       const { attemptId } = scopeOwnerExecutorNodeContext(scope)
       reported.push(attemptId)
-      const environment = `sandbox-${reported.length}`
+      const environment = environmentOf(reported.length)
+      const resources = resourcesOf(reported.length)
       await recordScopeOwnerMaterialization(
         scope,
         'tangle-sandbox',
@@ -157,8 +170,9 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
           ...declarationFor(profile),
           backend: 'tangle-sandbox',
           execution: { kind: 'environment', id: environment },
+          ...(resources === undefined ? {} : { resources }),
         },
-        bindingFor(attemptId, environment),
+        bindingFor(attemptId, `session-${reported.length}`),
       )
       if (reported.length === 1) return
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
@@ -208,5 +222,17 @@ describe('a re-prompted root in a new execution environment (#1225, #1230)', () 
       'known',
       'known',
     ])
+    // The first attempt's receipt stays the run's identity: both attempts bind to it.
+    const committed = materialized[0]?.kind === 'materialized' ? materialized[0].receipt : undefined
+    expect(committed?.status === 'known' && committed.resources).toEqual(
+      resourcesOf(1) ?? { status: 'unknown', reason: 'executor-did-not-report-applied-resources' },
+    )
+    const digests = bindings.map((e) =>
+      e.kind === 'execution-bound' && e.binding.status === 'known'
+        ? e.binding.materializationReceiptDigest
+        : undefined,
+    )
+    const committedDigest = canonicalCandidateDigest(committed)
+    expect(digests).toEqual([committedDigest, committedDigest])
   })
 })
