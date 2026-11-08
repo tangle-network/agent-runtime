@@ -402,3 +402,39 @@ describe('a three-node flow killed right after its entry settles', () => {
     expect((await readSettleRecord(dir))?.kind).toBe('winner')
   })
 })
+
+describe('a flow whose session-backed entry is killed mid-session', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'flow-session-resume-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  // The resume recovers the in-flight entry under its key before the route walker starts it; the
+  // walker must continue with that recovered worker, not refuse its live key as a duplicate.
+  it('continues the flow with the recovered entry, re-attached and never restarted', {
+    timeout: 120_000,
+  }, async () => {
+    const env = { FLOW_GRAPH: 'session-pipeline' }
+    const killed = await runPhase(dir, '1', 'session:draft:step-2', flowChildScript, env)
+    expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe('SIGKILL')
+    expect((await auditSpawnJournal(dir, FLOW_RUN_ID)).settledDoneByLabel).toEqual({})
+
+    const resumed = await runPhase(dir, '2', undefined, flowChildScript, env)
+    expect(resumed.code, `phase 2 stderr: ${resumed.stderr}`).toBe(0)
+    const report = parseReport<FlowChildReport>(resumed.stdout)
+    expect(report.stopped).toBeUndefined()
+    expect(report.kind).toBe('winner')
+    expect(report.out).toEqual(PIPELINE_OUT)
+    expect(report.reattached).toEqual(['draft'])
+    expect(report.steps).toEqual(['draft:3'])
+    expect(report.exec.map((step) => step.tag)).toEqual(['edit', 'publish'])
+
+    const final = await auditSpawnJournal(dir, FLOW_RUN_ID)
+    expect(final.settledDoneByLabel).toEqual({ draft: 1, edit: 1, publish: 1 })
+    expect(final.spawnedKeysByLabel.draft).toHaveLength(1)
+    expect((await readSettleRecord(dir))?.kind).toBe('winner')
+  })
+})

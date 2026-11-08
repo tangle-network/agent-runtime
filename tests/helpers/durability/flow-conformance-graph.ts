@@ -35,6 +35,7 @@ import type {
   ExecutorResult,
 } from '../../../src/runtime/supervise/types'
 import { armKillSwitch, type KillSwitch, readLabels } from './kill-switch'
+import { sessionBackedLeafSeam } from './session-backed-leaf'
 
 export const FLOW_RUN_ID = 'flow-conformance'
 export const AREAS = ['north', 'south'] as const
@@ -139,8 +140,9 @@ export function flowPipelineGraph(): AgentGraph {
   }
 }
 
-/** The graph a child phase runs, named by `FLOW_GRAPH` in its environment. */
-export type FlowGraphName = 'conformance' | 'pipeline'
+/** The graph a child phase runs, named by `FLOW_GRAPH` in its environment. `session-pipeline` is
+ *  the pipeline with a session-backed `draft` entry that a resume recovers mid-session. */
+export type FlowGraphName = 'conformance' | 'pipeline' | 'session-pipeline'
 
 interface RouteTask {
   readonly from: { readonly node: string; readonly result: Record<string, unknown> }
@@ -177,7 +179,10 @@ function leafStep(name: string, task: unknown): { readonly tag: string; readonly
     case 'draft':
       return { tag: name, out: { text: 'draft' } }
     case 'edit':
-      return { tag: name, out: { text: `edited ${String(from?.result.text)}` } }
+      return {
+        tag: name,
+        out: { text: `edited ${String(from?.result.text ?? from?.result.node)}` },
+      }
     case 'publish':
       return { tag: name, out: { published: from?.result.text } }
     default:
@@ -263,6 +268,9 @@ export interface FlowChildReport {
   readonly exec: FlowExec[]
   /** Gate decision rows on this process's result ledger, replayed ones included. */
   readonly decisionRows: number
+  /** Session-pipeline only: the session steps this process ran and the sessions it re-attached. */
+  readonly steps?: string[]
+  readonly reattached?: string[]
 }
 
 /** One phase of the flow conformance run, in THIS process. Phase 1 may SIGKILL itself at
@@ -284,14 +292,23 @@ export async function runFlowGraphPhase(
   }
   const tagByKey = new Map<string, string>()
   const tagByChild = new Map<string, string>()
-  const topology = graph === 'pipeline' ? flowPipelineGraph() : flowConformanceGraph()
+  const topology = graph === 'conformance' ? flowConformanceGraph() : flowPipelineGraph()
+  const leaf = flowLeafSeam(dir, phase, kill, tagByKey)
+  const session = graph === 'session-pipeline' ? sessionBackedLeafSeam(dir, phase, kill) : undefined
   const { result } = await superviseGraphPursuit(topology, {
     pursuitId: 'flow-graph-conformance',
     runId: FLOW_RUN_ID,
     runDir: dir,
     workerSlots: 3,
     perWorker: { maxIterations: 60, maxTokens: 500_000 },
-    makeLeafAgent: flowLeafSeam(dir, phase, kill, tagByKey),
+    makeLeafAgent:
+      session === undefined
+        ? leaf
+        : (profile, context) =>
+            profile.name === 'draft'
+              ? session.makeLeafAgent(profile, context)
+              : leaf(profile, context),
+    ...(session === undefined ? {} : { recoverExecutor: session.recoverExecutor }),
     decideGate: async (request: GateRequest) => {
       appendFileSync(
         `${dir}/gate-calls.jsonl`,
@@ -322,6 +339,9 @@ export async function runFlowGraphPhase(
     ...(result.stopped === undefined ? {} : { stopped: result.stopped.reason }),
     exec: readFlowExecLog(dir, phase),
     decisionRows: result.ledger.filter((row) => row.gate !== undefined).length,
+    ...(session === undefined
+      ? {}
+      : { steps: session.stepLog(phase), reattached: session.reattachLog(phase) }),
   }
   process.stdout.write(`${JSON.stringify(report)}\n`)
 }
