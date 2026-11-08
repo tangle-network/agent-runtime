@@ -28,7 +28,7 @@ import { owners } from './retained-owner-state'
 import { abandonScopeRetainedOwnerInvocation } from './retained-scope-owner'
 import { readRootStream } from './root-stream'
 import { applyRunCancellation } from './run-cancellation'
-import { bindScopeParkingDrain, RunParkedError, sleepScopeWait } from './run-parking'
+import { bindScopeParkingDrain, isRunParked, sleepScopeWait } from './run-parking'
 import { runTraceAnalysisStore } from './run-traces'
 import {
   beginScopeOwnerAttempt,
@@ -171,7 +171,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
           await session.reachable()
           await driveManagerTurn(loop, attempt, reentry)
         } catch (error) {
-          handedOff = error instanceof RunParkedError && error.runId === scope.view.root
+          handedOff = isRunParked(error, scope)
           throw error
         } finally {
           // Drain first. Do not apply a new control or await a worker. Parking sealed admission.
@@ -217,7 +217,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
     })
     driverFailed = false
   } catch (error) {
-    parked = error instanceof RunParkedError && error.runId === scope.view.root
+    parked = isRunParked(error, scope)
     throw error
   } finally {
     if (!parked) {

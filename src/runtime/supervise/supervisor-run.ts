@@ -10,7 +10,7 @@ import {
   scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerSettled,
 } from './retained-scope-owner'
-import { RunParkedError } from './run-parking'
+import { RunParkedError, raceRunParking } from './run-parking'
 import {
   closeScopeAdmission,
   createScope,
@@ -341,7 +341,7 @@ async function executeRoot<Out>(root: RootExecution): Promise<RootSettled<Out>> 
     const out = (await runAbortable(
       () => {
         rootStarted = true
-        return root.run()
+        return raceRunParking(opts.runId, scope, persistence.seal, root.run)
       },
       controller.signal,
       'supervisor aborted',

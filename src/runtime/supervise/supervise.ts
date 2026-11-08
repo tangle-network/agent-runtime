@@ -42,7 +42,7 @@ function superviseWithContext(
   opts: SuperviseOptions,
   brain?: ToolLoopChat,
 ): ReturnType<typeof superviseInternal> {
-  assertRunParking(opts.parking, opts.runDir !== undefined)
+  assertRunParking(opts.parking, opts.runDir !== undefined || opts.runContext?.durability === 'sql')
   if (opts.driverRetry?.pauseRootStops === true && opts.driverRetry.enabled === false) {
     throw new ValidationError(
       'supervise: driverRetry.pauseRootStops pauses where a retry would stop; it cannot be combined with driverRetry.enabled: false',

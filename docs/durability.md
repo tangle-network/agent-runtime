@@ -76,16 +76,20 @@ still require inspection rather than guessing whether an old writer is active.
 `tests/durability/file-generation-fence.test.ts` covers live-process takeover after release,
 stale store callbacks, and reclaiming both a killed holder and its in-flight mutation claim.
 
-Durable `supervise` and `supervisePursuit` callers with an existing keeper can opt into
-`parking: {}`. `RunParkingPolicy.afterMs` changes the idle threshold; its default belongs to
-the Runtime implementation. A root waiting for a subscription seat, a retry/stop pause, or its
-deadline may park when it has no live descendants, no unconfirmed child cleanup, no uncertain
-retained invocation, and no pending coordination effects or unread authority. Committed child
-settlement notifications remain replayable. Active work keeps its coordinator. This deliberately does not suspend
-working children or move workflow timers into Runtime.
+Durable `supervise`, `supervisePursuit` and `runGraph` callers (a `runDir` or a SQL `runContext`)
+with an existing keeper can opt into `parking: {}`. `RunParkingPolicy.afterMs` changes the idle
+threshold; its default belongs to the Runtime implementation. A run may park when every live node
+only waits: the root on a retry/stop pause or its deadline, and any node, children included, on a
+subscription seat reset at least `SEAT_PARK_MIN_MS` (5 min) away. It also needs no unconfirmed
+child cleanup, no uncertain retained invocation, and no pending coordination effects or unread
+authority. Committed child settlement notifications remain replayable. Active work keeps its
+coordinator. This deliberately does not suspend working children or move workflow timers into
+Runtime. A seat-waiting child unwinds in place: the park seals the run's writes first, so the
+child settles nothing and its resume finds it in the same journaled seat wait.
 
 Parking appends one nonterminal `run-parked` journal event with `reason`, `since`, and `wakeAt`,
-then writes the bounded `parking.json` projection through the durable file writer. The caller
+then, with a `runDir`, writes the bounded `parking.json` projection through the durable file
+writer; a SQL run's journal event is its only record. The caller
 receives `RunParkedError` with `runId` and `parking`, catches it, and lets its process exit.
 `supervisePursuit` releases the directory lock and writes neither `failure.json` nor `result.json`
 for this outcome. No parking timer or watcher survives the call.

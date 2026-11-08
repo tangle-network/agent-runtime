@@ -200,3 +200,88 @@ describe('durable coordinator parking across real process exits', () => {
     expect((await events(dir)).some((event) => event.kind === 'run-parked')).toBe(false)
   })
 })
+
+describe('hosted graph seat parking over a SQL run context', () => {
+  let hosted: Awaited<ReturnType<typeof compileFixture>>
+  beforeAll(async () => {
+    hosted = await compileFixture('tests/integration/fixtures/hosted-seat-parking.ts')
+  })
+  afterAll(async () => {
+    await hosted?.dispose()
+  })
+  /** The process must exit on its own: a parked run leaves no timer, listener or socket behind. */
+  async function host(dir: string, mode: 'long' | 'short', phase: string) {
+    const { stdout } = await exec(process.execPath, [hosted.path, dir, mode, phase], {
+      timeout: CHILD_TIMEOUT_MS,
+      maxBuffer: 20_000_000,
+    })
+    return JSON.parse(stdout.trim().split('\n').at(-1)!)
+  }
+  const parkedRows = (events: Array<{ kind: string }>) =>
+    events.filter((event) => event.kind === 'run-parked')
+
+  it(
+    'parks a run whose only live node waits on a far seat reset, re-parks early and resumes after it',
+    async () => {
+      const dir = await directory()
+      const parked = await host(dir, 'long', 'park')
+      expect(parked.kind).toBe('parked')
+      expect(parked.runId).toBe('hosted-seat-parking')
+      expect(parked.parking.reason).toBe('seat-wait')
+      const reset = parked.events.find(
+        (event: { kind: string; gate?: string }) =>
+          event.kind === 'admission-queued' && event.gate === 'seat',
+      )
+      // The node converts its reset to a wall-clock wait and back across two clock reads.
+      expect(
+        Math.abs(Date.parse(parked.parking.wakeAt) - Date.parse(reset.resumeAt)),
+      ).toBeLessThanOrEqual(50)
+      expect(Date.parse(parked.parking.wakeAt) - Date.parse(parked.parking.since)).toBeGreaterThan(
+        5 * 60_000,
+      )
+      expect(parkedRows(parked.events)).toHaveLength(1)
+      expect(
+        parked.events.some(
+          (event: { kind: string; id: string }) =>
+            event.kind === 'settled' && event.id !== 'hosted-seat-parking',
+        ),
+      ).toBe(false)
+      expect(existsSync(join(dir, 'parking.json'))).toBe(false)
+
+      const early = await host(dir, 'long', 'early')
+      expect(early.kind).toBe('parked')
+      expect(early.parking).toEqual(parked.parking)
+      expect(early.selections).toBe(0)
+      expect(parkedRows(early.events)).toHaveLength(1)
+
+      const resumed = await host(dir, 'long', 'resume')
+      expect(resumed.kind).toBe('settled')
+      expect(resumed.nodes).toEqual([{ label: 'work', status: 'done' }])
+      expect(parkedRows(resumed.events)).toHaveLength(1)
+      expect(
+        resumed.events.some((event: { kind: string }) => event.kind === 'root-reentered'),
+      ).toBe(true)
+      expect(
+        resumed.events.filter(
+          (event: { kind: string; label?: string }) =>
+            event.kind === 'spawned' && event.label === 'work',
+        ),
+      ).toHaveLength(1)
+    },
+    3 * CHILD_TIMEOUT_MS + 5_000,
+  )
+
+  it('keeps a run whose seat resets within the park floor in its process', async () => {
+    const dir = await directory()
+    const outcome = await host(dir, 'short', 'park')
+    expect(outcome.kind).toBe('settled')
+    expect(outcome.reason).toBe('cancelled')
+    expect(parkedRows(outcome.events)).toHaveLength(0)
+    expect(
+      outcome.events.some(
+        (event: { kind: string; gate?: string }) =>
+          event.kind === 'admission-queued' && event.gate === 'seat',
+      ),
+    ).toBe(true)
+  })
+})

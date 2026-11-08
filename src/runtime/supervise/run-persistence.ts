@@ -7,7 +7,7 @@ export function guardRunPersistence(
   blobs: ResultBlobStore,
   interrupt: (error: Error) => void,
 ) {
-  let failure: RuntimeRunStateError | undefined
+  let failure: Error | undefined
   const pending = new Set<Promise<unknown>>()
   const operation = <T>(perform: () => Promise<T>): Promise<T> => {
     const result = Promise.resolve().then(async () => {
@@ -55,6 +55,10 @@ export function guardRunPersistence(
     },
     assertAvailable() {
       if (failure !== undefined) throw failure
+    },
+    /** Refuse every later write with `error`, without interrupting the retained executions. */
+    seal(error: Error) {
+      failure ??= error
     },
   }
 }
