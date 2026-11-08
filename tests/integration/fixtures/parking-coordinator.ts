@@ -185,7 +185,7 @@ try {
           selectSeat: async () =>
             phase === 'resume'
               ? { seat: 'ready-seat', backend }
-              : { resumeAt: new Date(now() + 120_000).toISOString() },
+              : { resumeAt: new Date(now() + 360_000).toISOString() },
           coordination: {
             authentication: {
               signingKeys: {

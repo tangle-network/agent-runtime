@@ -1,14 +1,15 @@
 /**
  * One hosted coordinator process: `runGraph` over a SQL run context with no runDir, whose only
  * entry node is a seated manager. `long` mode's seat resets 6 min out (past Runtime's seat park
- * floor); `short` mode's resets 300 ms out. The clock is the only fake: `resume` reads it 10 min on.
+ * floor); `short` mode's resets within the chain's 2 min recheck, so its node waits in place until
+ * the caller cancels it. The clock is the only fake: `resume` reads it 10 min on.
  *
  * Usage: `node hosted-seat-parking.mjs <dir> <long|short> <park|early|resume>`
  */
 import { join } from 'node:path'
 import { createFencedSqlRunContext, RunParkedError, runGraph } from '../../../src/runtime/index'
-import { durableRetainedProvider } from '../../helpers/durable-retained-provider'
 import { openSql, TEST_LEASE } from '../../helpers/durability/sql-adapter'
+import { durableRetainedProvider } from '../../helpers/durable-retained-provider'
 import { testAgentProfile } from '../../kernel/test-agent-profile'
 
 const [dir, mode = 'long', phase = 'park'] = process.argv.slice(2)
@@ -37,6 +38,8 @@ const profile = testAgentProfile('work', {
   ],
 })
 let selections = 0
+const abort = new AbortController()
+if (mode === 'short') setTimeout(() => abort.abort(new Error('stop the in-place wait')), 1_500)
 const sql = openSql(join(dir, 'run-context.sqlite'))
 const context = await createFencedSqlRunContext(sql.adapter, RUN_ID, TEST_LEASE)
 const journal = async () => (await context.journal.loadTree(RUN_ID)) ?? []
@@ -58,8 +61,7 @@ try {
       backend,
       selectSeat: async () => {
         selections += 1
-        if (phase === 'resume' || (mode === 'short' && selections > 1))
-          return { seat: 'ready-seat', backend }
+        if (phase === 'resume') return { seat: 'ready-seat', backend }
         return { resumeAt: new Date(now() + (mode === 'long' ? 360_000 : 300)).toISOString() }
       },
       coordination: {
@@ -73,12 +75,14 @@ try {
       },
       perWorker: { maxIterations: 2, maxTokens: 500 },
       childSettleGraceMs: 0,
+      signal: abort.signal,
     },
   )
   process.stdout.write(
     `${JSON.stringify({
       kind: 'settled',
       result: outcome.result.kind,
+      reason: 'reason' in outcome.result ? outcome.result.reason : undefined,
       nodes: outcome.result.tree.nodes.map((node) => ({ label: node.label, status: node.status })),
       events: await journal(),
     })}\n`,

@@ -255,9 +255,9 @@ describe('hosted graph seat parking over a SQL run context', () => {
       expect(resumed.kind).toBe('settled')
       expect(resumed.nodes).toEqual([{ label: 'work', status: 'done' }])
       expect(parkedRows(resumed.events)).toHaveLength(1)
-      expect(resumed.events.some((event: { kind: string }) => event.kind === 'root-reentered')).toBe(
-        true,
-      )
+      expect(
+        resumed.events.some((event: { kind: string }) => event.kind === 'root-reentered'),
+      ).toBe(true)
       expect(
         resumed.events.filter(
           (event: { kind: string; label?: string }) =>
@@ -268,11 +268,11 @@ describe('hosted graph seat parking over a SQL run context', () => {
     3 * CHILD_TIMEOUT_MS + 5_000,
   )
 
-  it('keeps a run whose seat resets within the park floor and settles it in place', async () => {
+  it('keeps a run whose seat resets within the park floor in its process', async () => {
     const dir = await directory()
     const outcome = await host(dir, 'short', 'park')
     expect(outcome.kind).toBe('settled')
-    expect(outcome.nodes).toEqual([{ label: 'work', status: 'done' }])
+    expect(outcome.reason).toBe('cancelled')
     expect(parkedRows(outcome.events)).toHaveLength(0)
     expect(
       outcome.events.some(
