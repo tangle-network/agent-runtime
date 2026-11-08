@@ -1,3 +1,13 @@
+## 8.0.4
+
+Add `runEvidence(runDir | runId, bounds)` to `/durable`: per-node outcome, settled JSON, last tool calls, final assistant message and tokens from a `superviseGraphPursuit` run directory, ANSI-free, with every cap a parameter and a whole-result cap on serialized size that truncates instead of throwing. Add `setGraphStrings(graphText, map)` and `readGraphStrings(graphText)` to `/kernel`: rewrite only the named nodes' `profile.prompt.systemPrompt` (or `appendSystemPrompt`) in a graph's YAML, across flow, quoted, `|` and `>-` scalars, and refuse any write whose prompt-masked graph or read-back strings differ.
+
+`parking` now works for a hosted run with a SQL `runContext` and no `runDir`: the journal's `run-parked` event is the durable record and `parking.json` is written only with a `runDir`. A run whose every live node, children included, waits on a seat reset at least `SEAT_PARK_MIN_MS` (5 min) away rejects with `RunParkedError(runId, { reason: 'seat-wait', since, wakeAt })` instead of holding its worker; resuming before `wakeAt` rejects again at once, and resuming after it rechecks the seat chain and continues. A seat reset nearer than 5 min is now slept through in place, for a root as for a child.
+
+A resumed scope's first keyed spawn of a live child that the resume recovered now returns that child (`prior.state: 'recovered'`) instead of refusing it as `duplicate-key`, so a resumed route flow continues with its in-flight entry worker. A second spawn of the same live key is still `duplicate-key`.
+
+`@tangle-network/agent-profile-materialize` is required at `^1.1.64`. Its 1.1.63 recorded every file it wrote under `.agent-profile-written/` in the candidate profile staging root, so `prepareAgentCandidateExecution` refused every candidate with "profile workspace staging files, modes, or bytes do not match the signed profile plan" in any install that resolved it (the Runtime's own lockfile held 1.1.62). 1.1.64 applies a candidate plan with `reject` and writes only the plan's files; the floor keeps a consumer from resolving 1.1.63.
+
 ## 8.0.3
 
 A root driver's second attempt is no longer refused "scope owner materialization changed mid-run: resources" when only the applied resources it observed moved; like the execution instance, they are a per-attempt observation, and the attempt binds to the run's committed receipt.
