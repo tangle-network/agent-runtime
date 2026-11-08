@@ -449,8 +449,6 @@ const BOX_TREE = 'tree'
 const BOX_SETUP_SECONDS = 900
 /** The box's own process timeout is a backstop behind this module's deadline. */
 const BOX_PROCESS_BACKSTOP_MS = 30_000
-/** The box's process supervisor prefixes this to stderr when it cannot start the executable. */
-const BOX_EXEC_FAILURE = 'process-supervisor: exec failed'
 
 async function runInBox(
   options: IsolatedCheckOptions,
@@ -705,7 +703,7 @@ async function executeInBox(
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
   let bytes = 0
-  let failure: 'timeout' | 'cancelled' | 'output-limit' | undefined
+  let failure: 'timeout' | 'cancelled' | 'output-limit' | 'refused' | undefined
   let stopping: Promise<boolean> | undefined
   let stopped = false
   const stop = (reason: typeof failure) => {
@@ -762,6 +760,10 @@ async function executeInBox(
     )
   } catch (error) {
     if (child) stopping ??= stopCheckProcess(child)
+    else if (!failure && (error as Error)?.message?.startsWith('Command setup failed')) {
+      failure = 'refused'
+      stderr.push(Buffer.from((error as Error).message))
+    }
     if (!failure) throw error
   } finally {
     clearTimer()
@@ -775,12 +777,10 @@ async function executeInBox(
   const evidence = { stdout: out, stderr: err, exitCode: exitSignal ? null : exitCode }
   const finish = (result: IsolatedCheckResult) => ({
     result,
-    commandSettled: completion !== undefined || stopped,
+    commandSettled: completion !== undefined || stopped || failure === 'refused',
   })
   if (failure)
     return finish({ succeeded: false, reason: failure, diagnostic: err || failure, ...evidence })
-  if (exitCode === 127 && err.startsWith(BOX_EXEC_FAILURE))
-    return finish({ succeeded: false, reason: 'refused', diagnostic: err, ...evidence })
   if (exitSignal)
     return finish({
       succeeded: false,
