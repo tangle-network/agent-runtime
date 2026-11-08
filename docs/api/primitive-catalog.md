@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@8.0.3` and `@tangle-network/agent-eval@1.0.23` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@8.0.4` and `@tangle-network/agent-eval@1.0.25` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1254,7 +1254,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `Shell` | type | Command runner seam. Host code can use `localShell`; sandbox code can wrap `box.exec`. |
 | `SpawnJournalReadRecord` | type | Physical groups expand to event records; the owning tree is preserved for every event. |
-| `SpawnPrior` | type | What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on |
+| `SpawnPrior` | type | What a KEYED spawn resolved to when the key had a prior attempt; absent on a fresh or unkeyed |
 | `SpawnRejection` | type | Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets |
 | `SpendChannel` | type | The accounting channels a usage gap leaves incomplete. |
 | `StopDecision` | type | A stop rule's answer. `reason` is required when stopping — a run that ends must be able to say |
