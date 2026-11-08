@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+Release qualification grades the three recorded 2026-09-24 agent outputs (Terminal-Bench `hello-world` and `fix-permissions`, SWE-bench Verified `astropy__astropy-12907`) with their official judges through the packed archive, and refuses unless each grade matches its recorded verdict.
+`scripts/grade-recorded-evidence.mjs` runs it; no model is called. The stray compiled `script_agent` bytecode is removed from the source tree.
+
 ## 1.0.2
 
 Follows `@tangle-network/agent-runtime` 8.0.1 (`^8.0.1`). No code change.
