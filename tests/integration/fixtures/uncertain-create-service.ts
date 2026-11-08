@@ -181,7 +181,7 @@ async function replay(
     })
     return
   }
-  if (scenario === 'json-incomplete' && !exactResult) {
+  if (scenario.endsWith('-incomplete') && !exactResult) {
     subscribeAccepted(run, response, exactResult)
     return
   }
@@ -613,7 +613,7 @@ async function runtime(
     if (
       scenario.startsWith('create-') ||
       ((scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
-        scenario !== 'json-incomplete' &&
+        !scenario.endsWith('-incomplete') &&
         !scenario.startsWith('json-observation-'))
     ) {
       let observed!: () => void
@@ -866,6 +866,8 @@ const server = createServer((request, response) => {
     else response.destroy()
   })
 })
+// No idle close: a loaded test process reused a socket the 5 s keep-alive had just closed (ECONNRESET).
+server.keepAliveTimeout = 0
 server.listen(0, '127.0.0.1', () => {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('no HTTP address')

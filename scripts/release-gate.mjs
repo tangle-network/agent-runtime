@@ -31,7 +31,7 @@ export function attestReleaseGate(commit, gated) {
     !new RegExp(`^${receipt.host}-[a-f0-9]{32}$`).test(receipt.gate_id ?? '')) throw new Error('no successful detached normal/install release:check receipt for the gated commit')
   const tree = git('rev-parse', `${commit}^{tree}`)
   for (const sha of new Set([gated, commit])) {
-    const status = JSON.parse(execFileSync('gh-drew', ['api', '--method', 'POST', `repos/${repository}/statuses/${sha}`,
+    const status = JSON.parse(execFileSync('gh-drew', ['api', `repos/${repository}/statuses/${sha}`, '--method', 'POST',
       '-f', 'state=success', '-f', `context=${context}`, '-f', `description=${description(tree, receipt.gate_id)}`,
       '-f', `target_url=https://github.com/${repository}/commit/${gated}`], { encoding: 'utf8' }))
     if (status.creator?.login !== 'drewstone' || status.state !== 'success' || status.context !== context)

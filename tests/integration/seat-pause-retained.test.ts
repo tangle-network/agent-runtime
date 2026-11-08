@@ -59,7 +59,7 @@ it.each(['pending-release', 'pending-refuse', 'complete-release', 'complete-refu
       },
       capabilities: async () => {
         if (retiring) {
-          await writeFile(join(directory, 'retirement-entered'), 'entered')
+          entered()
           const answer = await runSettledCommand({
             command: process.execPath,
             args: [
@@ -112,6 +112,10 @@ it.each(['pending-release', 'pending-refuse', 'complete-release', 'complete-refu
       })
       return name
     }
+    let entered!: () => void
+    const retirementEntered = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     let paused!: () => void
     const waiting = new Promise<void>((resolve) => {
       paused = resolve
@@ -186,7 +190,7 @@ it.each(['pending-release', 'pending-refuse', 'complete-release', 'complete-refu
     const common = {
       ...context,
       runId: 'retained-seat',
-      budget: { ...ceiling(100), deadlineMs: 10_000 },
+      budget: { ...ceiling(100), deadlineMs: 600_000 }, // never expires; vitest's timeout guards a hang
       workerSlots: 1,
       deadlineCheckIn: false as const,
       rootIdentity: {
@@ -201,11 +205,7 @@ it.each(['pending-release', 'pending-refuse', 'complete-release', 'complete-refu
           async act(_task, scope) {
             const admitted = scope.spawn(manager, 'task', { key: 'manager', budget: ceiling(80) })
             if (!admitted.ok) throw new Error('native manager refused')
-            await expect
-              .poll(() =>
-                readFile(join(directory, 'retirement-entered'), 'utf8').catch(() => undefined),
-              )
-              .toBe('entered')
+            await retirementEntered
             expect(scope.workerCapacity.working).toBe(0)
             expect(scope.budget).toMatchObject({ reservedTokens: 70, tokensLeft: 20 })
             expect(scope.budget.resources?.io).toMatchObject({

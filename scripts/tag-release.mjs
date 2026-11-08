@@ -24,6 +24,8 @@ const refuse = (reason) => {
   console.error(`refused: ${reason}`)
   process.exit(1)
 }
+// A runtime tag without proof sends qualification to the full hosted release:check (v8.0.3, five reds).
+if (pkg === 'agent-runtime' && !gated) refuse('--gate <gated-sha> is required: run `beelink-gate auto <repo> <sha> -- pnpm run release:check`, then pass that sha')
 const repository = 'tangle-network/agent-runtime'
 const qualifier = '.github/workflows/qualify-release.yml'
 const workflowAt = (sha) => execFileSync('git', ['show', `${sha}:${qualifier}`], { encoding: 'utf8' })
