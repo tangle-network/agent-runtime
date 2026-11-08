@@ -283,27 +283,54 @@ it('keeps historical host evidence debt when application JSON forges a complete 
   })
 }, 300_000)
 
-it('keeps incomplete native observation pending despite a parseable exact-result message', async () => {
-  await withFixture('json-incomplete', executables, async (fixture) => {
-    await fixture.wait('incomplete observation classified', async () =>
-      (await fixture.events()).some(
-        (row) => row.kind === 'reconciled' && row.retainedPendingCause === 'unobservable',
-      ),
-    )
-    const events = await fixture.events()
-    expect(events.filter((row) => row.kind === 'execution-result')).toHaveLength(0)
-    const evidence = events.filter((row) => row.kind === 'execution-evidence')
-    expect(evidence).toHaveLength(1)
-    const blobs = new FileResultBlobStore(join(fixture.directory, 'run', 'blobs'))
-    const envelope = object(await blobs.get(evidence[0]!.outRef))
-    expect(
-      object((envelope.events as Array<{ data: object }>).at(-1)?.data).eventStreamComplete,
-    ).toBe(false)
-    expect(JSON.stringify(events)).toContain('complete native event observation is required')
-    expect((await fixture.state()).runs).toHaveLength(1)
-    expect((await fixture.state()).requests.filter((row) => row.kind === 'delete')).toHaveLength(0)
-    expect(
-      events.some((row) => row.kind === 'reconciled' && row.retainedPendingCause !== undefined),
-    ).toBe(true)
-  })
-}, 300_000)
+// An ended turn whose stream was not wholly read settles failed: re-reading it can never complete
+// it, and as a pending execution it stranded wfrun_hfOEFX6GZeN41Viz's build node for 6 drives.
+it.each<Scenario>(['json-incomplete', 'json-malformed-incomplete'])(
+  'settles %s as a failed JSON turn, never a pending execution',
+  async (scenario) => {
+    await withFixture(scenario, executables, async (fixture) => {
+      // Teardown is not under test: the provider confirms the delete at once.
+      await fixture.control({ finish: true })
+      const pending = (rows: SpawnEvent[]) =>
+        rows.filter((row) => row.kind === 'reconciled' && row.retainedPendingCause !== undefined)
+      await fixture.wait('incomplete observation decided', async () => {
+        const rows = await fixture.events()
+        return pending(rows).length > 0 || rows.some((row) => row.kind === 'execution-result')
+      })
+      expect(pending(await fixture.events())).toEqual([])
+      await fixture.wait('graph settled', async () =>
+        fixture.outcomes().some((row) => row.kind === 'settled'),
+      )
+      const graph = object(
+        object(fixture.outcomes().find((row) => row.kind === 'settled')!.result).result,
+      )
+      expect(object(graph.result).kind).toBe('no-winner')
+      expect(String(object(graph.stopped).reason)).toMatch(/complete native event observation/)
+      expect(JSON.stringify(graph.ledger)).not.toContain('private-json-answer-canary')
+      const events = await fixture.events()
+      expect(pending(events)).toEqual([])
+      const results = events.filter((row) => row.kind === 'execution-result')
+      const { runs } = await fixture.state()
+      expect(results).toHaveLength(runs.length)
+      expect(runs.length).toBeLessThanOrEqual(2)
+      const blobs = new FileResultBlobStore(join(fixture.directory, 'run', 'blobs'))
+      for (const row of results) {
+        if (row.kind !== 'execution-result') continue
+        expect(row.outcome).toMatchObject({
+          success: false,
+          error: 'provider JSON output: complete native event observation is required',
+          errorCode: 'RUNTIME_OUTPUT_FORMAT_INVALID',
+        })
+        expect(row.outputFormat).toBe('json')
+        expect(await blobs.get(row.outRef)).toBeNull()
+      }
+      const evidence = events.filter((row) => row.kind === 'execution-evidence')
+      expect(evidence).toHaveLength(runs.length)
+      const envelope = object(await blobs.get(evidence[0]!.outRef))
+      expect(
+        object((envelope.events as Array<{ data: object }>).at(-1)?.data).eventStreamComplete,
+      ).toBe(false)
+    })
+  },
+  300_000,
+)
