@@ -190,7 +190,8 @@ async function boxCheck(runtimeField: string) {
     },
   }
   const answer = async (method: string, path: string, body: Buffer, type = '') => {
-    const runtime = `/v1/sandboxes/${box.id}/runtime`
+    const self = `/v1/sandboxes/${box.id}`
+    const runtime = `${self}/runtime`
     if (path === '/v1/me') {
       const id = 'cust_graph_owner'
       const me = { customer_id: id, billing_owner_id: id, api_key_id: null }
@@ -200,13 +201,14 @@ async function boxCheck(runtimeField: string) {
       creates.push(JSON.parse(body.toString('utf8')))
       return box
     }
-    if (path === `/v1/sandboxes/${box.id}`) return method === 'DELETE' ? { outcome: 'destroyed' } : box
+    if (path === self) return method === 'DELETE' ? { outcome: 'destroyed' } : box
     if (path === `${runtime}/fs/upload-dir`) {
       const form = await new Response(body, { headers: { 'content-type': type } }).formData()
       const archive = form.get('archive') as Blob
-      await mkdir(join(root, String(form.get('path'))), { recursive: true })
+      const into = join(root, String(form.get('path')))
+      await mkdir(into, { recursive: true })
       await writeFile(join(directory, 'upload.tar.gz'), Buffer.from(await archive.arrayBuffer()))
-      await run('tar', ['-xzf', join(directory, 'upload.tar.gz'), '-C', join(root, String(form.get('path')))])
+      await run('tar', ['-xzf', join(directory, 'upload.tar.gz'), '-C', into])
       return { success: true }
     }
     if (path === `${runtime}/process/spawn`) {
