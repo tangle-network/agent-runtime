@@ -80,6 +80,10 @@ function localBoxes(root: string) {
               for await (const chunk of stream) yield String(chunk)
             }
             return {
+              async *logs() {
+                for await (const data of text(child.stdout)) yield { type: 'stdout', data }
+                for await (const data of text(child.stderr)) yield { type: 'stderr', data }
+              },
               stdout: () => text(child.stdout),
               stderr: () => text(child.stderr),
               wait: () => exit,

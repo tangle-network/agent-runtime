@@ -219,6 +219,9 @@ describe('box command settlement (transport fault injection, not native isolatio
     let boxStops = 0
     let deletions = 0
     const completed = (stdout: string) => ({
+      async *logs() {
+        yield { type: 'stdout', data: stdout }
+      },
       async *stdout() {
         yield stdout
       },
@@ -232,12 +235,8 @@ describe('box command settlement (transport fault injection, not native isolatio
       async kill() {},
     })
     const command = {
-      async *stdout() {
-        yield 'output before interruption'
-        await never
-      },
-      async *stderr() {
-        yield ''
+      async *logs() {
+        yield { type: 'stdout', data: 'output before interruption' }
         await never
       },
       async wait() {
