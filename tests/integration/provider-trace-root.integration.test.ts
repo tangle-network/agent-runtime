@@ -80,7 +80,10 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
             const original = object(await settledBlobs.get(result.outRef))
             for (const row of rows.filter((row) => row.kind === 'execution-evidence')) {
               const out = object(await settledBlobs.get(row.outRef))
-              if (out.workspaceSnapshot !== undefined && isDeepStrictEqual(original.events, out.events))
+              if (
+                out.workspaceSnapshot !== undefined &&
+                isDeepStrictEqual(original.events, out.events)
+              )
                 return true
             }
             return false
