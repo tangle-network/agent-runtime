@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const scripts = dirname(fileURLToPath(import.meta.url))
-const fixtureEnv = { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'Release fixture', GIT_AUTHOR_EMAIL: 'release-fixture@example.invalid', GIT_COMMITTER_NAME: 'Release fixture', GIT_COMMITTER_EMAIL: 'release-fixture@example.invalid' }
+const fixtureEnv = { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1', GIT_AUTHOR_NAME: 'Release fixture', GIT_AUTHOR_EMAIL: 'release-fixture@example.invalid', GIT_COMMITTER_NAME: 'Release fixture', GIT_COMMITTER_EMAIL: 'release-fixture@example.invalid', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null' }
 const run = (command, args, cwd) => execFileSync(command, args, { cwd, env: fixtureEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 const fixture = (t) => {
   const root = mkdtempSync(join(tmpdir(), 'runtime-publication-'))

@@ -1,3 +1,11 @@
+## 9.0.1
+
+A JSON-output provider turn that ended before its event stream was wholly read now settles failed with `RUNTIME_OUTPUT_FORMAT_INVALID` instead of staying a pending retained execution, so the next attempt runs a fresh execution rather than re-reading the same stream until the driver's attempts run out.
+
+A provider JSON node whose final message ends with one fenced JSON block (```json or bare ```) settles that block; bare JSON settles unchanged, and any text after the fence stays refused with RUNTIME_OUTPUT_FORMAT_INVALID.
+
+Public agent turns now report failed executor outcomes while retaining their output, spend, and outcome metadata. In-place and worktree CLI runs mark unreported dollar cost as unknown instead of measured zero.
+
 ## 9.0.0
 
 `SpawnPrior` (`@tangle-network/agent-runtime/kernel`) gains the arm `{ state: 'recovered'; priorId }`: a resumed scope's first keyed spawn of a live child its resume recovered returns that child instead of refusing it as `duplicate-key`. An exhaustive match on `prior.state` must handle `'recovered'`; every other consumer compiles unchanged. 8.0.4 below was prepared with this change as a patch and never published, because release admission classes the new arm as a break over 8.0.1; its entries ship in 9.0.0.
