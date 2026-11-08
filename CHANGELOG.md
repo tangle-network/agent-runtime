@@ -1,3 +1,9 @@
+## 8.0.3
+
+A root driver's second attempt is no longer refused "scope owner materialization changed mid-run: resources" when only the applied resources it observed moved; like the execution instance, they are a per-attempt observation, and the attempt binds to the run's committed receipt.
+
+The code-mode engine dependency `@earendil-works/pi-codemode` moves from 1.4.0 to 1.5.0.
+
 ## 8.0.2
 
 `report_blocked` resolves its probe target only through the caller's granted tools: a tool the grant does not serve is refused (`unknown-tool`) instead of falling back to the full coordination verb list, so the probe can never run an ungranted coordination verb.
