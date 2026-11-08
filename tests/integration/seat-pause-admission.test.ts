@@ -230,7 +230,8 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
             profileDigest: canonicalCandidateDigest({ name: 'root' }),
             taskDigest: canonicalCandidateDigest(null),
           },
-          budget: { ...ceiling(overrun ? 200 : 100), deadlineMs: 5000 },
+          // Never expires here: grants must keep one deadline; vitest's timeout guards a hang.
+          budget: { ...ceiling(overrun ? 200 : 100), deadlineMs: 600_000 },
           workerSlots: 1,
         },
       )

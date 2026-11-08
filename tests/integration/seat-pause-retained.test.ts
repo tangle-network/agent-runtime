@@ -190,7 +190,7 @@ it.each(['pending-release', 'pending-refuse', 'complete-release', 'complete-refu
     const common = {
       ...context,
       runId: 'retained-seat',
-      budget: { ...ceiling(100), deadlineMs: 10_000 },
+      budget: { ...ceiling(100), deadlineMs: 600_000 }, // never expires; vitest's timeout guards a hang
       workerSlots: 1,
       deadlineCheckIn: false as const,
       rootIdentity: {
