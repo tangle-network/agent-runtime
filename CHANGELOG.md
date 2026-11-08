@@ -1,3 +1,7 @@
+## 9.0.3
+
+A box check whose process log stream ends before its exit event reads the output the box retains again, within the check's timeout, and settles on the real exit instead of `refused`.
+
 ## 9.0.2
 
 A box check whose command the box cannot start (Sandbox's `Command setup failed (identity, cwd or exec)` spawn refusal, which replaced the exit-127 `process-supervisor: exec failed` stderr) settles `refused` with that message as its diagnostic and stderr, and its box is deleted rather than kept as an unsettled recovery source.
