@@ -138,6 +138,9 @@ export function sessionBackedLeafSeam(
         verdict: { valid: true, score: 1 },
         spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
       }
+      // Like a real provider turn, commit the result through the retained seam before returning:
+      // it closes the recovery and releases the custody backing the recovered child holds.
+      await retained?.onResult(artifact)
       return artifact
     }
 
