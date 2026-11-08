@@ -54,6 +54,7 @@ export class ScopeKeyRegistry<Out> {
     if (identity === undefined) {
       throw new ValidationError(`scope: keyed settlement '${key}' lost its execution identity`)
     }
+    this.unclaimed.delete(key)
     if (this.children.get(settled.handle.id)?.recoveryPending) {
       this.keyed.set(key, { state: 'in-doubt', id: settled.handle.id, identity })
     } else if (settled.kind === 'done') {
@@ -83,8 +84,7 @@ function resumedKeyState<Out>(
     }
   }
   if (prior.state === 'down' && (prior.settled?.kind === 'down' || prior.settled === undefined)) {
-    // With no settlement the resume derived the `down` (an `inline` runtime cannot outlive its
-    // process); a same-key re-spawn reports that reason as `resumed: "retried"`.
+    // No settlement: the resume derived this `down`; a same-key re-spawn reports it as `retried`.
     const reason =
       prior.settled?.kind === 'down'
         ? prior.settled.reason
