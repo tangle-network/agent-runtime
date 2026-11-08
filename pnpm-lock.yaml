@@ -251,8 +251,8 @@ importers:
         specifier: ^23.0.0
         version: 23.0.3(@tangle-network/agent-eval@1.0.25(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7)))(@tangle-network/agent-interface@5.10.20)
       '@tangle-network/agent-profile-materialize':
-        specifier: ^1.1.4
-        version: 1.1.62(@tangle-network/agent-interface@5.10.20)
+        specifier: ^1.1.64
+        version: 1.1.64(@tangle-network/agent-interface@5.10.20)
       '@tangle-network/agent-trace-contract':
         specifier: 'catalog:'
         version: 2.2.2
@@ -2353,8 +2353,8 @@ packages:
       '@tangle-network/agent-eval': ^1.0.0
       '@tangle-network/agent-interface': ^5.2.0
 
-  '@tangle-network/agent-profile-materialize@1.1.62':
-    resolution: {integrity: sha512-FZPTP9uCKbuTgRGz/H3fYFOBqnqRYeNqqjvVdzNYpapcMYvojm5T0Cxf4A35Uu4iYllFGcCBHlhWehd8JpQNCw==}
+  '@tangle-network/agent-profile-materialize@1.1.64':
+    resolution: {integrity: sha512-1oBdps3bh3yMWjYQoq6jWNJ7nLWnyWCv0wlWueX9tFtjBunkugwXzpyNm4IqiMiDoh1iqReeW/VDRls47PJZ8g==}
     peerDependencies:
       '@tangle-network/agent-interface': ^5.10.11
 
@@ -6512,7 +6512,7 @@ snapshots:
       proper-lockfile: 4.1.2
       zod: 4.6.7
 
-  '@tangle-network/agent-profile-materialize@1.1.62(@tangle-network/agent-interface@5.10.20)':
+  '@tangle-network/agent-profile-materialize@1.1.64(@tangle-network/agent-interface@5.10.20)':
     dependencies:
       '@tangle-network/agent-interface': 5.10.20
 
@@ -6520,7 +6520,7 @@ snapshots:
     dependencies:
       '@tangle-network/agent-core': 1.0.3(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))
       '@tangle-network/agent-interface': 5.10.20
-      '@tangle-network/agent-profile-materialize': 1.1.62(@tangle-network/agent-interface@5.10.20)
+      '@tangle-network/agent-profile-materialize': 1.1.64(@tangle-network/agent-interface@5.10.20)
       '@tangle-network/cli-agent-registry': 0.15.38
       undici: 8.12.3
     transitivePeerDependencies:
