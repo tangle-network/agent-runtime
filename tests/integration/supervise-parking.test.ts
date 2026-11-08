@@ -232,7 +232,10 @@ describe('hosted graph seat parking over a SQL run context', () => {
         (event: { kind: string; gate?: string }) =>
           event.kind === 'admission-queued' && event.gate === 'seat',
       )
-      expect(parked.parking.wakeAt).toBe(reset.resumeAt)
+      // The node converts its reset to a wall-clock wait and back across two clock reads.
+      expect(
+        Math.abs(Date.parse(parked.parking.wakeAt) - Date.parse(reset.resumeAt)),
+      ).toBeLessThanOrEqual(50)
       expect(Date.parse(parked.parking.wakeAt) - Date.parse(parked.parking.since)).toBeGreaterThan(
         5 * 60_000,
       )
