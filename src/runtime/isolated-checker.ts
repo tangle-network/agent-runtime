@@ -658,16 +658,10 @@ async function verifyBoxTree(
   box: SandboxInstance,
   files: readonly { path: string; sha256: string }[],
 ) {
-  const hash = ['.', '-type', 'f', '-exec', 'sha256sum', '{}', '+']
-  const child = await box.process.spawnExact('find', hash, {
-    cwd: BOX_TREE,
-    env: { PATH: '/usr/bin:/bin', LANG: 'C' },
-    inheritEnv: false,
-    timeoutMs: BOX_SETUP_SECONDS * 1_000,
-  })
-  let listing = ''
-  for await (const text of child.stdout()) listing += text
-  if ((await child.wait()) !== 0) throw new Error('Check box could not hash the tree it received')
+  const hash = ['find', '.', '-type', 'f', '-exec', 'sha256sum', '{}', '+'] as const
+  const { result } = await executeInBox(box, hash, BOX_SETUP_SECONDS * 1_000, Infinity, {})
+  if (!result.succeeded) throw new Error(`Check box could not hash its tree: ${result.diagnostic}`)
+  const listing = result.value.stdout
   // Each line is `<hex>  ./<path>`.
   const read = new Set(
     listing.split('\n').map((line) => `sha256:${line.slice(0, 64)} ${line.slice(68)}`),
@@ -715,15 +709,23 @@ async function executeInBox(
   const cancel = () => stop('cancelled')
   signal?.addEventListener('abort', cancel, { once: true })
   if (signal?.aborted) cancel()
-  const capture = async (stream: AsyncIterable<string>, target: Buffer[]) => {
-    for await (const text of stream) {
-      if (deadline.signal.aborted) break
-      const chunk = Buffer.from(text)
-      const remaining = Math.max(0, limit - bytes)
-      bytes += chunk.length
-      if (remaining) target.push(chunk.subarray(0, remaining))
-      if (bytes > limit) stop('output-limit')
-    }
+  // The box retains the output; a log stream that ends before its exit event is read again whole.
+  const capture = async (running: NonNullable<typeof child>) => {
+    while (!deadline.signal.aborted)
+      try {
+        stdout.length = stderr.length = bytes = 0
+        for await (const { type, data } of running.logs()) {
+          if (deadline.signal.aborted) return
+          const chunk = Buffer.from(data)
+          if (bytes < limit)
+            (type === 'stdout' ? stdout : stderr).push(chunk.subarray(0, limit - bytes))
+          bytes += chunk.length
+          if (bytes > limit) stop('output-limit')
+        }
+        return
+      } catch (error) {
+        if (!String(error).includes('stream ended before its exit event')) throw error
+      }
   }
   let completion: { exitCode: number; exitSignal?: string } | undefined
   try {
@@ -750,10 +752,8 @@ async function executeInBox(
     const running = child
     completion = await runAbortable(
       async () => {
-        await Promise.all([capture(running.stdout(), stdout), capture(running.stderr(), stderr)])
-        const exitCode = await running.wait()
-        const exitSignal = (await running.status()).exitSignal
-        return { exitCode, exitSignal }
+        await capture(running)
+        return { exitCode: await running.wait(), exitSignal: (await running.status()).exitSignal }
       },
       deadline.signal,
       'Check interrupted',

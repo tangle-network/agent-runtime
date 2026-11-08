@@ -163,16 +163,18 @@ check: { node: intake, pointer: /pass, equals: true }
   }
 }, 60_000)
 
-/** Run one box check node against a Sandbox HTTP peer: a box whose image has no /bin/sh. The peer
- *  runs the box's `find` for real over the uploaded tree and refuses the check's `/bin/sh` the way
- *  the box's sidecar refuses an executable it cannot start. */
-async function boxCheck(runtimeField: string) {
+/** Run one box check node against a Sandbox HTTP peer. The peer runs the box's `find` for real over
+ *  the uploaded tree. Unless `tear` is set it refuses the check's `/bin/sh` the way the box's sidecar
+ *  refuses an executable it cannot start; with `tear` it runs it, and ends each process's first
+ *  log stream before its exit event, as a dropped connection does. */
+async function boxCheck(runtimeField: string, tear = false) {
   const directory = await mkdtemp(join(tmpdir(), 'graph-check-runtime-'))
   onTestFinished(() => rm(directory, { recursive: true, force: true }))
   const root = join(directory, 'box')
   const creates: Record<string, unknown>[] = []
   const requests: string[] = []
   const ran: { stdout: string; exitCode: number }[] = []
+  const torn = new Set<number>()
   const box = {
     id: 'sandbox-check-box',
     status: 'running',
@@ -213,7 +215,7 @@ async function boxCheck(runtimeField: string) {
     }
     if (path === `${runtime}/process/spawn`) {
       const spawn = JSON.parse(body.toString('utf8'))
-      if (spawn.executable === '/bin/sh') {
+      if (spawn.executable === '/bin/sh' && !tear) {
         const message = 'Command setup failed (identity, cwd or exec): ENOENT'
         return { status: 500, body: { success: false, error: { code: 'SPAWN_FAILED', message } } }
       }
@@ -223,8 +225,9 @@ async function boxCheck(runtimeField: string) {
     }
     const pid = Number(/\/process\/(\d+)/.exec(path)?.[1])
     if (path.endsWith('/logs')) {
-      const output = { data: ran[pid - 1]?.stdout, timestamp: 1 }
-      return `event: stdout\ndata: ${JSON.stringify(output)}\n\nevent: exit\ndata: {}\n\n`
+      const output = `event: stdout\ndata: ${JSON.stringify({ data: ran[pid - 1]?.stdout, timestamp: 1 })}\n\n`
+      if (tear && !torn.has(pid)) return torn.add(pid) && output
+      return `${output}event: exit\ndata: {}\n\n`
     }
     if (pid) return { data: { pid, running: false, exitCode: 0, startedAt: box.createdAt } }
     return { status: 404, body: { error: { code: 'NOT_FOUND', message: path } } }
@@ -264,7 +267,7 @@ workspace: cwd
 nodes:
   - id: verify
     check:
-      command: 'true'
+      command: 'echo landed'
       environment: agent-container
       resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}
 entry: [verify]
@@ -308,4 +311,12 @@ it('a box that cannot start the check command refuses it and is deleted', async 
   )
   expect(requests.filter((line) => line.endsWith('/process/spawn'))).toHaveLength(2)
   expect(requests).toContain('DELETE /v1/sandboxes/sandbox-check-box')
+}, 60_000)
+
+it('a box check whose log stream ends before its exit reads the retained output again', async () => {
+  const { requests, said } = await boxCheck('', true)
+  expect(said, requests.join('\n')).not.toContain('refused')
+  expect(said).toContain('"kind":"winner"')
+  expect(said).toContain('landed')
+  expect(requests.filter((line) => line.endsWith('/process/2/logs'))).toHaveLength(2)
 }, 60_000)
