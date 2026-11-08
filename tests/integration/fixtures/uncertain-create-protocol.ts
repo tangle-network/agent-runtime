@@ -278,14 +278,13 @@ export function terminal(run: NativeRun, scenario: Scenario) {
           executionId: run.executionId,
           success,
           status: success ? 'success' : 'failed',
-          finalText:
-            scenario.endsWith('-incomplete')
-              ? processResult.output
-              : tools
-                ? scenario === 'json-ambiguous'
-                  ? processResult.output
-                  : 'Reading evidence.\n'
-                : `Reading evidence.\n${processResult.output}`,
+          finalText: scenario.endsWith('-incomplete')
+            ? processResult.output
+            : tools
+              ? scenario === 'json-ambiguous'
+                ? processResult.output
+                : 'Reading evidence.\n'
+              : `Reading evidence.\n${processResult.output}`,
           ...(success
             ? {}
             : {
