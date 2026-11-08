@@ -26,8 +26,8 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
     const overrun = mode === 'overrun'
     const directory = await mkdtemp(join(tmpdir(), 'seat-pause-'))
     const context = createFileRunContext(directory, { withDriver: true })
-    const control = join(directory, 'seat.json')
-    await writeFile(control, JSON.stringify({ available: false }))
+    // In memory: rewriting a file here let `select` parse its truncated, empty bytes.
+    let available = false
     const provider = durableRetainedProvider(join(directory, 'provider.json'))
     const profile = testAgentProfile('seat-manager', {
       harness: 'opencode',
@@ -111,8 +111,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
                 journal: context.journal,
                 rootId: 'seat-root',
                 select: async () => {
-                  if (!JSON.parse(await readFile(control, 'utf8')).available)
-                    throw new SeatPauseError(new Date(Date.now() + 200).toISOString())
+                  if (!available) throw new SeatPauseError(new Date(Date.now() + 200).toISOString())
                   return { seat: 'local-seat', backend: { backend: 'provider', provider } }
                 },
                 onPause: async (_id, _at, phase) => {
@@ -184,7 +183,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
               })
               expect(scope.workerCapacity).toMatchObject({ working: 1, queued: 1 })
               if (overrun) {
-                await writeFile(control, JSON.stringify({ available: true }))
+                available = true
                 await expect
                   .poll(() =>
                     readFile(join(directory, 'after-reset'), 'utf8').catch(() => undefined),
@@ -211,7 +210,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
             expect(first).toMatchObject({ kind: 'done', out: 'sibling' })
             expect(scope.budget.tokensLeft).toBe(overrun ? 130 : nested ? 70 : 80)
             if (mode === 'cancel') admitted.handle.abort('cancel while seat waits')
-            else await writeFile(control, JSON.stringify({ available: true }))
+            else available = true
             expect(await scope.next()).toMatchObject(
               mode === 'cancel' ? { kind: 'down' } : { kind: 'done', out: 'after-reset' },
             )
