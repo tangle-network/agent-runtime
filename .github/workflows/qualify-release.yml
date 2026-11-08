@@ -102,7 +102,7 @@ jobs:
 
   verify:
     needs: release-source
-    timeout-minutes: 30 # successful runs 7-16 min, failures up to 19; a hang ends here, not at 6 h
+    timeout-minutes: 45 # 7-16 min quiet, 30+ under Beelink load (v8.0.3 rerun died at 30:23 on 2026-11-08); a hang ends here, not at 6 h
     runs-on:
       group: public-app-production
       labels: [self-hosted, ci-deploy]
