@@ -6,13 +6,17 @@ import { defineConfig } from 'vitest/config'
 // source and reports their failures as ours.
 const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktrees/**', '**/_wt/**']
 
-// Keep process and deadline suites out of the parallel test pool.
+// Keep the process/deadline and real-subprocess seat-pause + retained-silence suites out of the
+// parallel pool: contention starves their subprocesses past short `expect.poll` windows and tears
+// a shared-file `JSON.parse(readFile())` ("Unexpected end of JSON input"). Serial, alone; asserts kept.
 const serial = [
   'tests/runtime/retained-capture-resume.test.ts',
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
   'tests/integration/deadline-wake-process.test.ts',
   'tests/integration/uncertain-create-identity.test.ts',
+  'tests/integration/seat-pause-*.test.ts',
+  'tests/integration/retained-silence.test.ts',
 ]
 
 export default defineConfig({
@@ -37,14 +41,10 @@ export default defineConfig({
     ],
   },
   test: {
-    // Several suites drive real candidate-experiment fixtures + canonical digests.
-    // In isolation each such test runs in well under a second, but under the full
-    // parallel pool on a saturated CI runner their wall time inflates ~10x and the
-    // heaviest brush vitest's 5s default (measured: 3.6-4.1s under load), a pure
-    // CPU-contention timeout with no race behind it. Raise the ceiling so contention
-    // does not mint spurious redness; a genuine hang still trips well inside 20s.
-    // hookTimeout gets the same headroom: a suite whose fixture setup is compute-bound
-    // is subject to the identical contention inflation as its test bodies.
+    // Several suites drive real fixtures + canonical digests. In isolation each runs well under a
+    // second, but under the full parallel pool on a saturated runner their wall time inflates ~10x
+    // and brushes vitest's 5s default (measured 3.6-4.1s) — pure CPU contention, no race. 20s keeps
+    // contention from minting spurious redness while a genuine hang still trips; hookTimeout matches.
     testTimeout: 20_000,
     hookTimeout: 20_000,
     projects: [
