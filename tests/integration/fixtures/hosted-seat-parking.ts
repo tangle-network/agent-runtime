@@ -24,7 +24,7 @@ const provider = {
   }),
 }
 const backend = { backend: 'provider' as const, provider }
-const profile = testAgentProfile('seated-node', {
+const profile = testAgentProfile('work', {
   harness: 'opencode',
   model: { provider: 'anthropic', default: 'claude-opus-4-1' },
   seats: [
