@@ -6,9 +6,13 @@ import { defineConfig } from 'vitest/config'
 // source and reports their failures as ours.
 const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktrees/**', '**/_wt/**']
 
-// Keep the process/deadline and real-subprocess suites (seat-pause, retained-silence, provider-
-// trace-root) out of the parallel pool: contention starves their subprocesses past short
-// `expect.poll` windows and tears a shared-file `JSON.parse(readFile())` ("Unexpected end of JSON input").
+// Keep the process/deadline suites and the whole real-subprocess contention class out of the
+// parallel pool. They spawn real OS processes (seat-pause spawn+poll, the tangle Sandbox provider,
+// the in-place CLI harness) and gate on output in short `expect.poll` windows; under pool contention
+// a starved subprocess misses the window or a shared-file `JSON.parse(readFile())` reads a torn write
+// ("Unexpected end of JSON input"). Serial runs each alone after the pool drains; assertions kept.
+// Heavy-but-robust resume/kill suites (durability/*, runtime/supervisor-*) stay in the pool — they
+// tolerate process-death timing and serializing them would lengthen the serial wall past baseline.
 const serial = [
   'tests/runtime/retained-capture-resume.test.ts',
   'tests/kernel/retained-checkpoint-capture.test.ts',
@@ -18,6 +22,24 @@ const serial = [
   'tests/integration/seat-pause-*.test.ts',
   'tests/integration/retained-silence.test.ts',
   'tests/integration/provider-trace-root.integration.test.ts',
+  'tests/integration/candidate-execution-claim.test.ts',
+  'tests/integration/provider-graph-json.test.ts',
+  'tests/integration/custom-driver-seats.test.ts',
+  'tests/integration/profile-config-preallocation.test.ts',
+  'tests/integration/typed-driver-attempts.test.ts',
+  'tests/integration/coordination-control-http.test.ts',
+  'tests/integration/eager-child-settlement.test.ts',
+  'tests/integration/eager-manager-custody.test.ts',
+  'tests/integration/graph-file.test.ts',
+  'tests/integration/keyed-completion-observation.test.ts',
+  'tests/integration/runtime-live-trace.test.ts',
+  'tests/integration/stored-graph-command.test.ts',
+  'tests/integration/pursuit-versions-http.test.ts',
+  'tests/integration/recovered-leaf-custody.test.ts',
+  'tests/integration/supervise-parking.test.ts',
+  'tests/kernel/in-place-cli-executor.test.ts',
+  'tests/kernel/provider-executor-composition.test.ts',
+  'tests/agentic-generator.test.ts',
 ]
 
 export default defineConfig({
