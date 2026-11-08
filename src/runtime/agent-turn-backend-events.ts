@@ -28,6 +28,7 @@ import { projectSandboxOutcome, readSandboxOutcome } from './sandbox-outcome'
 import { canonicalStreamEventFromSandboxEvent } from './sandbox-transport-events'
 import type { AgentTurnBackend } from './stream-agent-turn'
 import { armDeadlineTimer } from './supervise/deadline'
+import { executorFailure } from './supervise/executor-outcome'
 import type { Executor, ExecutorProgressEvent, ExecutorResult, UsageEvent } from './supervise/types'
 import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
 import { isAsyncIterable } from './util'
@@ -349,6 +350,8 @@ export async function* driveExecutorTurn(
   if (acc.sandboxOutcome && projectSandboxOutcome(acc.sandboxOutcome).status === 'failed') {
     throw new Error(projectSandboxOutcome(acc.sandboxOutcome).reason)
   }
+  const failure = executorFailure(result)
+  if (failure) throw new Error(failure.error, { cause: failure })
 }
 
 function executorTaskValue(input: AgentTurnInput): unknown {
@@ -629,6 +632,7 @@ export function buildFinalEvent(
             result: {
               outRef: acc.result.outRef,
               output: acc.result.out,
+              ...(acc.result.outcome ? { outcome: acc.result.outcome } : {}),
               ...(acc.sandboxOutcome
                 ? { verdict: projectSandboxOutcome(acc.sandboxOutcome).verdict }
                 : acc.result.verdict

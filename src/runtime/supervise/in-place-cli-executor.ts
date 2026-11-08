@@ -35,6 +35,7 @@ import {
   runInPlaceHarness,
   worktreeProfileExecutionPlan,
 } from '../../mcp/worktree-harness'
+import { unmeteredSpend } from '../util'
 import { linkAbort } from './abortable'
 import { errMessage } from './error-message'
 import { executableAgentProfileSnapshot } from './executable-spec'
@@ -137,14 +138,9 @@ export function createInPlaceCliExecutor(
         })
         const result = await running
 
-        // `usdKnown: false` refuses reconciliation under a dollar cap (`budget.ts`), so this
-        // budget-exempt leaf preserves its existing dollar channel. Tokens remain an unknown floor.
         const spent: Spend = {
+          ...unmeteredSpend(Date.now() - started),
           iterations: 1,
-          tokens: { input: 0, output: 0 },
-          tokensKnown: false,
-          usd: 0,
-          ms: Date.now() - started,
         }
         // A harness that exited nonzero, timed out or was cancelled did not do the work, even when
         // it wrote nothing wrong: report it in the executor envelope so the node settles down
