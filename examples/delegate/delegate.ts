@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   if (!routerKey) throw new Error('set TANGLE_API_KEY (your Tangle router key)')
   // Two roles: the WORKER does the filesystem task (a cheap model is fine); the supervisor BRAIN
   // must reliably tool-call spawn_worker and end its turn to wait, so it defaults to a stronger delegator model.
-  const model = process.env.MODEL ?? process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
+  const model = process.env.MODEL ?? process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash'
   const brainModel = process.env.MODEL ?? process.env.BRAIN_MODEL ?? model
 
   const { workDir, target, targetAbs } = scratchTarget()

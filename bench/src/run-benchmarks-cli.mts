@@ -39,7 +39,7 @@ function parseCell(spec: string): BenchCell {
 async function main(): Promise<void> {
   const benchmarks = (process.env.BENCHMARKS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   if (benchmarks.length === 0) throw new Error('env BENCHMARKS is required (comma-separated registry keys, e.g. humaneval,swe-bench)')
-  const cells = (process.env.CELLS ?? process.env.WORKER_MODEL ?? 'deepseek-v4-flash')
+  const cells = (process.env.CELLS ?? process.env.WORKER_MODEL ?? 'deepseek-v4.1-flash')
     .split(',').map((s) => s.trim()).filter(Boolean).map(parseCell)
 
   const report = await runBenchmarks({

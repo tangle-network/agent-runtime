@@ -49,7 +49,7 @@ function routerConfig(): { baseUrl: string; key: string; model: string } {
   return {
     baseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     key,
-    model: process.env.FINRESEARCHBENCH_JUDGE_MODEL ?? process.env.JUDGE_MODEL ?? 'deepseek-v4-flash',
+    model: process.env.FINRESEARCHBENCH_JUDGE_MODEL ?? process.env.JUDGE_MODEL ?? 'deepseek/deepseek-v4.1-flash',
   }
 }
 

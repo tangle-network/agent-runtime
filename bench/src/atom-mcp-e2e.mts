@@ -9,7 +9,7 @@
  * delivered worker. Real models (bridge non-Claude), real check, real driver↔worker transcripts.
  *
  *   ROUTER_BASE=http://127.0.0.1:3355/v1 TANGLE_API_KEY=<bridge-bearer> \
- *   WORKER_MODEL=opencode/zai-coding-plan/glm-5-turbo npx tsx bench/src/atom-mcp-e2e.mts
+ *   WORKER_MODEL=opencode/zai-coding-plan/glm-5.3 npx tsx bench/src/atom-mcp-e2e.mts
  */
 
 import { execFileSync } from 'node:child_process'
@@ -41,7 +41,7 @@ import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-m
 
 const BRIDGE = (process.env.ROUTER_BASE ?? 'http://127.0.0.1:3355/v1').replace(/\/$/, '')
 const BEARER = process.env.TANGLE_API_KEY ?? ''
-const MODEL = process.env.WORKER_MODEL ?? 'opencode/zai-coding-plan/glm-5-turbo'
+const MODEL = process.env.WORKER_MODEL ?? 'opencode/zai-coding-plan/glm-5.3'
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SKILL_MD = readFileSync(join(REPO, 'skills', 'supervise', 'SKILL.md'), 'utf8')
 
