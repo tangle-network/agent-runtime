@@ -327,11 +327,9 @@ function recordSpawnedWorker(
   state.workerByAssignment.set(assignmentId, handle.id)
 }
 
-// Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
-// both "it started" and "you can still open N more" — the feedback that lets it fill
-// slots instead of opening one worker per turn. `null` = uncapped. A fresh spawn under a
-// key with a failed prior attempt carries that history (`resumed`/`priorWorkerId`), so a
-// re-run is always explicit. An in-doubt prior is refused above and never duplicated.
+// Report the REMAINING capacity with the spawn (`null` = uncapped), so the driver fills slots
+// instead of opening one worker per turn. A keyed prior attempt rides as `resumed`/`priorWorkerId`
+// (retried, continued, or the resume's recovered worker); an in-doubt prior is refused above.
 function startedSpawnReport(
   state: AdmissionState,
   input: SpawnAdmission,
@@ -339,8 +337,6 @@ function startedSpawnReport(
   assignmentId: string,
 ) {
   const { continuity, successorOf } = input
-  // A `completed` key returned earlier, so any prior still attached here is a real re-run:
-  // `retried` means the prior attempt reached a terminal down receipt.
   const priorHistory =
     res.prior !== undefined && res.prior.state !== 'completed'
       ? {

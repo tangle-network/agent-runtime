@@ -60,8 +60,9 @@ function spawnWorkerTool(ctx: WorkerToolsCtx): McpToolDescriptor {
       'key when the executor provably died with the process (an inline worker — the same ' +
       '`resumed: "retried"`, naming the interruption). A key with no terminal receipt whose ' +
       'execution may still exist elsewhere (sandbox, CLI bridge, router) is refused ' +
-      '(`error: "in-doubt"`) until its exact prior execution is recovered. A key still running ' +
-      'is refused (`error: "duplicate-key"`). ' +
+      '(`error: "in-doubt"`) until its exact prior execution is recovered; the first spawn of a ' +
+      'recovered key returns that worker (`resumed: "recovered"`), any other spawn of a key still ' +
+      'running is refused (`error: "duplicate-key"`). ' +
       'Returns `freeSlots`: how many MORE workers start at once (`null` = no slot bound), and ' +
       '`queued`: how many of your workers wait for a slot. Parallel workers finish the run ' +
       'sooner than one at a time. An authored profile must be fully executable before it ' +
