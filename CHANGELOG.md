@@ -1,3 +1,9 @@
+## 9.0.2
+
+A box check whose command the box cannot start (Sandbox's `Command setup failed (identity, cwd or exec)` spawn refusal, which replaced the exit-127 `process-supervisor: exec failed` stderr) settles `refused` with that message as its diagnostic and stderr, and its box is deleted rather than kept as an unsettled recovery source.
+
+A graph check node may set `runtime: docker | firecracker`; under `checkPlacement` its box create sends it as Sandbox's `runtime` field, and an absent `runtime` sends none. `IsolatedCheckBox.runtime` carries it, and the Sandbox peer floor is 1.0.265, the first SDK that sends the field.
+
 ## 9.0.1
 
 A JSON-output provider turn that ended before its event stream was wholly read now settles failed with `RUNTIME_OUTPUT_FORMAT_INVALID` instead of staying a pending retained execution, so the next attempt runs a fresh execution rather than re-reading the same stream until the driver's attempts run out.
