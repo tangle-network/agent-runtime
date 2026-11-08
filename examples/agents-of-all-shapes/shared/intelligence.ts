@@ -27,7 +27,7 @@ type FailureClass = NonNullable<RunRecord['failureClass']>
 /** One agent run, framework-agnostic. A shape produces a list of these. */
 export interface AgentRun {
   runId: string
-  /** Snapshot model id; Claude 5 ids carry no date, so use agent-eval's `@otlp` marker (`claude-sonnet-5-5@otlp`). */
+  /** Snapshot model id, e.g. `claude-sonnet-5-5` (Claude 4.6+ ids have no dated form) or `gpt-4o-2024-11-20`. */
   model: string
   /** Outcome quality on 0..1 (your judge / eval / rubric score). */
   score: number
