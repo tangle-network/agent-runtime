@@ -6,7 +6,6 @@ import {
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
-import { parseDocument } from 'yaml'
 import { ValidationError } from '../../errors'
 import { assertJsonData } from '../../json-data'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
@@ -21,6 +20,7 @@ import {
   type GraphTriggerBinding,
 } from './graph-parameters'
 import { graphDigest, type StoredGraph, type StoredGraphInput } from './graph-registry'
+import { parseGraphYaml } from './graph-strings'
 import { validateGraphTopology } from './graph-topology'
 import { assertExecutableAgentProfile, concreteProfileModel } from './model-policy'
 import { kernelPromptRegistry, type PromptRegistry } from './prompt-registry'
@@ -229,10 +229,7 @@ export async function loadGraphFile(
   const format = extname(file).toLowerCase()
   if (!['.yaml', '.yml', '.json'].includes(format)) refuse('file must be YAML or JSON')
   const text = options.source ?? (await readFile(file, 'utf8'))
-  const document = parseDocument(text, { uniqueKeys: true, strict: true })
-  if (document.errors.length) refuse(document.errors.map((error) => error.message).join('; '))
-  if (document.warnings.length)
-    refuse(document.warnings.map((warning) => warning.message).join('; '))
+  const document = parseGraphYaml(text, 'loadGraphFile')
   const raw: unknown = format === '.json' ? JSON.parse(text) : document.toJS({ maxAliasCount: 100 })
   assertJsonData(raw, 'loadGraphFile')
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) refuse('definition must be an object')

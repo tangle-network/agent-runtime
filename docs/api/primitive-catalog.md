@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@8.0.2` and `@tangle-network/agent-eval@1.0.22` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@8.0.3` and `@tangle-network/agent-eval@1.0.23` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -170,7 +170,7 @@ Import from `@tangle-network/agent-runtime/agent` — 30 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 112 exports.
+Import from `@tangle-network/agent-runtime/durable` — 115 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -192,6 +192,7 @@ Import from `@tangle-network/agent-runtime/durable` — 112 exports.
 | `readSpawnJournal` | function | Read a fixed journal prefix, with historical envelopes and framing owned by Runtime. |
 | `reconcileUnconfirmedTeardowns` | function | Finish unconfirmed teardowns named by a settled run's `result.json`. |
 | `runDirectoryHolderIsLive` | function | Whether a run directory is still held by the live process that took its lock. |
+| `runEvidence` | function | What each node of a run did, from the directory `superviseGraphPursuit` wrote: outcome and tokens |
 | `superviseGraphPursuit` | function | Graph twin of `supervisePursuit`, using its directory lifecycle and `runGraph` execution. |
 | `supervisePursuit` | function | Execute `supervise()` with a durable observer and return its verified pursuit projection. |
 | `RUN_FORK_CORRELATION_KEYS` | const | The `execution.correlation` keys a fork records on its root. Runtime writes them; a caller that |
@@ -235,6 +236,7 @@ Import from `@tangle-network/agent-runtime/durable` — 112 exports.
 | `RunDirectoryHolderLiveness` | interface | What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. |
 | `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
 | `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
+| `RunEvidenceBounds` | interface | Caps in characters, except `toolCalls`; `totalChars` is measured on `JSON.stringify`. |
 | `RunParkingPolicy` | interface | Release a durable coordinator after it has only waited this long. The caller's keeper owns wakeup. |
 | `RunParkingRecord` | interface | The durable handoff from a waiting coordinator to its existing keeper. |
 | `RunReopen` | interface | `supervisePursuit`'s `reopen` option: reopen this settled run under its own run id. |
@@ -262,6 +264,7 @@ Import from `@tangle-network/agent-runtime/durable` — 112 exports.
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `RetainedPendingCause` | type | Why a retained execution has no accepted terminal result. `unobservable` means it may have run |
 | `RootStreamRecord` | type | One line of `root-stream.jsonl`. |
+| `RunEvidence` | type | Per node: `node` is its label, `message` its last assistant text after its final tool call. |
 | `SelectSeat` | type | The caller owns account eligibility and credential resolution; Runtime owns the chain order. |
 | `SpawnJournalReadRecord` | type | Physical groups expand to event records; the owning tree is preserved for every event. |
 | `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
@@ -431,7 +434,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -606,6 +609,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
 | `readBoundHarnessSessions` | function | Verify a bound native family without owning a store, filesystem layout or native parser. |
 | `readCodexRolloutSession` | function | Read one rollout's rows into a session record. |
 | `readDeclaredCheck` | function | Read the check once. `result` is the submitted result, absent for a read of the run's state. |
+| `readGraphStrings` | function | Node id → its prompt string, for each node whose prompt is its own and unshared: an anchored |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readRunParking` | function | Read the journal's bounded parking projection. Undefined means no current parking handoff. |
@@ -660,6 +664,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1043 exports.
 | `selectValidWinner` | function | The single content-free valid-only winner selector. Among the gated-VALID children only |
 | `sentinelCompletion` | function | Completion for a sandbox-agent node: done iff the latest output carries the node's stop |
 | `serveCoordinationMcp` | function | Stand up the existing coordination tools with bounded HTTP access over one live scope. |
+| `setGraphStrings` | function | Replace the named nodes' prompt strings in the graph's text and leave every other byte as it |
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
 | `sharedBoxPlacement` | function | Place accepted workers as processes in a pool of shared Sandbox boxes. |
@@ -1692,7 +1697,7 @@ Import from `@tangle-network/agent-eval` — 59 exports.
 | `pairedBootstrap` | function | Paired bootstrap on (after − before) deltas. Returns a CI on the chosen |
 | `pairedCohensDz` | function | Paired Cohen's dz; constant nonzero deltas have no finite standardized effect. |
 | `pairedDeltaTest` | function | Tests whether a paired candidate-minus-baseline delta clears a threshold. |
-| `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
+| `pairedEvalueSequence` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `pairedMde` | function | Minimum detectable paired effect (standardised units) for a target paired |
 | `pairedPromotionPower` | function | Joint power of the configured calls at `n` under the registered alternative: |
 | `pairedRiskDifference` | function | Paired risk difference (the effect-size companion to {@link mcnemar}): the |

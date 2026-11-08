@@ -588,6 +588,7 @@ export { graphFileSchema, graphRouteWhenSchema } from './supervise/graph-file-sc
 // the same sandbox replays a known-good graph (near-zero inference) or authors a better one.
 export * from './supervise/graph-registry'
 export * from './supervise/graph-session-observation'
+export { readGraphStrings, setGraphStrings } from './supervise/graph-strings'
 // The in-place CLI leaf executor: the same authored AgentProfile on the same local harness CLI,
 // running in a workspace the CALLER supplies, so the edits stay in that directory for the next
 // spawn. `createExecutor({ backend: 'cli-in-place', workspacePath })` routes to this leaf.
