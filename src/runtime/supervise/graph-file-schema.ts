@@ -30,6 +30,7 @@ export const graphCheckNodeSchema = z.strictObject({
   timeoutMs: z.number().int().positive().optional(),
   environment: z.string().min(1).optional(),
   egress: z.array(z.string().min(1)).optional(),
+  runtime: z.enum(['docker', 'firecracker']).optional(),
   secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
   resources: z
     .strictObject({

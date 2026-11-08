@@ -104,6 +104,8 @@ export interface IsolatedCheckBox {
   environment: string
   /** Set `memoryMB` to require the API to report a finite granted limit before upload. */
   resources?: SandboxResources
+  /** Sandbox's `runtime` create field, sent by SDK 1.0.265 and later. Absent: its default. */
+  runtime?: 'docker' | 'firecracker'
   /** Domains the check may reach, such as a knowledge store or a git host. Empty or absent: the
    *  box's egress is blocked. Otherwise strict: these domains only, with no implicit list. */
   egress?: readonly string[]
@@ -508,6 +510,7 @@ async function runInBox(
         bare: false,
         ephemeral: placement.containers !== true && judge,
         egressPolicy: egressFor(placement),
+        ...(placement.runtime ? { runtime: placement.runtime } : {}),
         ...(placement.resources ? { resources: placement.resources } : {}),
         maxLifetimeSeconds,
         // A new identity per call: a replayed create could return a box another caller used.

@@ -1,8 +1,10 @@
 // Flow graph check nodes -> real /bin/sh processes in the run's working directory; no model.
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { Sandbox } from '@tangle-network/sandbox'
+import { expect, it, onTestFinished } from 'vitest'
 import { parseCommittedJsonLines } from '../../src/durable/jsonl-file'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { graphWorkspace, loadGraphFile } from '../../src/runtime/supervise/graph-file'
@@ -155,4 +157,88 @@ check: { node: intake, pointer: /pass, equals: true }
     else process.env.GITHUB_TOKEN = previous
     await rm(directory, { recursive: true, force: true })
   }
+}, 60_000)
+
+/** Run one box check node against a Sandbox HTTP peer that answers the owner's identity, then
+ *  refuses each create and keeps its body. */
+async function boxCreateBodies(runtimeField: string): Promise<Record<string, unknown>[]> {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-check-runtime-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const creates: Record<string, unknown>[] = []
+  const peer = createServer((request, response) => {
+    const chunks: Buffer[] = []
+    request.on('data', (chunk: Buffer) => chunks.push(chunk))
+    request.on('end', () => {
+      response.setHeader('content-type', 'application/json')
+      if (request.method === 'GET' && request.url === '/v1/me') {
+        const id = 'cust_graph_owner'
+        response.end(
+          JSON.stringify({
+            success: true,
+            data: {
+              customer_id: id,
+              billing_owner_id: id,
+              api_key_id: null,
+              billing_delegation_authorized: false,
+            },
+          }),
+        )
+        return
+      }
+      if (request.method === 'POST' && request.url === '/v1/sandboxes')
+        creates.push(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      response.statusCode = 400
+      response.end(JSON.stringify({ error: { code: 'VALIDATION_ERROR', message: 'proof only' } }))
+    })
+  })
+  await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve))
+  onTestFinished(
+    () =>
+      new Promise<void>((resolve) => {
+        peer.close(() => resolve())
+        peer.closeAllConnections()
+      }),
+  )
+  const address = peer.address()
+  if (!address || typeof address === 'string') throw new Error('missing local Sandbox peer')
+  const loaded = await loadGraphFile(join(directory, 'box.yaml'), {
+    source: `
+graph: check-box-runtime
+workspace: cwd
+nodes:
+  - id: verify
+    check:
+      command: 'true'
+      environment: agent-container
+      resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}
+entry: [verify]
+edges: []
+budget: { maxIterations: 2 }
+check: { node: verify, pointer: /pass, equals: true }
+`,
+  })
+  const cwd = join(directory, 'work')
+  await mkdir(cwd)
+  await runGraph(graphFromStored(loaded.graph), {
+    backend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
+    runDir: join(directory, 'run'),
+    runId: 'check-box-runtime',
+    driverRetry: { enabled: false },
+    checkPlacement: {
+      client: new Sandbox({
+        apiKey: 'no-live-credentials',
+        baseUrl: `http://127.0.0.1:${address.port}`,
+      }),
+    },
+  }).catch((error: unknown) => error)
+  expect(creates.length).toBeGreaterThan(0)
+  for (const body of creates)
+    expect(body).toMatchObject({ environment: 'agent-container', ownerContext: 'isolated' })
+  return creates
+}
+
+it('a box check node sends its runtime in the Sandbox create, and none when unset', async () => {
+  for (const body of await boxCreateBodies('\n      runtime: firecracker'))
+    expect(body.runtime).toBe('firecracker')
+  for (const body of await boxCreateBodies('')) expect(body).not.toHaveProperty('runtime')
 }, 60_000)
