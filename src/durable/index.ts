@@ -18,7 +18,7 @@
  *   over it. It carries identities, usage, cost provenance, timing and receipts.
  *   It owns no execution or coordination semantics.
  * - `discoverDurableSupervisionRun` and `readRootStream` read an existing
- *   directory without knowing its identities.
+ *   directory without knowing its identities; `runEvidence` bounds what each node did.
  *
  * Execution recovery belongs to `/kernel`. That covers retained provider runs
  * (`startRetainedRun`, `recoverRetainedRun`, `reconnectRetainedRun`), the spawn
@@ -132,6 +132,7 @@ export {
   type UnconfirmedTeardownReconcile,
   type UnreconciledEnvironment,
 } from './reconcile-unconfirmed-teardowns'
+export { type RunEvidence, type RunEvidenceBounds, runEvidence } from './run-evidence'
 export { type PursuitFork, RUN_FORK_CORRELATION_KEYS } from './run-fork'
 export {
   acquireRunDirectoryLock,
