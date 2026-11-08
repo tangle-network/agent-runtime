@@ -128,11 +128,16 @@ if (mode.startsWith('trace-tree-')) {
     { mode: 0o600 },
   )
 }
+const fence = `The answer follows.\n\n\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\`\n`
 process.stdout.write(
   mode.startsWith('json-malformed')
     ? 'private-json-answer-canary'
     : mode === 'json-overflow'
       ? '{"n":1e999}'
-      : JSON.stringify(output),
+      : mode === 'json-fenced'
+        ? fence
+        : mode === 'json-fence-then-text'
+          ? `${fence}\n- private-json-answer-canary\n`
+          : JSON.stringify(output),
 )
 process.exitCode = mode === 'json-native-failed' || mode === 'json-observation-long-failed' ? 7 : 0

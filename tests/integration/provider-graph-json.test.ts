@@ -27,6 +27,8 @@ afterAll(async () => {
 
 it.each<Scenario>([
   'json-output',
+  'json-fenced',
+  'json-fence-then-text',
   'json-authority',
   'json-overflow',
   'json-no-terminal',
@@ -73,7 +75,7 @@ it.each<Scenario>([
         object(fixture.outcomes().find((row) => row.kind === 'settled')!.result).result,
       )
       const result = object(graph.result)
-      const success = scenario === 'json-output' || scenario === 'json-authority'
+      const success = ['json-output', 'json-fenced', 'json-authority'].includes(scenario)
       // Explicit graph resume retains the existing down→fresh-assignment retry policy.
       const count = scenario === 'json-no-terminal' ? 0 : 2
       expect(result.kind).toBe(success ? 'winner' : 'no-winner')
