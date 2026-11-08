@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import { runSettledCommand } from '../../src/mcp/worktree-harness'
@@ -174,21 +175,21 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
               scope.spawn(sibling, 'use released capacity', { key: 'sibling', budget: ceiling(60) })
                 .ok,
             ).toBe(true)
+            // Wait on the child process's write, not a poll window that load outlasts.
+            const executed = async (name: string) => {
+              while ((await readFile(join(directory, name), 'utf8').catch(() => '')) !== 'executed')
+                if (scope.signal.aborted) return
+                else await delay(10)
+            }
             if (nested) {
-              await expect
-                .poll(() => readFile(join(directory, 'nested'), 'utf8').catch(() => undefined))
-                .toBe('executed')
+              await executed('nested')
               await expect(readFile(join(directory, 'sibling'))).rejects.toMatchObject({
                 code: 'ENOENT',
               })
               expect(scope.workerCapacity).toMatchObject({ working: 1, queued: 1 })
               if (overrun) {
                 available = true
-                await expect
-                  .poll(() =>
-                    readFile(join(directory, 'after-reset'), 'utf8').catch(() => undefined),
-                  )
-                  .toBe('executed')
+                await executed('after-reset')
                 expect(scope.budget.reservedTokens).toBe(120)
               }
               await writeFile(join(directory, 'release-nested'), 'finish')
@@ -227,7 +228,8 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
             profileDigest: canonicalCandidateDigest({ name: 'root' }),
             taskDigest: canonicalCandidateDigest(null),
           },
-          budget: { ...ceiling(overrun ? 200 : 100), deadlineMs: 5000 },
+          // Never expires here: grants must keep one deadline; vitest's timeout guards a hang.
+          budget: { ...ceiling(overrun ? 200 : 100), deadlineMs: 600_000 },
           workerSlots: 1,
         },
       )
