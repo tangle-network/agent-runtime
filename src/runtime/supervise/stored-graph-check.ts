@@ -577,7 +577,7 @@ export function bindGraphCheckNodes(
         )
         const box = placement as GraphCheckPlacement
         const secrets = await readSecrets(
-          check.secrets,
+          local ? check.secrets?.filter((name) => process.env[name]) : check.secrets,
           local
             ? process.env
             : typeof box.env === 'function'
