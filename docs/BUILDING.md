@@ -78,7 +78,7 @@ actual compatibility and CHANGELOG before merge.
 `release:tag <version> --commit <merged-sha> --gate <gated-sha>` requires a merged,
 version-matching commit and the latest detached, successful normal/install Beelink
 receipt for exactly `pnpm run release:check`; only tree equality permits attestation.
-Existing tags are refused; defaults select fetched main and full hosted qualification.
+Existing tags and runtime tags without `--gate` are refused; `--commit` defaults to fetched main.
 Through `gh-drew`, tagging admits only the frozen qualifier's exact `refs/tags/v<version>`
 after the immutable push, retaining every runner-group reference and restriction.
 The organization owner serializes policy writes: GitHub has no conditional PATCH.

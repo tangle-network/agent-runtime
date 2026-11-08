@@ -71,6 +71,7 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
   const ref = 'tangle-network/agent-runtime/.github/workflows/qualify-release.yml@refs/tags/v4.0.0'
   const server = createServer(async (request, response) => { try {
     response.setHeader('content-type', 'application/json')
+    if (request.url.startsWith('/repos/')) { response.end(JSON.stringify({ creator: { login: 'drewstone' }, state: 'success', context: 'gate/release-check' })); return }
     if (request.url.startsWith('/orgs/tangle-network/actions/runner-groups?')) {
       assert.match(request.url, /visible_to_repository=agent-runtime/)
       response.end(JSON.stringify({ runner_groups: [group] })); return
@@ -91,6 +92,7 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve) => server.close(resolve)))
   // Real gh performs HTTP and JSON transport; only its endpoint is local to this fixture.
+  writeFileSync(join(bin, 'beelink-gate'), `#!/bin/sh\nprintf '{"repo":"github.com/tangle-network/agent-runtime","sha":"%s","mode":"install","class":"normal","command":"pnpm run release:check","exit":0,"timed_out":false,"watchdog":false,"checkout":"detached","at":"2026-11-07T00:00:00Z","host":"beelink1","gate_id":"beelink1-${'0'.repeat(32)}"}\\n' "$3"\n`, { mode: 0o755 })
   writeFileSync(join(bin, 'gh-drew'), '#!/bin/sh\nendpoint="$2"\nshift 2\nexec gh api "$FIXTURE_API/$endpoint" "$@"\n', { mode: 0o755 })
   const env = { ...fixtureEnv, PATH: `${bin}:${fixtureEnv.PATH}`, FIXTURE_API: `http://127.0.0.1:${server.address().port}`,
     GH_TOKEN: 'offline-fixture', GH_ENTERPRISE_TOKEN: 'offline-fixture', GH_CONFIG_DIR: join(root, 'gh-config'), GH_NO_UPDATE_NOTIFIER: '1' }
@@ -103,7 +105,7 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
   run('git', ['add', 'change'], repo)
   run('git', ['commit', '-m', 'unmerged fixture'], repo)
   const unmerged = run('git', ['rev-parse', 'HEAD'], repo)
-  for (const args of [['--commit', unmerged], ['--commit', merged, '--gate', unmerged], ['--commit', 'main'], ['--commit', merged, 'extra']])
+  for (const args of [['--commit', unmerged], ['--commit', merged], ['--commit', merged, '--gate', unmerged], ['--commit', 'main'], ['--commit', merged, 'extra']])
     assert.notEqual(await tag(...args), 0)
   assert.equal(run('git', ['tag', '--list'], remote), '')
   assert.equal(reads, 0, 'invalid releases never reach organization admission')
@@ -114,22 +116,22 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
   run('git', ['add', '.'], repo); run('git', ['commit', '-m', 'advance main'], repo); run('git', ['push', 'origin', 'main'], repo)
   const advanced = run('git', ['rev-parse', 'HEAD'], repo)
   writeFileSync(join(repo, 'operator-note'), 'preserve uncommitted work\n')
-  assert.notEqual(await tag(), 0, 'default main version must match')
-  assert.equal(await tag('--commit', merged), 0)
+  assert.notEqual(await tag('--gate', advanced), 0, 'default main version must match')
+  assert.equal(await tag('--commit', merged, '--gate', merged), 0)
   assert.equal(run('git', ['rev-parse', 'v4.0.0^{}'], repo), merged)
   assert.equal(run('git', ['rev-parse', 'refs/heads/main'], remote), advanced)
   assert.equal(run('git', ['cat-file', '-t', 'refs/tags/v4.0.0'], repo), 'tag')
-  assert.notEqual(await tag('--commit', merged), 0)
+  assert.notEqual(await tag('--commit', merged, '--gate', merged), 0)
   assert.equal(writes, 1)
   const installed = structuredClone(group)
   const resetTag = () => { if (run('git', ['tag', '--list'], remote)) run('git', ['update-ref', '-d', 'refs/tags/v4.0.0'], remote); if (run('git', ['tag', '--list'], repo)) run('git', ['tag', '-d', 'v4.0.0'], repo); reads = 0 }
   resetTag()
-  assert.equal(await tag('--commit', merged), 0, 'pre-existing exact admission makes no policy write')
+  assert.equal(await tag('--commit', merged, '--gate', merged), 0, 'pre-existing exact admission makes no policy write')
   assert.equal(writes, 1); assert.deepEqual(group, installed)
   for (scenario of ['drift', 'denied', 'readback']) {
     resetTag(); group = { ...installed, selected_workflows: installed.selected_workflows.filter((entry) => entry !== ref) }
     const previousWrites = writes
-    assert.notEqual(await tag('--commit', merged), 0)
+    assert.notEqual(await tag('--commit', merged, '--gate', merged), 0)
     assert.equal(run('git', ['tag', '--list'], remote), '', 'failed admission publishes no tag')
     assert.equal(writes - previousWrites, scenario === 'drift' ? 0 : 1)
   }
@@ -140,9 +142,9 @@ test('offline tag CLI preserves immutable Git releases and exact runner admissio
   const divergent = run('git', ['rev-parse', 'HEAD'], repo)
   writeFileSync(join(repo, '.github/workflows/qualify-release.yml'), reviewedWorkflow)
   run('git', ['add', '.github'], repo); run('git', ['commit', '-m', 'reviewed main qualifier'], repo); run('git', ['push', 'origin', 'main'], repo)
-  assert.notEqual(await tag('--commit', divergent), 0)
+  assert.notEqual(await tag('--commit', divergent, '--gate', divergent), 0)
   assert.equal(run('git', ['tag', '--list'], remote), '', 'unenrolled divergent qualifier fails before publication')
-  assert.equal(await tag(), 0)
+  assert.equal(await tag('--gate', run('git', ['rev-parse', 'HEAD'], repo)), 0)
   assert.equal(run('git', ['rev-parse', 'refs/tags/v4.0.0^{}'], remote), run('git', ['rev-parse', 'HEAD'], repo))
   assert.equal(readFileSync(join(repo, 'operator-note'), 'utf8'), 'preserve uncommitted work\n')
   assert.equal(run('git', ['show', 'unmerged:change'], repo), 'unmerged bytes')

@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import { runSettledCommand } from '../../src/mcp/worktree-harness'
@@ -26,8 +27,8 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
     const overrun = mode === 'overrun'
     const directory = await mkdtemp(join(tmpdir(), 'seat-pause-'))
     const context = createFileRunContext(directory, { withDriver: true })
-    const control = join(directory, 'seat.json')
-    await writeFile(control, JSON.stringify({ available: false }))
+    // Presence, not JSON content: a reader racing writeFile's truncate saw '' and failed the manager.
+    const control = join(directory, 'seat-available')
     const provider = durableRetainedProvider(join(directory, 'provider.json'))
     const profile = testAgentProfile('seat-manager', {
       harness: 'opencode',
@@ -111,7 +112,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
                 journal: context.journal,
                 rootId: 'seat-root',
                 select: async () => {
-                  if (!JSON.parse(await readFile(control, 'utf8')).available)
+                  if (await access(control).then(() => false, () => true))
                     throw new SeatPauseError(new Date(Date.now() + 200).toISOString())
                   return { seat: 'local-seat', backend: { backend: 'provider', provider } }
                 },
@@ -175,21 +176,21 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
               scope.spawn(sibling, 'use released capacity', { key: 'sibling', budget: ceiling(60) })
                 .ok,
             ).toBe(true)
+            // Wait on the child process's write, not a poll window that load outlasts.
+            const executed = async (name: string) => {
+              while ((await readFile(join(directory, name), 'utf8').catch(() => '')) !== 'executed')
+                if (scope.signal.aborted) return
+                else await delay(10)
+            }
             if (nested) {
-              await expect
-                .poll(() => readFile(join(directory, 'nested'), 'utf8').catch(() => undefined))
-                .toBe('executed')
+              await executed('nested')
               await expect(readFile(join(directory, 'sibling'))).rejects.toMatchObject({
                 code: 'ENOENT',
               })
               expect(scope.workerCapacity).toMatchObject({ working: 1, queued: 1 })
               if (overrun) {
-                await writeFile(control, JSON.stringify({ available: true }))
-                await expect
-                  .poll(() =>
-                    readFile(join(directory, 'after-reset'), 'utf8').catch(() => undefined),
-                  )
-                  .toBe('executed')
+                await writeFile(control, '')
+                await executed('after-reset')
                 expect(scope.budget.reservedTokens).toBe(120)
               }
               await writeFile(join(directory, 'release-nested'), 'finish')
@@ -211,7 +212,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
             expect(first).toMatchObject({ kind: 'done', out: 'sibling' })
             expect(scope.budget.tokensLeft).toBe(overrun ? 130 : nested ? 70 : 80)
             if (mode === 'cancel') admitted.handle.abort('cancel while seat waits')
-            else await writeFile(control, JSON.stringify({ available: true }))
+            else await writeFile(control, '')
             expect(await scope.next()).toMatchObject(
               mode === 'cancel' ? { kind: 'down' } : { kind: 'done', out: 'after-reset' },
             )

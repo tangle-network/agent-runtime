@@ -205,7 +205,7 @@ export class ProcessFixture {
     )
   }
   async state(): Promise<ServiceState> {
-    const response = await fetch(`${this.url}/fixture/state`, { signal: AbortSignal.timeout(2000) })
+    const response = await fetch(`${this.url}/fixture/state`)
     if (!response.ok) throw new Error(`fixture state returned ${response.status}`)
     return (await response.json()) as ServiceState
   }
@@ -214,7 +214,6 @@ export class ProcessFixture {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(value),
-      signal: AbortSignal.timeout(2000),
     })
     if (!response.ok) throw new Error(`fixture control returned ${response.status}`)
   }

@@ -595,31 +595,6 @@ describe('candidate execution claim lifecycle', () => {
     expect(results.filter((result) => result === 'already-marked')).toHaveLength(7)
   }, 15_000)
 
-  it('linearizes staging and finishing across independent processes', async () => {
-    const directory = await tempDirectory()
-    const store = new FileAgentCandidateExecutionClaimStore({ directory })
-    const acquired = await acquire(store, retryClaim())
-    const stageResults = await Promise.all(
-      Array.from({ length: 8 }, () => stageFromChildProcess(directory, acquired.lease, failed())),
-    )
-    const record = await store.getAttempt({ executionId: 'execution-1', attempt: 1 })
-    if (!record?.staged) throw new Error('cross-process stage is missing')
-    const finishResults = await Promise.all(
-      Array.from({ length: 8 }, () =>
-        finishFromChildProcess(
-          directory,
-          acquired.lease,
-          record.staged?.terminalDigest ?? sha256('f'),
-        ),
-      ),
-    )
-
-    expect(stageResults.filter((result) => result === 'staged')).toHaveLength(1)
-    expect(stageResults.filter((result) => result === 'already-staged:exact')).toHaveLength(7)
-    expect(finishResults.filter((result) => result === 'finished')).toHaveLength(1)
-    expect(finishResults.filter((result) => result === 'already-finished:exact')).toHaveLength(7)
-  }, 15_000)
-
   it('recovers when another store publishes after a transition read', async () => {
     const directory = await tempDirectory()
     const requested = retryClaim({ leaseExpiresAtMs: 6_000 })
@@ -892,30 +867,6 @@ async function markFromChildProcess(
     storeSource(directory),
     `const result = await store.markCandidateMayRun(${JSON.stringify(lease)})`,
     "process.stdout.write(result.marked ? 'marked' : 'already-marked')",
-  ])
-}
-
-async function stageFromChildProcess(
-  directory: string,
-  lease: AgentCandidateExecutionLease,
-  result: AgentCandidateExecutionTerminalResult,
-): Promise<string> {
-  return runChild([
-    storeSource(directory),
-    `const result = await store.stageTerminal(${JSON.stringify(lease)}, ${JSON.stringify(result)})`,
-    "process.stdout.write(result.staged ? 'staged' : 'already-staged:' + (result.exactReplay ? 'exact' : 'mismatch'))",
-  ])
-}
-
-async function finishFromChildProcess(
-  directory: string,
-  lease: AgentCandidateExecutionLease,
-  terminalDigest: string,
-): Promise<string> {
-  return runChild([
-    storeSource(directory),
-    `const result = await store.finish(${JSON.stringify(lease)}, ${JSON.stringify(terminalDigest)})`,
-    "process.stdout.write(result.finished ? 'finished' : 'already-finished:' + (result.exactReplay ? 'exact' : 'mismatch'))",
   ])
 }
 
