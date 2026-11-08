@@ -117,3 +117,42 @@ it('runs check nodes, loops on /pass=false, and hands evidence to a downstream c
     await rm(directory, { recursive: true, force: true })
   }
 }, 60_000)
+
+it('runs a local check when a declared secret is absent', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-check-optional-secret-'))
+  const previous = process.env.GITHUB_TOKEN
+  delete process.env.GITHUB_TOKEN
+  try {
+    const loaded = await loadGraphFile(join(directory, 'optional.yaml'), {
+      source: `
+graph: check-optional-secret
+workspace: cwd
+nodes:
+  - id: intake
+    check:
+      command: 'test -z "$GITHUB_TOKEN" && echo "{\\"ok\\":true}"'
+      secrets: [GITHUB_TOKEN]
+entry: [intake]
+edges: []
+budget: { maxIterations: 4 }
+check: { node: intake, pointer: /pass, equals: true }
+`,
+    })
+    const cwd = await graphWorkspace(loaded.graph, {
+      cwd: join(directory, 'work'),
+      runId: 'optional',
+    })
+    await mkdir(cwd)
+    const result = await runGraph(graphFromStored(loaded.graph), {
+      backend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
+      runDir: join(directory, 'run'),
+      runId: 'check-optional-secret',
+      driverRetry: { enabled: false },
+    })
+    expect(result.result.kind, JSON.stringify([result.stopped, result.ledger])).toBe('winner')
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_TOKEN
+    else process.env.GITHUB_TOKEN = previous
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 60_000)
