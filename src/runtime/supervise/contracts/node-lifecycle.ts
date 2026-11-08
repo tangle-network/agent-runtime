@@ -37,18 +37,14 @@ export interface SpawnOpts {
   /** Teardown grace handed to the executor when this node is reaped. */
   readonly shutdown?: number | 'brutalKill' | 'infinity'
   /**
-   * Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
-   * idempotent per key: once a child spawned under a key settles `done` — in this process or in a
-   * journaled prior one — spawning the same key returns that committed result (`prior.state:
-   * 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-   * spawns fresh and says so explicitly (`prior.state: 'retried'`); a resume DERIVES that same
-   * `down` for an interrupted `inline` attempt, because an in-process execution cannot outlive
-   * its process — so a worker killed mid-flight under a plain in-process executor retries under
-   * its own key instead of wedging. A key whose un-settled prior attempt may still exist
-   * elsewhere (`sandbox`/`cli`/`router` runtimes) is refused (`'in-doubt'`): the remote execution
-   * may still be running and must be recovered before replacement. A key that is currently LIVE
-   * is refused (`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and
-   * always run.
+   * Semantic identity of this assignment ACROSS process lifetimes; a keyed spawn is idempotent per
+   * key. A key that settled `done` (here or in a journaled prior process) returns that committed
+   * result (`prior.state: 'completed'`) without paying again. A key that settled `down` spawns
+   * fresh (`prior.state: 'retried'`); a resume derives that `down` for an interrupted `inline`
+   * attempt, which cannot outlive its process. A key whose un-settled attempt may still run
+   * elsewhere (`sandbox`/`cli`/`router`) is refused (`'in-doubt'`) until it is recovered. A
+   * resume's recovered LIVE child goes to the key's first spawn (`prior.state: 'recovered'`); any
+   * other spawn of a LIVE key is refused (`'duplicate-key'`). Unkeyed spawns always run.
    */
   readonly key?: string
   /** The sibling node this spawn revises or replaces, so a run's record names which worker took over
@@ -64,13 +60,12 @@ export interface SpawnOpts {
 }
 
 /** Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
- *  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
- *  still LIVE in this scope, a key whose prior remote execution has no terminal receipt, or a run
- *  that has already reached its join barrier.
+ *  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` already
+ *  claimed LIVE in this scope, a key whose prior remote execution has no terminal receipt, or a
+ *  run that has already reached its join barrier.
  *
- * `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
- *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
- * refuses every amount until the ROOT budget names a `maxUsd`.
+ * `usd-unbudgeted` is separate from `budget-exhausted`: an exhausted pool may admit a smaller
+ * request, while an unbudgeted dollar channel refuses every amount until the ROOT names `maxUsd`.
  *
  * `scope-settled` is separate from `scope-aborted` for the same reason: nothing cancelled this
  * run, its driver simply finished. A caller that outlived the request it was serving (a background
@@ -88,18 +83,18 @@ export type SpawnRejection =
   | 'scope-settled'
 
 /**
- * What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
- * every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
- * references the prior settled node and `settled` is the committed result. `'retried'` DID spawn
- * fresh because the prior attempt settled `down`. A start with no terminal receipt is not a prior
- * result: `spawn` refuses it as `'in-doubt'`, retains its charged reservation, and requires exact
- * recovery before a replacement can run.
+ * What a KEYED spawn resolved to when the key had a prior attempt; absent on a fresh or unkeyed
+ * spawn. `'completed'` spawned NOTHING: the handle is the prior settled node and `settled` its
+ * committed result. `'retried'` spawned fresh after a `down`. A start with no terminal receipt is
+ * refused as `'in-doubt'`, keeps its charged reservation, and needs exact recovery first.
  */
 export type SpawnPrior<Out = unknown> =
   | { readonly state: 'completed'; readonly settled: Settled<Out> & { kind: 'done' } }
   /** A NEW node continues the prior node's held environment and session (`SpawnOpts.continueHeld`). */
   | { readonly state: 'continued'; readonly priorId: NodeId; readonly environmentId: string }
   | { readonly state: 'retried'; readonly priorId: NodeId; readonly reason: string }
+  /** Nothing new ran: the handle is the live child this scope's resume recovered (`priorId`). */
+  | { readonly state: 'recovered'; readonly priorId: NodeId }
 
 /**
  * A live child handle. `abort()` is defined over the ACQUIRE lifecycle: it chains into

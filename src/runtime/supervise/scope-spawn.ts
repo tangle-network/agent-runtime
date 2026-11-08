@@ -169,11 +169,9 @@ class ScopeSpawner<Out> {
     return this.start(request, reuse, reservation.ticket, budgetGranted, resolved, permit)
   }
 
-  /**
-   * A key is an identity claim, not a cache label. An in-doubt start has no terminal receipt, so
-   * it refuses before touching a lazy factory; every other reuse compares the prepared agent's
-   * identity with the journal. The completed path resolves, reserves and runs nothing.
-   */
+  /** A key is an identity claim: an in-doubt start refuses before touching a lazy factory, and
+   *  every other reuse compares the prepared identity with the journal; completed or recovered
+   *  keys run nothing. */
   private resolveKeyedReuse<C extends Out>(
     request: SpawnRequest<C>,
   ): KeyedReuse<C> | SpawnResult<C> {
@@ -192,7 +190,11 @@ class ScopeSpawner<Out> {
     if (!sameNodeExecutionIdentity(existing.identity, prepared.identity)) {
       return { ok: false, reason: 'key-conflict' }
     }
-    if (existing.state === 'live') return { ok: false, reason: 'duplicate-key' }
+    if (existing.state === 'live') {
+      const handle = this.keys.claimRecovered(opts.key, existing.id) as Handle<C> | undefined
+      if (handle === undefined) return { ok: false, reason: 'duplicate-key' }
+      return { ok: true, handle, prior: { state: 'recovered', priorId: existing.id } }
+    }
     if (existing.state === 'down') {
       return { prior: { state: 'retried', priorId: existing.id, reason: existing.reason } }
     }
@@ -391,7 +393,7 @@ class ScopeSpawner<Out> {
     }
     children.set(id, live)
     if (opts.key !== undefined) {
-      this.keys.markLive(opts.key, id, child.identity as NodeExecutionIdentity)
+      this.keys.markLive(opts.key, id, child.identity as NodeExecutionIdentity, recovery && handle)
     }
     const spawnCommitted = recovery
       ? Promise.resolve()

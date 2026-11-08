@@ -110,12 +110,14 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
             expect(scope.budget.tokensLeft).toBe(2)
             expect(scope.view.nodes.filter((n) => n.id !== 'root')).toHaveLength(2)
             expect(scope.view.nodes.find((n) => n.id === 'root:s1')?.status).toBe('queued')
-            expect(
+            // The first spawn of the recovered key claims the recovered child; a second is refused.
+            const sameKey = () =>
               scope.spawn(manager('first'), 'same task', {
                 key: 'first',
                 budget: { maxIterations: 4, maxTokens: 8, deadlineMs: 10_000 },
-              }),
-            ).toMatchObject({ ok: false, reason: 'duplicate-key' })
+              })
+            expect(sameKey()).toMatchObject({ ok: true, prior: { state: 'recovered' } })
+            expect(sameKey()).toMatchObject({ ok: false, reason: 'duplicate-key' })
             let factories = 0
             expect(
               scope.spawn(

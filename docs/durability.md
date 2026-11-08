@@ -190,6 +190,7 @@ A product keeps a store only for what the platform cannot know: when to send, wh
 | `supervise` resume of a run an earlier process drove | re-entered | The journal gains one `root-reentered` record with the workers that were open (`live`) and those this process re-placed (`replaced`); the root's first drive names both (`ResumedWork.reentered`), and no drive that began before the root streamed a model event in this process counts toward `maxBarren` |
 | Keyed `Scope.spawn` after resume (`SpawnPrior.state`) | `completed` | Settled. Nothing new is spawned |
 | | `retried` | The prior attempt settled `down`, was proven never dispatched, or died with the process for inline executors. It re-runs under the same key |
+| | `recovered` | Recovered. The first spawn of a key whose live child this resume recovered returns that child; nothing new is spawned, and a second spawn of the key is `duplicate-key` |
 | `recoverExecutor` on resume | adopts the executor | Reattached. The interrupted child continues in its original session |
 | `runDetachedTurn` (Agent App) | cached result | Settled server-side while the worker was gone |
 | | re-stream | Not finished. The buffer is reset first |

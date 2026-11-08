@@ -1,6 +1,6 @@
 import { ValidationError } from '../../errors'
 import type { LiveChild, ScopeArgs } from './scope-contract'
-import type { NodeExecutionIdentity, NodeId, ResumedKeyState, Settled } from './types'
+import type { Handle, NodeExecutionIdentity, NodeId, ResumedKeyState, Settled } from './types'
 
 /** One semantic key's current assignment state. */
 export type ScopeKeyState<Out> = {
@@ -13,14 +13,13 @@ export type ScopeKeyState<Out> = {
 )
 
 /**
- * The semantic-key registry (`SpawnOpts.key`): every keyed assignment's current state, seeded
- * from the prior journal on resume and updated live as keyed children spawn and settle. This is
- * what makes a keyed spawn idempotent per key across process lifetimes: `done` returns the
- * committed result, `live` refuses a concurrent duplicate, `down` retries after a terminal
- * receipt, and `in-doubt` refuses until the exact prior execution is recovered.
+ * The semantic-key registry (`SpawnOpts.key`), seeded from the journal on resume and updated as
+ * keyed children spawn and settle: `done` returns the committed result, `live` refuses a duplicate
+ * once a resume's recovered child is claimed, `down` retries, `in-doubt` refuses until recovered.
  */
 export class ScopeKeyRegistry<Out> {
   private readonly keyed = new Map<string, ScopeKeyState<Out>>()
+  private readonly unclaimed = new Map<string, Handle<Out>>()
 
   constructor(
     resumeFrom: ScopeArgs['resumeFrom'],
@@ -36,8 +35,16 @@ export class ScopeKeyRegistry<Out> {
     return this.keyed.get(key)
   }
 
-  markLive(key: string, id: NodeId, identity: NodeExecutionIdentity): void {
+  markLive(key: string, id: NodeId, identity: NodeExecutionIdentity, recovered?: Handle<Out>) {
     this.keyed.set(key, { state: 'live', id, identity })
+    if (recovered !== undefined) this.unclaimed.set(key, recovered)
+  }
+
+  /** The child `id` this scope's resume recovered under `key`, for that key's first spawn only. */
+  claimRecovered(key: string, id: NodeId): Handle<Out> | undefined {
+    const handle = this.unclaimed.get(key)
+    this.unclaimed.delete(key)
+    return handle?.id === id ? handle : undefined
   }
 
   /** Fold a keyed child's terminal settlement back into the registry, so a later spawn with the
@@ -76,9 +83,8 @@ function resumedKeyState<Out>(
     }
   }
   if (prior.state === 'down' && (prior.settled?.kind === 'down' || prior.settled === undefined)) {
-    // With no settlement the `down` is derived: the resume itself proved the attempt dead (an
-    // `inline` runtime cannot outlive its process), and the derived reason is the evidence a
-    // same-key re-spawn reports as `resumed: "retried"`.
+    // With no settlement the resume derived the `down` (an `inline` runtime cannot outlive its
+    // process); a same-key re-spawn reports that reason as `resumed: "retried"`.
     const reason =
       prior.settled?.kind === 'down'
         ? prior.settled.reason
