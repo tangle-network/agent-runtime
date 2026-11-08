@@ -300,7 +300,12 @@ export async function runFlowGraphPhase(
     runId: FLOW_RUN_ID,
     runDir: dir,
     workerSlots: 3,
-    perWorker: { maxIterations: 60, maxTokens: 500_000 },
+    // The session leaf commits no retained result, so its recovered child keeps its backing after
+    // it settles: the session pipeline gives each worker a third of its budget.
+    perWorker:
+      session === undefined
+        ? { maxIterations: 60, maxTokens: 500_000 }
+        : { maxIterations: 30, maxTokens: 300_000 },
     makeLeafAgent:
       session === undefined
         ? leaf

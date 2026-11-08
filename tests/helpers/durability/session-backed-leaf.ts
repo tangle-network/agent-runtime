@@ -101,7 +101,7 @@ export function sessionBackedLeafSeam(
       if (reattaching && prior.steps > 0) record(reattachLogPath, label)
       kill(`session:${label}:before-admission`)
       // The durable admission chain, journaled BEFORE any session work in the journal's
-      // retained order (intent, environment, then dispatch) — what a resume recovers this child by.
+      // retained order (intent, then environment) — what a resume recovers this child by.
       await retained?.onAdmission?.({
         phase: 'intent',
         provider: 'conformance-session',
@@ -122,19 +122,6 @@ export function sessionBackedLeafSeam(
         sessionId: `sess-${label}`,
         executionId: `exec-${label}`,
       })
-      await retained?.onAdmission?.({
-        phase: 'dispatched',
-        idempotencyKey: `session:${label}`,
-        turnId: `session:${label}`,
-        controlRef: {
-          provider: 'conformance-session',
-          environmentId: `env-${label}`,
-          sessionId: `sess-${label}`,
-          executionId: `exec-${label}`,
-          runId: 'conformance',
-          requestDigest: canonicalCandidateDigest(task),
-        },
-      })
       const session = readSession(sessionFile)
       while (session.steps < SESSION_STEPS) {
         session.steps += 1
@@ -151,9 +138,6 @@ export function sessionBackedLeafSeam(
         verdict: { valid: true, score: 1 },
         spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
       }
-      // Like a real provider turn, commit the result through the retained seam before returning:
-      // it closes the recovery and releases the custody backing the recovered child holds.
-      await retained?.onResult(artifact)
       return artifact
     }
 
