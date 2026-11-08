@@ -18,12 +18,12 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   LocalHarnessResult,
   RunLocalHarnessOptions,
 } from '../../src/mcp/local-harness-process'
-import { executorFailure } from '../../src/runtime/supervise/executor-outcome'
+import { collectAgentTurn, streamAgentTurn } from '../../src/runtime/stream-agent-turn'
 import { createInPlaceCliExecutor } from '../../src/runtime/supervise/in-place-cli-executor'
 import {
   runtimeOwnedExecutorExecutionBinding,
@@ -154,7 +154,7 @@ console.log('done');
     },
   )
 
-  it('reports a harness that exits nonzero as a failed execution, not a result', async () => {
+  it('retains a failed CLI process and unknown cost through the public turn', async () => {
     const workspacePath = scaffoldWorkspace()
     const bin = join(workspacePath, 'bin')
     mkdirSync(bin)
@@ -168,20 +168,50 @@ process.exit(1);
 `,
       { mode: 0o755 },
     )
-    const result = await createInPlaceCliExecutor({
-      workspacePath,
-      profile: {
-        name: 'refused-seat',
-        harness: 'codex',
-        model: { provider: 'openai', default: 'test-codex' },
-      },
-      taskPrompt: 'TASK_ONLY',
-      env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
-    }).execute(undefined, AbortSignal.timeout(30_000))
-    expect(result.out.harness.exitCode).toBe(1)
-    expect(executorFailure(result)).toEqual({
-      error: expect.stringMatching(/^codex exited 1: no codex account has confirmed room/),
-    })
+    vi.stubEnv('PATH', `${bin}:${process.env.PATH ?? ''}`)
+    try {
+      const result = await collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory: createExecutor({ backend: 'cli-in-place', workspacePath }),
+            profile: {
+              name: 'refused-seat',
+              harness: 'codex',
+              model: { provider: 'openai', default: 'test-codex' },
+            },
+          },
+          { prompt: 'TASK_ONLY' },
+          { timeoutMs: 30_000 },
+        ),
+      )
+      expect(result).toMatchObject({
+        status: 'failed',
+        output: {
+          harness: {
+            exitCode: 1,
+            stderr: expect.stringContaining('no codex account has confirmed room'),
+          },
+        },
+        usage: { tokensKnown: false, usdKnown: false },
+        error: {
+          message: expect.stringMatching(/^codex exited 1: no codex account has confirmed room/),
+        },
+      })
+      expect(result.usage.costUsd).toBeUndefined()
+      const final = result.events.at(-1)
+      if (final?.type !== 'final') throw new Error('the public turn lost its final event')
+      expect(final.metadata?.result).toMatchObject({ outcome: { success: false } })
+      expect(result.events.map((event) => event.type)).toEqual([
+        'backend_start',
+        'llm_call',
+        'artifact',
+        'backend_error',
+        'final',
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('combines OpenCode native addition and MCP in the same materialized config', async () => {
