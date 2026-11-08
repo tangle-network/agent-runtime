@@ -1,4 +1,5 @@
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -112,7 +113,7 @@ it.each(['reset', 'cancel', 'nested', 'overrun'] as const)(
                 journal: context.journal,
                 rootId: 'seat-root',
                 select: async () => {
-                  if (await access(control).then(() => false, () => true))
+                  if (!existsSync(control))
                     throw new SeatPauseError(new Date(Date.now() + 200).toISOString())
                   return { seat: 'local-seat', backend: { backend: 'provider', provider } }
                 },
