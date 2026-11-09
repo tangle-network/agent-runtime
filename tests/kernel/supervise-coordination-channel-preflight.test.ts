@@ -382,7 +382,8 @@ it('refuses a child granted an unserved tool, then admits its corrected profile'
   expect(refusal).toContain('steer_agent, ')
   expect(refusal).toContain('knowledge_search')
   const spawned = events.filter((event) => event.kind === 'spawned' && event.key === 'lead')
-  expect(spawned).toHaveLength(1)
+  // One worker, s0: the refused spawn minted no id and recorded nothing.
+  expect(new Set(spawned.map((event) => event.id))).toEqual(new Set([`${spawned[0]?.parent}:s0`]))
   expect(creates()).toBe(1)
   expect(toolResults.join('\n')).not.toContain('key-conflict')
 })
