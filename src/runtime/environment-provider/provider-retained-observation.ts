@@ -238,23 +238,22 @@ export class RetainedObservation {
         }
       }
       this.exactResult = awaitAbortable(Promise.resolve().then(read), this.signal)
-      const settle = () => {
+      const settle = (...failed: [error?: unknown]) => {
         if (this.observedFrames === 0) this.lastObservedAt = Date.now()
-        this.exactResultSettled = true
+        // A failed read is not the exact result: observation reads on; the next demand reads again.
+        if (!failed.length || exactQuotaRefusal(failed[0])) this.exactResultSettled = true
+        else this.exactResult = undefined
         for (const wake of [...this.exactWakers]) wake()
       }
-      void this.exactResult.then(settle, settle)
+      void this.exactResult.then(() => settle(), settle)
     }
     return this.exactResult
   }
 
   private onExactResult(waker: () => void): () => void {
-    if (this.exactResultSettled) {
-      waker()
-      return () => {}
-    }
     this.exactWakers.add(waker)
-    this.readExactResult()
+    if (this.exactResultSettled) waker()
+    else this.readExactResult()
     return () => this.exactWakers.delete(waker)
   }
 
@@ -273,6 +272,7 @@ export class RetainedObservation {
       const exactWake = new Promise<FrameRead>((resolve) => {
         wake = setImmediate(() => {
           const close = () => {
+            if (!this.exactResultSettled) return
             const flowing = this.sawTerminal
               ? 0
               : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastObservedAt)
