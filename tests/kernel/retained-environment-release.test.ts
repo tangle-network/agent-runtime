@@ -434,6 +434,50 @@ describe('retained environments at root settlement', () => {
     expect(result.fleetYield.releasedUnrecovered).toBe(1)
   })
 
+  it('rides a planned host-agent restart: the same execution resumes and settles once', async () => {
+    // Canary o, 2026-11-09T06:22:33Z: a release roll restarted eu1's host agent for ~18 s, Sandbox
+    // answered 503 HOST_AGENT_RESTARTING, and the root died "lost its transport; status in doubt".
+    const fleet = retainedProvider(directory)
+    const restarting = () =>
+      Object.assign(new Error('The sandbox host is restarting its agent; retry shortly.'), {
+        name: 'ServerError',
+        code: 'HOST_AGENT_RESTARTING',
+        status: 503,
+        retryAfterMs: 1_000,
+      })
+    fleet.state.dispatchError = () => {
+      fleet.state.dispatchError = undefined
+      return restarting()
+    }
+    fleet.state.resultError = () => {
+      fleet.state.resultLost = false
+      return restarting()
+    }
+    let live: Settled<unknown> | undefined
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      {
+        ...createInMemoryRunContext(),
+        runId: 'restart',
+        budget: { maxIterations: 4, maxTokens: 4000 },
+      },
+    )
+    expect(result.kind).toBe('winner')
+    expect(live?.kind, JSON.stringify(live)).toBe('done')
+    const state = JSON.parse(readFileSync(join(directory, 'provider.json'), 'utf8')) as {
+      environments: Record<string, { sessions: Record<string, { dispatches: unknown[] }> }>
+    }
+    const sessions = Object.values(state.environments).flatMap((e) => Object.values(e.sessions))
+    expect(sessions.flatMap((session) => session.dispatches)).toHaveLength(1)
+  }, 30_000)
+
   it.each([
     {
       name: 'a named platform refusal settles refused before it ran, owned by the platform',
