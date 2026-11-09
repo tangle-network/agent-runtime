@@ -227,23 +227,22 @@ export class RetainedObservation {
     }
   }
 
-  private readExactResult(): Promise<AgentTurnResult> {
+  private readExactResult(retried = false): Promise<AgentTurnResult> {
     if (this.exactResult === undefined) {
-      const read = async (): Promise<AgentTurnResult> => {
-        try {
-          return await this.handle.result()
-        } catch (error) {
+      const read = (): Promise<AgentTurnResult> =>
+        this.handle.result().catch(async (error: unknown) => {
           if (await this.restart.retry(error)) return read()
           throw error
-        }
-      }
+        })
       this.exactResult = awaitAbortable(Promise.resolve().then(read), this.signal)
       const settle = (...failed: [error?: unknown]) => {
         if (this.observedFrames === 0) this.lastObservedAt = Date.now()
-        // A failed read is not the exact result: observation reads on; the next demand reads again.
-        if (!failed.length || exactQuotaRefusal(failed[0])) this.exactResultSettled = true
-        else this.exactResult = undefined
+        // One failed read is not the exact result: observation reads on while one more read runs.
+        const retry = !retried && failed.length > 0 && !exactQuotaRefusal(failed[0])
+        if (retry) this.exactResult = undefined
+        else this.exactResultSettled = true
         for (const wake of [...this.exactWakers]) wake()
+        if (retry) this.readExactResult(true)
       }
       void this.exactResult.then(() => settle(), settle)
     }
