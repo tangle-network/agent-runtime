@@ -434,6 +434,51 @@ describe('retained environments at root settlement', () => {
     expect(result.fleetYield.releasedUnrecovered).toBe(1)
   })
 
+  it('rides a planned host-agent restart: the same execution resumes and settles once', async () => {
+    // Canary o, 2026-11-09T06:22:33Z: a release roll restarted eu1's host agent for ~18 s, Sandbox
+    // answered 503 HOST_AGENT_RESTARTING, and the root died "lost its transport; status in doubt".
+    const fleet = retainedProvider(directory)
+    const restarting = () =>
+      Object.assign(new Error('The sandbox host is restarting its agent; retry shortly.'), {
+        name: 'ServerError',
+        code: 'HOST_AGENT_RESTARTING',
+        status: 503,
+        retryAfterMs: 1_000,
+      })
+    fleet.state.dispatchError = () => {
+      fleet.state.dispatchError = undefined
+      return restarting()
+    }
+    fleet.state.resultError = () => {
+      fleet.state.resultLost = false
+      return restarting()
+    }
+    const context = createInMemoryRunContext()
+    let live: Settled<unknown> | undefined
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'root',
+        async act(_task, scope) {
+          live = await spawnAndAwait(scope, retainedWorker(providerAsExecutor(fleet.provider())))
+          return 'finished'
+        },
+      },
+      'task',
+      { ...context, runId: 'restart', budget: { maxIterations: 4, maxTokens: 4000 } },
+    )
+    expect(result.kind).toBe('winner')
+    expect(live?.kind, JSON.stringify(live)).toBe('done')
+    // The refused dispatch was resent under the intent's execution id, and admitted once.
+    const admissions = ((await context.journal.loadTree('restart')) ?? []).flatMap((event) =>
+      event.kind === 'execution-admitted' && event.id === 'restart:s0' ? [event.admission] : [],
+    )
+    expect(admissions.filter((admission) => admission.phase === 'dispatched')).toHaveLength(1)
+    const ids = admissions.flatMap((a) =>
+      'controlRef' in a ? [a.controlRef.executionId] : 'executionId' in a ? [a.executionId] : [],
+    )
+    expect(new Set(ids).size).toBe(1)
+  }, 30_000)
+
   it.each([
     {
       name: 'a named platform refusal settles refused before it ran, owned by the platform',

@@ -17,6 +17,7 @@ import { linkAbort } from '../supervise/abortable'
 import { armDeadlineTimer } from '../supervise/deadline'
 import { causeChain } from '../supervise/error-message'
 import { turnFailureOf } from '../supervise/executor-outcome'
+import { hostRestartReconnect } from '../supervise/host-restart'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { isTerminalEnvironmentEvent } from './provider-event-projection'
 
@@ -94,6 +95,8 @@ export class RetainedObservation {
   private readonly seenEvents = new Map<string, string>()
   // Reuse the losing read: another next() would queue behind it and drop its frame.
   private pendingRead: Promise<FrameRead> | undefined
+  // A planned host restart ends the stream and the result read; both resume under this execution.
+  private readonly restart: ReturnType<typeof hostRestartReconnect>
 
   constructor(
     private readonly handle: RetainedRunHandle,
@@ -101,6 +104,7 @@ export class RetainedObservation {
     private readonly position?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
     private readonly quietMs = RETAINED_AWAITING_RESULT_AFTER_MS,
   ) {
+    this.restart = hostRestartReconnect(signal)
     const observed = position?.observed
     if (observed?.executionId === handle.controlRef.executionId)
       this.lastReplayPosition = this.resumedFrom = observed.replayPosition
@@ -115,7 +119,11 @@ export class RetainedObservation {
       this.lastObservedAt = Date.now()
       if ((yield* this.drain(session, replayedFrom ?? this.resumedFrom)) || this.sawTerminal) break
       firstFailure ??= this.failure
-      if (this.lastReplayPosition === undefined || this.lastReplayPosition === replayedFrom) {
+      const restarted = await this.restart.retry(this.failure?.error)
+      if (
+        !restarted &&
+        (this.lastReplayPosition === undefined || this.lastReplayPosition === replayedFrom)
+      ) {
         this.failure = firstFailure
         break
       }
@@ -221,10 +229,15 @@ export class RetainedObservation {
 
   private readExactResult(): Promise<AgentTurnResult> {
     if (this.exactResult === undefined) {
-      this.exactResult = awaitAbortable(
-        Promise.resolve().then(() => this.handle.result()),
-        this.signal,
-      )
+      const read = async (): Promise<AgentTurnResult> => {
+        try {
+          return await this.handle.result()
+        } catch (error) {
+          if (await this.restart.retry(error)) return read()
+          throw error
+        }
+      }
+      this.exactResult = awaitAbortable(Promise.resolve().then(read), this.signal)
       const settle = () => {
         if (this.observedFrames === 0) this.lastObservedAt = Date.now()
         this.exactResultSettled = true
@@ -327,6 +340,7 @@ export class RetainedObservation {
     }
     // A replayed frame is not progress: a provider repeating one cursor must not hold a finished turn open.
     this.lastObservedAt = Date.now()
+    this.restart.settled()
     const replayPosition = identity.cursor ?? eventId
     if (replayPosition !== undefined) {
       this.lastReplayPosition = replayPosition
