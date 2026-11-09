@@ -36,11 +36,15 @@ function recordingJournal(into: SpawnEvent[]): SpawnJournal {
 }
 
 /** A provider whose `create` is the box-creation boundary the refusal must stay in front of. */
-function neverCreatingProvider(): { provider: AgentEnvironmentProvider; creates: () => number } {
+function neverCreatingProvider(attachesMcp = false): {
+  provider: AgentEnvironmentProvider
+  creates: () => number
+} {
   let creates = 0
   const provider: AgentEnvironmentProvider = {
     name: 'never-created',
-    capabilities: () => ({}) as AgentEnvironmentCapabilities,
+    capabilities: (): AgentEnvironmentCapabilities =>
+      attachesMcp ? { create: { runtimeAttachments: { mcp: true } } } : {},
     async create() {
       creates += 1
       throw new Error('must not create an environment')
@@ -68,10 +72,11 @@ const spawnCapableChild = {
 async function spawnLeadFromRoot(
   options: Omit<SuperviseOptions, 'budget' | 'perWorker' | 'journal' | 'runId'>,
   waitForChild = false,
-  child: object = spawnCapableChild,
+  child: object | object[] = spawnCapableChild,
 ): Promise<{ events: SpawnEvent[]; toolResults: string[] }> {
   const events: SpawnEvent[] = []
   const toolResults: string[] = []
+  const children = [child].flat()
   let turn = 0
   await superviseForTest(routerRoot, 'Delegate.', {
     ...options,
@@ -81,22 +86,12 @@ async function spawnLeadFromRoot(
     runId: 'coordination-channel-preflight',
     brain: async (messages) => {
       turn += 1
-      if (turn === 1) {
-        return {
-          toolCalls: [
-            {
-              id: 'spawn',
-              name: 'spawn_worker',
-              arguments: JSON.stringify({
-                profile: child,
-                task: 'lead the subtree',
-                key: 'lead',
-              }),
-            },
-          ],
-        }
+      if (turn <= children.length) {
+        const args = { profile: children[turn - 1], task: 'lead the subtree', key: 'lead' }
+        const call = { id: 'spawn', name: 'spawn_worker', arguments: JSON.stringify(args) }
+        return { toolCalls: [call] }
       }
-      if (waitForChild && turn === 2) {
+      if (waitForChild && turn === children.length + 1) {
         return { content: 'waiting for the lead', toolCalls: [] }
       }
       for (const message of messages) {
@@ -338,10 +333,9 @@ it('judges the profile create receives, not Runtime-only seats and coordination 
   // canary-chain-20261104q: the Sandbox verdict refused the Lab's worker profile on `seats` and on
   // `agent_runtime_coordination_*`, and roots stripped their workers' tools until a spawn passed.
   const judged: AgentProfile[] = []
-  const { provider: base } = neverCreatingProvider()
+  const { provider: base } = neverCreatingProvider(true)
   const provider: AgentEnvironmentProvider = {
     ...base,
-    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
     validateProfile: (profile) => {
       judged.push(profile as AgentProfile)
       return { ok: true, issues: [] }
@@ -366,12 +360,35 @@ it('judges the profile create receives, not Runtime-only seats and coordination 
   expect(events.some((event) => event.kind === 'spawned' && event.key === 'lead')).toBe(true)
 })
 
+it('refuses a child granted an unserved tool, then admits its corrected profile', async () => {
+  // canary-chain-20261109d: children granted "steere_agent" were journaled and given sandboxes,
+  // then settled down serving their coordination tools; the corrected re-spawn met key-conflict.
+  const { provider, creates } = neverCreatingProvider(true)
+  const tools = (verb: string) => runtimeToolDeclarations('spawn_worker', verb, 'knowledge_search')
+  const knowledge = { name: 'knowledge_search', description: 'Search.', inputSchema: {} }
+  const local = 'http://127.0.0.1'
+  const { events, toolResults } = await spawnLeadFromRoot(
+    {
+      backend: { backend: 'provider', provider },
+      coordination: { authentication: true, publicUrl: ({ port }) => `${local}:${port}/mcp` },
+      driverRetry: { enabled: false },
+      resolveSupervisorTools: () => [{ ...knowledge, handler: async () => 'none' }],
+    },
+    true,
+    ['steere_agent', 'steer_agent'].map((verb) => ({ ...spawnCapableChild, tools: tools(verb) })),
+  )
+  const refusal = toolResults.find((text) => text.includes('preflight-refused'))
+  expect(refusal).toContain('tools \\"steere_agent\\" are unavailable; served: spawn_worker')
+  expect(refusal).toContain('steer_agent, ')
+  expect(refusal).toContain('knowledge_search')
+  const spawned = events.filter((event) => event.kind === 'spawned' && event.key === 'lead')
+  expect(spawned).toHaveLength(1)
+  expect(creates()).toBe(1)
+  expect(toolResults.join('\n')).not.toContain('key-conflict')
+})
+
 it('never admits a provider manager when asynchronous endpoint provisioning fails', async () => {
-  const { provider: base, creates } = neverCreatingProvider()
-  const provider: AgentEnvironmentProvider = {
-    ...base,
-    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
-  }
+  const { provider, creates } = neverCreatingProvider(true)
   let localUrl = ''
   const { events } = await spawnLeadFromRoot(
     {
@@ -401,11 +418,7 @@ it.each([401, 403, 404, 503, 200, 'timeout'] as const)(
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const address = server.address()
     if (!address || typeof address === 'string') throw new Error('endpoint did not bind')
-    const { provider: base, creates } = neverCreatingProvider()
-    const provider: AgentEnvironmentProvider = {
-      ...base,
-      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
-    }
+    const { provider, creates } = neverCreatingProvider(true)
     try {
       const { events } = await spawnLeadFromRoot(
         {

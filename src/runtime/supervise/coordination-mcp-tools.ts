@@ -5,7 +5,7 @@
 
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
-import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
+import type { CoordinationTools, SpawnPreflight } from '../../mcp/tools/coordination-contracts'
 import type { createCoordinationToolsForManager } from '../../mcp/tools/coordination-manager'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { serveCoordinationMcp } from './coordination-mcp'
@@ -26,51 +26,38 @@ export function coordinationToolOptions(
   ownerReader: SpawnResourceReader | undefined,
   resolveProbeTool: (name: string) => McpToolDescriptor | undefined,
 ): Parameters<typeof createCoordinationToolsForManager>[0] {
+  // Identity, transport and grant fields stay with the listener; the rest configure the tools.
+  const { identity, nodeTools, toolNames, onCoordinationTools, peerMail, preflightSpawn, ...rest } =
+    opts
   return {
+    ...rest,
     resolveProbeTool,
-    scope: opts.scope,
-    blobs: opts.blobs,
-    makeWorkerAgent: opts.makeWorkerAgent,
-    ...(opts.graphs ? { graphs: opts.graphs } : {}),
-    ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
-    perWorker: opts.perWorker,
-    ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
-    ...(opts.readContinuation ? { readContinuation: opts.readContinuation } : {}),
-    ...(opts.onStop ? { onStop: opts.onStop } : {}),
-    ...(opts.analysts ? { analysts: opts.analysts } : {}),
-    ...(opts.analyzeOnSettle ? { analyzeOnSettle: opts.analyzeOnSettle } : {}),
-    ...(opts.mapOnSettle ? { mapOnSettle: opts.mapOnSettle } : {}),
-    ...(opts.sourceEvidenceRefs ? { sourceEvidenceRefs: opts.sourceEvidenceRefs } : {}),
-    ...(opts.peerAudit ? { peerAudit: opts.peerAudit } : {}),
-    ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-    ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-    ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
-    ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
-    ...(opts.replaySettlements ? { replaySettlements: true } : {}),
-    ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
-    ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
-    ...(opts.onChildQuestionInbox ? { onChildQuestionInbox: opts.onChildQuestionInbox } : {}),
-    ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
-    ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
-    ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),
-    ...(opts.priorAnalystDefinitions?.length
-      ? { priorAnalystDefinitions: opts.priorAnalystDefinitions }
-      : {}),
-    ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
-    ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
-    ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
-    ...(opts.profiles ? { profiles: opts.profiles } : {}),
-    ...(opts.spawnResourceRoot ? { spawnResourceRoot: opts.spawnResourceRoot } : {}),
+    ...preflightWithNodeTools(preflightSpawn, nodeTools),
     ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
-    ...(opts.peerMail
-      ? {
-          peerMail:
-            typeof opts.peerMail === 'object' && opts.peerMail.limits
-              ? { limits: opts.peerMail.limits }
-              : {},
-        }
-      : {}),
+    ...(peerMail ? { peerMail: typeof peerMail === 'object' ? { ...peerMail } : {} } : {}),
   }
+}
+
+/** Every requested name `served` lacks, in one refusal. A root meets it before its first harness
+ *  turn (#1219); a spawned child meets it in `spawn_worker`, before it is journaled. */
+export function unservedToolsRefusal(
+  requested: ReadonlyArray<string>,
+  served: ReadonlyArray<string>,
+): string | undefined {
+  const missing = requested.filter((name) => !served.includes(name))
+  if (missing.length === 0) return undefined
+  return `requested tools ${missing.map((n) => JSON.stringify(n)).join(', ')} are unavailable; served: ${served.join(', ')}`
+}
+
+/** The spawn pre-flight, told which node tools this manager was resolved: a Runtime-managed child
+ *  resolves its own from the same `resolveSupervisorTools`. */
+export function preflightWithNodeTools(
+  preflight: SpawnPreflight | undefined,
+  nodeTools: ReadonlyArray<McpToolDescriptor> | undefined,
+): { preflightSpawn?: SpawnPreflight } {
+  if (preflight === undefined) return {}
+  const nodeToolNames = (nodeTools ?? []).map((tool) => tool.name)
+  return { preflightSpawn: (profile, context) => preflight(profile, { ...context, nodeToolNames }) }
 }
 
 /**
@@ -122,13 +109,8 @@ export function bindServedTools(
   if (new Set(selectedNames).size !== selectedNames.length) {
     throw new ValidationError('serveCoordinationMcp: toolNames contains a duplicate name')
   }
-  // Every unserved name in one refusal, before any harness turn or backend create (#1219).
-  const missing = selectedNames.filter((name) => !availableByName.has(name))
-  if (missing.length > 0) {
-    throw new ValidationError(
-      `serveCoordinationMcp: requested tools ${missing.map((n) => JSON.stringify(n)).join(', ')} are unavailable; served: ${[...availableByName.keys()].join(', ')}`,
-    )
-  }
+  const refusal = unservedToolsRefusal(selectedNames, [...availableByName.keys()])
+  if (refusal !== undefined) throw new ValidationError(`serveCoordinationMcp: ${refusal}`)
   const servedTools = selectedNames.map((name) => availableByName.get(name) as McpToolDescriptor)
   return { servedTools, background: () => nodeTools.background() + fencedVerbs.background() }
 }

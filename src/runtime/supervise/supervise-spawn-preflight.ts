@@ -1,7 +1,9 @@
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { ConfigError } from '../../errors'
 import type { SpawnPreflight } from '../../mcp/tools/coordination-contracts'
+import { coordinationVerbNames } from '../../mcp/tools/coordination-events'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
+import { unservedToolsRefusal } from './coordination-mcp-tools'
 import { profileBridgeWireModel, profileModelExecutionSettings } from './model-policy'
 import { providerVisibleProfile } from './provider-visible-profile'
 import {
@@ -103,19 +105,18 @@ export function profileToolSpawnPreflight(
   runtimeOwnsManager: boolean,
   canResolveProductTools: boolean,
 ): SpawnPreflight {
-  return async (profile) => {
+  return async (profile, { nodeToolNames }) => {
     // A caller-owned worker factory is the execution port. It receives the exact profile and owns
     // its own native tool mount, just as it owns retry and completion behavior; Runtime cannot
     // truthfully infer that mount from a function value.
     if (!runtimeOwnsManager) return undefined
-    const declarationError = runtimeToolDeclarationError(profile, canResolveProductTools)
-    if (declarationError !== undefined) {
-      return {
-        cause: 'unmountable-tool',
-        detail: declarationError,
-      }
-    }
-    return undefined
+    // A child is served coordination verbs and the node tools its manager's resolver gives; any
+    // other name would settle it down after its sandbox exists (canary-chain-20261109d).
+    const served = nodeToolNames && [...coordinationVerbNames, ...nodeToolNames]
+    const detail =
+      runtimeToolDeclarationError(profile, canResolveProductTools) ??
+      (served && unservedToolsRefusal(declaredRuntimeToolNames(profile), served))
+    return detail === undefined ? undefined : { cause: 'unmountable-tool', detail }
   }
 }
 
