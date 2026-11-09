@@ -15,6 +15,7 @@ import {
   startRetainedRun,
 } from '../retained-run-start'
 import type { RetainedRunHandle } from '../retained-run-types'
+import { hostRestartReconnect } from '../supervise/host-restart'
 import { RetainedExecutionPendingError } from '../supervise/retained-executor'
 import { verifyWorkspaceMarker } from '../supervise/workspace-checkpoint'
 import type { StreamProviderExecutorArgs } from './provider-invocation'
@@ -172,9 +173,14 @@ async function retainedExecution(
     executionAdmitted:
       args.recovering && retention.admissions.some((admission) => admission.phase === 'dispatched'),
   }
+  // A reconnect after a planned host restart reattaches through what this attempt admitted.
+  const admissions = [...retention.admissions]
+  const restart = hostRestartReconnect(signal)
+  let reattach = false
   const onAdmission = async (admission: RetentionAdmission) => {
     if (admission.phase === 'dispatched') proof.executionAdmitted = true
     await retention.onAdmission(admission)
+    admissions.push(admission)
     proof.admitted = true
     args.scope.state.pending = true
   }
@@ -184,39 +190,46 @@ async function retainedExecution(
     selectedTurn,
     signal,
   )
-  try {
-    const handle = await acquireRetainedHandle(args, retention, material, onAdmission, {
-      turn,
-      selectedTurn,
-      turnId,
-    })
-    proof.executionAdmitted = true
-    args.onRetained(handle)
-    args.scope.state.pending = true
-    const environment = await args.provider.get?.(handle.controlRef.environmentId)
-    if (!environment) throw new Error('retained provider environment is unavailable')
-    if (restore !== undefined && !args.recovering) {
-      // The provider restores a checkpoint or fails the create; the marker Runtime wrote before
-      // the checkpoint is the evidence it did, journaled before the turn's result is judged.
-      const found = await verifyWorkspaceMarker(environment, restore.marker, signal)
-      await retention.onWorkspaceRestored?.({
-        environmentId: environment.id,
-        checkpoint: restore.checkpoint,
-        ...found,
-      })
-    }
-    const session = exactSession(environment, handle.controlRef).session
-    const events = new RetainedObservation(handle, signal, retention).observe(session)
-    return { environment, events, retained: true }
-  } catch (error) {
-    // A durable dispatch or exact reattachment proves execution admission before observation starts.
-    if (error instanceof RetainedMaterializationTimeoutError) throw error
-    if (proof.admitted && !retainedSessionReplaced(error))
-      throw new RetainedExecutionPendingError(
-        error,
-        proof.executionAdmitted ? 'execution' : 'admission',
+  for (;;) {
+    try {
+      const recovering = args.recovering || (reattach && admissions.length > 0)
+      const handle = await acquireRetainedHandle(
+        { ...args, recovering },
+        { ...retention, admissions },
+        material,
+        onAdmission,
+        { turn, selectedTurn, turnId },
       )
-    throw error
+      proof.executionAdmitted = true
+      args.onRetained(handle)
+      args.scope.state.pending = true
+      const environment = await args.provider.get?.(handle.controlRef.environmentId)
+      if (!environment) throw new Error('retained provider environment is unavailable')
+      if (restore !== undefined && !args.recovering) {
+        // The provider restores a checkpoint or fails the create; the marker Runtime wrote before
+        // the checkpoint is the evidence it did, journaled before the turn's result is judged.
+        const found = await verifyWorkspaceMarker(environment, restore.marker, signal)
+        await retention.onWorkspaceRestored?.({
+          environmentId: environment.id,
+          checkpoint: restore.checkpoint,
+          ...found,
+        })
+      }
+      const session = exactSession(environment, handle.controlRef).session
+      const events = new RetainedObservation(handle, signal, retention).observe(session)
+      return { environment, events, retained: true }
+    } catch (error) {
+      // The same execution id is resent or reattached, never a second run.
+      if ((reattach = await restart.retry(error))) continue
+      // A durable dispatch or exact reattachment proves execution admission before observation starts.
+      if (error instanceof RetainedMaterializationTimeoutError) throw error
+      if (proof.admitted && !retainedSessionReplaced(error))
+        throw new RetainedExecutionPendingError(
+          error,
+          proof.executionAdmitted ? 'execution' : 'admission',
+        )
+      throw error
+    }
   }
 }
 
