@@ -14,15 +14,13 @@ Account selection, quota, validity, and renewal belong to that account owner.
 
 The executor materializes credentials in the format the selected harness requires.
 Authentication files are private execution inputs, even when they are ordinary files inside the sandbox.
-Keep their values outside public profiles, mounted research inputs, prompts, and evidence archives.
 Use supported secret references or private backend configuration at the execution boundary.
 Read the current schema before naming a profile field; metadata alone does not configure authentication.
 
 The director authors each descendant's profile and grants its permitted capabilities.
 It does not need to perform an interactive login or export a parent's token.
-A descendant that can spawn receives the complete profile-authoring skill and the same authorized execution path.
+A descendant that can spawn receives the same authorized execution path.
 Changing its harness requires a granted authentication route for that harness.
-Native harness subagents and Runtime descendants remain distinct observation units.
 
 ## Cloud execution and persistence
 
@@ -43,11 +41,9 @@ Check that retained capture excludes authentication files and other private cred
 Separate configuration, materialization, model execution, research progress, and outside acceptance.
 For a root and a recursively spawned child, inspect:
 
-- The exact authored profile and materialization receipt.
 - The cloud placement, Runtime actor, and native session identities.
 - The granted account reference and actual harness/model evidence, without credential values.
 - The first model invocation and a real tool action.
-- The child-to-grandchild edge when claiming recursion.
 - Retrievable trace and artifact bytes after capture.
 
 A merged source change or published package does not prove a running deployment supports it.
@@ -70,4 +66,3 @@ Use these owners for changing fields and commands instead of copying an API cata
 - [Discovery cloud submission and retention](https://github.com/tangle-network/discovery-lab/blob/master/README.md).
 
 Read the installed provider's contract before using a newer source-only resolver or capability.
-The core skill remains sufficient to author a child; mount this reference when its assignment includes execution integration.
