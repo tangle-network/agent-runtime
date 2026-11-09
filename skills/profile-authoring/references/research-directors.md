@@ -88,7 +88,7 @@ Choose the existing Eval investigation engine and lower-level driver appropriate
 
 ## Check the profile before scaling
 
-Compare authored instructions, effective profile, materialized resources, and served tools for the root and a representative child. Retain component sizes and exact versions from existing profile/trace summaries. Identify measured versus estimated tokens and unavailable harness context. Confirm the child received the full authoring skill and this reference when it can create research directors.
+Compare the effective profile, materialized resources and served tools for the root and a representative child. Retain component sizes and exact versions from existing profile/trace summaries. Identify measured versus estimated tokens and unavailable harness context. Confirm the child received the full authoring skill and this reference when it can create research directors.
 
 Inspect one real analysis result and the director's response during the first authorized research work. It must cite the evidence and either change the work or explain why the finding does not justify a change. Delivery of a finding alone proves neither consumption nor improvement. Preserve blocked capabilities in the run record and fix their owning package; the operator's manual critique must not be credited to the director.
 
@@ -99,7 +99,3 @@ The director maintains a concise research account in the existing knowledge/arti
 Read measured counters from the existing trace projection. For judgments such as instruction compliance, skill application, reward hacking, or wasted effort, name the analyst, rubric, cited examples, reviewed population, exclusions, and uncertainty. Use calibrated judgments for acceptance; leave unreviewed populations unassessed. Distinguish repeated attempts, continuations, and independent trials.
 
 For every consequential endogenous or operator change, preserve who acted, why, the triggering evidence, before/after identities, and the affected execution or fork through existing records. Link knowledge revisions and profile changes to those records; record external deployment changes separately from authored research changes. Keep original evidence immutable. A missing event requires a capture fix, not a reconstructed claim of complete provenance.
-
-## Completion evidence
-
-A configured skill proves instructions were supplied. A captured tool call proves an action occurred. A reviewed artifact supports a claim. An improvement claim additionally requires the declared comparison. Report each level separately, with unknown outside acceptance unchanged.

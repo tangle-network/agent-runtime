@@ -1,15 +1,20 @@
 # Acceptance examples
 
-These examples preserve historical observations from the previous skill.
-Their counts are not current fleet measurements or default settings.
+The method detail below expands sections 1 to 9 of the skill. The examples keep historical observations; their counts are not current fleet measurements or defaults.
 
-## Contents
+## Method detail
 
-- [Counterexample hunt](#counterexample-hunt-before-and-after)
-- [A null that counts](#a-null-that-counts)
-- [Coding task](#coding-task-scored-by-tests)
-- [Customer product](#product-for-a-customer)
-- [Other historical observations](#other-historical-observations)
+- Audiences: a paper's referees, a repository's maintainers, a paying customer, a domain expert. A transcription of the acceptance test drops its assumptions; never reduce outcome classes to solved and unsolved. A literature search is part of acceptance.
+- Hacks live in the proxy's gap, and a stronger model does not close it. Canaries include a stale comparator. A proxy that refuses a correct result in an unexpected format trains agents on format, not substance. Use exact or interval arithmetic and count only what is proven.
+- Hiding every check also blocks honest work. Grade only what the outside rerun reproduces; record root-authored claims first so the blind check compares the same statement. A parent that promotes children on proxy passes alone selects for the gap: have the referee attack a result before anyone builds on it.
+- For a customer commission the bar is the first deliverable: the root's first milestone writes 50 to 100 checkable expectations, the deliverable spec and a workplan; a partner outside the authoring lineage raises the bar against named exemplars and holds part back.
+- Proposers get an occasional strong model. The referee's instrument is exact recomputation, execution, a literature search or an attempted counter-case; a change of family alone is weak. Runtime refuses an unadmitted model at spawn.
+- Separate execution settlement, development progress and final acceptance. The null certificate lists ranges, method, seeds and bound reached, and its calibration cell holds objects the search must find. The reproducer is registered before launch with its hash, the statements it covers and its own calibration; agents may run it and never write it. The outside check reruns its own copy, the calibration first (crediting nothing on a miss), then cells until its budget ends; one mismatched row refuses the certificate, and only rerun, matched cells earn credit. A null that is no search (a spec conflict, a gap list) counts when the held-back check reproduces each named item; one inside a range already covered adds nothing.
+- Tell agents the checker may be wrong; credit a reproduced checker-defect report like a result. A child returning no structured validity verdict stays unresolved in the parent's comparison. A harness honoring a map of coordination tools alone serves nothing else, and a revision states why it drops a tool its source listed. Work after a pass spends seats and adds nothing.
+- Traps give the rule, not the incident: the operator owns the stack. Typical ones: wrong-field comparators, tests versus users, a demo versus a customer, a rater versus an expert. A profile that imitates a person is not accepted on checks written from its own rules, which measure obedience: its acceptance is the person's own next action on held-out turns, against a control arm, a blind judge and the best no-persona predictor. Record a new trap in the same change as its fix.
+- An overspent child keeps its output and carries a `budgetViolation`; a child's total counts input tokens on every turn, so reserve turns times context. For subscriptions keep the token, iteration, time and compute bounds the installed path enforces; an unmeasured dollar cost stays unknown, and an unsupported dollar cap is not protection.
+- Report reviewed-claim precision, canary pass rate, how many proxy passes the audience accepts, and the cost per accepted result. Controls cover the referee, the credited exit, live notes and the wording.
+- Distinguish declared, delivered, accessed and applied capabilities; group retries of one assignment into one lineage. Keep dated live notes that separate observation from inference and name the next check; they are never scored. Record the termination cause apart from the research outcome.
 
 ## Counterexample hunt, before and after
 
