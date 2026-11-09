@@ -453,6 +453,7 @@ describe('retained environments at root settlement', () => {
       fleet.state.resultLost = false
       return restarting()
     }
+    const context = createInMemoryRunContext()
     let live: Settled<unknown> | undefined
     const result = await createSupervisor<unknown, unknown>().run(
       {
@@ -463,19 +464,19 @@ describe('retained environments at root settlement', () => {
         },
       },
       'task',
-      {
-        ...createInMemoryRunContext(),
-        runId: 'restart',
-        budget: { maxIterations: 4, maxTokens: 4000 },
-      },
+      { ...context, runId: 'restart', budget: { maxIterations: 4, maxTokens: 4000 } },
     )
     expect(result.kind).toBe('winner')
     expect(live?.kind, JSON.stringify(live)).toBe('done')
-    const state = JSON.parse(readFileSync(join(directory, 'provider.json'), 'utf8')) as {
-      environments: Record<string, { sessions: Record<string, { dispatches: unknown[] }> }>
-    }
-    const sessions = Object.values(state.environments).flatMap((e) => Object.values(e.sessions))
-    expect(sessions.flatMap((session) => session.dispatches)).toHaveLength(1)
+    // The refused dispatch was resent under the intent's execution id, and admitted once.
+    const admissions = ((await context.journal.loadTree('restart')) ?? []).flatMap((event) =>
+      event.kind === 'execution-admitted' && event.id === 'restart:s0' ? [event.admission] : [],
+    )
+    expect(admissions.filter((admission) => admission.phase === 'dispatched')).toHaveLength(1)
+    const ids = admissions.flatMap((a) =>
+      'controlRef' in a ? [a.controlRef.executionId] : 'executionId' in a ? [a.executionId] : [],
+    )
+    expect(new Set(ids).size).toBe(1)
   }, 30_000)
 
   it.each([
