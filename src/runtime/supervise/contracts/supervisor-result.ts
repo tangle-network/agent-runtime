@@ -92,8 +92,7 @@ export type SupervisedResult<Out> =
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       spendGaps?: ReadonlyArray<SpendGap>
       fleetYield: FleetYield
-      /** Spend by who did it, each node once: `root` is the root's own inference, `children` every
-       *  descendant's work. Their sum is `spentTotal`, except `ms` (wall time). */
+      /** The root's own spend and its descendants', each node once; they sum to `spentTotal`. */
       readonly spentSplit?: { readonly root: Spend; readonly children: Spend }
       spentBreakdown?: { driverInference: Spend; childWork: Spend }
     }
@@ -113,8 +112,7 @@ export type SupervisedResult<Out> =
       leakedReservations?: ReadonlyArray<import('../budget').LeakedReservation>
       spendGaps?: ReadonlyArray<SpendGap>
       fleetYield: FleetYield
-      /** Spend by who did it, each node once: `root` is the root's own inference, `children` every
-       *  descendant's work. Their sum is `spentTotal`, except `ms` (wall time). */
+      /** The root's own spend and its descendants', each node once; they sum to `spentTotal`. */
       readonly spentSplit?: { readonly root: Spend; readonly children: Spend }
       error?: never
     } & (
@@ -153,8 +151,7 @@ export type SupervisedResult<Out> =
       leakedReservations?: ReadonlyArray<import('../budget').LeakedReservation>
       spendGaps?: ReadonlyArray<SpendGap>
       fleetYield: FleetYield
-      /** Spend by who did it, each node once: `root` is the root's own inference, `children` every
-       *  descendant's work. Their sum is `spentTotal`, except `ms` (wall time). */
+      /** The root's own spend and its descendants', each node once; they sum to `spentTotal`. */
       readonly spentSplit?: { readonly root: Spend; readonly children: Spend }
       error: NoWinnerError
     }

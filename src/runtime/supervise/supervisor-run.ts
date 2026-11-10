@@ -459,7 +459,7 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
         ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
         ...(accounting.gaps.length > 0 ? { spendGaps: accounting.gaps } : {}),
         fleetYield: accounting.fleetYield,
-        spentSplit: { root: accounting.rootOwnSpent, children: accounting.childrenSpent },
+        spentSplit: accounting.spentSplit,
         ...(isNonEmptySpend(accounting.driverInference)
           ? {
               spentBreakdown: {
@@ -484,7 +484,7 @@ async function noWinner<Out>(
   rejection?: DriverRejection,
 ): Promise<SupervisedResult<Out>> {
   const { controller, teardownUnconfirmed, leakedReservations } = settled
-  const { tree, spentTotal, gaps, providerModel, fleetYield, usage, rootOwnSpent, childrenSpent } =
+  const { tree, spentTotal, gaps, providerModel, fleetYield, usage, spentSplit } =
     await terminalAccounting(
       settled.journal,
       settled.opts.runId,
@@ -502,7 +502,7 @@ async function noWinner<Out>(
     ...(leakedReservations.length > 0 ? { leakedReservations } : {}),
     ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
     fleetYield,
-    spentSplit: { root: rootOwnSpent, children: childrenSpent },
+    spentSplit,
   }
   // Lifecycle causes outrank the driver's own rejection; `undefined` means they explain nothing.
   const lifecycle = classifyNoWinner(

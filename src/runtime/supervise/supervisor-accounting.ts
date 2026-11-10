@@ -34,8 +34,7 @@ export async function terminalAccounting(
   usage: SettledUsage
   childWork: Spend
   driverInference: Spend
-  rootOwnSpent: Spend
-  childrenSpent: Spend
+  spentSplit: { root: Spend; children: Spend }
   gaps: SpendGap[]
   providerModel: import('./types').ProviderModelExecutionEvidence
   fleetYield: FleetYield
@@ -51,10 +50,8 @@ export async function terminalAccounting(
           : undefined
     if (spend !== undefined) assertValidSpend(spend, `settlement ${event.id}/${event.kind}`)
   }
-  const { childWork, driverInference, owner } = sumMeasuredSpendFromEvents(
-    [...rootTree.events],
-    root,
-  )
+  const measured = sumMeasuredSpendFromEvents([...rootTree.events], root)
+  const { childWork, driverInference, owner } = measured
   // Forest-wide: a nested driver's children live in its owned tree, outside the root view (#1189).
   const gaps = spendGapsFromEvents(forest.events.map((entry) => entry.event))
   const providerModel = aggregateProviderModelEvidence(forest)
@@ -84,12 +81,9 @@ export async function terminalAccounting(
     usage: settledUsage(forest, spentTotal, providerModel, profile),
     childWork,
     driverInference,
-    rootOwnSpent: owner ?? zeroSpend(),
-    // From `spentTotal`, so root + children is the total and keeps its unknown markers; `ms` is
-    // the children's executor time, not the run's wall time.
-    childrenSpent: {
-      ...unreportedSpend(spentTotal, owner ?? zeroSpend()),
-      ms: unreportedSpend(summed, owner ?? zeroSpend()).ms,
+    spentSplit: {
+      root: owner ?? zeroSpend(),
+      children: { ...unreportedSpend(spentTotal, owner ?? zeroSpend()), ms: summed.ms },
     },
     gaps,
     providerModel,
@@ -97,10 +91,8 @@ export async function terminalAccounting(
   }
 }
 
-/** A node's `spent` is its subtree: its own work plus what its children settled and re-homed, the
- *  figure its grant bounds. `ownSpent` removes the direct children's `spent`, so summing `ownSpent`
- *  counts every node once (summing `spent` counted agent-learning-methods-20261109a's 46.2M input
- *  as 75.2M). */
+/** `spent` is a subtree; `ownSpent` drops the direct children's, so its sum counts each node once
+ *  (summing `spent` read agent-learning-methods-20261109a's 46.2M input as 75.2M). */
 function withOwnSpent(nodes: NodeSnapshot[]): NodeSnapshot[] {
   const children = new Map<NodeId, Spend>()
   for (const node of nodes) {
@@ -108,13 +100,8 @@ function withOwnSpent(nodes: NodeSnapshot[]): NodeSnapshot[] {
     children.set(node.parent, addSpend(children.get(node.parent) ?? zeroSpend(), node.spent))
   }
   return nodes.map((node) => {
-    const below = children.get(node.id)
-    // Wall time overlaps across children, so a node keeps its own `ms`.
-    const ownSpent =
-      below === undefined
-        ? node.spent
-        : { ...unreportedSpend(node.spent, below), ms: node.spent.ms }
-    return { ...node, ownSpent }
+    const below = children.get(node.id) ?? zeroSpend()
+    return { ...node, ownSpent: { ...unreportedSpend(node.spent, below), ms: node.spent.ms } }
   })
 }
 

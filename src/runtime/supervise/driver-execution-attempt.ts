@@ -27,7 +27,7 @@ import {
   scopeOwnerExecutorNodeContext,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
-import { exhaustedBudgetChannels, tokenGrantReached, unmeteredOwnerCache } from './supervise-budget'
+import { exhaustedBudgetChannels, unmeteredOwnerCache } from './supervise-budget'
 import type { DriverSessionState } from './supervise-driver-session'
 import { coordinationMcpAlias, type DriveHarness } from './supervisor-agent'
 import type {
@@ -259,8 +259,8 @@ export class DriverExecutionAttempt {
     this.stops.budgetStop.abort(`supervise: budget exhausted (${spent})`)
   }
 
-  /** Mid-turn grant check on each usage receipt. Metering stays at the turn boundary, so each
-   *  provider attempt keeps its one served-model record; the stop cancels the native run. */
+  // The token grant in charged tokens (input − cacheRead + output), checked per usage receipt:
+  // methods-20261109a:s4:s8 ran 138 calls in one turn to 328,290 of 6,200. Metering stays per turn.
   private stopAtGrant(): void {
     if (this.stops.signal.aborted) return
     const projected = newUsageTotals(spendFromUsageTotals(this.ownerUsage))
@@ -269,9 +269,10 @@ export class DriverExecutionAttempt {
       spendFromUsageTotals(projected),
       this.retainedOwner ? this.committedOwnerSpend : this.observedOwnerSpend,
     )
-    const reached = tokenGrantReached(this.scope.budget, chargedTokens(unmetered.tokens))
-    if (reached === undefined) return
-    this.stops.budgetStop.abort(`supervise: budget exhausted (${reached})`)
+    const { budget } = this.scope
+    const left = budget.tokensLeft - chargedTokens(unmetered.tokens)
+    if (budget.tokensCapped === false || left > 0) return
+    this.stops.budgetStop.abort(`supervise: budget exhausted (tokens: ${-left} over the cap)`)
   }
 
   private async publishMaterialization(
