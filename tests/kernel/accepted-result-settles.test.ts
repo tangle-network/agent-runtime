@@ -130,6 +130,11 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         return JSON.parse(body.result.content[0].text)
       }
       const turnEndsAt = new Map<string, number>()
+      // A burning director's exact result exists only once its calls end, served or cancelled.
+      let endCalls!: () => void
+      const callsEnded = new Promise<void>((resolve) => {
+        endCalls = resolve
+      })
       const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
         ...environment,
         dispatch: async (turn) => {
@@ -167,22 +172,25 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
             async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
               yield* session.events!(eventOptions)
               const calls = role === 'director' ? options.directorCalls : undefined
-              for (let index = 0; calls !== undefined && index < calls.count; index += 1) {
-                await new Promise((resolve) => setTimeout(resolve, CALL_GAP_MS))
-                if ((await session.status()) === 'cancelled') break
-                callsServed += 1
-                // One model call's receipt, in the shape Runtime reads off opencode's step-finish.
-                yield {
-                  id: `call-${index}`,
-                  type: 'llm_call',
-                  data: {
-                    usageMode: 'delta',
-                    model: 'test',
-                    tokensIn: calls.input,
-                    tokensOut: calls.output,
-                    costKnown: false,
-                  },
+              if (calls !== undefined) {
+                for (let index = 0; index < calls.count; index += 1) {
+                  await new Promise((resolve) => setTimeout(resolve, CALL_GAP_MS))
+                  if ((await session.status()) === 'cancelled') break
+                  callsServed += 1
+                  // One model call's receipt, shaped as Runtime reads opencode's step-finish.
+                  yield {
+                    id: `call-${index}`,
+                    type: 'llm_call',
+                    data: {
+                      usageMode: 'delta',
+                      model: 'test',
+                      tokensIn: calls.input,
+                      tokensOut: calls.output,
+                      costKnown: false,
+                    },
+                  }
                 }
+                endCalls()
               }
               // The harness is still finishing the turn that submitted the accepted result.
               if (endsAt !== undefined) {
@@ -199,6 +207,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
                 )
               }
               const calls = role === 'director' ? options.directorCalls : undefined
+              if (calls !== undefined) await callsEnded
               return {
                 ...(await session.result()),
                 usage:
