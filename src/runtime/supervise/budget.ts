@@ -584,8 +584,8 @@ class ReservationLeases {
               this.root.maxTokens,
               l.reservedTokens,
               l.committedTokens,
+              // Unknown tokens are a lower bound, not a pin: settled work holds none of the cap.
               chargedTokens(spent.tokens),
-              l.tokensTainted,
             ),
           }),
       ...(this.root.maxIterations === undefined
