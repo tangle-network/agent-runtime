@@ -59,7 +59,17 @@ interface TreeOptions {
   readonly rootFirstTurnEndsAt?: () => number
   readonly deadlineMs?: number
   readonly perWorkerDeadlineMs?: number
+  /** The director submits nothing and keeps calling its model in one turn: each call is one
+   *  per-call usage receipt, served until the turn is cancelled. */
+  readonly directorCalls?: {
+    readonly count: number
+    readonly input: number
+    readonly output: number
+  }
 }
+
+/** Gap between a burning director's model calls, long enough for a stop to land between two. */
+const CALL_GAP_MS = 300
 
 /**
  * A provider-placed root that spawns one provider-placed director and, woken by its settlement,
@@ -86,6 +96,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
     openGate = resolve
   })
   const wrappers = new Map<string, (environment: AgentEnvironment) => AgentEnvironment>()
+  let callsServed = 0
   const provider: AgentEnvironmentProvider = {
     ...base,
     capabilities: async () => ({
@@ -138,7 +149,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
               const until = options.rootAcceptingTurnEndsAt?.()
               if (until !== undefined) turnEndsAt.set(executionId, until)
             }
-          } else {
+          } else if (options.directorCalls === undefined) {
             expect(await call('submit_result', { result: ACCEPTED })).toMatchObject({
               accepted: true,
             })
@@ -155,6 +166,24 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
             ...session,
             async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
               yield* session.events!(eventOptions)
+              const calls = role === 'director' ? options.directorCalls : undefined
+              for (let index = 0; calls !== undefined && index < calls.count; index += 1) {
+                await new Promise((resolve) => setTimeout(resolve, CALL_GAP_MS))
+                if ((await session.status()) === 'cancelled') break
+                callsServed += 1
+                // One model call's receipt, in the shape Runtime reads off opencode's step-finish.
+                yield {
+                  id: `call-${index}`,
+                  type: 'llm_call',
+                  data: {
+                    usageMode: 'delta',
+                    model: 'test',
+                    tokensIn: calls.input,
+                    tokensOut: calls.output,
+                    costKnown: false,
+                  },
+                }
+              }
               // The harness is still finishing the turn that submitted the accepted result.
               if (endsAt !== undefined) {
                 await new Promise((resolve) =>
@@ -169,9 +198,16 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
                   setTimeout(resolve, Math.max(0, endsAt - Date.now())),
                 )
               }
+              const calls = role === 'director' ? options.directorCalls : undefined
               return {
                 ...(await session.result()),
-                usage: { inputTokens: 3, outputTokens: 2 },
+                usage:
+                  calls === undefined
+                    ? { inputTokens: 3, outputTokens: 2 }
+                    : {
+                        inputTokens: callsServed * calls.input,
+                        outputTokens: callsServed * calls.output,
+                      },
               }
             },
           }
@@ -252,6 +288,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
     blobs: context.blobs,
     startedAt,
     deadlineAt: startedAt + deadlineMs,
+    callsServed: () => callsServed,
   }
 }
 
@@ -365,6 +402,33 @@ describe('an accepted submit_result settles its node', () => {
     expect(result).toMatchObject({ kind: 'winner', out: ACCEPTED })
     expect(lastMomentOf(tree.moments, 'dispatched', 'root')).toBeLessThan(tree.deadlineAt)
     expect(Date.now()).toBeGreaterThan(tree.deadlineAt)
+  }, 40_000)
+})
+
+describe('a worker token grant', () => {
+  it('cancels a worker turn at the usage receipt that reaches its grant', async () => {
+    // agent-learning-methods-20261109a:s4:s8 held a 6,200-token grant and ran 138 model calls in
+    // one turn to 328,290 charged tokens: usage was checked only when the turn ended.
+    const calls = { count: 30, input: 30, output: 10 }
+    const tree = await acceptedTree('grant-mid-turn', { directorCalls: calls })
+    await tree.settling
+    // perWorker.maxTokens is 100 charged tokens (input − cacheRead + output); a call charges 40.
+    // The third call reaches the grant and no fourth runs.
+    expect(tree.callsServed()).toBe(3)
+    const { events } = await tree.directorTree()
+    const charged = ofKind(events, 'metered').reduce(
+      (sum, event) =>
+        sum +
+        event.spend.tokens.input -
+        (event.spend.tokens.cacheRead ?? 0) +
+        event.spend.tokens.output,
+      0,
+    )
+    expect(charged).toBe(120)
+    // A node at its grant gets no further turn.
+    expect(
+      tree.moments.filter((moment) => moment.role === 'director' && moment.what === 'dispatched'),
+    ).toHaveLength(1)
   }, 40_000)
 })
 
