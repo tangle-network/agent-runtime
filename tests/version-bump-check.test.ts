@@ -875,11 +875,6 @@ describe('a shape change is classified from the declarations it was built from',
     ['an options interface', options],
     ['a callable interface argument', callable],
     ['each variant of an untagged union', (member: string) => variants(member)],
-    [
-      'an inferred promised union',
-      (member: string) =>
-        `export declare function run(): Promise<{\n  readonly winner: string;\n${member}} | {\n  readonly attempts: number;\n${member}}>;\n`,
-    ],
   ])(
     'asks a patch for an added optional member of %s and a major for an added required one',
     async (_form, options) => {
@@ -900,6 +895,23 @@ describe('a shape change is classified from the declarations it was built from',
       expect(failure.stderr).toContain('breaking change needing a major bump')
     },
   )
+
+  it('reads an inferred promised union part by part: an optional member is a patch, a removed one a major', async () => {
+    const promised = (member: string, rest = '  readonly attempts: number;\n') =>
+      `export declare function run(): Promise<{\n  readonly winner: string;\n${member}} | {\n${rest}${member}}>;\n`
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', promised(''))
+    await publish(root, 'v1.0.0')
+    await build(root, '1.0.1', promised('  readonly journalRoot?: string;\n'))
+    await expect(check(root, released)).resolves.toMatchObject({
+      stdout: expect.stringContaining('needing a patch bump, paid for by 1.0.0 -> 1.0.1 (patch)'),
+    })
+    await build(root, '1.0.1', promised('', ''))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
 
   it.each([
     ['a removed member', ''],
