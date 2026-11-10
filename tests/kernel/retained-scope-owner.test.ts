@@ -6,7 +6,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../../src/candidate-execution'
 import { canonicalCandidateDigest } from '../../src/candidate-execution/digest'
 import { contentAddress } from '../../src/durable/content-address'
@@ -31,12 +31,7 @@ import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { createCandidateOutputFixture } from '../helpers/candidate-execution-fixture'
-import { checkpointCaptureFixture } from '../helpers/checkpoint-capture'
-
-const checkpointCleanups: Array<() => void> = []
-afterEach(() => {
-  for (const cleanup of checkpointCleanups.splice(0)) cleanup()
-})
+import { forbiddenCheckpointForks } from '../helpers/checkpoint-capture'
 
 function checkpointFixture(
   options: {
@@ -63,12 +58,6 @@ function checkpointFixture(
   let lost = false
   let deletes = 0
   const files = new Map<string, string>()
-  const snapshots = new Map<string, ReadonlyMap<string, string>>()
-  const capture = checkpointCaptureFixture({
-    provider: source.provider,
-    snapshotFiles: (id) => snapshots.get(id),
-  })
-  checkpointCleanups.push(() => capture.cleanup())
   const environment: AgentEnvironment = {
     id: source.environmentId,
     provider: source.provider,
@@ -84,7 +73,6 @@ function checkpointFixture(
       checkpoint: async (
         request: WorkspaceCheckpointRequest,
       ): Promise<WorkspaceCheckpointResult> => {
-        snapshots.set('owned-checkpoint', new Map(files))
         const foreign = options.foreign
         const key = foreign === 'key' ? 'foreign-key' : request.idempotencyKey
         const digest =
@@ -115,7 +103,7 @@ function checkpointFixture(
       lookupCheckpoint: async () => {
         throw new Error('not used')
       },
-      ...capture.branching,
+      ...forbiddenCheckpointForks,
     },
   }
   const provider: AgentEnvironmentProvider = {
@@ -125,7 +113,7 @@ function checkpointFixture(
       throw new Error('not used')
     },
     get: async (id) =>
-      id === source.environmentId ? (lost ? null : environment) : capture.forkEnvironment(),
+      id === source.environmentId && !lost ? environment : null,
   }
   const register = (scope: Scope<unknown>) => {
     registerScopeRetainedOwner(scope, {
@@ -147,7 +135,6 @@ function checkpointFixture(
   return {
     events,
     register,
-    capture,
     deletes: () => deletes,
     async checkpoint(scope: Scope<unknown>) {
       register(scope)
@@ -169,9 +156,6 @@ function checkpointFixture(
       })
       noteScopeRetainedOwnerCoordination(scope)
       await scopeRetainedOwnerCheckpointing(scope)
-      const recorded = events.find((event) => event.kind === 'workspace-checkpoint')
-      if (recorded?.kind === 'workspace-checkpoint')
-        events.push(await capture.record(recorded.checkpoint, 'owner-test', events.length + 1))
     },
     lose() {
       lost = true
