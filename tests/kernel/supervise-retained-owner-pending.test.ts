@@ -597,14 +597,25 @@ describe('supervised root with a pending retained turn', () => {
         message: expect.stringContaining('Snapshot limit reached'),
       }),
     )
-    const deleted = run.events.flatMap((event) =>
-      event.kind === 'workspace-checkpoint-cleanup' && event.confirmed ? [event] : [],
-    )
-    expect(deleted.map((event) => event.checkpointId)).toEqual(['earlier-0'])
-    expect(deleted[0]!.capturedDigest).toBeUndefined()
-    expect(run.stored(source)).toEqual(['earlier-1', 'earlier-2', `checkpoint-${source}`])
     expect(run.environments).toHaveLength(2)
     expect(run.restoredCheckpointIds).toEqual([`checkpoint-${source}`])
+    // Before the new box exists only the oldest checkpoint goes, to make room; the restore point
+    // survives until the run's release deletes every restore point with the boxes.
+    const switched = run.events.findIndex(
+      (event) =>
+        event.kind === 'execution-admitted' &&
+        event.admission.phase === 'environment' &&
+        event.admission.environmentId === run.environments[1],
+    )
+    const deletedBefore = run.events
+      .slice(0, switched)
+      .flatMap((event) =>
+        event.kind === 'workspace-checkpoint-cleanup' && event.confirmed
+          ? [event.checkpointId]
+          : [],
+      )
+    expect(deletedBefore).toEqual(['earlier-0'])
+    expect(run.stored(source)).toEqual([])
     expect(count(run.events, 'seat-paused')).toBe(0)
   })
 
