@@ -112,8 +112,7 @@ function checkpointFixture(
     create: async () => {
       throw new Error('not used')
     },
-    get: async (id) =>
-      id === source.environmentId && !lost ? environment : null,
+    get: async (id) => (id === source.environmentId && !lost ? environment : null),
   }
   const register = (scope: Scope<unknown>) => {
     registerScopeRetainedOwner(scope, {

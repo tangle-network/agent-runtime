@@ -148,8 +148,7 @@ function fixture(boundary: Boundary, initialLookup: Lookup = 'found') {
     create: async () => {
       throw new Error('not used')
     },
-    get: async (id) =>
-      id === source.environmentId && live ? environment : null,
+    get: async (id) => (id === source.environmentId && live ? environment : null),
     workspaceBranching: {
       forEnvironment: async (id) => {
         expect(id).toBe(source.environmentId)

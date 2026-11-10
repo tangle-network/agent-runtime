@@ -179,7 +179,9 @@ describe('retained external supervisor recovery', () => {
             runtime: provider.name,
             status: 'done',
             environments: [{ provider: provider.name, environmentId: turns[0]?.environmentId }],
-            detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /),
+            detail: expect.stringMatching(
+              /^retained owner environment cleanup was not confirmed: /,
+            ),
           },
         ])
         expect(events.filter((event) => event.kind === 'teardown-unconfirmed')).toHaveLength(1)
