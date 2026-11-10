@@ -19,6 +19,7 @@ import {
   readWorkerCancelRequests,
   readWorkerSteerAcknowledgement,
   readWorkerSteerRequests,
+  type RootSteerPause,
   type WorkerCancellation,
   type WorkerCancelRequest,
   type WorkerSteerAcknowledgement,
@@ -126,6 +127,8 @@ export interface RootSteer {
 interface SteerAcknowledgerDeps {
   readonly deliverRoot?: (message: RootSteer) => boolean
   readonly deliverRootReady?: () => boolean
+  /** The stop-pause holding the root, read when a root steer waits for a turn. */
+  readonly rootPause?: () => RootSteerPause | undefined
   readonly dir: string
   readonly coord: {
     steerWorker(
@@ -145,8 +148,33 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
 } {
   const iso = () => new Date(deps.now()).toISOString()
   const awaiting = new Map<string, WorkerSteerRequest>()
+  // The stop each queued root steer's acknowledgement last named: a new pause is written once,
+  // never again as a live child's spend moves `tokensLeft`.
+  const named = new Map<string, string>()
+  const paused = (): { pausedOn?: RootSteerPause; why: string } => {
+    const pause = deps.rootPause?.()
+    if (pause === undefined) return { why: '' }
+    const left = pause.tokensLeft === undefined ? '' : ` with ${pause.tokensLeft} tokens left`
+    return { pausedOn: pause, why: `; the root is paused on ${pause.stop}${left}` }
+  }
+  const queuedRoot = (request: WorkerSteerRequest): void => {
+    const { pausedOn, why } = paused()
+    const key = pausedOn?.stop ?? ''
+    if (named.get(request.operationId) === key) return
+    named.set(request.operationId, key)
+    writeWorkerSteerAcknowledgement(deps.dir, {
+      ...base(request),
+      effect: 'unknown',
+      observedAt: iso(),
+      detail: `queued in the root inbox; no root turn has consumed it yet${why}`,
+      ...(pausedOn === undefined ? {} : { pausedOn }),
+    })
+  }
   const answerRoot = (request: WorkerSteerRequest, receipt: InboxReceipt): void => {
     if (!awaiting.delete(request.operationId)) return
+    named.delete(request.operationId)
+    const { pausedOn, why }: ReturnType<typeof paused> =
+      receipt.status === 'consumed' ? { why: '' } : paused()
     writeWorkerSteerAcknowledgement(deps.dir, {
       ...base(request),
       ...(receipt.status === 'consumed'
@@ -156,9 +184,10 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
           }
         : {
             effect: 'not_live',
-            detail: `the root did not consume the steer: ${receipt.reason}`,
+            detail: `the root did not consume the steer: ${receipt.reason}${why}`,
           }),
       observedAt: iso(),
+      ...(pausedOn === undefined ? {} : { pausedOn }),
     })
   }
 
@@ -188,6 +217,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
 
   return {
     async pass(phase): Promise<void> {
+      if (phase === 'turn') for (const request of awaiting.values()) queuedRoot(request)
       const changed = steerChanged(phase)
       if (phase !== 'final' && !changed && steerIdle) return
       let waiting = false
@@ -249,14 +279,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             })
           }
           if (rootRequest && outcome.delivered) {
-            if (awaiting.has(request.operationId)) {
-              writeWorkerSteerAcknowledgement(deps.dir, {
-                ...base(request),
-                effect: 'unknown',
-                observedAt: iso(),
-                detail: 'queued in the root inbox; no root turn has consumed it yet',
-              })
-            }
+            if (awaiting.has(request.operationId)) queuedRoot(request)
             continue
           }
           const effect: WorkerSteerAcknowledgement['effect'] = outcome.delivered

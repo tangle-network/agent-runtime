@@ -4,6 +4,7 @@ import { linkAbort, runAbortable } from './abortable'
 import type { ContinuationKeeper } from './continuation'
 import type { PriorCoordination } from './coordination-log'
 import { type CoordinationMcpHandle, serveCoordinationMcpForManager } from './coordination-mcp'
+import type { DriverAttemptStop } from './driver-attempt-evidence'
 import type { RootSteer } from './driver-control-acknowledgers'
 import { createInbox, INBOX_RECEIPT_KEY, type Inbox, type InboxReceipt } from './inbox'
 import { isPeerMailEnvelope, PEER_MAIL_WIRE_KEY } from './peer-mail'
@@ -75,6 +76,8 @@ export interface ManagerActState {
   readonly stopController: AbortController
   readonly coordinationLifetime: ReturnType<typeof linkAbort>
   harnessInvocationActive: boolean
+  /** The stop this root pauses on between drives; a drive's start clears it. */
+  pausedOn: DriverAttemptStop | undefined
   progressStopReason: string | undefined
   ledger: SettledLedger | undefined
   /** Built once the coordinator exists, because it reads the check's reads from it. */
@@ -117,6 +120,7 @@ export async function openManagerSession(
     stopController: new AbortController(),
     coordinationLifetime: linkAbort(scope.signal),
     harnessInvocationActive: false,
+    pausedOn: undefined,
     progressStopReason: undefined,
     ledger: undefined,
     keeper: undefined,
@@ -317,6 +321,12 @@ export function observeManagerControls(
           // Between turns a root steer is the input of the next wake, so it is always
           // deliverable once the coordinator exists.
           deliverRootReady: () => true,
+          rootPause: () => {
+            const stop = session.state.pausedOn
+            if (stop === undefined) return undefined
+            const { tokensCapped, tokensLeft } = scope.budget
+            return tokensCapped === false ? { stop } : { stop, tokensLeft }
+          },
         }),
     onError: (error) => {
       coordinationLifetime.abort(error)

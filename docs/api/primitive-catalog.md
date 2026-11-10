@@ -434,7 +434,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1046 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1039,6 +1039,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1045 exports.
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
 | `RootSegment` | interface | One root's model, harness and package versions. Changed execution starts a new segment |
 | `RootSegmentEntry` | interface | The segment a root enters with this process. |
+| `RootSteerPause` | interface | The stop a paused root holds a steer on, with the pool's free tokens when tokens are capped. |
 | `RootStreamReceipt` | interface | Root executor progress, when captured; outRef instead names selected output. |
 | `RouteGate` | interface | A vertex that is not an agent: reaching it asks the caller for one of `choices`. The edges |
 | `RouterResponseReceipt` | interface | Exact buffered HTTP evidence. Authentication and cookie headers are excluded. |
