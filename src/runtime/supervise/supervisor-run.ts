@@ -484,21 +484,13 @@ async function noWinner<Out>(
   rejection?: DriverRejection,
 ): Promise<SupervisedResult<Out>> {
   const { controller, teardownUnconfirmed, leakedReservations } = settled
-  const {
-    tree,
-    spentTotal,
-    gaps,
-    providerModel,
-    fleetYield,
-    usage,
-    rootOwnSpent,
-    childrenSpent,
-  } = await terminalAccounting(
-    settled.journal,
-    settled.opts.runId,
-    settled.now() - settled.runEpochMs,
-    settled.opts.requestedProfile,
-  )
+  const { tree, spentTotal, gaps, providerModel, fleetYield, usage, rootOwnSpent, childrenSpent } =
+    await terminalAccounting(
+      settled.journal,
+      settled.opts.runId,
+      settled.now() - settled.runEpochMs,
+      settled.opts.requestedProfile,
+    )
   const common = {
     kind: 'no-winner' as const,
     tree,
