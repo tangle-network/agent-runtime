@@ -197,4 +197,47 @@ describe('supervisePursuit root steering', () => {
       'delivered',
     )
   })
+
+  it('tells the sender at the read, so a turn that then fails does not turn a read steer into not_live', async () => {
+    // agent-learning-notes-20261109a: the root read eight steers in its journal during one 4 h turn
+    // that ended by time limit, and every sender was told the manager never read the message.
+    const root = mkdtempSync(join(tmpdir(), 'pursuit-read-then-fail-'))
+    roots.push(root)
+    const runId = 'read-then-fail'
+    const operationId = 'read-then-fail-1'
+    const eventDir = supervisorRunDir(root, runId)
+    writeWorkerSteer(root, runId, runId, { operationId, message: 'the check failed at stage 2' })
+    const seen: unknown[] = []
+    await supervisePursuit(
+      testAgentProfile(runId, { harness: 'codex', tools: runtimeToolDeclarations('read_journal') }),
+      'read the journal, then fail',
+      {
+        pursuitId: `pursuit:${runId}`,
+        runId,
+        runDir: root,
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        driverRetry: { enabled: false },
+        makeWorkerAgent: () => gatedWorker(Promise.resolve()),
+        driveHarness: async (drive) => {
+          const connection = await connectHttpMcp({
+            url: drive.coordinationMcpUrl,
+            protectedHeaders: drive.coordinationMcpHeaders,
+          })
+          let read = 0
+          for (let tries = 0; read === 0 && tries < 50; tries++) {
+            const page = await connection.callTool('read_journal', { kinds: ['lead-message'] })
+            read = JSON.parse(page).entries.length
+            if (read === 0) await new Promise((resolve) => setTimeout(resolve, 100))
+          }
+          seen.push(read, readWorkerSteerAcknowledgement(eventDir, operationId)?.effect)
+          throw new Error('Execution exceeded its time limit of 240 minutes')
+        },
+      },
+    ).catch(() => undefined)
+    expect(seen).toEqual([1, 'delivered'])
+    expect(readWorkerSteerAcknowledgement(eventDir, operationId)).toMatchObject({
+      effect: 'delivered',
+      detail: `the root consumed the steer in ${runId}#attempt-1`,
+    })
+  })
 })
