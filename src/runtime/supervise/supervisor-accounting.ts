@@ -85,9 +85,12 @@ export async function terminalAccounting(
     childWork,
     driverInference,
     rootOwnSpent: owner ?? zeroSpend(),
-    childrenSpent: nodes
-      .filter((node) => node.parent === forest.root)
-      .reduce<Spend>((sum, node) => addSpend(sum, node.spent), zeroSpend()),
+    // From `spentTotal`, so root + children is the total and keeps its unknown markers; `ms` is
+    // the children's executor time, not the run's wall time.
+    childrenSpent: {
+      ...unreportedSpend(spentTotal, owner ?? zeroSpend()),
+      ms: unreportedSpend(summed, owner ?? zeroSpend()).ms,
+    },
     gaps,
     providerModel,
     fleetYield,

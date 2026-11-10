@@ -5,8 +5,9 @@ import type { Budget, Scope, Spend } from './types'
 
 /**
  * The grant rule, in charged tokens (`chargedTokens`: input − cacheRead + output): after each
- * usage receipt, a node whose spend plus `unmetered` reaches its token grant gets no further model
- * call. Reservations its children hold are not spend. Returns the stop reason, or `undefined`.
+ * usage receipt, a node whose spend plus `unmetered` plus its children's open reservations reaches
+ * its token grant gets no further model call, the turn-boundary rule applied mid-turn. Returns the
+ * stop reason, or `undefined`.
  * Overspend is bounded by one receipt; a harness that reports usage only at its turn's end is
  * bounded by that turn (agent-learning-methods-20261109a:s4:s8 ran 138 calls to 328,290 of 6,200).
  */
@@ -15,10 +16,8 @@ export function tokenGrantReached(
   unmetered: number,
 ): string | undefined {
   if (budget.tokensCapped === false) return undefined
-  const committed = budget.committedTokens ?? 0
-  const grant = budget.tokensLeft + budget.reservedTokens + committed
-  const spent = committed + unmetered
-  return spent >= grant ? `tokens: ${spent} charged of a ${grant} grant` : undefined
+  const left = budget.tokensLeft - unmetered
+  return left <= 0 ? `tokens: ${-left} over the cap` : undefined
 }
 
 /**
