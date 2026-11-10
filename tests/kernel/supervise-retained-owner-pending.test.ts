@@ -599,8 +599,8 @@ describe('supervised root with a pending retained turn', () => {
     )
     expect(run.environments).toHaveLength(2)
     expect(run.restoredCheckpointIds).toEqual([`checkpoint-${source}`])
-    // Before the new box exists only the oldest checkpoint goes, to make room; the restore point
-    // survives until the run's release deletes every restore point with the boxes.
+    // Before the new box exists the oldest goes to make room and rotation keeps the newest two;
+    // the restore point survives until the run's release deletes every restore point with the boxes.
     const switched = run.events.findIndex(
       (event) =>
         event.kind === 'execution-admitted' &&
@@ -614,7 +614,7 @@ describe('supervised root with a pending retained turn', () => {
           ? [event.checkpointId]
           : [],
       )
-    expect(deletedBefore).toEqual(['earlier-0'])
+    expect(deletedBefore).toEqual(['earlier-0', 'earlier-1'])
     expect(run.stored(source)).toEqual([])
     expect(count(run.events, 'seat-paused')).toBe(0)
   })
