@@ -410,7 +410,11 @@ describe('a worker token grant', () => {
     // agent-learning-methods-20261109a:s4:s8 held a 6,200-token grant and ran 138 model calls in
     // one turn to 328,290 charged tokens: usage was checked only when the turn ended.
     const calls = { count: 30, input: 30, output: 10 }
-    const tree = await acceptedTree('grant-mid-turn', { directorCalls: calls })
+    // The director never submits; its deadline settles it whichever way its turn ends.
+    const tree = await acceptedTree('grant-mid-turn', {
+      directorCalls: calls,
+      perWorkerDeadlineMs: 15_000,
+    })
     await tree.settling
     // perWorker.maxTokens is 100 charged tokens (input − cacheRead + output); a call charges 40.
     // The third call reaches the grant and no fourth runs.
