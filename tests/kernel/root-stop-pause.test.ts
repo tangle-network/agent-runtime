@@ -16,7 +16,11 @@ import { awaitAbortable } from '../../src/runtime/retained-run-binding'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, runCancelRequestFile } from '../../src/runtime/supervise/run-cancellation'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
-import { supervisorRunDir, writeWorkerSteer } from '../../src/runtime/supervise/run-layout'
+import {
+  readWorkerSteerAcknowledgement,
+  supervisorRunDir,
+  writeWorkerSteer,
+} from '../../src/runtime/supervise/run-layout'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   Agent,
@@ -134,6 +138,7 @@ describe('an opted-in root pauses where it used to stop', () => {
       releaseWorker = resolve
     })
     const rows: Paused[] = []
+    const acks: unknown[] = []
     class BudgetJournal extends FileSpawnJournal {
       override async appendEvent(root: string, event: SpawnEvent): Promise<void> {
         await super.appendEvent(root, event)
@@ -142,6 +147,7 @@ describe('an opted-in root pauses where it used to stop', () => {
         if (rows.length === 1) {
           writeWorkerSteer(dir, runId, runId, { operationId: 'steer-budget', message: 'raise it' })
         } else if (rows.length === 2) {
+          acks.push(readWorkerSteerAcknowledgement(supervisorRunDir(dir, runId), 'steer-budget'))
           // The worker ends and returns its reservation; the clock then jumps over the pause.
           releaseWorker()
           setTimeout(() => vi.advanceTimersByTime(event.pauseMs), 200)
@@ -206,6 +212,15 @@ describe('an opted-in root pauses where it used to stop', () => {
     expect(tasks[1]).toContain(`Events waiting for you: 2 (lead-message; settled from ${runId}:s0)`)
     expect(tasks[2]).toContain('"type":"lead-message"')
     expect(tasks[2]).toContain('raise it')
+    // While the spent pool held the root, the steer's acknowledgement named that pause at once.
+    expect(acks).toEqual([
+      expect.objectContaining({
+        effect: 'unknown',
+        pausedOn: { stop: 'budget-exhausted', tokensLeft: expect.any(Number) },
+      }),
+    ])
+    const left = (acks[0] as { pausedOn: { tokensLeft: number } }).pausedOn.tokensLeft
+    expect(left).toBeLessThanOrEqual(0)
     expect(result).toMatchObject({
       kind: 'no-winner',
       reason: 'cancelled',

@@ -23,6 +23,7 @@ import { managerReentryState } from './coordination-manager-reentry'
 import {
   type AcknowledgementEnv,
   acknowledgeDeliveries,
+  answerLeadReceipt,
   appendCheckRead,
   createManagerState,
   type ManagerState,
@@ -103,15 +104,19 @@ export function createCoordinationToolsForManager(
     await replayResumeEvents()
     if (opts.routeFlow !== undefined) await routes.start()
   }
-  // A steer the manager read in its journal is delivered to this attempt, as a wake delivers it.
-  // us-legal-exploits-20261103d's root was refused submit_result for six steers it had read.
+  // A steer the manager read in its journal is delivered to this attempt, as a wake delivers it,
+  // and its sender hears so now: us-legal-exploits-20261103d's root was refused submit_result for
+  // six steers it had read, and agent-learning-notes-20261109a's root read eight in one 4 h turn
+  // that ended by time limit, so the turn-end acknowledgement told every sender not_live.
   const journal = createJournalReader({
     opts,
     bus,
     readSteer: (seq) => {
       const record = bus.take?.(seq)
-      const attempt = state.driverAttempt
-      if (record) state.deliveries.push({ record, attempt, acknowledged: false })
+      if (record === undefined) return
+      const delivery = { record, attempt: state.driverAttempt, acknowledged: false }
+      state.deliveries.push(delivery)
+      answerLeadReceipt({ opts, state, leadReceipts }, delivery)
     },
   })
   const ackEnv: AcknowledgementEnv = { opts, bus, state, leadReceipts }
