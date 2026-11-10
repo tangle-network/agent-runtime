@@ -305,9 +305,37 @@ export const classifyShapeChange = (before, after) => {
     if (['<>', '=>', 'extends', 'this'].includes(key) || /^[&~]/.test(key)) return false
     return key.endsWith('?') || key.endsWith('?()') || direction === 'out'
   }
+  // An untagged union variant is keyed by its digest, so a changed one reads as removed plus added.
+  // Pair each removed variant that has parts with the added one sharing the most member keys, and
+  // compare the two member by member: an added optional member is then additive, and a removed,
+  // required or retyped one still breaks.
+  const pairVariants = (left, right) => {
+    const split = (side, other) =>
+      Object.keys(side).filter((key) => key.startsWith('|') && !(key in other) && partsOf(side[key]))
+    const added = split(right, left)
+    const pairs = new Map()
+    for (const gone of split(left, right)) {
+      const names = new Set(Object.keys(partsOf(left[gone])))
+      let best
+      let shared = 0
+      for (const came of added) {
+        const count = Object.keys(partsOf(right[came])).filter((key) => names.has(key)).length
+        if (count > shared && ![...pairs.values()].includes(came)) [best, shared] = [came, count]
+      }
+      if (best !== undefined) pairs.set(gone, best)
+    }
+    return pairs
+  }
   const walk = (left, right, path, direction) => {
+    const pairs = pairVariants(left, right)
+    const paired = new Set(pairs.values())
     for (const key of [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()) {
       const at = path === '' ? key : `${path} ${key}`
+      if (paired.has(key)) continue
+      if (pairs.has(key)) {
+        walk(partsOf(left[key]), partsOf(right[pairs.get(key)]), at, direction)
+        continue
+      }
       if (!(key in left)) {
         if (addable(key, direction)) additive.push(`added ${at}`)
         else breaking.push(`added ${at}`)
@@ -320,6 +348,8 @@ export const classifyShapeChange = (before, after) => {
         continue
       }
       if (digest(left[key]) === digest(right[key])) continue
+      // A variant's key is its digest: a record that stated no parts for it names the same variant.
+      if (key.startsWith('|') && (left[key] === 1 || right[key] === 1)) continue
       let from = partsOf(left[key])
       let to = partsOf(right[key])
       if ((from === null) !== (to === null) && asUnion(left[key]) && asUnion(right[key])) {

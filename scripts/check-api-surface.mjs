@@ -438,8 +438,10 @@ const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typ
  *
  *   `name` `name?` `readonly name`  a property     `name()` `name?()`  a method
  *   `(0)` `(1?)` `(...2)` `this`    a parameter    `=>`  the return type
- *   `|<digest>` or `|tag:...` a union variant; `&<digest>` an opaque intersection part
+ *   `|<digest>` or `|tag:...` a union variant, an untagged one with its parts when it has them;
+ *   `&<digest>` an opaque intersection part
  *   `@0` `@1`    a signature of a function value         `<>` type parameters
+ *   `Promise<>`  the value of a `Promise`
  *   `~form`     completely accounted declaration kind; private heritage is flattened
  *   `~call` an interface's call signature; `~<digest>` any other member (index, construct, accessor)
  *
@@ -528,7 +530,11 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       return new Set(values.map(([tag]) => JSON.stringify(literalValue(tag)))).size === variants.length
     })
     return Object.fromEntries(variants.map((variant) => {
-      if (candidates.length !== 1) return [`|${digest(variant)}`, 1]
+      if (candidates.length !== 1) {
+        // An untagged variant keeps its parts, so the comparison can pair it with its successor.
+        const part = typePart(variant)
+        return [`|${digest(variant)}`, Array.isArray(part) ? part : 1]
+      }
       const tag = tags(variant).find((member) => memberName(member) === candidates[0])
       return [`|tag:${JSON.stringify([candidates[0], literalValue(tag)])}`, typePart(variant)]
     }))
@@ -542,6 +548,11 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       case 'TSUnionType':
         return unionParts(type.types)
       case 'TSTypeReference':
+        // A promise only hands its value out, so its value compares part by part (an inferred
+        // `Promise<{...} | ...>` return); every other generic stays opaque.
+        if (type.typeName.type === 'Identifier' && type.typeName.name === 'Promise' &&
+          type.typeArguments?.params.length === 1)
+          return { 'Promise<>': typePart(type.typeArguments.params[0]) }
         return type.typeArguments ? null : localParts(type.typeName)
       case 'TSMappedType': {
         const constraint = type.constraint
