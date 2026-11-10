@@ -481,6 +481,8 @@ Each child must declare every resource enforced by its parent, with matching uni
 Known settlement commits measured usage and refunds the unused allocation.
 An overrun is committed and recorded on the settlement as `budgetViolation`, naming each overspent channel with its reserved and spent amounts.
 It does not change the outcome: a child that completed settles `done` with its output, and later reservations are refused from the reduced balance.
+A driver's token grant is checked in charged tokens (input − cacheRead + output) after each usage receipt: a node whose spend plus its children's open reservations reaches its grant is stopped through its budget stop. A retained provider run is cancelled at once, so its overrun is at most one receipt; a bridge or non-retained provider turn ends at its turn boundary, and a harness that reports usage only at its turn's end is bounded by that turn.
+A node's `spent` is its subtree, which its grant bounds; `ownSpent` is its own work, and the result's `spentSplit` gives the root's own spend and its children's, each node counted once.
 Missing or unknown enforced measurements close admission for that dimension.
 An omitted measurement becomes unknown, including when an executor terminates or cancellation interrupts reporting.
 Only a proven refusal before execution can refund an unmeasured allocation as known zero.
