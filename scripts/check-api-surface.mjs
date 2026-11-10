@@ -441,6 +441,7 @@ const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typ
  *   `|<digest>` or `|tag:...` a union variant, an untagged one with its parts when it has them;
  *   `&<digest>` an opaque intersection part
  *   `@0` `@1`    a signature of a function value         `<>` type parameters
+ *   `Promise<>`  the value of a `Promise`
  *   `~form`     completely accounted declaration kind; private heritage is flattened
  *   `~call` an interface's call signature; `~<digest>` any other member (index, construct, accessor)
  *
@@ -547,6 +548,11 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       case 'TSUnionType':
         return unionParts(type.types)
       case 'TSTypeReference':
+        // A promise only hands its value out, so its value compares part by part (an inferred
+        // `Promise<{...} | ...>` return); every other generic stays opaque.
+        if (type.typeName.type === 'Identifier' && type.typeName.name === 'Promise' &&
+          type.typeArguments?.params.length === 1)
+          return { 'Promise<>': typePart(type.typeArguments.params[0]) }
         return type.typeArguments ? null : localParts(type.typeName)
       case 'TSMappedType': {
         const constraint = type.constraint

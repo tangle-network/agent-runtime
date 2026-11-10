@@ -875,6 +875,11 @@ describe('a shape change is classified from the declarations it was built from',
     ['an options interface', options],
     ['a callable interface argument', callable],
     ['each variant of an untagged union', (member: string) => variants(member)],
+    [
+      'an inferred promised union',
+      (member: string) =>
+        `export declare function run(): Promise<{\n  readonly winner: string;\n${member}} | {\n  readonly attempts: number;\n${member}}>;\n`,
+    ],
   ])(
     'asks a patch for an added optional member of %s and a major for an added required one',
     async (_form, options) => {
