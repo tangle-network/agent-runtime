@@ -4,6 +4,24 @@ import type { SuperviseOptions } from './supervise-options'
 import type { Budget, Scope, Spend } from './types'
 
 /**
+ * The grant rule, in charged tokens (`chargedTokens`: input − cacheRead + output): after each
+ * usage receipt, a node whose spend plus `unmetered` reaches its token grant gets no further model
+ * call. Reservations its children hold are not spend. Returns the stop reason, or `undefined`.
+ * Overspend is bounded by one receipt; a harness that reports usage only at its turn's end is
+ * bounded by that turn (agent-learning-methods-20261109a:s4:s8 ran 138 calls to 328,290 of 6,200).
+ */
+export function tokenGrantReached(
+  budget: Scope<unknown>['budget'],
+  unmetered: number,
+): string | undefined {
+  if (budget.tokensCapped === false) return undefined
+  const committed = budget.committedTokens ?? 0
+  const grant = budget.tokensLeft + budget.reservedTokens + committed
+  const spent = committed + unmetered
+  return spent >= grant ? `tokens: ${spent} charged of a ${grant} grant` : undefined
+}
+
+/**
  * Which of a driver's budget channels are spent, with their numbers, or `undefined` while none is.
  * The bare 'supervisor budget exhausted' named no channel: on queens21-h22-capture-root-2-20261019c
  * workers capped at 42,000 tokens metered 7,324,356 to 13,190,478 in one turn, and nothing said so.

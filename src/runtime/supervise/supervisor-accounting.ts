@@ -3,7 +3,7 @@ import { closesCursorSlot } from '../../durable/spawn-journal/event-index'
 import { aggregateProviderModelEvidence } from '../../durable/spawn-journal/provider-model-evidence'
 import { loadSpawnForest, type SpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import { RuntimeRunStateError } from '../../errors'
-import { addSpend } from '../util'
+import { addSpend, unreportedSpend, zeroSpend } from '../util'
 import { sumMeasuredSpendFromEvents } from './recover-executors'
 import { withBudgetResources } from './resources'
 import { type SettledUsage, settledUsage } from './settled-usage'
@@ -12,6 +12,7 @@ import type { SpawnedEvent } from './supervisor-root-contract'
 import type {
   FleetYield,
   NodeId,
+  NodeSnapshot,
   SpawnEvent,
   SpawnJournal,
   Spend,
@@ -33,6 +34,8 @@ export async function terminalAccounting(
   usage: SettledUsage
   childWork: Spend
   driverInference: Spend
+  rootOwnSpent: Spend
+  childrenSpent: Spend
   gaps: SpendGap[]
   providerModel: import('./types').ProviderModelExecutionEvidence
   fleetYield: FleetYield
@@ -48,7 +51,10 @@ export async function terminalAccounting(
           : undefined
     if (spend !== undefined) assertValidSpend(spend, `settlement ${event.id}/${event.kind}`)
   }
-  const { childWork, driverInference } = sumMeasuredSpendFromEvents([...rootTree.events])
+  const { childWork, driverInference, owner } = sumMeasuredSpendFromEvents(
+    [...rootTree.events],
+    root,
+  )
   // Forest-wide: a nested driver's children live in its owned tree, outside the root view (#1189).
   const gaps = spendGapsFromEvents(forest.events.map((entry) => entry.event))
   const providerModel = aggregateProviderModelEvidence(forest)
@@ -65,10 +71,11 @@ export async function terminalAccounting(
   }
   assertValidSpend(spentTotal, 'settlement total')
   const forestNodes = forest.nodes.filter((node) => node.id !== forest.root)
+  const nodes = withOwnSpent(forestNodes.map(({ treeRoot: _treeRoot, ...node }) => node))
   return {
     tree: {
       root: forest.root,
-      nodes: forestNodes.map(({ treeRoot: _treeRoot, ...node }) => node),
+      nodes,
       inFlight: forestNodes.filter((node) =>
         ['queued', 'acquiring', 'running'].includes(node.status),
       ).length,
@@ -77,10 +84,35 @@ export async function terminalAccounting(
     usage: settledUsage(forest, spentTotal, providerModel, profile),
     childWork,
     driverInference,
+    rootOwnSpent: owner ?? zeroSpend(),
+    childrenSpent: nodes
+      .filter((node) => node.parent === forest.root)
+      .reduce<Spend>((sum, node) => addSpend(sum, node.spent), zeroSpend()),
     gaps,
     providerModel,
     fleetYield,
   }
+}
+
+/** A node's `spent` is its subtree: its own work plus what its children settled and re-homed, the
+ *  figure its grant bounds. `ownSpent` removes the direct children's `spent`, so summing `ownSpent`
+ *  counts every node once (summing `spent` counted agent-learning-methods-20261109a's 46.2M input
+ *  as 75.2M). */
+function withOwnSpent(nodes: NodeSnapshot[]): NodeSnapshot[] {
+  const children = new Map<NodeId, Spend>()
+  for (const node of nodes) {
+    if (node.parent === undefined) continue
+    children.set(node.parent, addSpend(children.get(node.parent) ?? zeroSpend(), node.spent))
+  }
+  return nodes.map((node) => {
+    const below = children.get(node.id)
+    // Wall time overlaps across children, so a node keeps its own `ms`.
+    const ownSpent =
+      below === undefined
+        ? node.spent
+        : { ...unreportedSpend(node.spent, below), ms: node.spent.ms }
+    return { ...node, ownSpent }
+  })
 }
 
 /** Count each child by its last terminal record across the owned forest; roots are exempt. */

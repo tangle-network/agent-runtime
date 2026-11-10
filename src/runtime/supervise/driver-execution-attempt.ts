@@ -4,7 +4,7 @@ import {
   canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
-import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
+import { addSpend as addRetainedSpend, chargedTokens, unmeteredSpend, zeroSpend } from '../util'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { HarnessTurnFailedError } from './driver-attempt-evidence'
 import { errMessage } from './error-message'
@@ -27,7 +27,7 @@ import {
   scopeOwnerExecutorNodeContext,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
-import { exhaustedBudgetChannels, unmeteredOwnerCache } from './supervise-budget'
+import { exhaustedBudgetChannels, tokenGrantReached, unmeteredOwnerCache } from './supervise-budget'
 import type { DriverSessionState } from './supervise-driver-session'
 import { coordinationMcpAlias, type DriveHarness } from './supervisor-agent'
 import type {
@@ -259,6 +259,21 @@ export class DriverExecutionAttempt {
     this.stops.budgetStop.abort(`supervise: budget exhausted (${spent})`)
   }
 
+  /** Mid-turn grant check on each usage receipt. Metering stays at the turn boundary, so each
+   *  provider attempt keeps its one served-model record; the stop cancels the native run. */
+  private stopAtGrant(): void {
+    if (this.stops.signal.aborted) return
+    const projected = newUsageTotals(spendFromUsageTotals(this.ownerUsage))
+    for (const event of this.pendingUsage) meterUsageEvent(projected, event)
+    const unmetered = ownerSpendDelta(
+      spendFromUsageTotals(projected),
+      this.retainedOwner ? this.committedOwnerSpend : this.observedOwnerSpend,
+    )
+    const reached = tokenGrantReached(this.scope.budget, chargedTokens(unmetered.tokens))
+    if (reached === undefined) return
+    this.stops.budgetStop.abort(`supervise: budget exhausted (${reached})`)
+  }
+
   private async publishMaterialization(
     exactDeclaration: ExecutorMaterialization,
     exactBinding: ExecutorExecutionBinding,
@@ -385,6 +400,7 @@ export class DriverExecutionAttempt {
         sink.onModelEvent?.()
       } else {
         this.pendingUsage.push(event)
+        if (event.kind === 'tokens') this.stopAtGrant()
       }
     }
     await this.meterPending()
