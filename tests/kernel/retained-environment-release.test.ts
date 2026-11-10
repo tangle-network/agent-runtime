@@ -49,6 +49,7 @@ import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retai
 import {
   bindScopeRetainedOwnerProvider,
   noteScopeRetainedOwnerCoordination,
+  prepareScopeRetainedOwnerTask,
   scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerContext,
 } from '../../src/runtime/supervise/retained-scope-owner'
@@ -1442,6 +1443,7 @@ describe('retained environments at root settlement', () => {
           name: 'worker',
           async act(_task, scope) {
             bindScopeRetainedOwnerProvider(scope, ownerProvider)
+            await prepareScopeRetainedOwnerTask(scope, 'work')
             const owner = scopeRetainedOwnerContext(scope)!
             await owner.onAdmission({
               phase: 'environment',
