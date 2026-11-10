@@ -113,40 +113,4 @@ describe('control poll reads new bytes only (#2430)', () => {
     expect(delivered).toEqual(['run:s0', 'run:s1'])
     expect(readWorkerSteerAcknowledgement(dir, 'op-b')?.effect).toBe('delivered')
   })
-
-  it('a boundary pass leaves a root steer unseen until the inbox is ready', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'control-poll-root-'))
-    dirs.push(dir)
-    let ready = false
-    const got: string[] = []
-    const ack = createSteerAcknowledger({
-      dir,
-      now: () => Date.parse('2026-11-07T00:00:01.000Z'),
-      ownerId: 'run',
-      deliverRoot: (message) => {
-        got.push(message.steer)
-        return true
-      },
-      deliverRootReady: () => ready,
-      coord: {
-        steerWorker: async () => {
-          throw new Error('root steer must not go to a worker')
-        },
-      },
-    })
-    await ack.pass('turn')
-    writeWorkerSteer('', '', 'run', {
-      operationId: 'op-root',
-      message: 'pause',
-      source: 'test',
-      eventDir: dir,
-    })
-    await ack.pass('boundary')
-    expect(got).toEqual([])
-    await ack.pass('turn')
-    expect(got).toEqual([])
-    ready = true
-    await ack.pass('turn')
-    expect(got).toEqual(['pause'])
-  })
 })

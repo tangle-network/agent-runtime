@@ -166,6 +166,7 @@ export async function driveManagerTurns(inputs: ManagerTurnInputs): Promise<unkn
       ...(reentered === undefined ? {} : { reentered }),
       drive: async (attempt, reentry) => {
         let handedOff = false
+        session.state.pausedOn = undefined
         try {
           // A route that timed out fails this drive as unavailable, so the loop pauses and re-enters.
           await session.reachable()
@@ -611,6 +612,7 @@ async function recordManagerAttempt(
 ): Promise<void> {
   const { scope } = loop.session.state
   loop.records.push(record)
+  if (record.replacesStop !== undefined) loop.session.state.pausedOn = record.replacesStop
   // Report the ending record at once. A cancel must still say how the loop ended.
   if (record.stop !== undefined) reportManagerLoop(loop)
   await recordScopeOwnerDriverAttempt(scope, record)

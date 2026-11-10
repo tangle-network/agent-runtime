@@ -101,6 +101,27 @@ export type AcknowledgementEnv = {
   readonly leadReceipts: Map<string, (receipt: InboxReceipt) => void>
 }
 
+/** Tell a lead message's sender its manager read it, once: in a wake or in its own journal read. */
+export function answerLeadReceipt(
+  { opts, state, leadReceipts }: Omit<AcknowledgementEnv, 'bus'>,
+  delivery: Delivery,
+): void {
+  const event = delivery.record.event
+  const messageId = event.type === 'lead-message' ? event.message.messageId : undefined
+  const receipt = messageId === undefined ? undefined : leadReceipts.get(messageId)
+  if (messageId === undefined || receipt === undefined) return
+  leadReceipts.delete(messageId)
+  try {
+    receipt({
+      status: 'consumed',
+      messageId,
+      attemptId: `${opts.scope.view.root}#attempt-${delivery.attempt ?? state.driverAttempt ?? 1}`,
+    })
+  } catch {
+    // A sender's receipt handler cannot change what this manager processed.
+  }
+}
+
 export async function acknowledgeDeliveries(
   { opts, bus, state, leadReceipts }: AcknowledgementEnv,
   targets: ReadonlyArray<Delivery>,
@@ -110,20 +131,7 @@ export async function acknowledgeDeliveries(
   if (fresh.length === 0) return []
   // A lead's steer or answer was read by the turn that processed it: answer its sender.
   for (const delivery of fresh) {
-    const event = delivery.record.event
-    const messageId = event.type === 'lead-message' ? event.message.messageId : undefined
-    const receipt = messageId === undefined ? undefined : leadReceipts.get(messageId)
-    if (messageId === undefined || receipt === undefined) continue
-    leadReceipts.delete(messageId)
-    try {
-      receipt({
-        status: 'consumed',
-        messageId,
-        attemptId: `${opts.scope.view.root}#attempt-${delivery.attempt ?? state.driverAttempt ?? 1}`,
-      })
-    } catch {
-      // A sender's receipt handler cannot change what this manager processed.
-    }
+    answerLeadReceipt({ opts, state, leadReceipts }, delivery)
   }
   const seqs = fresh.map((delivery) => delivery.record.seq)
   await bus.publish(
