@@ -1,3 +1,17 @@
+## 9.0.4
+
+A settled owner deletes its restore-point checkpoints instead of keeping them as "uncaptured", so a nested manager whose workers' boxes are destroyed settles with its teardown confirmed. A nested owner's environment destroy that failed is asked again at settlement, and its unconfirmed receipt names the provider's error. A descendant that only keeps a box as evidence no longer marks its manager's teardown unconfirmed; the kept box stays named in `teardownUnconfirmed[].kept`.
+
+`skills/profile-authoring/SKILL.md` is the procedure only, 7,492 of 17,241 bytes; harness tool ids, Runtime verbs, the starting leaf and method detail move to `references/`, which the skill names with when to read each.
+
+A retained execution whose exact-result read fails (for example a Sandbox result replay that times out after 30 s) keeps observing its open stream and reads the result again, instead of failing at once with "retained provider stream remained open after its exact result".
+
+A retained execution reconnects to the same execution through a planned host-agent restart (Sandbox 503 `HOST_AGENT_RESTARTING`) for up to 3 minutes instead of failing "lost its transport; status in doubt".
+
+A root steer the manager reads in its own journal is acknowledged `delivered` at the read, so a turn that later fails no longer reports it `not_live`; a root steer queued while the root is stop-paused carries `pausedOn` (`stop`, and `tokensLeft` when tokens are capped) on its acknowledgement at once.
+
+A worker's token grant is enforced inside its turn: after each usage receipt, a driver node whose charged tokens (input − cacheRead + output) plus its children's open reservations reach its grant is stopped through its budget stop. A retained provider run is cancelled at once, so it overspends by at most one receipt; bridge and non-retained provider turns still end at their turn boundary, and a harness that reports usage only when its turn ends is bounded by that turn. Settlement now exposes `ownSpent` on each tree node (its own work, without descendants; `spent` stays the subtree its grant bounds) and `spentSplit: { root, children }` on the result, each counting every node once. An unknown token sample no longer pins a nested node's reservation at its cap minus reported spend: unknown token counts stay a lower bound, so a settled node's grant returns to its parent.
+
 ## 9.0.3
 
 A box check whose process log stream ends before its exit event reads the output the box retains again, within the check's timeout, and settles on the real exit instead of `refused`.
