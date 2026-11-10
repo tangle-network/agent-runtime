@@ -19,7 +19,6 @@ import {
   readWorkerCancelRequests,
   readWorkerSteerAcknowledgement,
   readWorkerSteerRequests,
-  type RootSteerPause,
   type WorkerCancellation,
   type WorkerCancelRequest,
   type WorkerSteerAcknowledgement,
@@ -126,9 +125,8 @@ export interface RootSteer {
 
 interface SteerAcknowledgerDeps {
   readonly deliverRoot?: (message: RootSteer) => boolean
-  readonly deliverRootReady?: () => boolean
   /** The stop-pause holding the root, read when a root steer waits for a turn. */
-  readonly rootPause?: () => RootSteerPause | undefined
+  readonly rootPause?: () => WorkerSteerAcknowledgement['pausedOn']
   readonly dir: string
   readonly coord: {
     steerWorker(
@@ -151,7 +149,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   // The stop each queued root steer's acknowledgement last named: a new pause is written once,
   // never again as a live child's spend moves `tokensLeft`.
   const named = new Map<string, string>()
-  const paused = (): { pausedOn?: RootSteerPause; why: string } => {
+  const paused = (): Pick<WorkerSteerAcknowledgement, 'pausedOn'> & { why: string } => {
     const pause = deps.rootPause?.()
     if (pause === undefined) return { why: '' }
     const left = pause.tokensLeft === undefined ? '' : ` with ${pause.tokensLeft} tokens left`
@@ -220,7 +218,6 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
       if (phase === 'turn') for (const request of awaiting.values()) queuedRoot(request)
       const changed = steerChanged(phase)
       if (phase !== 'final' && !changed && steerIdle) return
-      let waiting = false
       for (const request of readWorkerSteerRequests(deps.dir)) {
         if (phase !== 'final' && deps.signal?.aborted) {
           steerIdle = false
@@ -248,10 +245,6 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             observedAt: iso(),
             detail: 'run ended before the steer was applied',
           })
-          continue
-        }
-        if (rootRequest && deps.deliverRootReady !== undefined && !deps.deliverRootReady()) {
-          waiting = true
           continue
         }
         const claimed = claimWorkerSteerDelivery(deps.dir, {
@@ -310,7 +303,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
           })
         }
       }
-      if (phase === 'turn') steerIdle = !waiting
+      if (phase === 'turn') steerIdle = true
     },
   }
 }

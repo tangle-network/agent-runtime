@@ -667,7 +667,6 @@ export {
   readWorkerCancellation,
   readWorkerSteerAcknowledgement,
   readWorkerSteerRequests,
-  type RootSteerPause,
   safeWorkerFile,
   supervisorRunDir,
   supervisorRunsRoot,

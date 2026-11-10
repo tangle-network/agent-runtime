@@ -82,14 +82,8 @@ export interface WorkerSteerAcknowledgement {
   readonly requestedAt: string
   readonly observedAt: string
   readonly detail: string
-  /** The root's stop-pause when it held this root steer: no turn reads it until the pause ends. */
-  readonly pausedOn?: RootSteerPause
-}
-
-/** The stop a paused root holds a steer on, with the pool's free tokens when tokens are capped. */
-export interface RootSteerPause {
-  readonly stop: DriverAttemptStop
-  readonly tokensLeft?: number
+  /** The stop a paused root holds this steer on; `tokensLeft` when tokens are capped. */
+  readonly pausedOn?: { readonly stop: DriverAttemptStop; readonly tokensLeft?: number }
 }
 
 /** Caller input for one retry-safe steer operation. @stable */
@@ -829,10 +823,7 @@ function parseWorkerSteerAcknowledgement(value: unknown): WorkerSteerAcknowledge
     typeof record.requestedAt !== 'string' ||
     typeof record.observedAt !== 'string' ||
     typeof record.detail !== 'string' ||
-    (record.pausedOn !== undefined &&
-      (typeof record.pausedOn?.stop !== 'string' ||
-        (record.pausedOn.tokensLeft !== undefined &&
-          !Number.isFinite(record.pausedOn.tokensLeft))))
+    (record.pausedOn !== undefined && typeof record.pausedOn?.stop !== 'string')
   ) {
     throw new Error('steer acknowledgement is malformed')
   }

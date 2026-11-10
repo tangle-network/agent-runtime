@@ -318,9 +318,6 @@ export function observeManagerControls(
       ? {}
       : {
           deliverRoot: (message: RootSteer) => live.inbox?.(message) ?? false,
-          // Between turns a root steer is the input of the next wake, so it is always
-          // deliverable once the coordinator exists.
-          deliverRootReady: () => true,
           rootPause: () => {
             const stop = session.state.pausedOn
             if (stop === undefined) return undefined

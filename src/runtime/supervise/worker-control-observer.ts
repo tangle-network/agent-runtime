@@ -4,7 +4,7 @@ import {
   createSteerAcknowledger,
   type RootSteer,
 } from './driver-control-acknowledgers'
-import type { RootSteerPause } from './run-layout'
+import type { WorkerSteerAcknowledgement } from './run-layout'
 import type { Scope } from './types'
 
 /** Observe durable worker controls while the native harness owns the manager's turn loop. */
@@ -17,9 +17,7 @@ export function observeWorkerControls(options: {
   controlScope: 'run' | 'subtree'
   /** Root's existing inbox only; omitted for every nested manager. */
   deliverRoot?: (message: RootSteer) => boolean
-  /** Root delivery readiness; checked before a durable steer is claimed. */
-  deliverRootReady?: () => boolean
-  rootPause?: () => RootSteerPause | undefined
+  rootPause?: () => WorkerSteerAcknowledgement['pausedOn']
   onError: (error: unknown) => void
 }): { pass(): Promise<void>; close(): Promise<void> } {
   const { dir, coord, scope, signal, controlScope, onError } = options
@@ -32,7 +30,6 @@ export function observeWorkerControls(options: {
           ...deps,
           dir: steerDir,
           deliverRoot: options.deliverRoot,
-          deliverRootReady: options.deliverRootReady,
           rootPause: options.rootPause,
         })
   const cancellations = dir === undefined ? undefined : createCancelAcknowledger({ ...deps, dir })
