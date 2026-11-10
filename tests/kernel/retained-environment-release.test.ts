@@ -1518,6 +1518,17 @@ describe('retained environments at root settlement', () => {
       expect(result.kind, JSON.stringify(result)).toBe('winner')
       expect(box).toMatchObject({ live: false, checkpoints: new Set() })
       expect(result.teardownUnconfirmed).toBeUndefined()
+      const receipts = releaseReceipts(
+        (await context.journal.loadTree('root/root:s0/root:s0:s0')) ?? [],
+      )
+      if (shape === 'a box destroy that failed once') {
+        // The worker had confirmed before this failure; only the settlement retry destroyed the box.
+        expect(box.destroys).toBe(2)
+        expect(receipts).toMatchObject([
+          { destroyed: false, detail: expect.stringContaining('504 Gateway Timeout') },
+          { destroyed: true },
+        ])
+      } else expect(receipts).toMatchObject([{ destroyed: true }])
       for (const tree of ['root', 'root/root:s0', 'root/root:s0/root:s0:s0'])
         expect(
           ((await context.journal.loadTree(tree)) ?? []).filter(

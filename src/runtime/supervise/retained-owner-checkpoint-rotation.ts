@@ -109,7 +109,7 @@ export async function checkpointOwnerWorkspace(
     () =>
       rotation.abort(
         new Error(
-          `the rotation's ${WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS} ms for checkpoint captures ran out; checkpoint kept`,
+          `the rotation's ${WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS} ms for checkpoint deletes ran out; checkpoint kept`,
         ),
       ),
     WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS,

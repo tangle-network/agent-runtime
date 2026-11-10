@@ -21,7 +21,7 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
   return owners.get(scope)?.releaseRetriable ?? false
 }
 
-/** One budget for every checkpoint lookup, delete and fork this release starts. A cut-short capture keeps its checkpoint and source. */
+/** One budget for every checkpoint lookup, delete and fork cleanup this release starts. Work cut short keeps its checkpoint and source. */
 const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
 /**
@@ -57,7 +57,7 @@ async function releaseOwnerEnvironment(
   // No checkpoint may race the destroy below, and none is needed after it.
   state.checkpointsUnavailable ??= 'released'
   await state.checkpointing?.catch(() => undefined)
-  // One budget bounds every capture this release runs: the evidence it retries, then checkpoints.
+  // One budget bounds this release's checkpoint lookups and deletes.
   const capturesDeadline = Date.now() + capturesMs
   const events = [...((await args.journal.loadTree(args.rootId)) ?? [])]
   const captures = new AbortController()
@@ -65,7 +65,7 @@ async function releaseOwnerEnvironment(
     () =>
       captures.abort(
         new Error(
-          `the release's ${capturesMs} ms for checkpoint captures ran out; checkpoint and source kept`,
+          `the release's ${capturesMs} ms for checkpoint cleanup ran out; checkpoint and source kept`,
         ),
       ),
     Math.max(0, capturesDeadline - Date.now()),
