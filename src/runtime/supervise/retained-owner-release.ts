@@ -3,11 +3,8 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { contentAddress } from '../../durable/content-address'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { runAbortable } from './abortable'
-import {
-  type CaptureRefusal,
-  cleanCheckpoints,
-  settleCaptureForks,
-} from './retained-owner-checkpoint-capture'
+import { errMessage } from './error-message'
+import { cleanCheckpoints, settleCaptureForks } from './retained-owner-checkpoint-capture'
 import {
   type CheckpointEvent,
   checkpointHandle,
@@ -101,9 +98,6 @@ async function releaseOwnerEnvironment(
   let lastDetail: string | undefined
   let retriable = false
   const checkpointFailures: { readonly event: CheckpointEvent; readonly reason: string }[] = []
-  const checkpointsKept: CaptureRefusal[] = []
-  // Sources kept because a checkpoint of theirs is in no capture, and only they can fork it.
-  const uncapturedSources = new Set<string>()
   try {
     requestFailures = await reconcileCheckpointRequests(state, events, captures.signal)
     for (const { event } of requestFailures) pendingSources.add(event.environmentId)
@@ -116,17 +110,14 @@ async function releaseOwnerEnvironment(
         sourceEnvironmentId,
         AbortSignal.any([captures.signal, AbortSignal.timeout(30_000)]),
       )
-      const cleaned = await cleanCheckpoints(
-        state,
-        branching,
-        pending.filter((event) => event.environmentId === sourceEnvironmentId),
-        events,
-        captures.signal,
+      checkpointFailures.push(
+        ...(await cleanCheckpoints(
+          state,
+          branching,
+          pending.filter((event) => event.environmentId === sourceEnvironmentId),
+          captures.signal,
+        )),
       )
-      checkpointFailures.push(...cleaned.unconfirmed)
-      checkpointsKept.push(...cleaned.refused)
-      for (const refusal of cleaned.refused)
-        if (refusal.needsSource) uncapturedSources.add(sourceEnvironmentId)
     }
   } finally {
     clearTimeout(capturesTimer)
@@ -139,18 +130,11 @@ async function releaseOwnerEnvironment(
     let detail: string | undefined
     const retentionReason = retentionFailures.get(environmentId)
     const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
-    if (
-      retentionReason !== undefined ||
-      pendingSources.has(environmentId) ||
-      uncapturedSources.has(environmentId)
-    ) {
-      detail = nativeHold
-        ? retentionReason
-        : pendingSources.has(environmentId)
+    if (retentionReason !== undefined || pendingSources.has(environmentId)) {
+      detail =
+        !nativeHold && pendingSources.has(environmentId)
           ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
-          : uncapturedSources.has(environmentId)
-            ? 'checkpoint kept uncaptured: source preserved so its checkpoint can still be forked and captured'
-            : retentionReason
+          : retentionReason
       preserved.push(environmentId)
       lastDetail = detail
     } else {
@@ -180,8 +164,8 @@ async function releaseOwnerEnvironment(
           'retained owner cleanup timed out',
         )
         destroyed = true
-      } catch {
-        detail = 'retained owner environment cleanup was not confirmed'
+      } catch (error) {
+        detail = `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
         unconfirmed.push(environmentId)
         lastDetail = detail
         if (!permanent) retriable = true
@@ -235,15 +219,6 @@ async function releaseOwnerEnvironment(
         runtime: provider.name,
         status: 'done',
         detail: `checkpoint request unresolved: ${event.request.idempotencyKey} from ${event.environmentId} (${reason})`,
-      }),
-    ),
-    ...checkpointsKept.map(
-      ({ event, reason }): UnconfirmedTeardown => ({
-        id: args.nodeId,
-        label: 'scope owner workspace checkpoint',
-        runtime: provider.name,
-        status: 'done',
-        detail: `checkpoint kept uncaptured: ${event.checkpoint.checkpointId} from ${event.environmentId} (${reason})`,
       }),
     ),
     ...(forksUnresolved.length === 0

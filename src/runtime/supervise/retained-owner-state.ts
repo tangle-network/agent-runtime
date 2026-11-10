@@ -45,8 +45,6 @@ export interface OwnerState {
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
-  /** Captures this process refused. Rotation keeps them; release tries each once more. */
-  captureRefused?: Set<string>
   /** Stops a rotation's captures when the turn's own workspace capture starts. */
   rotationCaptures?: AbortController
   /** The drive in progress: from before its executor exists until its turn has ended. */

@@ -49,6 +49,7 @@ import type {
   SpawnEvent,
   SpawnJournal,
   Spend,
+  UnconfirmedTeardown,
 } from './types'
 
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
@@ -157,6 +158,15 @@ export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
     )
   }
   return true
+}
+
+/** A descendant that only keeps a box as evidence is a custody fact the run names, not a failed cleanup. */
+function cleanupFailed(node: UnconfirmedTeardown): boolean {
+  return (
+    (node.environments?.length ?? 0) > 0 ||
+    !node.kept?.length ||
+    node.kept.some((ref) => ref.keptFor !== 'evidence')
+  )
 }
 
 /**
@@ -431,7 +441,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     async teardown(): Promise<{ destroyed: boolean; detail?: string }> {
       await closeActive('driver executor teardown')
       if (cleanupFailure !== undefined) throw cleanupFailure
-      const unconfirmed = unconfirmedDescendants()
+      const unconfirmed = unconfirmedDescendants().filter(cleanupFailed)
       return unconfirmed.length > 0
         ? {
             destroyed: false,
