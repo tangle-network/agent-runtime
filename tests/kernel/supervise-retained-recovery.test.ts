@@ -199,7 +199,8 @@ describe('supervised retained provider recovery', () => {
         expect(await scope.next()).toMatchObject({ kind: 'down' })
         return 'inspected'
       })
-      expect(fixture.resultReads()).toBe(1)
+      // #2554: a failed exact read is retried once; the second failure leaves it in doubt.
+      expect(fixture.resultReads()).toBe(2)
       expect(fixture.dispatches()).toBe(1)
       const events = (await fixture.context.journal.loadTree('root')) ?? []
       expect(events.some((event) => event.kind === 'execution-result')).toBe(false)
