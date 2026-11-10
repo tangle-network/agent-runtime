@@ -9,55 +9,21 @@ import { type CheckpointEvent, checkpointHandle } from './retained-owner-checkpo
 import type { OwnerState } from './retained-owner-state'
 import type { SpawnEvent } from './types'
 
-type CheckpointCaptureEvent = Extract<SpawnEvent, { kind: 'workspace-checkpoint-capture' }>
-
 type ForkTeardownEvent = Extract<SpawnEvent, { kind: 'workspace-checkpoint-fork-teardown' }>
 
-/** A checkpoint kept without a delete because no capture holds its files. */
-export interface CaptureRefusal {
-  readonly event: CheckpointEvent
-  readonly reason: string
-  /** Whether a later capture needs the source: its handle is the only one that can fork it. */
-  readonly needsSource: boolean
-}
-
-/** Deletes the provider did not confirm, and checkpoints kept because no capture holds their files. */
-export interface CheckpointCleanup {
-  readonly unconfirmed: ReadonlyArray<{ readonly event: CheckpointEvent; readonly reason: string }>
-  readonly refused: CaptureRefusal[]
-}
-
-/** Delete captured checkpoints. An aborted parent starts no further provider call. */
+/**
+ * Delete restore-point checkpoints. A checkpoint is a restore point for a live owner, never
+ * evidence: the turn's workspace capture and native session export are the evidence, and the
+ * release keeps a source whose evidence is incomplete. An aborted parent starts no provider call.
+ */
 export async function cleanCheckpoints(
   state: OwnerState,
   branching: AgentWorkspaceBranching | undefined,
   checkpoints: readonly CheckpointEvent[],
-  events: readonly SpawnEvent[],
   parent?: AbortSignal,
-  uncapturable = false,
-): Promise<CheckpointCleanup> {
+): Promise<ReadonlyArray<{ readonly event: CheckpointEvent; readonly reason: string }>> {
   const unconfirmed: Array<{ readonly event: CheckpointEvent; readonly reason: string }> = []
-  const refused: CaptureRefusal[] = []
   for (const event of checkpoints) {
-    const captured = captureBeforeCleanup(state, event, events, uncapturable)
-    if ('reason' in captured) {
-      state.captureRefused ??= new Set()
-      state.captureRefused.add(event.checkpoint.checkpointId)
-      refused.push(captured)
-      await state.args.journal.appendEvent(state.args.rootId, {
-        kind: 'workspace-checkpoint-cleanup',
-        id: state.args.nodeId,
-        provider: event.provider,
-        environmentId: event.environmentId,
-        checkpointId: event.checkpoint.checkpointId,
-        confirmed: false,
-        refused: captured.reason.slice(0, 1_000),
-        seq: state.nextSequence(),
-        at: new Date(state.args.now()).toISOString(),
-      })
-      continue
-    }
-    state.captureRefused?.delete(event.checkpoint.checkpointId)
     const material = {
       kind: 'checkpoint' as const,
       targetId: event.checkpoint.checkpointId,
@@ -99,43 +65,11 @@ export async function cleanCheckpoints(
       checkpointId: event.checkpoint.checkpointId,
       confirmed,
       ...(reason === undefined ? {} : { refused: reason.slice(0, 1_000) }),
-      ...(captured.digest === undefined ? {} : { capturedDigest: captured.digest }),
       seq: state.nextSequence(),
       at: new Date(state.args.now()).toISOString(),
     })
   }
-  return { unconfirmed, refused }
-}
-
-/** Read the persisted checkpoint capture, or preserve an uncaptured checkpoint. */
-function captureBeforeCleanup(
-  state: OwnerState,
-  event: CheckpointEvent,
-  events: readonly SpawnEvent[],
-  uncapturable = false,
-): { readonly digest?: import('@tangle-network/agent-interface').Sha256Digest } | CaptureRefusal {
-  const { args } = state
-  const checkpointId = event.checkpoint.checkpointId
-  const recorded = events.find(
-    (prior): prior is CheckpointCaptureEvent =>
-      prior.kind === 'workspace-checkpoint-capture' &&
-      prior.id === args.nodeId &&
-      prior.provider === event.provider &&
-      prior.environmentId === event.environmentId &&
-      prior.checkpointId === checkpointId,
-  )
-  if (recorded !== undefined) return { digest: recorded.tree.digest }
-  const refuse = (reason: string, needsSource: boolean): CaptureRefusal => ({
-    event,
-    reason,
-    needsSource,
-  })
-  return uncapturable
-    ? {}
-    : refuse(
-        'client checkpoint capture writers are retired; no persisted capture holds this checkpoint',
-        false,
-      )
+  return unconfirmed
 }
 
 /** Destroy a capture's fork and journal whether the provider confirmed it. */

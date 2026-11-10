@@ -8,7 +8,7 @@ import type { AgentEnvironment } from '@tangle-network/agent-interface/environme
 import { runAbortable } from './abortable'
 import { errorText } from './error-message'
 import { cleanCheckpoints } from './retained-owner-checkpoint-capture'
-import { type CheckpointEvent, pendingCheckpoints } from './retained-owner-checkpoint-requests'
+import { pendingCheckpoints } from './retained-owner-checkpoint-requests'
 import { type OwnerState, owners } from './retained-owner-state'
 import type { Scope, WorkspaceCheckpointMarker } from './types'
 import {
@@ -93,26 +93,23 @@ export async function checkpointOwnerWorkspace(
   // out of its way, so the restore point keeps moving.
   if (
     !(await requestOne()) &&
-    (!(await deleteOldestUncapturable(state, branching, environment.id, signal)) ||
+    (!(await deleteOldestCheckpoint(state, branching, environment.id, signal)) ||
       !(await requestOne()))
   )
     return
   const events = (await args.journal.loadTree(args.rootId)) ?? []
   const owned = pendingCheckpoints(events, state).filter(
-    (event): event is CheckpointEvent =>
-      event.environmentId === environment.id &&
-      state.captureRefused?.has(event.checkpoint.checkpointId) !== true,
+    (event) => event.environmentId === environment.id,
   )
-  // The capture forks a box and reads its whole workspace, so it is bounded by its own budget and
-  // the turn's workspace capture, never by this checkpoint's bound. A capture cut short keeps its
-  // checkpoint, and the release captures it again.
+  // Superseded deletes have their own bound and yield to the turn's workspace capture; one cut
+  // short keeps its checkpoint, and the release deletes it.
   const rotation = new AbortController()
   state.rotationCaptures = rotation
   const timer = setTimeout(
     () =>
       rotation.abort(
         new Error(
-          `the rotation's ${WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS} ms for checkpoint captures ran out; checkpoint kept`,
+          `the rotation's ${WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS} ms for checkpoint deletes ran out; checkpoint kept`,
         ),
       ),
     WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS,
@@ -122,7 +119,6 @@ export async function checkpointOwnerWorkspace(
       state,
       branching,
       owned.slice(0, -WORKSPACE_CHECKPOINTS_KEPT),
-      events,
       AbortSignal.any([scope.signal, rotation.signal]),
     )
   } finally {
@@ -201,8 +197,8 @@ async function requestCheckpoint(
   return true
 }
 
-/** Delete the oldest checkpoint past {@link WORKSPACE_CHECKPOINTS_KEPT} when no capture can hold it, so a snapshot limit cannot freeze the restore point. */
-async function deleteOldestUncapturable(
+/** Delete the oldest checkpoint past {@link WORKSPACE_CHECKPOINTS_KEPT}, so a snapshot limit cannot freeze the restore point. */
+async function deleteOldestCheckpoint(
   state: OwnerState,
   branching: AgentWorkspaceBranching,
   environmentId: string,
@@ -214,6 +210,5 @@ async function deleteOldestUncapturable(
     .slice(0, -WORKSPACE_CHECKPOINTS_KEPT)
     .slice(0, 1)
   if (oldest.length === 0) return false
-  const { unconfirmed } = await cleanCheckpoints(state, branching, oldest, events, signal, true)
-  return unconfirmed.length === 0
+  return (await cleanCheckpoints(state, branching, oldest, signal)).length === 0
 }

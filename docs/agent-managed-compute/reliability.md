@@ -144,8 +144,7 @@ The normal child cleanup barrier still runs; explicit cancellation never turns a
 An old source mutated by a later invocation cannot be reconstructed as historical evidence.
 `tests/runtime/retained-capture-resume.test.ts` covers real coordinator loss, direct historical receipt verification and cold native custody.
 An accepted submission still gets the bounded grace owned by the deadline policy, and a nested manager's release still waits for its drive and acknowledged end-of-turn work.
-Ordinary checkpoint cleanup requires an existing verified capture receipt; missing capture keeps the checkpoint without requiring a source solely for a retired capture writer.
-The existing provider-capacity retirement path may delete an old checkpoint only through its exact cleanup acknowledgement.
+Checkpoints are restore points: rotation and release delete them through the exact cleanup acknowledgement, except those of a source whose evidence is incomplete.
 Historical capture forks remain custody obligations until their provider confirms destruction.
 A `not_found` answer for a checkpoint request older than the source-owned lookup window no longer keeps the source environment alive.
 Recoverable tool failures inside a completed turn do not fail the child.

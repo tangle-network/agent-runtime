@@ -164,7 +164,10 @@ export function createJournalReader({
       }
       entries.push(row)
       usedBytes += bytes
-      if (trackOwnRead && !candidate.prior && record.event.type === 'lead-message')
+      // A redaction marker carries no text: the steer stays queued for a read or wake that shows it.
+      const shown =
+        (row.event as { redactionFailed?: string } | null)?.redactionFailed === undefined
+      if (trackOwnRead && !candidate.prior && record.event.type === 'lead-message' && shown)
         readSteer(record.seq)
     }
     const last = entries[entries.length - 1]

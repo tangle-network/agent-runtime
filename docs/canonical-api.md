@@ -501,9 +501,10 @@ Missing results are reconciled through exact checkpoint lookup during release.
 An unresolved request preserves its source for later lookup and appears in the settle result.
 Cleanup uses the source-scoped provider handle, even when that source is lost.
 A checkpoint a provider refuses is journaled as `workspace-checkpoint-refused`, and the previous one stays the restore point.
-Ordinary cleanup deletes only checkpoints with a persisted verified `workspace-checkpoint-capture` receipt, recording the captured tree digest and exact provider acknowledgement.
-A checkpoint with no such receipt remains retained; its missing client capture does not by itself require keeping the source environment alive.
-When the provider refuses a new checkpoint at its capacity, the existing retirement path may delete the oldest beyond the protected newest checkpoints and retry once, only after the exact cleanup acknowledgement.
+A checkpoint is a restore point, not evidence: rotation deletes those beyond the newest protected ones, and release deletes the rest, each recorded with the exact provider acknowledgement.
+Release keeps the checkpoints of a source whose workspace or native-session evidence is incomplete, along with the source itself.
+A restore picks the newest checkpoint before its input that no confirmed cleanup deleted.
+When the provider refuses a new checkpoint at its capacity, rotation deletes the oldest beyond the protected newest checkpoints and retries once.
 Runtime creates no new checkpoint-capture forks; historical fork requests and ready receipts still require confirmed cleanup.
 Unconfirmed cleanup names the remaining snapshot in the settle result and remains pending across resume.
 A capture fork the journal does not show destroyed is found by its request key and destroyed at the owner's release.

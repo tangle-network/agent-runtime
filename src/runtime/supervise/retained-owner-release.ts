@@ -3,11 +3,8 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { contentAddress } from '../../durable/content-address'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { runAbortable } from './abortable'
-import {
-  type CaptureRefusal,
-  cleanCheckpoints,
-  settleCaptureForks,
-} from './retained-owner-checkpoint-capture'
+import { errMessage } from './error-message'
+import { cleanCheckpoints, settleCaptureForks } from './retained-owner-checkpoint-capture'
 import {
   type CheckpointEvent,
   checkpointHandle,
@@ -24,7 +21,7 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
   return owners.get(scope)?.releaseRetriable ?? false
 }
 
-/** One budget for every checkpoint lookup, delete and fork this release starts. A cut-short capture keeps its checkpoint and source. */
+/** One budget for every checkpoint lookup, delete and fork cleanup this release starts. Work cut short keeps its checkpoint and source. */
 const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
 /**
@@ -60,7 +57,7 @@ async function releaseOwnerEnvironment(
   // No checkpoint may race the destroy below, and none is needed after it.
   state.checkpointsUnavailable ??= 'released'
   await state.checkpointing?.catch(() => undefined)
-  // One budget bounds every capture this release runs: the evidence it retries, then checkpoints.
+  // One budget bounds this release's checkpoint lookups and deletes.
   const capturesDeadline = Date.now() + capturesMs
   const events = [...((await args.journal.loadTree(args.rootId)) ?? [])]
   const captures = new AbortController()
@@ -68,7 +65,7 @@ async function releaseOwnerEnvironment(
     () =>
       captures.abort(
         new Error(
-          `the release's ${capturesMs} ms for checkpoint captures ran out; checkpoint and source kept`,
+          `the release's ${capturesMs} ms for checkpoint cleanup ran out; checkpoint and source kept`,
         ),
       ),
     Math.max(0, capturesDeadline - Date.now()),
@@ -101,9 +98,6 @@ async function releaseOwnerEnvironment(
   let lastDetail: string | undefined
   let retriable = false
   const checkpointFailures: { readonly event: CheckpointEvent; readonly reason: string }[] = []
-  const checkpointsKept: CaptureRefusal[] = []
-  // Sources kept because a checkpoint of theirs is in no capture, and only they can fork it.
-  const uncapturedSources = new Set<string>()
   try {
     requestFailures = await reconcileCheckpointRequests(state, events, captures.signal)
     for (const { event } of requestFailures) pendingSources.add(event.environmentId)
@@ -116,17 +110,14 @@ async function releaseOwnerEnvironment(
         sourceEnvironmentId,
         AbortSignal.any([captures.signal, AbortSignal.timeout(30_000)]),
       )
-      const cleaned = await cleanCheckpoints(
-        state,
-        branching,
-        pending.filter((event) => event.environmentId === sourceEnvironmentId),
-        events,
-        captures.signal,
+      checkpointFailures.push(
+        ...(await cleanCheckpoints(
+          state,
+          branching,
+          pending.filter((event) => event.environmentId === sourceEnvironmentId),
+          captures.signal,
+        )),
       )
-      checkpointFailures.push(...cleaned.unconfirmed)
-      checkpointsKept.push(...cleaned.refused)
-      for (const refusal of cleaned.refused)
-        if (refusal.needsSource) uncapturedSources.add(sourceEnvironmentId)
     }
   } finally {
     clearTimeout(capturesTimer)
@@ -139,18 +130,11 @@ async function releaseOwnerEnvironment(
     let detail: string | undefined
     const retentionReason = retentionFailures.get(environmentId)
     const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
-    if (
-      retentionReason !== undefined ||
-      pendingSources.has(environmentId) ||
-      uncapturedSources.has(environmentId)
-    ) {
-      detail = nativeHold
-        ? retentionReason
-        : pendingSources.has(environmentId)
+    if (retentionReason !== undefined || pendingSources.has(environmentId)) {
+      detail =
+        !nativeHold && pendingSources.has(environmentId)
           ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
-          : uncapturedSources.has(environmentId)
-            ? 'checkpoint kept uncaptured: source preserved so its checkpoint can still be forked and captured'
-            : retentionReason
+          : retentionReason
       preserved.push(environmentId)
       lastDetail = detail
     } else {
@@ -180,8 +164,8 @@ async function releaseOwnerEnvironment(
           'retained owner cleanup timed out',
         )
         destroyed = true
-      } catch {
-        detail = 'retained owner environment cleanup was not confirmed'
+      } catch (error) {
+        detail = `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
         unconfirmed.push(environmentId)
         lastDetail = detail
         if (!permanent) retriable = true
@@ -235,15 +219,6 @@ async function releaseOwnerEnvironment(
         runtime: provider.name,
         status: 'done',
         detail: `checkpoint request unresolved: ${event.request.idempotencyKey} from ${event.environmentId} (${reason})`,
-      }),
-    ),
-    ...checkpointsKept.map(
-      ({ event, reason }): UnconfirmedTeardown => ({
-        id: args.nodeId,
-        label: 'scope owner workspace checkpoint',
-        runtime: provider.name,
-        status: 'done',
-        detail: `checkpoint kept uncaptured: ${event.checkpoint.checkpointId} from ${event.environmentId} (${reason})`,
       }),
     ),
     ...(forksUnresolved.length === 0
