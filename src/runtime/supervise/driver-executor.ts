@@ -7,6 +7,7 @@ import { contentAddress } from '../../durable/content-address'
 import { ownedTreeRootSpawn } from '../../durable/spawn-journal/spawn-forest'
 import { ValidationError } from '../../errors'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
+import { NATIVE_STOP_UNCONFIRMED } from '../retained-native-stop'
 import { addSpend, unreportedSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
@@ -49,6 +50,7 @@ import type {
   SpawnEvent,
   SpawnJournal,
   Spend,
+  UnconfirmedTeardown,
 } from './types'
 
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
@@ -157,6 +159,16 @@ export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
     )
   }
   return true
+}
+
+/** A descendant that only keeps a stopped box as evidence is a custody fact the run names, not a failed cleanup. */
+function cleanupFailed(node: UnconfirmedTeardown): boolean {
+  return (
+    (node.environments?.length ?? 0) > 0 ||
+    !node.kept?.length ||
+    node.kept.some((ref) => ref.keptFor !== 'evidence') ||
+    node.detail?.includes(NATIVE_STOP_UNCONFIRMED) === true
+  )
 }
 
 /**
@@ -431,7 +443,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     async teardown(): Promise<{ destroyed: boolean; detail?: string }> {
       await closeActive('driver executor teardown')
       if (cleanupFailure !== undefined) throw cleanupFailure
-      const unconfirmed = unconfirmedDescendants()
+      const unconfirmed = unconfirmedDescendants().filter(cleanupFailed)
       return unconfirmed.length > 0
         ? {
             destroyed: false,

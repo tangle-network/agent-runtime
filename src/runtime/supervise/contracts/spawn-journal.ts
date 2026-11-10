@@ -614,10 +614,8 @@ export type SpawnEvent =
     }
   | {
       /** Exact checkpoint cleanup outcome; unconfirmed resources remain pending across resume.
-       *  `capturedDigest` is the tree of the checkpoint's files that a `workspace-checkpoint-capture`
-       *  stored before the delete was asked for; a confirmed delete without one made room under a
-       *  provider's limit on an owner that has no capture. `refused` says why the checkpoint was
-       *  kept without a delete: its files are in no capture, so deleting it would lose them.
+       *  `refused` says why a delete was not confirmed. `capturedDigest` appears only on records
+       *  from Runtime versions that captured a checkpoint's files before deleting it.
        *  Informational, like `workspace-checkpoint`. */
       kind: 'workspace-checkpoint-cleanup'
       id: NodeId

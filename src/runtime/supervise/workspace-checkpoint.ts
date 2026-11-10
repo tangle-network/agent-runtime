@@ -20,11 +20,10 @@ export const WORKSPACE_CHECKPOINT_TIMEOUT_MS = 120_000
  *  ten times the bound on the request itself, so nothing it started can still be in flight. */
 export const WORKSPACE_CHECKPOINT_ABSENT_AFTER_MS = 10 * WORKSPACE_CHECKPOINT_TIMEOUT_MS
 
-/** Checkpoints kept per source environment; older ones are deleted once a newer one is journaled,
- *  and only after their files are captured. */
+/** Checkpoints kept per source environment; older ones are deleted once a newer one is journaled. */
 export const WORKSPACE_CHECKPOINTS_KEPT = 2
 
-/** Bound on the captures one checkpoint rotation runs. A turn capture cuts them short; the release captures again. */
+/** Bound on the deletes one checkpoint rotation runs. A turn capture cuts them short; the release deletes the rest. */
 export const WORKSPACE_CHECKPOINT_ROTATION_CAPTURES_MS = 2 * 60_000
 
 /** Write the marker. False when the environment cannot take it, so no restore can be verified. */
