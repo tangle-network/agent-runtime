@@ -25699,6 +25699,20 @@ Runtime acknowledgement for one exact steer operation.
 
 > `readonly` **detail**: `string`
 
+##### pausedOn?
+
+> `readonly` `optional` **pausedOn?**: `object`
+
+The stop a paused root holds this steer on; `tokensLeft` when tokens are capped.
+
+###### stop
+
+> `readonly` **stop**: [`DriverAttemptStop`](#driverattemptstop)
+
+###### tokensLeft?
+
+> `readonly` `optional` **tokensLeft?**: `number`
+
 ***
 
 ### WriteWorkerSteerOptions
