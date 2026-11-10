@@ -65,6 +65,8 @@ interface TreeOptions {
     readonly count: number
     readonly input: number
     readonly output: number
+    /** The first call's receipt says its counts are unknown, as a broken stream's does. */
+    readonly unknownFirst?: boolean
   }
 }
 
@@ -186,6 +188,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
                       model: 'test',
                       tokensIn: calls.input,
                       tokensOut: calls.output,
+                      ...(calls.unknownFirst && index === 0 ? { tokensKnown: false } : {}),
                       costKnown: false,
                     },
                   }
@@ -442,6 +445,25 @@ describe('a worker token grant', () => {
     expect(
       tree.moments.filter((moment) => moment.role === 'director' && moment.what === 'dispatched'),
     ).toHaveLength(1)
+  }, 40_000)
+})
+
+describe('a settled worker reservation', () => {
+  it('releases a settled grant whose early usage sample was unknown', async () => {
+    // agent-learning-methods-20261109a:s0 held 1,291,771 of its 1,600,000 grant after it settled:
+    // one sample at 22:41:17 said tokensKnown:false, and the held reservation stayed cap - reported.
+    const calls = { count: 2, input: 5, output: 5, unknownFirst: true }
+    const tree = await acceptedTree('grant-unknown-sample', {
+      directorCalls: calls,
+      perWorkerDeadlineMs: 15_000,
+    })
+    await tree.settling
+    const { id } = await tree.directorTree()
+    const events = await tree.rootEvents()
+    expect(ofKind(events, 'settled').some((event) => event.id === id)).toBe(true)
+    // Unknown token counts are a lower bound; settled work holds none of the grant.
+    const reconciled = ofKind(events, 'reconciled').filter((event) => event.id === id)
+    expect(reconciled.at(-1)?.reservation?.maxTokens ?? 0).toBe(0)
   }, 40_000)
 })
 
