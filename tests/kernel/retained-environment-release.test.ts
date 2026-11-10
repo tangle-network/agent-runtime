@@ -1445,12 +1445,24 @@ describe('retained environments at root settlement', () => {
             bindScopeRetainedOwnerProvider(scope, ownerProvider)
             await prepareScopeRetainedOwnerTask(scope, 'work')
             const owner = scopeRetainedOwnerContext(scope)!
+            const executionId = owner.executionId
+            await owner.onAdmission({
+              phase: 'intent',
+              provider: ownerProvider.name,
+              sessionId: 'worker-session',
+              executionId,
+              idempotencyKey: 'worker-input',
+              turnId: 'worker-turn',
+              runId: 'root',
+              requestedProfileDigest: `sha256:${'b'.repeat(64)}`,
+              requestDigest: `sha256:${'a'.repeat(64)}`,
+            })
             await owner.onAdmission({
               phase: 'environment',
               provider: ownerProvider.name,
               environmentId: environment.id,
               sessionId: 'worker-session',
-              executionId: 'worker-execution',
+              executionId,
               idempotencyKey: 'worker-input',
               turnId: 'worker-turn',
             })
@@ -1461,7 +1473,7 @@ describe('retained environments at root settlement', () => {
                 provider: ownerProvider.name,
                 environmentId: environment.id,
                 sessionId: 'worker-session',
-                executionId: 'worker-execution',
+                executionId,
                 requestDigest: `sha256:${'a'.repeat(64)}`,
               },
               idempotencyKey: 'worker-input',
