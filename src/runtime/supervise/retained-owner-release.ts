@@ -137,6 +137,21 @@ async function releaseOwnerEnvironment(
   }
   const forksUnresolved = await settleCaptureForks(state, captures.signal)
   for (const { event } of checkpointFailures) pendingSources.add(event.environmentId)
+  // Every destroy starts at once under one deadline; receipts are still journaled in order.
+  const destroyDeadline = AbortSignal.timeout(destroyMs)
+  const destroys = new Map(
+    [...environments]
+      .filter((id) => !released.has(id) && !retentionFailures.has(id) && !pendingSources.has(id))
+      .map((id) => {
+        const wait = runAbortable(
+          () => ownerEnvironmentDestroy(state, provider, id),
+          destroyDeadline,
+          () => new Error(`destroy still running after ${destroyMs} ms`),
+        )
+        wait.catch(() => undefined)
+        return [id, wait] as const
+      }),
+  )
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
@@ -152,11 +167,7 @@ async function releaseOwnerEnvironment(
       lastDetail = detail
     } else {
       try {
-        await runAbortable(
-          () => ownerEnvironmentDestroy(state, provider, environmentId),
-          AbortSignal.timeout(destroyMs),
-          () => new Error(`destroy still running after ${destroyMs} ms`),
-        )
+        await destroys.get(environmentId)
         destroyed = true
       } catch (error) {
         detail = `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
@@ -167,7 +178,8 @@ async function releaseOwnerEnvironment(
         if (!(error instanceof PermanentReleaseRefusal)) retriable = true
       }
     }
-    if (!destroyed) {
+    // A delete still running ends the harness with the box; a stop would reconnect to it.
+    if (!destroyed && !state.destroys?.has(environmentId)) {
       // A kept environment keeps its files, never its running harness: the run has settled, so
       // nothing will observe or reconcile an owner turn still executing inside it.
       const runs = unsettledOwnerRuns(events, args.nodeId, environmentId)
@@ -260,14 +272,20 @@ async function releaseOwnerEnvironment(
     : checkpointTeardowns
 }
 
-class PermanentReleaseRefusal extends Error {}
+class PermanentReleaseRefusal extends Error {
+  override name = 'PermanentReleaseRefusal'
+}
+
+/** A destroy in flight this long is presumed lost, and the next release asks the provider again. */
+const RELEASE_DESTROY_ABANDONED_MS = 15 * 60_000
 
 /**
  * The environment's one destroy, which every release of this owner joins until it succeeds. A
  * release's wait does not bound it: a later release waits on the same delete instead of
  * reconnecting to an environment the provider is already removing, which a native-capture provider
- * refuses while its sidecar deprovisions. A failed destroy is forgotten, so the next release asks
- * the provider again, and a provider that reports the environment absent confirms it.
+ * refuses while its sidecar deprovisions. A failed or abandoned destroy is forgotten, so the next
+ * release asks the provider again, and a provider that reports the environment absent confirms it.
+ * The join lives in this process: a resumed process asks the provider afresh.
  */
 function ownerEnvironmentDestroy(
   state: OwnerState,
@@ -276,7 +294,8 @@ function ownerEnvironmentDestroy(
 ): Promise<void> {
   const destroys = (state.destroys ??= new Map())
   const joined = destroys.get(environmentId)
-  if (joined !== undefined) return joined
+  if (joined !== undefined && Date.now() - joined.since < RELEASE_DESTROY_ABANDONED_MS)
+    return joined.destroy
   const destroy = (async () => {
     if (!provider.get)
       throw new PermanentReleaseRefusal('provider cannot reconstruct the retained environment')
@@ -288,9 +307,10 @@ function ownerEnvironmentDestroy(
       throw new PermanentReleaseRefusal('provider cannot destroy the retained environment')
     await environment.destroy()
   })()
-  destroys.set(environmentId, destroy)
+  const entry = { destroy, since: Date.now() }
+  destroys.set(environmentId, entry)
   destroy.catch(() => {
-    if (destroys.get(environmentId) === destroy) destroys.delete(environmentId)
+    if (destroys.get(environmentId) === entry) destroys.delete(environmentId)
   })
   return destroy
 }
