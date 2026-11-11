@@ -1,3 +1,7 @@
+## 9.0.5
+
+A rate-limited or overloaded driver (429, 529, `rate_limit_*`, and Z.ai GLM's bare rate-limit text) no longer ends as `repeated-failure`: a finished turn the upstream refused for rate pauses with the doubling capacity wait until the upstream answers, the budget or the deadline. Credential and placement refusals, and an in-doubt execution the upstream keeps refusing, still settle after three unchanged drives.
+
 ## 9.0.4
 
 A settled owner deletes its restore-point checkpoints instead of keeping them as "uncaptured", so a nested manager whose workers' boxes are destroyed settles with its teardown confirmed. A nested owner's environment destroy that failed is asked again at settlement, and its unconfirmed receipt names the provider's error. A descendant that only keeps a box as evidence no longer marks its manager's teardown unconfirmed; the kept box stays named in `teardownUnconfirmed[].kept`.
