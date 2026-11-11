@@ -24,13 +24,20 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
 /** One budget for every checkpoint lookup, delete and fork cleanup this release starts. Work cut short keeps its checkpoint and source. */
 const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
+/** A release's wait for its destroys; a delete grows with the retained workspace it seals (Sandbox
+ * 2026-11-11: 2-4 s at 1 MB, 30 s at 300 MB, 72 s at 1 GB). A later release joins the rest. */
+const RELEASE_DESTROY_MS = 5 * 60_000
+
 /**
  * Release the owner's environment once no turn of it will run again. A second call joins the one
  * in flight. The end-of-turn capture finishes before destroy. `capturesMs` bounds checkpoint work.
  */
 export function releaseScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
-  { capturesMs = RELEASE_CHECKPOINT_CAPTURES_MS }: { readonly capturesMs?: number } = {},
+  {
+    capturesMs = RELEASE_CHECKPOINT_CAPTURES_MS,
+    destroyMs = RELEASE_DESTROY_MS,
+  }: { readonly capturesMs?: number; readonly destroyMs?: number } = {},
 ): Promise<readonly UnconfirmedTeardown[]> {
   const state = owners.get(scope)
   const provider = state?.provider
@@ -39,7 +46,7 @@ export function releaseScopeRetainedOwnerEnvironment(
   const releasing = (async () => {
     await ownerDriveEnded(state)
     await scopeRetainedOwnerTurnEnded(scope)
-    return await releaseOwnerEnvironment(state, provider, capturesMs)
+    return await releaseOwnerEnvironment(state, provider, capturesMs, destroyMs)
   })()
   const tracked = releasing.finally(() => {
     if (state.releasing === tracked) delete state.releasing
@@ -52,6 +59,7 @@ async function releaseOwnerEnvironment(
   state: OwnerState,
   provider: AgentEnvironmentProvider,
   capturesMs: number,
+  destroyMs: number,
 ): Promise<readonly UnconfirmedTeardown[]> {
   const { args } = state
   // No checkpoint may race the destroy below, and none is needed after it.
@@ -124,6 +132,21 @@ async function releaseOwnerEnvironment(
   }
   const forksUnresolved = await settleCaptureForks(state, captures.signal)
   for (const { event } of checkpointFailures) pendingSources.add(event.environmentId)
+  // Every destroy starts at once under one deadline; receipts are still journaled in order.
+  const destroyDeadline = AbortSignal.timeout(destroyMs)
+  const destroys = new Map(
+    [...environments]
+      .filter((id) => !released.has(id) && !retentionFailures.has(id) && !pendingSources.has(id))
+      .map((id) => {
+        const wait = runAbortable(
+          () => ownerEnvironmentDestroy(state, provider, id),
+          destroyDeadline,
+          () => new Error(`destroy still running after ${destroyMs} ms`),
+        )
+        wait.catch(() => undefined)
+        return [id, wait] as const
+      }),
+  )
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
@@ -138,40 +161,20 @@ async function releaseOwnerEnvironment(
       preserved.push(environmentId)
       lastDetail = detail
     } else {
-      // A provider that cannot reconstruct or destroy the environment answers the same way every
-      // time; only a destroy that failed or went unanswered is worth asking again.
-      let permanent = false
       try {
-        await runAbortable(
-          async () => {
-            if (!provider.get) {
-              permanent = true
-              throw new Error('provider cannot reconstruct the retained environment')
-            }
-            const environment = await provider.get(environmentId)
-            if (environment === null) return
-            if (environment.id !== environmentId || environment.provider !== provider.name) {
-              permanent = true
-              throw new Error('provider returned another retained environment')
-            }
-            if (!environment.destroy) {
-              permanent = true
-              throw new Error('provider cannot destroy the retained environment')
-            }
-            await environment.destroy()
-          },
-          AbortSignal.timeout(30_000),
-          'retained owner cleanup timed out',
-        )
+        await destroys.get(environmentId)
         destroyed = true
       } catch (error) {
         detail = `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
         unconfirmed.push(environmentId)
         lastDetail = detail
-        if (!permanent) retriable = true
+        // A provider that cannot reconstruct or destroy the environment answers the same way every
+        // time; only a destroy that failed or went unanswered is worth asking again.
+        if (!(error instanceof PermanentReleaseRefusal)) retriable = true
       }
     }
-    if (!destroyed) {
+    // A delete still running ends the harness with the box; a stop would reconnect to it.
+    if (!destroyed && !state.destroys?.has(environmentId)) {
       // A kept environment keeps its files, never its running harness: the run has settled, so
       // nothing will observe or reconcile an owner turn still executing inside it.
       const runs = unsettledOwnerRuns(events, args.nodeId, environmentId)
@@ -262,6 +265,44 @@ async function releaseOwnerEnvironment(
         ...checkpointTeardowns,
       ]
     : checkpointTeardowns
+}
+
+class PermanentReleaseRefusal extends Error {}
+
+/** A destroy in flight this long is presumed lost, and the next release asks the provider again. */
+const RELEASE_DESTROY_ABANDONED_MS = 15 * 60_000
+
+/**
+ * The environment's one destroy, joined by this process's later releases instead of a reconnect to
+ * a box being removed, which a native-capture provider refuses while its sidecar deprovisions. A
+ * failed or abandoned destroy is forgotten: the next release asks again, and absence confirms it.
+ */
+function ownerEnvironmentDestroy(
+  state: OwnerState,
+  provider: AgentEnvironmentProvider,
+  environmentId: string,
+): Promise<void> {
+  const destroys = (state.destroys ??= new Map())
+  const joined = destroys.get(environmentId)
+  if (joined !== undefined && Date.now() - joined.since < RELEASE_DESTROY_ABANDONED_MS)
+    return joined.destroy
+  const destroy = (async () => {
+    if (!provider.get)
+      throw new PermanentReleaseRefusal('provider cannot reconstruct the retained environment')
+    const environment = await provider.get(environmentId)
+    if (environment === null) return
+    if (environment.id !== environmentId || environment.provider !== provider.name)
+      throw new PermanentReleaseRefusal('provider returned another retained environment')
+    if (!environment.destroy)
+      throw new PermanentReleaseRefusal('provider cannot destroy the retained environment')
+    await environment.destroy()
+  })()
+  const entry = { destroy, since: Date.now() }
+  destroys.set(environmentId, entry)
+  destroy.catch(() => {
+    if (destroys.get(environmentId) === entry) destroys.delete(environmentId)
+  })
+  return destroy
 }
 
 /**
