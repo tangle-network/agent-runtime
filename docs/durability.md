@@ -76,6 +76,10 @@ still require inspection rather than guessing whether an old writer is active.
 `tests/durability/file-generation-fence.test.ts` covers live-process takeover after release,
 stale store callbacks, and reclaiming both a killed holder and its in-flight mutation claim.
 
+An explicit reopen rebinds the last subscription account unless its segment exhausted that account.
+The new segment uses ordinary environment recovery; a retired native home is never evidence of a
+continued session or restored files. Only a different account on the same native home needs a grant.
+
 Durable `supervise`, `supervisePursuit` and `runGraph` callers (a `runDir` or a SQL `runContext`)
 with an existing keeper can opt into `parking: {}`. `RunParkingPolicy.afterMs` changes the idle
 threshold; its default belongs to the Runtime implementation. A run may park when every live node
