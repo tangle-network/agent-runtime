@@ -24,18 +24,13 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
 /** One budget for every checkpoint lookup, delete and fork cleanup this release starts. Work cut short keeps its checkpoint and source. */
 const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
-/**
- * How long one release waits for an environment's destroy. A provider may seal a retained
- * workspace before it answers a delete, so the wait grows with the workspace: measured 2026-11-11
- * on the Tangle Sandbox, 2 to 4 s for 1 MB, 30 s for 300 MB and 72 s for 1 GB. A destroy that
- * outlasts the wait keeps running, and the next release joins it.
- */
+/** A release's wait for its destroys; a delete grows with the retained workspace it seals (Sandbox
+ * 2026-11-11: 2-4 s at 1 MB, 30 s at 300 MB, 72 s at 1 GB). A later release joins the rest. */
 const RELEASE_DESTROY_MS = 5 * 60_000
 
 /**
  * Release the owner's environment once no turn of it will run again. A second call joins the one
- * in flight. The end-of-turn capture finishes before destroy. `capturesMs` bounds checkpoint work
- * and `destroyMs` each environment's destroy wait.
+ * in flight. The end-of-turn capture finishes before destroy. `capturesMs` bounds checkpoint work.
  */
 export function releaseScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
@@ -272,20 +267,15 @@ async function releaseOwnerEnvironment(
     : checkpointTeardowns
 }
 
-class PermanentReleaseRefusal extends Error {
-  override name = 'PermanentReleaseRefusal'
-}
+class PermanentReleaseRefusal extends Error {}
 
 /** A destroy in flight this long is presumed lost, and the next release asks the provider again. */
 const RELEASE_DESTROY_ABANDONED_MS = 15 * 60_000
 
 /**
- * The environment's one destroy, which every release of this owner joins until it succeeds. A
- * release's wait does not bound it: a later release waits on the same delete instead of
- * reconnecting to an environment the provider is already removing, which a native-capture provider
- * refuses while its sidecar deprovisions. A failed or abandoned destroy is forgotten, so the next
- * release asks the provider again, and a provider that reports the environment absent confirms it.
- * The join lives in this process: a resumed process asks the provider afresh.
+ * The environment's one destroy, joined by this process's later releases instead of a reconnect to
+ * a box being removed, which a native-capture provider refuses while its sidecar deprovisions. A
+ * failed or abandoned destroy is forgotten: the next release asks again, and absence confirms it.
  */
 function ownerEnvironmentDestroy(
   state: OwnerState,
