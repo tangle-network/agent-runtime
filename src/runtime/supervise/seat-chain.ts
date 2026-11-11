@@ -260,7 +260,7 @@ export class SeatChain {
     const last = events.filter((event) => event.phase === 'started').at(-1)
     if (
       last &&
-      !events.find((event) => event.phase === 'ended' && event.segmentIndex === last.segmentIndex)
+      !events.some((event) => event.phase === 'ended' && event.segmentIndex === last.segmentIndex)
     ) {
       await this.end(last, reason)
     }
