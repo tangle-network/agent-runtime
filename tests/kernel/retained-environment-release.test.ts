@@ -2186,7 +2186,9 @@ describe('a manager environment whose delete outlasts the release wait', () => {
         // being removed no longer serves.
         if (deleting)
           throw new Error('native capture requires the current selected backend before reconnect', {
-            cause: new Error(`HTTP 503: Sidecar with id ${id} is not ready: project_deprovisioning`),
+            cause: new Error(
+              `HTTP 503: Sidecar with id ${id} is not ready: project_deprovisioning`,
+            ),
           })
         return environment
       },
@@ -2232,7 +2234,9 @@ describe('a manager environment whose delete outlasts the release wait', () => {
             expect(retainedOwnerReleaseRetriable(scope)).toBe(true)
             // A release while the delete still runs waits on that delete, not on a reconnect.
             expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([
-              expect.objectContaining({ environments: [{ provider: provider.name, environmentId }] }),
+              expect.objectContaining({
+                environments: [{ provider: provider.name, environmentId }],
+              }),
             ])
             finishDelete()
             expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([])
@@ -2253,12 +2257,18 @@ describe('a manager environment whose delete outlasts the release wait', () => {
     )
     if (failure) throw failure
     expect({ gets, destroys }).toEqual({ gets: 1, destroys: 1 })
-    expect(
-      releaseReceipts(events).map(({ destroyed, detail }) => ({ destroyed, detail })),
-    ).toEqual([
-      { destroyed: false, detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /) },
-      { destroyed: false, detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /) },
-      { destroyed: true },
-    ])
+    expect(releaseReceipts(events).map(({ destroyed, detail }) => ({ destroyed, detail }))).toEqual(
+      [
+        {
+          destroyed: false,
+          detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /),
+        },
+        {
+          destroyed: false,
+          detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /),
+        },
+        { destroyed: true },
+      ],
+    )
   }, 120_000)
 })

@@ -34,6 +34,8 @@ export interface OwnerState {
   nextSequence: () => number
   /** A failed or unanswered destroy, not a source preserved on purpose. */
   releaseRetriable?: boolean
+  /** Each environment's destroy in flight, joined by every later release until it succeeds. */
+  destroys?: Map<string, Promise<void>>
   taskRef?: string
   accepted?: ExecutorResult<unknown>
   acceptedRef?: Extract<SpawnEvent, { kind: 'execution-result' }>
