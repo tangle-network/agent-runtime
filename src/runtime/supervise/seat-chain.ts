@@ -126,7 +126,7 @@ export class SeatChain {
     const last = starts.at(-1)
     const closed =
       last &&
-      events.some((event) => event.phase === 'ended' && event.segmentIndex === last.segmentIndex)
+      events.find((event) => event.phase === 'ended' && event.segmentIndex === last.segmentIndex)
     if (last && !closed && afterUsageLimit) await this.end(last, 'usage-limit')
     const resume = last && !closed && !afterUsageLimit
     const segmentIndex = resume ? last.segmentIndex : (last?.segmentIndex ?? -1) + 1
@@ -134,8 +134,13 @@ export class SeatChain {
     let earliestReset: number | undefined
     for (let stageIndex = firstStageIndex; stageIndex < stages.length; stageIndex += 1) {
       const stage = stages[stageIndex]!
+      const rebind =
+        last &&
+        stageIndex === last.stageIndex &&
+        !afterUsageLimit &&
+        closed?.reason !== 'usage-limit'
       const excludedSeatIds = (afterRecheck ? [] : starts)
-        .filter((event) => event.stageIndex === stageIndex && (!resume || event.seat !== last.seat))
+        .filter((event) => event.stageIndex === stageIndex && (!rebind || event.seat !== last.seat))
         .map((event) => event.seat)
       const prior =
         last === undefined
@@ -151,7 +156,7 @@ export class SeatChain {
         preceding &&
           preceding.provider === stage.provider &&
           preceding.harness === stage.harness &&
-          (!resume || preceding.seat !== last.seat),
+          (!rebind || preceding.seat !== last.seat),
       )
       const selection = checkedSeatSelection(
         stage,
@@ -165,7 +170,7 @@ export class SeatChain {
           requiresNativeTurnGrant,
           ...(retainedEnvironmentId === undefined ? {} : { retainedEnvironmentId }),
           ...(prior === undefined ? {} : { previous: prior }),
-          ...(resume ? { resumeSeatId: last.seat } : {}),
+          ...(rebind ? { resumeSeatId: last.seat } : {}),
         }),
       )
       if ('resumeAt' in selection) {
@@ -174,7 +179,7 @@ export class SeatChain {
         if (resume) break
         continue
       }
-      if (resume && selection.seat !== last.seat) {
+      if (rebind && selection.seat !== last.seat) {
         throw new ValidationError('selectSeat: resume changed the committed seat')
       }
       if (excludedSeatIds.includes(selection.seat)) {
@@ -255,7 +260,7 @@ export class SeatChain {
     const last = events.filter((event) => event.phase === 'started').at(-1)
     if (
       last &&
-      !events.some((event) => event.phase === 'ended' && event.segmentIndex === last.segmentIndex)
+      !events.find((event) => event.phase === 'ended' && event.segmentIndex === last.segmentIndex)
     ) {
       await this.end(last, reason)
     }

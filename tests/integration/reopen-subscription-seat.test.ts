@@ -20,9 +20,15 @@ it('reopens a retired OpenCode owner on its exact non-exhausted subscription sea
     const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {}
     requests.push({ path: request.url!, ...body })
     response.writeHead(200, { 'content-type': 'application/json' })
-    response.end(JSON.stringify({ seatId: 'original-seat', credentials: {
-      apiKeyEnv: 'FIXTURE_MODEL_KEY', baseUrl: 'https://fixture.invalid',
-    } }))
+    response.end(
+      JSON.stringify({
+        seatId: 'original-seat',
+        credentials: {
+          apiKeyEnv: 'FIXTURE_MODEL_KEY',
+          baseUrl: 'https://fixture.invalid',
+        },
+      }),
+    )
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
@@ -30,37 +36,71 @@ it('reopens a retired OpenCode owner on its exact non-exhausted subscription sea
   if (!address || typeof address === 'string') throw new Error('missing account boundary')
   const client = new Sandbox({ apiKey: 'fixture', baseUrl: `http://127.0.0.1:${address.port}` })
   const nativeProvider = nativeSeatProvider(directory, { recordOutput: true })
-  const provider = { ...nativeProvider, capabilities: async () => ({
-    ...(await nativeProvider.capabilities()), create: { runtimeAttachments: { mcp: true } },
-  }) }
+  const provider = {
+    ...nativeProvider,
+    capabilities: async () => ({
+      ...(await nativeProvider.capabilities()),
+      create: { runtimeAttachments: { mcp: true } },
+    }),
+  }
   const backend = { backend: 'provider' as const, provider }
   const runId = 'reopen-subscription'
   const runDir = join(directory, 'run')
   const profile = testAgentProfile('root', {
-    harness: 'opencode', model: { provider: 'fixture', default: 'fixture/native' },
-    seats: [{ harness: 'opencode', provider: 'fixture', model: 'fixture/native',
-      selector: { kind: 'all-eligible' } }],
+    harness: 'opencode',
+    model: { provider: 'fixture', default: 'fixture/native' },
+    seats: [
+      {
+        harness: 'opencode',
+        provider: 'fixture',
+        model: 'fixture/native',
+        selector: { kind: 'all-eligible' },
+      },
+    ],
   })
   const options = {
-    pursuitId: runId, runId, runDir, backend, driverBackend: backend,
+    pursuitId: runId,
+    runId,
+    runDir,
+    backend,
+    driverBackend: backend,
     budget: { maxTokens: 1000, maxIterations: 20, deadlineMs: 15000 },
-    driverRetry: { enabled: false }, continuation: testContinuation(), maxDepth: 0,
-    coordination: { authentication: { signingKeys: { activeKeyId: 'integration', keys: { integration: 'integration-secret-'.repeat(4) } } },
-      publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager` },
-    finalizer: () => 'done', deliverable: { check: (value: unknown) => value === 'done' },
-    selectSeat: createSelectSeat({ client, runId,
-      minimumValidUntil: new Date(Date.now() + 60000).toISOString(), createBackend: () => backend,
+    driverRetry: { enabled: false },
+    continuation: testContinuation(),
+    maxDepth: 0,
+    coordination: {
+      authentication: {
+        signingKeys: {
+          activeKeyId: 'integration',
+          keys: { integration: 'integration-secret-'.repeat(4) },
+        },
+      },
+      publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager`,
+    },
+    finalizer: () => 'done',
+    deliverable: { check: (value: unknown) => value === 'done' },
+    selectSeat: createSelectSeat({
+      client,
+      runId,
+      minimumValidUntil: new Date(Date.now() + 60000).toISOString(),
+      createBackend: () => backend,
     }),
   }
   const first = await supervisePursuit(profile, 'Produce one checked native result.', options)
   expect(first.result.kind, JSON.stringify(first.result)).toBe('winner')
   const prior = await readFile(join(runDir, 'result.json'), 'utf8')
-  const native = () => readFile(join(directory, 'native-receipts.jsonl'), 'utf8')
-    .then((text) => text.trim().split('\n').map((line) => JSON.parse(line)))
+  const native = () =>
+    readFile(join(directory, 'native-receipts.jsonl'), 'utf8').then((text) =>
+      text
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line)),
+    )
   const firstReceipt = (await native())[0]
   expect(await provider.get!(firstReceipt.control.environmentId)).toBeNull()
   const reopened = await supervisePursuit(profile, 'Produce one checked native result.', {
-    ...options, reopen: { operator: 'integration', reason: 'continue checked work', operationId: 'reopen-1' },
+    ...options,
+    reopen: { operator: 'integration', reason: 'continue checked work', operationId: 'reopen-1' },
   })
   expect(reopened.result.kind, JSON.stringify(reopened.result)).toBe('winner')
   expect(await readFile(join(runDir, 'settles', '1.json'), 'utf8')).toBe(prior)
@@ -69,14 +109,23 @@ it('reopens a retired OpenCode owner on its exact non-exhausted subscription sea
   expect(receipts[1].pid).not.toBe(receipts[0].pid)
   expect(receipts[1].control.environmentId).not.toBe(receipts[0].control.environmentId)
   expect(requests.map((request) => request.path)).toEqual([
-    '/v1/model-credentials/resolve', '/v1/model-credentials/resolve',
+    '/v1/model-credentials/resolve',
+    '/v1/model-credentials/resolve',
   ])
   expect(requests[1].selection).toMatchObject({
-    resumeSeatId: 'original-seat', requiresNativeTurnGrant: false, excludedSeatIds: [],
+    resumeSeatId: 'original-seat',
+    requiresNativeTurnGrant: false,
+    excludedSeatIds: [],
   })
   const context = createFileRunContext(runDir)
   const events = (await context.journal.loadTree(runId))!
-  expect(events.filter((event) => event.kind === 'seat-segment' && event.phase === 'started')
-    .map((event) => [event.segmentIndex, event.seat])).toEqual([[0, 'original-seat'], [1, 'original-seat']])
+  expect(
+    events
+      .filter((event) => event.kind === 'seat-segment' && event.phase === 'started')
+      .map((event) => [event.segmentIndex, event.seat]),
+  ).toEqual([
+    [0, 'original-seat'],
+    [1, 'original-seat'],
+  ])
   expect(events.filter((event) => event.kind === 'workspace-restored')).toEqual([])
 }, 30000)
