@@ -68,6 +68,10 @@ interface TreeOptions {
     /** The first call's receipt says its counts are unknown, as a broken stream's does. */
     readonly unknownFirst?: boolean
   }
+  /** After its first turn's spawn, the root keeps calling its model in that turn. */
+  readonly rootCalls?: { readonly count: number; readonly input: number; readonly output: number }
+  /** No `perWorker`, one slot: a child spawned without a budget reserves the whole pool. */
+  readonly childTakesPool?: boolean
 }
 
 /** Gap between a burning director's model calls, long enough for a stop to land between two. */
@@ -99,6 +103,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
   })
   const wrappers = new Map<string, (environment: AgentEnvironment) => AgentEnvironment>()
   let callsServed = 0
+  let rootCallsServed = 0
   const provider: AgentEnvironmentProvider = {
     ...base,
     capabilities: async () => ({
@@ -132,6 +137,8 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         return JSON.parse(body.result.content[0].text)
       }
       const turnEndsAt = new Map<string, number>()
+      // A spawning root turn's calls, ended once they are served or cancelled.
+      const rootCallsEnded = new Map<string, { end: () => void; ended: Promise<void> }>()
       // A burning director's exact result exists only once its calls end, served or cancelled.
       let endCalls!: () => void
       const callsEnded = new Promise<void>((resolve) => {
@@ -149,6 +156,11 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
               turnEndsAt.set(executionId, options.rootFirstTurnEndsAt())
             } else if (woken.length === 0) {
               await call('spawn_worker', { profile: director, task: 'Find the answer.' })
+              let end!: () => void
+              const ended = new Promise<void>((resolve) => {
+                end = resolve
+              })
+              if (options.rootCalls) rootCallsEnded.set(executionId, { end, ended })
             } else if (woken.some((event) => event.type === 'settled')) {
               expect(await call('submit_result', { result: ACCEPTED })).toMatchObject({
                 accepted: true,
@@ -168,11 +180,31 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         },
         session: (id, sessionOptions) => {
           const session = environment.session!(id, sessionOptions)
-          const endsAt = turnEndsAt.get(sessionOptions?.controlRef?.executionId ?? '')
+          const executionId = sessionOptions?.controlRef?.executionId ?? ''
+          const endsAt = turnEndsAt.get(executionId)
+          const rootCallsEnd = rootCallsEnded.get(executionId)
+          const rootCalls = rootCallsEnd && options.rootCalls
           return {
             ...session,
             async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
               yield* session.events!(eventOptions)
+              for (let index = 0; index < (rootCalls?.count ?? 0); index += 1) {
+                await new Promise((resolve) => setTimeout(resolve, CALL_GAP_MS))
+                if ((await session.status()) === 'cancelled') break
+                rootCallsServed += 1
+                yield {
+                  id: `root-call-${index}`,
+                  type: 'llm_call',
+                  data: {
+                    usageMode: 'delta',
+                    model: 'test',
+                    tokensIn: rootCalls!.input,
+                    tokensOut: rootCalls!.output,
+                    costKnown: false,
+                  },
+                }
+              }
+              rootCallsEnd?.end()
               const calls = role === 'director' ? options.directorCalls : undefined
               if (calls !== undefined) {
                 for (let index = 0; index < calls.count; index += 1) {
@@ -211,15 +243,21 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
               }
               const calls = role === 'director' ? options.directorCalls : undefined
               if (calls !== undefined) await callsEnded
+              await rootCallsEnd?.ended
               return {
                 ...(await session.result()),
                 usage:
-                  calls === undefined
-                    ? { inputTokens: 3, outputTokens: 2 }
-                    : {
-                        inputTokens: callsServed * calls.input,
-                        outputTokens: callsServed * calls.output,
-                      },
+                  rootCalls !== undefined
+                    ? {
+                        inputTokens: rootCallsServed * rootCalls.input,
+                        outputTokens: rootCallsServed * rootCalls.output,
+                      }
+                    : calls === undefined
+                      ? { inputTokens: 3, outputTokens: 2 }
+                      : {
+                          inputTokens: callsServed * calls.input,
+                          outputTokens: callsServed * calls.output,
+                        },
               }
             },
           }
@@ -257,13 +295,17 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
       backend,
       driverBackend: backend,
       budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs },
-      perWorker: {
-        maxIterations: 4,
-        maxTokens: 100,
-        ...(options.perWorkerDeadlineMs === undefined
-          ? {}
-          : { deadlineMs: options.perWorkerDeadlineMs }),
-      },
+      ...(options.childTakesPool
+        ? { workerSlots: 1 }
+        : {
+            perWorker: {
+              maxIterations: 4,
+              maxTokens: 100,
+              ...(options.perWorkerDeadlineMs === undefined
+                ? {}
+                : { deadlineMs: options.perWorkerDeadlineMs }),
+            },
+          }),
       maxDepth: 3,
       driverRetry: { enabled: false },
       retainedAtSettlement: 'release',
@@ -301,6 +343,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
     startedAt,
     deadlineAt: startedAt + deadlineMs,
     callsServed: () => callsServed,
+    rootCallsServed: () => rootCallsServed,
   }
 }
 
@@ -445,6 +488,38 @@ describe('a worker token grant', () => {
     expect(
       tree.moments.filter((moment) => moment.role === 'director' && moment.what === 'dispatched'),
     ).toHaveLength(1)
+  }, 40_000)
+})
+
+describe("a parent whose child holds its pool's remainder", () => {
+  it('keeps calling its model on its own grant, and the child settles', async () => {
+    // A setup smoke's root (24,000,000 tokens) spawned a worker without a budget, which reserved
+    // the whole remainder; at the root's next usage receipt (30,734 charged) the grant stop counted
+    // that reservation as spend, cancelled the root's retained run, and the cascade aborted the child.
+    const calls = { count: 5, input: 8, output: 2 }
+    const tree = await acceptedTree('grant-child-holds-pool', {
+      childTakesPool: true,
+      rootCalls: calls,
+      // The child holds its reservation while the root's calls run.
+      directorTurnEndsAfterMs: 5 * CALL_GAP_MS + 1_500,
+    })
+    const result = await tree.settling
+    const events = await tree.rootEvents()
+    const child = ofKind(events, 'spawned').find((event) => event.id !== 'grant-child-holds-pool')
+    // The child reserved the whole 1,000-token pool, as a no-budget spawn with one slot does.
+    expect(child?.budget?.maxTokens).toBe(1_000)
+    // All five root calls ran: 50 charged tokens against its 1,000.
+    expect(tree.rootCallsServed()).toBe(calls.count)
+    expect(ofKind(events, 'settled').find((event) => event.id === child?.id)).toMatchObject({
+      status: 'done',
+    })
+    // No root attempt failed: the held reservation ended no turn as a failure.
+    const rootAttempts = ofKind(events, 'driver-attempt').filter(
+      (event) => event.id === child?.parent,
+    )
+    expect(rootAttempts.length).toBeGreaterThan(0)
+    expect(rootAttempts.filter((event) => event.record.error !== undefined)).toEqual([])
+    expect(result).toMatchObject({ kind: 'winner', out: ACCEPTED })
   }, 40_000)
 })
 
