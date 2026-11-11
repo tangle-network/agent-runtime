@@ -57,6 +57,7 @@ import {
 } from './graph-topology'
 import { kernelPromptRegistry, type PromptHandle, type PromptRegistry } from './prompt-registry'
 import { createFileRunContext, createInMemoryRunContext, withRunContext } from './run-context'
+import { detachedSnapshot } from './snapshot'
 import {
   bindGraphCheckNodes,
   bindGraphCommand,
@@ -65,7 +66,6 @@ import {
   type GraphCommandCheck,
   type GraphFromStoredOptions,
 } from './stored-graph-check'
-import { detachedSnapshot } from './snapshot'
 import {
   profileGuidanceComposer,
   type SuperviseOptions,
@@ -832,7 +832,8 @@ export function superviseAgentGraph(
     )
   }
   const validated = assertRunGraphAuthoring(graph, opts, brain)
-  const trigger = opts.trigger === undefined ? undefined : detachedSnapshot(opts.trigger, 'runGraph trigger')
+  const trigger =
+    opts.trigger === undefined ? undefined : detachedSnapshot(opts.trigger, 'runGraph trigger')
   const context =
     opts.runContext ??
     (opts.runDir === undefined

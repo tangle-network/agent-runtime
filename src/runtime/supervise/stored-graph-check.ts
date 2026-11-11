@@ -362,17 +362,24 @@ function evidenceOf(task: unknown): Array<[string, unknown]> {
   return [...entries]
 }
 
-async function writeEvidence(directory: string, task: unknown, trigger: RunGraphOptions['trigger']): Promise<void> {
+async function writeEvidence(
+  directory: string,
+  task: unknown,
+  trigger: RunGraphOptions['trigger'],
+): Promise<void> {
   await mkdir(directory, { recursive: true })
   for (const [id, result] of evidenceOf(task)) {
     if (!safeNodeFile.test(id)) throw new ValidationError(`runGraph: evidence node id ${id}`)
     await writeFile(join(directory, `${id}.json`), `${JSON.stringify(result)}\n`)
   }
   await mkdir(join(directory, '_input'), { recursive: true })
-  await writeFile(join(directory, '_input', 'task.json'), canonicalCandidateBytes({
-    task,
-    ...(trigger === undefined ? {} : { trigger }),
-  }))
+  await writeFile(
+    join(directory, '_input', 'task.json'),
+    canonicalCandidateBytes({
+      task,
+      ...(trigger === undefined ? {} : { trigger }),
+    }),
+  )
 }
 
 async function readSecrets(
@@ -422,7 +429,11 @@ async function runLocalCheck(
     cwd,
     timeoutMs,
     signal,
-    env: { ...secrets, GRAPH_EVIDENCE: evidence, GRAPH_INPUT: join(evidence, '_input', 'task.json') },
+    env: {
+      ...secrets,
+      GRAPH_EVIDENCE: evidence,
+      GRAPH_INPUT: join(evidence, '_input', 'task.json'),
+    },
   })
   const timedOut = result.timedOut ? `\n[check timed out after ${timeoutMs} ms]` : ''
   const readOutput = localCheckOutputReader(cwd)
@@ -665,7 +676,10 @@ export function bindGraphCheckNodes(
     })
     // The spawn's assignment is stable across a resume, so a settled traversal replays its receipt.
     const binding = contentAddress({
-      runId, node: id, checkDigest, at: spawn?.assignmentId,
+      runId,
+      node: id,
+      checkDigest,
+      at: spawn?.assignmentId,
       ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
     })
     const executorFactory: ExecutorFactory<unknown> = (_spec, context_) => {

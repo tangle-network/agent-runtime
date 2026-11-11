@@ -260,17 +260,21 @@ check: { node: intake, pointer: /pass, equals: true }
   const trigger = { body: '$(touch escaped); "quoted"\n${HOME}', deliveryId: 'event-1' }
   const options = {
     backend: { backend: 'bridge' as const, bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
-    runDir: join(directory, 'run'), runId: 'literal-trigger', trigger,
+    runDir: join(directory, 'run'),
+    runId: 'literal-trigger',
+    trigger,
   }
   const graph = graphFromStored(loaded.graph)
   expect((await runGraph(graph, options)).result.kind).toBe('winner')
   expect(JSON.parse(await readFile(join(cwd, 'received.json'), 'utf8'))).toEqual({
-    task: { hello: 'world' }, trigger,
+    task: { hello: 'world' },
+    trigger,
   })
   await expect(readFile(join(cwd, 'escaped'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect((await runGraph(graph, { ...options, resume: true })).result.kind).toBe('winner')
-  await expect(runGraph(graph, { ...options, resume: true, trigger: { ...trigger, deliveryId: 'event-2' } }))
-    .rejects.toThrow(/taskDigest|different task/)
+  await expect(
+    runGraph(graph, { ...options, resume: true, trigger: { ...trigger, deliveryId: 'event-2' } }),
+  ).rejects.toThrow(/taskDigest|different task/)
   expect(await readFile(join(cwd, 'count'), 'utf8')).toBe('ran\n')
 }, 60_000)
 
@@ -510,7 +514,9 @@ it('retains complete redacted check logs in run evidence after cloud cleanup on 
     )
     const bytes = Buffer.from(await reopened.read(receipt.outputs.files[0]!.artifact))
     expect(bytes.toString('utf8')).toBe(`before=[redacted:PROOF_SECRET]\n${'\0'.repeat(90000)}`)
-    const input = JSON.parse(Buffer.from(await reopened.read(receipt.outputs.files[1]!.artifact)).toString())
+    const input = JSON.parse(
+      Buffer.from(await reopened.read(receipt.outputs.files[1]!.artifact)).toString(),
+    )
     expect(input.trigger).toEqual(trigger)
     expect(JSON.stringify(result.evidence)).not.toContain('private-check-log-secret')
     expect(result.said).not.toContain('private-check-log-secret')
