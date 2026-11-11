@@ -430,7 +430,8 @@ describe('a root harness turn that ends with a failed outcome', () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-quota-429',
       failures: () => ({
-        error: 'request failed with status code 429: insufficient_quota, check your plan and billing details',
+        error:
+          'request failed with status code 429: insufficient_quota, check your plan and billing details',
       }),
     })
     const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
