@@ -209,7 +209,7 @@ catalogs:
       version: 2.2.2
     '@tangle-network/sandbox':
       specifier: ^1.0.233
-      version: 1.0.290
+      version: 1.0.373
     '@types/node':
       specifier: 26.6.6
       version: 26.6.6
@@ -295,10 +295,10 @@ importers:
         version: 0.7.0(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))
       '@tangle-network/agent-provider-tangle':
         specifier: 5.0.15
-        version: 5.0.15(@tangle-network/sandbox@1.0.290(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7)))
+        version: 5.0.15(@tangle-network/sandbox@1.0.373(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7)))
       '@tangle-network/sandbox':
-        specifier: 1.0.290
-        version: 1.0.290(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
+        specifier: 1.0.373
+        version: 1.0.373(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
       '@tangle-network/sandbox-ui':
         specifier: 7.0.9
         version: 7.0.9(@shikijs/themes@4.5.0)(@tangle-network/agent-interface@5.10.22)(@tangle-network/brand@1.31.4(react@19.3.1))(@tangle-network/ui@11.51.17(@shikijs/themes@4.5.0)(@tangle-network/brand@1.31.4(react@19.3.1))(@types/react@19.3.0)(nanostores@1.5.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)(tailwindcss@4.3.3)
@@ -358,7 +358,7 @@ importers:
         version: link:..
       '@tangle-network/sandbox':
         specifier: 'catalog:'
-        version: 1.0.290(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
+        version: 1.0.373(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: 'catalog:'
@@ -2458,8 +2458,8 @@ packages:
       yjs:
         optional: true
 
-  '@tangle-network/sandbox@1.0.290':
-    resolution: {integrity: sha512-46ZdL2s1RDIOpqJr07/ZnaCFadscvN149NDmWV4GzrXhfzeEPIKLL4b7mRmhozQIHkTqKGcTW0He2rt2+/i2uw==}
+  '@tangle-network/sandbox@1.0.373':
+    resolution: {integrity: sha512-jSUwhvyh73Gg9ef74a8+/wXWMi8jCVQ6UXLmADliSpAbhWA68tmLiPSc5qT0OTVq2Re97R8oEa4N07+B1dsyew==}
     peerDependencies:
       '@mastra/core': ^1.36.0
       '@modelcontextprotocol/sdk': ^1.30.0
@@ -6547,10 +6547,10 @@ snapshots:
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
 
-  '@tangle-network/agent-provider-tangle@5.0.15(@tangle-network/sandbox@1.0.290(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7)))':
+  '@tangle-network/agent-provider-tangle@5.0.15(@tangle-network/sandbox@1.0.373(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7)))':
     dependencies:
       '@tangle-network/agent-interface': 5.10.22
-      '@tangle-network/sandbox': 1.0.290(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
+      '@tangle-network/sandbox': 1.0.373(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))
 
   '@tangle-network/agent-trace-contract@2.2.2': {}
 
@@ -6601,7 +6601,7 @@ snapshots:
       - supports-color
       - tailwindcss
 
-  '@tangle-network/sandbox@1.0.290(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))':
+  '@tangle-network/sandbox@1.0.373(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))':
     dependencies:
       '@tangle-network/agent-core': 1.0.3(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))
       '@tangle-network/agent-interface': 5.10.22
