@@ -36,6 +36,10 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/in-memory-spawn-stores'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { projectPursuit } from '../../src/durable/observer-projection'
 import { closesCursorSlot } from '../../src/durable/spawn-journal/event-index'
@@ -50,6 +54,9 @@ import {
   bindScopeRetainedOwnerProvider,
   noteScopeRetainedOwnerCoordination,
   prepareScopeRetainedOwnerTask,
+  registerScopeRetainedOwner,
+  releaseScopeRetainedOwnerEnvironment,
+  retainedOwnerReleaseRetriable,
   scopeRetainedOwnerCheckpointing,
   scopeRetainedOwnerContext,
 } from '../../src/runtime/supervise/retained-scope-owner'
@@ -57,6 +64,7 @@ import {
   createFileRunContext,
   createInMemoryRunContext,
 } from '../../src/runtime/supervise/run-context'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
@@ -2132,4 +2140,125 @@ describe('a crash between the receipt and the released record heals on the next 
       releaseUnconfirmed: 0,
     })
   })
+})
+
+/**
+ * Sandbox seals a retained workspace before it answers a delete, so the delete grows with the
+ * workspace: measured 2026-11-11 on the Tangle Sandbox, 2 to 4 s for 1 MB, 30 s for 300 MB and 72 s
+ * for 1 GB. On rehearsed-futures-nested-fork-20261111b every worker's first release gave up at 30 s
+ * while its delete went on; each later release reconnected to a box already being removed, whose
+ * sidecar answered 503 `project_deprovisioning`, and 21 of 22 teardown receipts stayed unconfirmed.
+ */
+describe('a manager environment whose delete outlasts the release wait', () => {
+  it('joins the delete in flight on the next release and confirms it without reconnecting', async () => {
+    const environmentId = 'slow-delete-environment'
+    const events: SpawnEvent[] = []
+    let gets = 0
+    let destroys = 0
+    let deleting = false
+    let removed = false
+    let finishDelete = (): void => {}
+    const deleted = new Promise<void>((resolve) => {
+      finishDelete = resolve
+    })
+    const environment: AgentEnvironment = {
+      id: environmentId,
+      provider: 'slow-delete-provider',
+      status: async () => 'running',
+      async *stream() {},
+      async destroy() {
+        destroys += 1
+        deleting = true
+        await deleted
+        removed = true
+      },
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: 'slow-delete-provider',
+      capabilities: async () => ({}),
+      create: async () => {
+        throw new Error('release must not create an environment')
+      },
+      async get(id) {
+        gets += 1
+        if (id !== environmentId || removed) return null
+        // A native-capture reconnect reads the selected backend from the sidecar, which a box
+        // being removed no longer serves.
+        if (deleting)
+          throw new Error('native capture requires the current selected backend before reconnect', {
+            cause: new Error(`HTTP 503: Sidecar with id ${id} is not ready: project_deprovisioning`),
+          })
+        return environment
+      },
+    }
+    let failure: unknown
+    await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'slow-delete-owner',
+        async act(_task, scope) {
+          try {
+            registerScopeRetainedOwner(scope, {
+              rootId: 'slow-delete-root',
+              nodeId: 'slow-delete-root',
+              blobs: new InMemoryResultBlobStore(),
+              priorEvents: [],
+              now: () => 0,
+              journal: {
+                loadTree: async () => [...events],
+                beginTree: async () => {},
+                appendEvent: async (_root, event) => {
+                  events.push(event)
+                },
+              },
+            })
+            bindScopeRetainedOwnerProvider(scope, provider)
+            await scopeRetainedOwnerContext(scope)!.onAdmission({
+              phase: 'environment',
+              provider: provider.name,
+              environmentId,
+              idempotencyKey: 'slow-delete-key',
+              turnId: 'slow-delete-turn',
+              sessionId: 'slow-delete-session',
+              executionId: 'slow-delete-execution',
+            })
+
+            // The delete outlasts the first release's wait: unconfirmed, and worth asking again.
+            expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([
+              expect.objectContaining({
+                label: 'scope owner',
+                environments: [{ provider: provider.name, environmentId }],
+              }),
+            ])
+            expect(retainedOwnerReleaseRetriable(scope)).toBe(true)
+            // A release while the delete still runs waits on that delete, not on a reconnect.
+            expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([
+              expect.objectContaining({ environments: [{ provider: provider.name, environmentId }] }),
+            ])
+            finishDelete()
+            expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([])
+            expect(retainedOwnerReleaseRetriable(scope)).toBe(false)
+          } catch (error) {
+            failure = error
+          }
+        },
+      },
+      'test',
+      {
+        runId: 'slow-delete-root',
+        budget: { maxIterations: 2, maxTokens: 10 },
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+      },
+    )
+    if (failure) throw failure
+    expect({ gets, destroys }).toEqual({ gets: 1, destroys: 1 })
+    expect(
+      releaseReceipts(events).map(({ destroyed, detail }) => ({ destroyed, detail })),
+    ).toEqual([
+      { destroyed: false, detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /) },
+      { destroyed: false, detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /) },
+      { destroyed: true },
+    ])
+  }, 120_000)
 })
