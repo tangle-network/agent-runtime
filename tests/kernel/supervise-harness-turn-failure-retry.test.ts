@@ -409,12 +409,14 @@ describe('a root harness turn that ends with a failed outcome', () => {
   })
 
   it('holds a rate-limited driver open through an unchanged 429 storm, including bare GLM text, and wins when the upstream answers', async () => {
+    const GLM_429 =
+      'HTTP 429: tangle-sandbox harness turn ended with a failed outcome (rate_limit_error): opencode execution failed: 您的账户已达到速率限制，请您控制请求频率 (exit code 1)'
     const glm =
       'tangle-sandbox harness turn ended with a failed outcome: 您的账户已达到速率限制，请您控制请求频率'
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-rate-limit-storm',
       failures: (dispatch) =>
-        dispatch <= 5 ? { error: dispatch % 2 ? ROUTER_QUOTA : glm } : undefined,
+        dispatch <= 5 ? { error: dispatch % 2 ? GLM_429 : glm } : undefined,
     })
     const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
     expect(result).toMatchObject({ kind: 'winner' })
@@ -423,6 +425,26 @@ describe('a root harness turn that ends with a failed outcome', () => {
       Array.from({ length: 5 }, () => ['unavailable', undefined]),
     )
     expect(ofKind(await fixture.events(), 'paused')).toHaveLength(5)
+  })
+
+  it('settles an unchanged unavailable upstream after three drives without spending failure allowances', async () => {
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-failure-upstream-quota',
+      failures: () => ({ error: ROUTER_QUOTA }),
+    })
+    const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(fixture.dispatches()).toBe(3)
+    expect(attempts.map((attempt) => [attempt.classification, attempt.stop])).toEqual([
+      ['unavailable', undefined],
+      ['unavailable', undefined],
+      ['unavailable', 'repeated-failure'],
+    ])
+    const events = await fixture.events()
+    expect(ofKind(events, 'paused')).toHaveLength(2)
+    expect(ofKind(events, 'execution-result')).toHaveLength(3)
+    expect(fixture.creates()).toBe(1)
+    expect(fixture.destroys()).toBe(1)
   })
 
   it.each([

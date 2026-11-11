@@ -29,6 +29,7 @@ import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
   jitteredMs,
+  RATE_LIMIT_SIGNALS,
   reportedResetAt,
   unavailablePauseMs,
   unavailableResumeAt,
@@ -425,17 +426,20 @@ export class DriverRetryLoop {
       pending,
     }
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
-    // A capacity refusal (429, quota, overload) is never a repeated failure: the run pauses with
-    // growing waits until the upstream answers or its budget or deadline ends it
-    // (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM plan).
+    // A rate limit or overload is never a repeated failure: the run pauses with growing waits
+    // until the upstream answers or its budget or deadline ends it (rehearsed-futures-sleep-20261111a
+    // died of repeated-failure on a busy GLM plan). Credential and placement refusals still settle.
     if (
       classification !== 'terminal' &&
-      classification !== 'unavailable' &&
+      !(classification === 'unavailable' && RATE_LIMIT_SIGNALS.has(upstreamUnavailableSignal(error) ?? '')) &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
       (this.sameIdle?.count ?? 0) >= SAME_CAUSE_LIMIT
     ) {
-      const stop = pending === undefined ? 'repeated-failure' : 'pending-unresolved'
+      const stop =
+        pending === undefined || classification === 'unavailable'
+          ? 'repeated-failure'
+          : 'pending-unresolved'
       await this.emit({
         ...this.failureRecord(failure),
         stop,
@@ -454,7 +458,7 @@ export class DriverRetryLoop {
     else await this.retry(failure)
   }
 
-  // Capacity waits charge no failure allowance and no unchanged-cause ceiling; budget and deadline bound them.
+  // Capacity waits charge no failure allowance; only rate limits are exempt from the unchanged-cause ceiling.
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure
