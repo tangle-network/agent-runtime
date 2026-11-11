@@ -1,8 +1,10 @@
 import { mkdirSync, realpathSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type { SandboxResources } from '@tangle-network/sandbox'
+import { scanMaterializedWorkspaceManifest } from '../../candidate-execution/artifacts'
 import { contentAddress } from '../../durable/content-address'
 import {
   appendCommittedJsonLine,
@@ -14,6 +16,15 @@ import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import { defaultRunCommand, runSettledCommand } from '../../mcp/worktree-harness'
 import type { DeclaredCheckPlacement } from '../declared-check'
 import { type IsolatedCheckBox, runIsolatedCheck } from '../isolated-checker'
+import { isolatedCheckOutputEvidenceSchema } from '../isolated-check-result'
+import {
+  type IsolatedCheckOutputDeclaration,
+  type IsolatedCheckOutputEvidence,
+  type IsolatedCheckOutputOptions,
+  localCheckOutputReader,
+  prepareIsolatedCheckOutputs,
+  retainIsolatedCheckOutputs,
+} from '../isolated-checker-outputs'
 import type { CompletionCheckContext } from './completion-gate'
 import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
@@ -44,6 +55,8 @@ export interface GraphCheckNode {
   readonly secrets?: readonly string[]
   /** The box's size under `checkPlacement`. */
   readonly resources?: SandboxResources
+  /** Explicit tree-relative files to retain before cleanup, on success or failure. */
+  readonly outputs?: IsolatedCheckOutputDeclaration
 }
 
 /** Where check nodes run in boxes: the run owner's own account. A check node is a step of the
@@ -69,6 +82,8 @@ export interface GraphCheckOutput {
   /** The last 64 KiB of stdout followed by stderr. */
   readonly output: string
   readonly json?: Record<string, unknown>
+  /** Verified artifact references; private recovery coordinates never reach downstream nodes. */
+  readonly outputs?: Omit<IsolatedCheckOutputEvidence, 'source'>
 }
 
 export interface GraphFromStoredOptions {
@@ -92,6 +107,7 @@ interface CommandCheckReceipt {
   readonly valid: boolean
   /** Check nodes only: the parsed last stdout line. */
   readonly json?: Record<string, unknown>
+  readonly outputs?: IsolatedCheckOutputEvidence
 }
 
 /** Driver-owned journal identity. Worker output never supplies any part of this authority. */
@@ -130,10 +146,16 @@ function isReceipt(value: unknown): value is CommandCheckReceipt {
     typeof row.valid !== 'boolean'
   )
     return false
+  if (
+    row.outputs !== undefined &&
+    !isolatedCheckOutputEvidenceSchema.safeParse(row.outputs).success
+  )
+    return false
   const receipt = value as CommandCheckReceipt
   return (
     receipt.key === receiptKey(receipt) &&
-    receipt.valid === (receipt.exitCode === 0 && receipt.nativeValid)
+    receipt.valid ===
+      (receipt.exitCode === 0 && receipt.nativeValid && receipt.outputs?.status !== 'incomplete')
   )
 }
 
@@ -368,7 +390,20 @@ async function runLocalCheck(
   evidence: string,
   signal: AbortSignal,
   secrets: Record<string, string>,
-): Promise<{ exitCode: number | null; stdout: string; output: string }> {
+  retention?: IsolatedCheckOutputOptions,
+): Promise<CheckExecution> {
+  const prior = new Map(
+    await Promise.all((retention?.paths ?? []).map(async (path) => [
+      path,
+      await lstat(join(cwd, path), { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error
+        return undefined
+      }),
+    ] as const)),
+  )
+  const inputDigest = retention
+    ? canonicalCandidateDigest(await scanMaterializedWorkspaceManifest(evidence))
+    : undefined
   const timeoutMs = check.timeoutMs ?? CHECK_TIMEOUT_MS
   const result = await runSettledCommand({
     command: '/bin/sh',
@@ -379,11 +414,36 @@ async function runLocalCheck(
     env: { ...secrets, GRAPH_EVIDENCE: evidence },
   })
   const timedOut = result.timedOut ? `\n[check timed out after ${timeoutMs} ms]` : ''
+  const readOutput = localCheckOutputReader(cwd)
+  const captured = retention
+    ? await retainIsolatedCheckOutputs(retention, inputDigest!, async (path, maxBytes, signal) => {
+        const before = prior.get(path)
+        if (before) {
+          const after = await lstat(join(cwd, path), { bigint: true })
+          if ((['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'] as const).every((key) =>
+            before[key] === after[key]))
+            throw new Error('Declared local check output was not changed by this command')
+        }
+        return readOutput(path, maxBytes, signal)
+      })
+    : undefined
+  const outputs = captured?.status === 'incomplete'
+    ? { ...captured, source: { kind: 'local' as const, path: cwd } }
+    : captured
   return {
     exitCode: result.timedOut ? null : result.exitCode,
     stdout: result.stdout,
     output: result.stdout + result.stderr + timedOut,
+    ...(outputs && { outputs }),
   }
+}
+
+interface CheckExecution {
+  exitCode: number | null
+  stdout: string
+  output: string
+  nativeValid?: boolean
+  outputs?: IsolatedCheckOutputEvidence
 }
 
 /** Run one check node's command in a fresh box on the check account, as a declared check does. */
@@ -394,7 +454,8 @@ async function runBoxCheck(
   evidence: string,
   signal: AbortSignal,
   secrets: Record<string, string>,
-): Promise<{ exitCode: number | null; stdout: string; output: string }> {
+  outputs?: IsolatedCheckOutputOptions,
+): Promise<CheckExecution> {
   const workspaceRoot = await mkdtemp(join(evidence, '..', 'box-'))
   try {
     const tree = join(workspaceRoot, 'tree')
@@ -412,6 +473,7 @@ async function runBoxCheck(
       maxOutputBytes: 16 * CHECK_OUTPUT_LIMIT,
       env: secrets,
       signal,
+      ...(outputs && { outputs }),
       box: {
         client: placement.client,
         // Not consulted for an owner step; carried only because judges require it.
@@ -428,13 +490,18 @@ async function runBoxCheck(
         exitCode: 0,
         stdout: result.value.stdout,
         output: result.value.stdout + result.value.stderr,
+        ...(result.outputs && { outputs: result.outputs }),
       }
     const stdout = result.stdout ?? ''
     const output = stdout + (result.stderr ?? '')
-    if (result.reason === 'failed' && typeof result.exitCode === 'number')
-      return { exitCode: result.exitCode, stdout, output }
-    if (result.reason === 'timeout')
-      return { exitCode: null, stdout, output: `${output}\n[check timed out]` }
+    if (result.outputs || result.reason === 'failed' || result.reason === 'timeout')
+      return {
+        exitCode: result.exitCode ?? null,
+        stdout,
+        output: `${output}\n[check ${result.reason}: ${result.diagnostic}]`,
+        nativeValid: result.reason === 'failed' || result.reason === 'timeout',
+        ...(result.outputs && { outputs: result.outputs }),
+      }
     throw new Error(
       redact(`runGraph: check node ${node} box ${result.reason}: ${result.diagnostic}`, secrets),
     )
@@ -445,9 +512,22 @@ async function runBoxCheck(
 
 /** Every resolved secret value becomes `[redacted:NAME]` before output leaves the check. */
 function redact(text: string, secrets: Record<string, string>): string {
-  return Object.entries(secrets)
-    .sort(([, a], [, b]) => b.length - a.length)
-    .reduce((out, [name, value]) => out.replaceAll(value, `[redacted:${name}]`), text)
+  return redactBytes(Buffer.from(text), secrets).toString('utf8')
+}
+
+function redactBytes(bytes: Uint8Array, secrets: Record<string, string>): Buffer {
+  let out = Buffer.from(bytes)
+  for (const [name, value] of Object.entries(secrets).sort(([, a], [, b]) => b.length - a.length)) {
+    const needle = Buffer.from(value)
+    const chunks: Buffer[] = []
+    let start = 0
+    for (let at = out.indexOf(needle); at !== -1; at = out.indexOf(needle, start)) {
+      chunks.push(out.subarray(start, at), Buffer.from(`[redacted:${name}]`))
+      start = at + needle.length
+    }
+    if (chunks.length) out = Buffer.concat([...chunks, out.subarray(start)])
+  }
+  return out
 }
 
 function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutput {
@@ -456,6 +536,9 @@ function checkOutput(receipt: Omit<CommandCheckReceipt, 'key'>): GraphCheckOutpu
     exitCode: receipt.exitCode,
     output: receipt.output,
     ...(receipt.json === undefined ? {} : { json: receipt.json }),
+    ...(receipt.outputs === undefined
+      ? {}
+      : { outputs: (({ source: _source, ...outputs }) => outputs)(receipt.outputs) }),
   }
 }
 
@@ -524,6 +607,15 @@ export function bindGraphCheckNodes(
       throw new ValidationError(`runGraph: check node ${id} needs a command and positive timeoutMs`)
     if (placement && !check.environment?.trim())
       throw new ValidationError(`runGraph: check node ${id} needs environment for box placement`)
+    if (check.outputs !== undefined) {
+      if (!options.checkArtifacts)
+        throw new ValidationError(`runGraph: check node ${id} outputs require checkArtifacts`)
+      prepareIsolatedCheckOutputs({
+        ...check.outputs,
+        executionId: 'graph-check-preflight',
+        artifacts: options.checkArtifacts,
+      })
+    }
   }
   const local = placement === undefined ? localCheckDirectories(options) : undefined
   const workspace = local?.cwd ?? backendWorkspace(options)
@@ -588,11 +680,17 @@ export function bindGraphCheckNodes(
               : (box.env ?? {}),
           id,
         )
+        const retention = check.outputs && {
+          ...check.outputs,
+          executionId: binding,
+          artifacts: options.checkArtifacts!,
+          redact: (bytes: Uint8Array) => redactBytes(bytes, secrets),
+        }
         let ran: Awaited<ReturnType<typeof runLocalCheck>>
         try {
           await writeEvidence(evidence, task)
           ran = local
-            ? await runLocalCheck(check, local.cwd, evidence, signal, secrets)
+            ? await runLocalCheck(check, local.cwd, evidence, signal, secrets, retention)
             : await runBoxCheck(
                 check,
                 id,
@@ -600,6 +698,7 @@ export function bindGraphCheckNodes(
                 evidence,
                 signal,
                 secrets,
+                retention,
               )
         } finally {
           if (staged) await rm(staged, { recursive: true, force: true })
@@ -614,9 +713,11 @@ export function bindGraphCheckNodes(
           exitCode: ran.exitCode,
           output,
           outputTruncated: truncated,
-          nativeValid: true,
-          valid: ran.exitCode === 0,
+          nativeValid: ran.nativeValid !== false,
+          valid:
+            ran.exitCode === 0 && ran.nativeValid !== false && ran.outputs?.status !== 'incomplete',
           ...(json === undefined ? {} : { json }),
+          ...(ran.outputs === undefined ? {} : { outputs: ran.outputs }),
         }
         // Without an evidence channel the settle itself is still journaled and replayed.
         if (file) await appendReceipt(file, workspace, receipt)

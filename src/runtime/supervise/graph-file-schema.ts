@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { resolveJsonPointer } from '../../mcp/tools/coordination-map-routing'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
+import { validateIsolatedCheckOutputs } from '../isolated-checker-outputs'
 import { portableContinuationPolicySchema } from './continuation-data'
 
 const scalar = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
@@ -32,6 +33,7 @@ export const graphCheckNodeSchema = z.strictObject({
   egress: z.array(z.string().min(1)).optional(),
   runtime: z.enum(['docker', 'firecracker']).optional(),
   secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
+  outputs: z.unknown().transform(validateIsolatedCheckOutputs).optional(),
   resources: z
     .strictObject({
       cpuCores: z.number().positive().optional(),

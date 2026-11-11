@@ -8,9 +8,12 @@ import { promisify } from 'node:util'
 import { Sandbox } from '@tangle-network/sandbox'
 import { expect, it, onTestFinished } from 'vitest'
 import { parseCommittedJsonLines } from '../../src/durable/jsonl-file'
+import type { IsolatedCheckOutputEvidence } from '../../src/runtime/isolated-checker'
+import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { graphWorkspace, loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import { graphFromStored } from '../../src/runtime/supervise/graph-registry'
+import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
 
 const run = promisify(execFile)
@@ -163,11 +166,80 @@ check: { node: intake, pointer: /pass, equals: true }
   }
 }, 60_000)
 
+it('retains fresh logs from repeated local checks and refuses unchanged stale output', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-check-output-local-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const cwd = join(directory, 'work')
+  await mkdir(cwd)
+  const source = `
+graph: local-output
+nodes:
+  - id: verify
+    check:
+      command: 'n=$(cat count 2>/dev/null || echo 0); n=$((n+1)); echo $n > count; echo attempt=$n > verification.log; test $n -ge 2'
+      outputs: { paths: [verification.log], maxFileBytes: 1024, maxTotalBytes: 1024 }
+entry: [verify]
+edges:
+  - { kind: routes, from: verify, to: verify, when: { pointer: /pass, equals: false }, maxTraversals: 1, directive: { surface: delegates/worker-brief, version: 1 } }
+  - { kind: routes, from: verify, to: { finish: checked }, when: { pointer: /pass, equals: true }, directive: { surface: delegates/worker-brief, version: 1 } }
+budget: { maxIterations: 4 }
+check: { node: verify, pointer: /pass, equals: true }
+`
+  const loaded = await loadGraphFile(join(directory, 'local.yaml'), { source })
+  const options = {
+    backend: { backend: 'bridge' as const, bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
+    runDir: join(directory, 'run'),
+    runId: 'local-output',
+    driverRetry: { enabled: false },
+  }
+  await expect(runGraph(graphFromStored(loaded.graph), options)).rejects.toThrow(
+    'outputs require checkArtifacts',
+  )
+  await expect(readFile(join(cwd, 'verification.log'))).rejects.toMatchObject({ code: 'ENOENT' })
+  for (const path of ['../private.log', '.git/config', '*.log'])
+    await expect(
+      loadGraphFile(join(directory, 'unsafe.yaml'), {
+        source: source.replace('paths: [verification.log]', `paths: [${JSON.stringify(path)}]`),
+      }),
+    ).rejects.toThrow('portable relative files')
+  const checkArtifacts = createPrivateCasArtifactPort(join(directory, 'cas'), 'local-output')
+  const result = await runGraph(graphFromStored(loaded.graph), { ...options, checkArtifacts })
+  expect(result.result.kind).toBe('winner')
+  const file = join(options.runDir, 'command-checks.jsonl')
+  const receipts = parseCommittedJsonLines<{
+    valid: boolean
+    outputs: IsolatedCheckOutputEvidence
+  }>(await readFile(file, 'utf8'), file)
+  expect(receipts).toMatchObject([
+    { valid: false, outputs: { status: 'retained' } },
+    { valid: true, outputs: { status: 'retained' } },
+  ])
+  const stale = await loadGraphFile(join(directory, 'stale.yaml'), {
+    source: source
+      .replace(/command: '[^\n]*'/, "command: 'true'")
+      .replace('check: { node: verify, pointer: /pass, equals: true }', 'check: { node: verify, pointer: /outputs/status, equals: incomplete }')
+      .replace(/edges:[\s\S]*?budget:/, 'edges: []\nbudget:'),
+  })
+  const staleResult = await runGraph(graphFromStored(stale.graph), {
+    ...options, runId: 'stale-output', runDir: join(directory, 'stale-run'), checkArtifacts,
+  })
+  expect(staleResult.result.kind).toBe('winner')
+  expect(JSON.stringify(staleResult.result)).toContain('capture-failed')
+  await rm(cwd, { recursive: true })
+  const logs = await Promise.all(receipts.map(async (receipt) =>
+    Buffer.from(await checkArtifacts.read(receipt.outputs.files[0]!.artifact)).toString()))
+  expect(logs).toEqual(['attempt=1\n', 'attempt=2\n'])
+}, 60_000)
+
 /** Run one box check node against a Sandbox HTTP peer. The peer runs the box's `find` for real over
  *  the uploaded tree. Unless `tear` is set it refuses the check's `/bin/sh` the way the box's sidecar
  *  refuses an executable it cannot start; with `tear` it runs it, and ends each process's first
  *  log stream before its exit event, as a dropped connection does. */
-async function boxCheck(runtimeField: string, tear = false) {
+async function boxCheck(
+  runtimeField: string,
+  tear = false,
+  capture?: { exit: number; missing?: boolean },
+) {
   const directory = await mkdtemp(join(tmpdir(), 'graph-check-runtime-'))
   onTestFinished(() => rm(directory, { recursive: true, force: true }))
   const root = join(directory, 'box')
@@ -203,7 +275,14 @@ async function boxCheck(runtimeField: string, tear = false) {
       creates.push(JSON.parse(body.toString('utf8')))
       return box
     }
-    if (path === self) return method === 'DELETE' ? { outcome: 'destroyed' } : box
+    if (path === self) {
+      if (method === 'DELETE') {
+        await rm(root, { recursive: true, force: true })
+        return { outcome: 'destroyed' }
+      }
+      return box
+    }
+    if (path === `${self}/stop`) return { success: true }
     if (path === `${runtime}/fs/upload-dir`) {
       const form = await new Response(body, { headers: { 'content-type': type } }).formData()
       const archive = form.get('archive') as Blob
@@ -219,8 +298,19 @@ async function boxCheck(runtimeField: string, tear = false) {
         const message = 'Command setup failed (identity, cwd or exec): ENOENT'
         return { status: 500, body: { success: false, error: { code: 'SPAWN_FAILED', message } } }
       }
-      const done = await run(spawn.executable, spawn.args, { cwd: join(root, spawn.cwd) })
-      ran.push({ stdout: done.stdout, exitCode: 0 })
+      const args = [...spawn.args]
+      if (spawn.executable === '/usr/bin/python3') args[4] = join(root, args[4])
+      const done = await run(spawn.executable, args, {
+        cwd: spawn.cwd ? join(root, spawn.cwd) : root,
+        env: { ...process.env, ...spawn.env },
+      }).then(
+        (out) => ({ stdout: out.stdout, exitCode: 0 }),
+        (error: { stdout: string; code: number }) => ({
+          stdout: error.stdout,
+          exitCode: error.code,
+        }),
+      )
+      ran.push(done)
       return { data: { pid: ran.length } }
     }
     const pid = Number(/\/process\/(\d+)/.exec(path)?.[1])
@@ -229,7 +319,10 @@ async function boxCheck(runtimeField: string, tear = false) {
       if (tear && !torn.has(pid)) return torn.add(pid) && output
       return `${output}event: exit\ndata: {}\n\n`
     }
-    if (pid) return { data: { pid, running: false, exitCode: 0, startedAt: box.createdAt } }
+    if (pid)
+      return {
+        data: { pid, running: false, exitCode: ran[pid - 1]?.exitCode, startedAt: box.createdAt },
+      }
     return { status: 404, body: { error: { code: 'NOT_FOUND', message: path } } }
   }
   const peer = createServer((request, response) => {
@@ -267,9 +360,14 @@ workspace: cwd
 nodes:
   - id: verify
     check:
-      command: 'echo landed'
+      command: '${capture ? `printf "before=$PROOF_SECRET\\n" > verification.log; head -c 90000 /dev/zero >> verification.log; echo landed; exit ${capture.exit}` : 'echo landed'}'
       environment: agent-container
-      resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}
+      resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}${capture ? `
+      secrets: [PROOF_SECRET]
+      outputs:
+        paths: [verification.log${capture.missing ? ', missing.log' : ''}]
+        maxFileBytes: 100000
+        maxTotalBytes: 200000` : ''}
 entry: [verify]
 edges: []
 budget: { maxIterations: 2 }
@@ -278,12 +376,17 @@ check: { node: verify, pointer: /pass, equals: true }
   })
   const cwd = join(directory, 'work')
   await mkdir(cwd)
+  const context = createInMemoryRunContext()
+  const artifacts = createPrivateCasArtifactPort(join(directory, 'cas'), 'graph-check-proof')
   const outcome = await runGraph(graphFromStored(loaded.graph), {
     backend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
-    runDir: join(directory, 'run'),
+    ...(capture
+      ? { runContext: context, checkArtifacts: artifacts }
+      : { runDir: join(directory, 'run') }),
     runId: 'check-box-runtime',
     driverRetry: { enabled: false },
     checkPlacement: {
+      env: { PROOF_SECRET: 'private-check-log-secret' },
       client: new Sandbox({
         apiKey: 'no-live-credentials',
         baseUrl: `http://127.0.0.1:${address.port}`,
@@ -295,7 +398,10 @@ check: { node: verify, pointer: /pass, equals: true }
   for (const body of creates)
     expect(body).toMatchObject({ environment: 'agent-container', ownerContext: 'isolated' })
   const said = outcome instanceof Error ? outcome.message : JSON.stringify(outcome)
-  return { creates, requests, said }
+  const evidence = []
+  for (const event of (await context.journal.loadTree('check-box-runtime')) ?? [])
+    if (event.kind === 'execution-evidence') evidence.push(await context.blobs.get(event.outRef))
+  return { creates, requests, said, evidence, directory, artifacts }
 }
 
 it('a box check node sends its runtime in the Sandbox create, and none when unset', async () => {
@@ -319,4 +425,48 @@ it('a box check whose log stream ends before its exit reads the retained output 
   expect(said).toContain('"kind":"winner"')
   expect(said).toContain('landed')
   expect(requests.filter((line) => line.endsWith('/process/2/logs'))).toHaveLength(2)
+}, 60_000)
+
+it('retains complete redacted check logs in run evidence after cloud cleanup on success and failure', async () => {
+  for (const exit of [0, 7]) {
+    const result = await boxCheck('', true, { exit })
+    expect(result.requests).toContain('DELETE /v1/sandboxes/sandbox-check-box')
+    const receipt = result.evidence
+      .map((value) => (value as { graphCheckReceipt?: {
+        exitCode: number
+        valid: boolean
+        outputs: IsolatedCheckOutputEvidence
+      } }).graphCheckReceipt)
+      .find(Boolean)!
+    expect(receipt).toMatchObject({
+      exitCode: exit,
+      valid: exit === 0,
+      outputs: { status: 'retained', missing: [] },
+    })
+    const reopened = createPrivateCasArtifactPort(join(result.directory, 'cas'), 'graph-check-proof')
+    const bytes = Buffer.from(await reopened.read(receipt.outputs.files[0]!.artifact))
+    expect(bytes.toString('utf8')).toBe(`before=[redacted:PROOF_SECRET]\n${'\0'.repeat(90000)}`)
+    expect(JSON.stringify(result.evidence)).not.toContain('private-check-log-secret')
+    expect(result.said).not.toContain('private-check-log-secret')
+  }
+}, 60_000)
+
+it('records incomplete retention as a failed check and keeps private recovery custody out of routed output', async () => {
+  const result = await boxCheck('', true, { exit: 0, missing: true })
+  const receipt = result.evidence
+    .map((value) => (value as { graphCheckReceipt?: {
+      valid: boolean
+      outputs: IsolatedCheckOutputEvidence
+    } }).graphCheckReceipt)
+    .find(Boolean)!
+  expect(receipt).toMatchObject({
+    valid: false,
+    outputs: {
+      status: 'incomplete',
+      missing: [{ path: 'missing.log', reason: 'missing' }],
+      source: { kind: 'sandbox', sandboxId: 'sandbox-check-box', state: 'stopped' },
+    },
+  })
+  expect(result.requests).not.toContain('DELETE /v1/sandboxes/sandbox-check-box')
+  expect(result.said).not.toContain('"source"')
 }, 60_000)

@@ -17,6 +17,7 @@
 
 import { resolve } from 'node:path'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import type { AgentCandidateOutputArtifactPort } from '../../candidate-execution/types'
 import { ConfigError, ValidationError } from '../../errors'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
@@ -487,6 +488,7 @@ const runGraphOptionKeys = [
   ...GRAPH_REFUSED_SUPERVISE_OPTIONS,
   'brain',
   'checkPlacement',
+  'checkArtifacts',
 ] as const
 
 type UnlistedRunGraphOption = Exclude<keyof RunGraphOptions, (typeof runGraphOptionKeys)[number]>
@@ -630,6 +632,8 @@ export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSu
    *  from each node's `environment`. Absent = locally, in the run's working directory (a loopback
    *  Bridge `cwd` or a `cli-in-place` workspace). */
   readonly checkPlacement?: GraphCheckPlacement
+  /** Trusted readable artifact store for declared check outputs, retained before box cleanup. */
+  readonly checkArtifacts?: AgentCandidateOutputArtifactPort
 }
 
 export interface GraphResult<Out = unknown> {
