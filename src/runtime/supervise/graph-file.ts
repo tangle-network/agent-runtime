@@ -6,12 +6,13 @@ import {
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import type { z } from 'zod'
 import { ValidationError } from '../../errors'
 import { assertJsonData } from '../../json-data'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
 import type { AgentGraph } from './graph'
-import { graphFileSchema } from './graph-file-schema'
+import { type graphFileNeedSchema, graphFileSchema } from './graph-file-schema'
 import { validateFlowGraph } from './graph-flow'
 import {
   assertGraphTriggerBindings,
@@ -26,6 +27,7 @@ import { assertExecutableAgentProfile, concreteProfileModel } from './model-poli
 import { kernelPromptRegistry, type PromptRegistry } from './prompt-registry'
 
 export type GraphFileSeat = NonNullable<AgentProfile['seats']>[number]
+export type GraphFileNeed = z.infer<typeof graphFileNeedSchema>
 
 /** A provider name in authored data needs an environment-owned canonical connection binding. */
 export class GraphFileResolutionError extends Error {
@@ -68,7 +70,10 @@ export interface LoadGraphFileOptions {
    * the host owns coalescing, authentication and cancellation; errors propagate unchanged. */
   readonly resolveNeed?: (
     provider: string,
-    context: Pick<LoadGraphFileOptions, 'cwd' | 'signal'> & { readonly node: string },
+    context: Pick<LoadGraphFileOptions, 'cwd' | 'signal'> & {
+      readonly node: string
+      readonly account?: string
+    },
   ) =>
     | NonNullable<AgentProfile['connections']>[number]
     | undefined
@@ -133,7 +138,7 @@ async function expandProfile(
     id: string
     profile?: Record<string, unknown>
     seat?: string | string[]
-    needs?: string[]
+    needs?: GraphFileNeed[]
   },
   options: LoadGraphFileOptions,
 ): Promise<AgentProfile> {
@@ -175,11 +180,38 @@ async function expandProfile(
   }
   // A repeated need is one need: resolve it once, before any host I/O such as an OAuth grant.
   const connections = await Promise.all(
-    [...new Set(node.needs ?? [])].map(async (provider) => {
-      if (options.needs && Object.hasOwn(options.needs, provider)) return options.needs[provider]!
-      const connection = await options.resolveNeed?.(provider, context)
-      if (connection === undefined) throw new GraphFileResolutionError(provider, node.id)
-      return connection
+    [
+      ...new Map((node.needs ?? []).map((need) => [canonicalCandidateDigest(need), need])).values(),
+    ].map(async (need) => {
+      const { provider, account, capabilities, alias } =
+        typeof need === 'string'
+          ? { provider: need, account: undefined, capabilities: undefined, alias: undefined }
+          : need
+      const key = account === undefined ? provider : `${provider}:${account}`
+      const hasStatic = options.needs && Object.hasOwn(options.needs, key)
+      const connection = hasStatic
+        ? options.needs![key]!
+        : await options.resolveNeed?.(provider, {
+            ...context,
+            ...(account === undefined ? {} : { account }),
+          })
+      if (connection === undefined) {
+        if (hasStatic) refuse(`node ${node.id} has an invalid static binding for ${provider}`)
+        throw new GraphFileResolutionError(provider, node.id)
+      }
+      if (capabilities === undefined) return connection
+      const grant = agentProfileSchema.parse({ name: node.id, connections: [connection] })
+        .connections![0]!
+      if (
+        !grant.capabilities.includes('*') &&
+        capabilities.some((capability) => !grant.capabilities.includes(capability))
+      )
+        refuse(`node ${node.id} asks for capabilities outside the host binding for ${provider}`)
+      return {
+        ...grant,
+        capabilities: [...new Set(capabilities)],
+        ...(alias === undefined ? {} : { alias }),
+      }
     }),
   )
   const profile: Record<string, unknown> = { ...node.profile, name: node.id }

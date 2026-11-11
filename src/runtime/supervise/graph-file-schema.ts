@@ -25,6 +25,17 @@ const command = z.strictObject({
 })
 const nonnegativeInteger = z.number().int().nonnegative()
 
+/** Portable provider selection; credentials and concrete connection IDs belong to the host. */
+export const graphFileNeedSchema = z.union([
+  z.string().trim().min(1),
+  z.strictObject({
+    provider: z.string().trim().min(1),
+    account: z.string().trim().min(1).optional(),
+    capabilities: z.array(z.string().trim().min(1)).min(1),
+    alias: z.string().trim().min(1).optional(),
+  }),
+])
+
 /** A check node's command: no model, no seat. Params substitute as elsewhere. */
 export const graphCheckNodeSchema = z.strictObject({
   command: z.string().min(1),
@@ -55,7 +66,7 @@ export const graphFileSchema = z.strictObject({
         id: z.string().min(1),
         profile: z.record(z.string(), z.unknown()).optional(),
         seat: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
-        needs: z.array(z.string().min(1)).optional(),
+        needs: z.array(graphFileNeedSchema).optional(),
         check: graphCheckNodeSchema.optional(),
       }),
     )
