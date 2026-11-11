@@ -259,8 +259,8 @@ export class DriverExecutionAttempt {
     this.stops.budgetStop.abort(`supervise: budget exhausted (${spent})`)
   }
 
-  // The token grant in charged tokens (input − cacheRead + output), checked per usage receipt:
-  // methods-20261109a:s4:s8 ran 138 calls in one turn to 328,290 of 6,200. Metering stays per turn.
+  // Charged tokens (input − cacheRead + output) per receipt cut a turn at its grant (s4:s8: 328,290 of
+  // 6,200); children's held reservations end the turn at its boundary in `meterPending`, never here.
   private stopAtGrant(): void {
     if (this.stops.signal.aborted) return
     const projected = newUsageTotals(spendFromUsageTotals(this.ownerUsage))
@@ -270,7 +270,7 @@ export class DriverExecutionAttempt {
       this.retainedOwner ? this.committedOwnerSpend : this.observedOwnerSpend,
     )
     const { budget } = this.scope
-    const left = budget.tokensLeft - chargedTokens(unmetered.tokens)
+    const left = budget.tokensLeft + budget.reservedTokens - chargedTokens(unmetered.tokens)
     if (budget.tokensCapped === false || left > 0) return
     this.stops.budgetStop.abort(`supervise: budget exhausted (tokens: ${-left} over the cap)`)
   }
