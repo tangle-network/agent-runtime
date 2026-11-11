@@ -428,11 +428,13 @@ export class DriverRetryLoop {
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
     // A rate limit or overload is never a repeated failure: the run pauses with growing waits
     // until the upstream answers or its budget or deadline ends it (rehearsed-futures-sleep-20261111a
-    // died of repeated-failure on a busy GLM plan). Credential and placement refusals still settle.
+    // died of repeated-failure on a busy GLM plan). Credential and placement refusals, and an in-doubt
+    // execution the upstream keeps refusing, still settle.
     if (
       classification !== 'terminal' &&
       !(
         classification === 'unavailable' &&
+        pending === undefined &&
         RATE_LIMIT_SIGNALS.has(upstreamUnavailableSignal(error) ?? '')
       ) &&
       !this.run.signal.aborted &&
