@@ -19,6 +19,44 @@ const bindings = {
 } satisfies Record<string, Connection>
 const authored: Connection = { connectionId: 'already-authored', capabilities: ['read'] }
 
+it('narrows portable account needs to the host grant and refuses capability escalation', async () => {
+  const host = await bindingHost()
+  try {
+    const document = JSON.parse(source())
+    document.nodes[0].needs = [
+      { provider: 'fast', account: 'research', capabilities: ['read'], alias: 'research' },
+    ]
+    document.nodes[1].needs = []
+    const contexts: Array<{ provider: string; account?: string }> = []
+    const options: LoadGraphFileOptions = {
+      source: JSON.stringify(document),
+      resolveNeed: async (provider, context) => {
+        contexts.push({ provider, account: context.account })
+        const response = await host.read(provider, context.signal)
+        if (!response.ok) throw new Error(`binding host: ${response.status}`)
+        return response.json()
+      },
+    }
+    const loaded = await loadGraphFile(join(host.directory, 'graph.json'), options)
+    expect(loaded.graph.nodes[0]!.profile.connections).toEqual([
+      authored,
+      { ...bindings.fast, alias: 'research' },
+    ])
+    expect(contexts).toEqual([{ provider: 'fast', account: 'research' }])
+    document.nodes[0].needs[0].capabilities = ['write']
+    await expect(
+      loadGraphFile('graph.json', { ...options, source: JSON.stringify(document) }),
+    ).rejects.toThrow('outside the host binding')
+    document.nodes[0].needs[0].capabilities = ['*']
+    await expect(
+      loadGraphFile('graph.json', { ...options, source: JSON.stringify(document) }),
+    ).rejects.toThrow('outside the host binding')
+    host.assertNoCredentials(loaded)
+  } finally {
+    await host.close()
+  }
+})
+
 function source(needs = [['${trigger.provider}', '${params.provider}'], ['${params.provider}']]) {
   return JSON.stringify({
     params: { provider: { type: 'string', default: 'fast' } },
