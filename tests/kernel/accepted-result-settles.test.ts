@@ -502,9 +502,9 @@ describe("a parent whose child holds its pool's remainder", () => {
     expect(child?.budget?.maxTokens).toBe(1_000)
     // All five root calls ran: 50 charged tokens against its 1,000.
     expect(tree.rootCallsServed()).toBe(calls.count)
-    expect(
-      ofKind(events, 'settled').find((event) => event.id === child?.id),
-    ).toMatchObject({ status: 'done' })
+    expect(ofKind(events, 'settled').find((event) => event.id === child?.id)).toMatchObject({
+      status: 'done',
+    })
     expect(result).toMatchObject({ kind: 'winner', out: ACCEPTED })
   }, 40_000)
 })
