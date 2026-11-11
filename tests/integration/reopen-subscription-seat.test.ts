@@ -29,7 +29,10 @@ it('reopens a retired OpenCode owner on its exact non-exhausted subscription sea
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('missing account boundary')
   const client = new Sandbox({ apiKey: 'fixture', baseUrl: `http://127.0.0.1:${address.port}` })
-  const provider = nativeSeatProvider(directory, { recordOutput: true })
+  const nativeProvider = nativeSeatProvider(directory, { recordOutput: true })
+  const provider = { ...nativeProvider, capabilities: async () => ({
+    ...(await nativeProvider.capabilities()), create: { runtimeAttachments: { mcp: true } },
+  }) }
   const backend = { backend: 'provider' as const, provider }
   const runId = 'reopen-subscription'
   const runDir = join(directory, 'run')
@@ -42,6 +45,8 @@ it('reopens a retired OpenCode owner on its exact non-exhausted subscription sea
     pursuitId: runId, runId, runDir, backend, driverBackend: backend,
     budget: { maxTokens: 1000, maxIterations: 20, deadlineMs: 15000 },
     driverRetry: { enabled: false }, continuation: testContinuation(), maxDepth: 0,
+    coordination: { authentication: { signingKeys: { activeKeyId: 'integration', keys: { integration: 'integration-secret-'.repeat(4) } } },
+      publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager` },
     finalizer: () => 'done', deliverable: { check: (value: unknown) => value === 'done' },
     selectSeat: createSelectSeat({ client, runId,
       minimumValidUntil: new Date(Date.now() + 60000).toISOString(), createBackend: () => backend,
