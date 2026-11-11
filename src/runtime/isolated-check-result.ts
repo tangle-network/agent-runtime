@@ -11,7 +11,7 @@ import {
   validateIsolatedCheckOutputs,
 } from './isolated-checker-outputs'
 
-const isolatedCheckOutputEvidenceSchema: ZodType<IsolatedCheckOutputEvidence> = z
+export const isolatedCheckOutputEvidenceSchema: ZodType<IsolatedCheckOutputEvidence> = z
   .object({
     executionId: z
       .string()

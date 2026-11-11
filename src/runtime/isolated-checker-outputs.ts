@@ -29,6 +29,8 @@ export interface IsolatedCheckOutputDeclaration {
 export interface IsolatedCheckOutputOptions extends IsolatedCheckOutputDeclaration {
   readonly executionId: string
   readonly artifacts: AgentCandidateOutputArtifactPort
+  /** Trusted host redaction, applied before hashing or persistence; never authored by the check. */
+  readonly redact?: (bytes: Uint8Array) => Uint8Array
 }
 
 /** Bounded codes, never exception text, command output, or secret-bearing provider diagnostics. */
@@ -122,7 +124,7 @@ export function prepareIsolatedCheckOutputs(
   options: IsolatedCheckOutputOptions | undefined,
 ): IsolatedCheckOutputOptions | undefined {
   if (options === undefined) return undefined
-  const { executionId, artifacts, ...declaration } = options
+  const { executionId, artifacts, redact, ...declaration } = options
   const validated = validateIsolatedCheckOutputs(declaration)
   if (
     typeof executionId !== 'string' ||
@@ -133,7 +135,9 @@ export function prepareIsolatedCheckOutputs(
     throw new ValidationError('check outputs executionId must be a nonempty bounded identifier')
   if (typeof artifacts?.put !== 'function' || typeof artifacts?.read !== 'function')
     throw new ValidationError('check outputs requires a readable output artifact port')
-  return Object.freeze({ ...validated, executionId, artifacts })
+  if (redact !== undefined && typeof redact !== 'function')
+    throw new ValidationError('check outputs redact must be a function')
+  return Object.freeze({ ...validated, executionId, artifacts, ...(redact && { redact }) })
 }
 
 class OutputCaptureError extends Error {
@@ -159,7 +163,7 @@ export async function retainIsolatedCheckOutputs(
     for (const path of options.paths) {
       let phase: 'capture-failed' | 'store-failed' = 'capture-failed'
       try {
-        const bytes = await runAbortable(
+        const captured = await runAbortable(
           () =>
             read(
               path,
@@ -169,7 +173,14 @@ export async function retainIsolatedCheckOutputs(
           controller.signal,
           'output capture deadline exceeded',
         )
-        totalBytes += bytes.byteLength
+        const bytes = options.redact ? options.redact(captured) : captured
+        if (
+          !(bytes instanceof Uint8Array) ||
+          bytes.byteLength > options.maxFileBytes ||
+          Math.max(captured.byteLength, bytes.byteLength) > options.maxTotalBytes - totalBytes
+        )
+          throw new OutputCaptureError('size-limit')
+        totalBytes += Math.max(captured.byteLength, bytes.byteLength)
         phase = 'store-failed'
         const artifact = await runAbortable(
           () =>
