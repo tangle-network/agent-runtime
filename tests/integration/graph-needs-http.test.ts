@@ -22,6 +22,10 @@ const authored: Connection = { connectionId: 'already-authored', capabilities: [
 it('narrows portable account needs to the host grant and refuses capability escalation', async () => {
   const host = await bindingHost()
   try {
+    await writeFile(
+      join(host.directory, 'bindings', 'fast.json'),
+      JSON.stringify({ ...bindings.fast, capabilities: ['read', 'write'] }),
+    )
     const document = JSON.parse(source())
     document.nodes[0].needs = [
       { provider: 'fast', account: 'research', capabilities: ['read'], alias: 'research' },
@@ -43,7 +47,7 @@ it('narrows portable account needs to the host grant and refuses capability esca
       { ...bindings.fast, alias: 'research' },
     ])
     expect(contexts).toEqual([{ provider: 'fast', account: 'research' }])
-    document.nodes[0].needs[0].capabilities = ['write']
+    document.nodes[0].needs[0].capabilities = ['delete']
     await expect(
       loadGraphFile('graph.json', { ...options, source: JSON.stringify(document) }),
     ).rejects.toThrow('outside the host binding')
