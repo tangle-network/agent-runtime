@@ -513,6 +513,12 @@ describe("a parent whose child holds its pool's remainder", () => {
     expect(ofKind(events, 'settled').find((event) => event.id === child?.id)).toMatchObject({
       status: 'done',
     })
+    // No root attempt failed: the held reservation ended no turn as a failure.
+    const rootAttempts = ofKind(events, 'driver-attempt').filter(
+      (event) => event.id === child?.parent,
+    )
+    expect(rootAttempts.length).toBeGreaterThan(0)
+    expect(rootAttempts.filter((event) => event.record.error !== undefined)).toEqual([])
     expect(result).toMatchObject({ kind: 'winner', out: ACCEPTED })
   }, 40_000)
 })
