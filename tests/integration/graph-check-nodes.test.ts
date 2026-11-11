@@ -240,6 +240,40 @@ check: { node: verify, pointer: /pass, equals: true }
   expect(logs).toEqual(['attempt=1\n', 'attempt=2\n'])
 }, 60_000)
 
+it('passes hostile trigger strings as structured input and binds local resume to that exact event', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-check-trigger-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const cwd = join(directory, 'work')
+  await mkdir(cwd)
+  const source = `
+graph: literal-trigger
+nodes:
+  - id: intake
+    check:
+      command: 'cat "$GRAPH_INPUT" > received.json; echo ran >> count'
+entry: [{ node: intake, task: { hello: world } }]
+edges: []
+budget: { maxIterations: 2 }
+check: { node: intake, pointer: /pass, equals: true }
+`
+  const loaded = await loadGraphFile(join(directory, 'trigger.yaml'), { source })
+  const trigger = { body: '$(touch escaped); "quoted"\n${HOME}', deliveryId: 'event-1' }
+  const options = {
+    backend: { backend: 'bridge' as const, bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: '', cwd },
+    runDir: join(directory, 'run'), runId: 'literal-trigger', trigger,
+  }
+  const graph = graphFromStored(loaded.graph)
+  expect((await runGraph(graph, options)).result.kind).toBe('winner')
+  expect(JSON.parse(await readFile(join(cwd, 'received.json'), 'utf8'))).toEqual({
+    task: { hello: 'world' }, trigger,
+  })
+  await expect(readFile(join(cwd, 'escaped'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect((await runGraph(graph, { ...options, resume: true })).result.kind).toBe('winner')
+  await expect(runGraph(graph, { ...options, resume: true, trigger: { ...trigger, deliveryId: 'event-2' } }))
+    .rejects.toThrow(/taskDigest|different task/)
+  expect(await readFile(join(cwd, 'count'), 'utf8')).toBe('ran\n')
+}, 60_000)
+
 /** Run one box check node against a Sandbox HTTP peer. The peer runs the box's `find` for real over
  *  the uploaded tree. Unless `tear` is set it refuses the check's `/bin/sh` the way the box's sidecar
  *  refuses an executable it cannot start; with `tear` it runs it, and ends each process's first
@@ -247,7 +281,7 @@ check: { node: verify, pointer: /pass, equals: true }
 async function boxCheck(
   runtimeField: string,
   tear = false,
-  capture?: { exit: number; missing?: boolean },
+  capture?: { exit: number; missing?: boolean; trigger?: Record<string, unknown> },
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'graph-check-runtime-'))
   onTestFinished(() => rm(directory, { recursive: true, force: true }))
@@ -374,14 +408,14 @@ workspace: cwd
 nodes:
   - id: verify
     check:
-      command: '${capture ? `printf "before=$PROOF_SECRET\\n" > verification.log; head -c 90000 /dev/zero >> verification.log; echo landed; exit ${capture.exit}` : 'echo landed'}'
+      command: '${capture ? `cat "$GRAPH_INPUT" > invocation.json; printf "before=$PROOF_SECRET\\n" > verification.log; head -c 90000 /dev/zero >> verification.log; echo landed; exit ${capture.exit}` : 'echo landed'}'
       environment: agent-container
       resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}${
         capture
           ? `
       secrets: [PROOF_SECRET]
       outputs:
-        paths: [verification.log${capture.missing ? ', missing.log' : ''}]
+        paths: [verification.log, invocation.json${capture.missing ? ', missing.log' : ''}]
         maxFileBytes: 100000
         maxTotalBytes: 200000`
           : ''
@@ -402,6 +436,7 @@ check: { node: verify, pointer: /pass, equals: true }
       ? { runContext: context, checkArtifacts: artifacts }
       : { runDir: join(directory, 'run') }),
     runId: 'check-box-runtime',
+    ...(capture?.trigger && { trigger: capture.trigger }),
     driverRetry: { enabled: false },
     checkPlacement: {
       env: { PROOF_SECRET: 'private-check-log-secret' },
@@ -447,7 +482,8 @@ it('a box check whose log stream ends before its exit reads the retained output 
 
 it('retains complete redacted check logs in run evidence after cloud cleanup on success and failure', async () => {
   for (const exit of [0, 7]) {
-    const result = await boxCheck('', true, { exit })
+    const trigger = { body: '$(touch escaped); "quoted"\n${HOME}', deliveryId: `event-${exit}` }
+    const result = await boxCheck('', true, { exit, trigger })
     expect(result.requests).toContain('DELETE /v1/sandboxes/sandbox-check-box')
     const receipt = result.evidence
       .map(
@@ -474,6 +510,8 @@ it('retains complete redacted check logs in run evidence after cloud cleanup on 
     )
     const bytes = Buffer.from(await reopened.read(receipt.outputs.files[0]!.artifact))
     expect(bytes.toString('utf8')).toBe(`before=[redacted:PROOF_SECRET]\n${'\0'.repeat(90000)}`)
+    const input = JSON.parse(Buffer.from(await reopened.read(receipt.outputs.files[1]!.artifact)).toString())
+    expect(input.trigger).toEqual(trigger)
     expect(JSON.stringify(result.evidence)).not.toContain('private-check-log-secret')
     expect(result.said).not.toContain('private-check-log-secret')
   }

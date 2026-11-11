@@ -5,6 +5,7 @@ import { isAbsolute, join, relative } from 'node:path'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type { SandboxResources } from '@tangle-network/sandbox'
 import { scanMaterializedWorkspaceManifest } from '../../candidate-execution/artifacts'
+import { canonicalCandidateBytes } from '../../candidate-execution/digest'
 import { contentAddress } from '../../durable/content-address'
 import {
   appendCommittedJsonLine,
@@ -361,12 +362,17 @@ function evidenceOf(task: unknown): Array<[string, unknown]> {
   return [...entries]
 }
 
-async function writeEvidence(directory: string, task: unknown): Promise<void> {
+async function writeEvidence(directory: string, task: unknown, trigger: RunGraphOptions['trigger']): Promise<void> {
   await mkdir(directory, { recursive: true })
   for (const [id, result] of evidenceOf(task)) {
     if (!safeNodeFile.test(id)) throw new ValidationError(`runGraph: evidence node id ${id}`)
     await writeFile(join(directory, `${id}.json`), `${JSON.stringify(result)}\n`)
   }
+  await mkdir(join(directory, '_input'), { recursive: true })
+  await writeFile(join(directory, '_input', 'task.json'), canonicalCandidateBytes({
+    task,
+    ...(trigger === undefined ? {} : { trigger }),
+  }))
 }
 
 async function readSecrets(
@@ -416,7 +422,7 @@ async function runLocalCheck(
     cwd,
     timeoutMs,
     signal,
-    env: { ...secrets, GRAPH_EVIDENCE: evidence },
+    env: { ...secrets, GRAPH_EVIDENCE: evidence, GRAPH_INPUT: join(evidence, '_input', 'task.json') },
   })
   const timedOut = result.timedOut ? `\n[check timed out after ${timeoutMs} ms]` : ''
   const readOutput = localCheckOutputReader(cwd)
@@ -476,7 +482,7 @@ async function runBoxCheck(
       command: [
         '/bin/sh',
         '-c',
-        `GRAPH_EVIDENCE="$PWD/_evidence"; export GRAPH_EVIDENCE; ${check.command}`,
+        `GRAPH_EVIDENCE="$PWD/_evidence"; GRAPH_INPUT="$GRAPH_EVIDENCE/_input/task.json"; export GRAPH_EVIDENCE GRAPH_INPUT; ${check.command}`,
       ],
       timeoutMs: check.timeoutMs ?? CHECK_TIMEOUT_MS,
       maxOutputBytes: 16 * CHECK_OUTPUT_LIMIT,
@@ -524,17 +530,31 @@ function redact(text: string, secrets: Record<string, string>): string {
   return redactBytes(Buffer.from(text), secrets).toString('utf8')
 }
 
-function redactBytes(bytes: Uint8Array, secrets: Record<string, string>): Buffer {
+function redactBytes(
+  bytes: Uint8Array,
+  secrets: Record<string, string>,
+  maxBytes = Number.MAX_SAFE_INTEGER,
+): Buffer {
   let out = Buffer.from(bytes)
   for (const [name, value] of Object.entries(secrets).sort(([, a], [, b]) => b.length - a.length)) {
     const needle = Buffer.from(value)
-    const chunks: Buffer[] = []
+    const replacement = Buffer.from(`[redacted:${name}]`)
+    let length = out.length
+    for (let at = out.indexOf(needle); at !== -1; at = out.indexOf(needle, at + needle.length)) {
+      length += replacement.length - needle.length
+      if (length > maxBytes) throw new Error('Redacted check output exceeds its byte limit')
+    }
+    if (length === out.length && !out.includes(needle)) continue
+    const redacted = Buffer.allocUnsafe(length)
     let start = 0
+    let offset = 0
     for (let at = out.indexOf(needle); at !== -1; at = out.indexOf(needle, start)) {
-      chunks.push(out.subarray(start, at), Buffer.from(`[redacted:${name}]`))
+      offset += out.copy(redacted, offset, start, at)
+      offset += replacement.copy(redacted, offset)
       start = at + needle.length
     }
-    if (chunks.length) out = Buffer.concat([...chunks, out.subarray(start)])
+    out.copy(redacted, offset, start)
+    out = redacted
   }
   return out
 }
@@ -644,7 +664,10 @@ export function bindGraphCheckNodes(
       at: local?.cwd ?? 'box',
     })
     // The spawn's assignment is stable across a resume, so a settled traversal replays its receipt.
-    const binding = contentAddress({ runId, node: id, checkDigest, at: spawn?.assignmentId })
+    const binding = contentAddress({
+      runId, node: id, checkDigest, at: spawn?.assignmentId,
+      ...(options.trigger === undefined ? {} : { trigger: options.trigger }),
+    })
     const executorFactory: ExecutorFactory<unknown> = (_spec, context_) => {
       let artifact: ExecutorResult<unknown> | undefined
       const settle = (out: GraphCheckOutput, ms: number): ExecutorResult<unknown> => {
@@ -693,11 +716,11 @@ export function bindGraphCheckNodes(
           ...check.outputs,
           executionId: binding,
           artifacts: options.checkArtifacts!,
-          redact: (bytes: Uint8Array) => redactBytes(bytes, secrets),
+          redact: (bytes: Uint8Array) => redactBytes(bytes, secrets, check.outputs!.maxFileBytes),
         }
         let ran: Awaited<ReturnType<typeof runLocalCheck>>
         try {
-          await writeEvidence(evidence, task)
+          await writeEvidence(evidence, task, options.trigger)
           ran = local
             ? await runLocalCheck(check, local.cwd, evidence, signal, secrets, retention)
             : await runBoxCheck(

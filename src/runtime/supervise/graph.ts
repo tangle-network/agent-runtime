@@ -63,7 +63,9 @@ import {
   type GraphCheckNode,
   type GraphCheckPlacement,
   type GraphCommandCheck,
+  type GraphFromStoredOptions,
 } from './stored-graph-check'
+import { detachedSnapshot } from './snapshot'
 import {
   profileGuidanceComposer,
   type SuperviseOptions,
@@ -489,6 +491,7 @@ const runGraphOptionKeys = [
   'brain',
   'checkPlacement',
   'checkArtifacts',
+  'trigger',
 ] as const
 
 type UnlistedRunGraphOption = Exclude<keyof RunGraphOptions, (typeof runGraphOptionKeys)[number]>
@@ -634,6 +637,8 @@ export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSu
   readonly checkPlacement?: GraphCheckPlacement
   /** Trusted readable artifact store for declared check outputs, retained before box cleanup. */
   readonly checkArtifacts?: AgentCandidateOutputArtifactPort
+  /** Structured event data for GRAPH_INPUT; bound to the run's task identity, never a shell slot. */
+  readonly trigger?: GraphFromStoredOptions['trigger']
 }
 
 export interface GraphResult<Out = unknown> {
@@ -827,6 +832,7 @@ export function superviseAgentGraph(
     )
   }
   const validated = assertRunGraphAuthoring(graph, opts, brain)
+  const trigger = opts.trigger === undefined ? undefined : detachedSnapshot(opts.trigger, 'runGraph trigger')
   const context =
     opts.runContext ??
     (opts.runDir === undefined
@@ -839,7 +845,7 @@ export function superviseAgentGraph(
     opts.runContext?.runId ??
     `graph-${canonicalCandidateDigest(graph.nodes.map((n) => n.id)).slice('sha256:'.length, 'sha256:'.length + 12)}`
   const now = opts.now ?? Date.now
-  const checkNodes = bindGraphCheckNodes(graph, { ...opts, runId })
+  const checkNodes = bindGraphCheckNodes(graph, { ...opts, runId, trigger })
 
   // The graph layer: node pinning, analyst routes, continuity defaults and the edge ledger. A
   // `run_graph` subtask builds the same overlay around its nested manager.
@@ -882,11 +888,12 @@ export function superviseAgentGraph(
       ? graphRootProfile(validated as RootValidatedGraph, registry)
       : flowRootProfile
   const rootBrain = flow === undefined ? brain : runtimeFlowBrain()
-  const task =
+  const description =
     flow === undefined
       ? (graph.deliverable.describe ??
         `Deliver the graph's deliverable by driving your worker nodes (root: '${(validated as RootValidatedGraph).root.id}').`)
       : (graph.deliverable.describe ?? 'Runtime runs this flow graph from its entries.')
+  const task = trigger === undefined ? description : { task: description, trigger }
 
   // Every configuration fault above throws SYNCHRONOUSLY (matching `supervise()`'s own
   // contract); only the run itself is asynchronous.
