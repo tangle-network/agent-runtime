@@ -282,7 +282,10 @@ async function boxCheck(
       }
       return box
     }
-    if (path === `${self}/stop`) return { success: true }
+    if (path === `${self}/stop`) {
+      box.status = 'stopped'
+      return box
+    }
     if (path === `${runtime}/fs/upload-dir`) {
       const form = await new Response(body, { headers: { 'content-type': type } }).formData()
       const archive = form.get('archive') as Blob
