@@ -61,6 +61,13 @@ it.each(['completed', 'cancelled'] as const)(
         },
       ],
     })
+    const native = () =>
+      readFile(join(directory, 'native-receipts.jsonl'), 'utf8').then((text) =>
+        text
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line)),
+      )
     let reopening = false
     const options = {
       pursuitId: runId,
@@ -87,7 +94,10 @@ it.each(['completed', 'cancelled'] as const)(
         return 'done'
       },
       deliverable: {
-        check: (value: unknown) => value === 'done' && (reason === 'completed' || reopening),
+        check: async (value: unknown) =>
+          value === 'done' &&
+          (reason === 'completed' || reopening) &&
+          (await native()).length >= (reopening ? 2 : 1),
       },
       selectSeat: createSelectSeat({
         client,
@@ -101,13 +111,6 @@ it.each(['completed', 'cancelled'] as const)(
       reason === 'completed' ? 'winner' : 'no-winner',
     )
     const prior = await readFile(join(runDir, 'result.json'), 'utf8')
-    const native = () =>
-      readFile(join(directory, 'native-receipts.jsonl'), 'utf8').then((text) =>
-        text
-          .trim()
-          .split('\n')
-          .map((line) => JSON.parse(line)),
-      )
     const firstReceipt = (await native())[0]
     expect(await provider.get!(firstReceipt.control.environmentId)).toBeNull()
     reopening = true
