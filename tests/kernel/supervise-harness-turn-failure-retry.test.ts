@@ -426,6 +426,22 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(await fixture.events(), 'paused')).toHaveLength(5)
   })
 
+  it('still settles an unchanged quota 429 that names no rate limit after three drives', async () => {
+    const fixture = await harnessFailureFixture({
+      runId: 'harness-failure-quota-429',
+      failures: () => ({
+        error: 'request failed with status code 429: insufficient_quota, check your plan and billing details',
+      }),
+    })
+    const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(attempts.map((attempt) => [attempt.classification, attempt.stop])).toEqual([
+      ['unavailable', undefined],
+      ['unavailable', undefined],
+      ['unavailable', 'repeated-failure'],
+    ])
+  })
+
   it('settles an unchanged unavailable upstream after three drives without spending failure allowances', async () => {
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-upstream-quota',

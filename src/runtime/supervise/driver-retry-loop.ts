@@ -426,16 +426,18 @@ export class DriverRetryLoop {
       pending,
     }
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
-    // A rate limit or overload is never a repeated failure: the run pauses with growing waits
-    // until the upstream answers or its budget or deadline ends it (rehearsed-futures-sleep-20261111a
-    // died of repeated-failure on a busy GLM plan). Credential and placement refusals, and an in-doubt
-    // execution the upstream keeps refusing, still settle.
+    // A named rate limit or overload on a run with a deadline is never a repeated failure: the run
+    // pauses with growing waits until the upstream answers, its budget or its deadline
+    // (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM plan). Quota and
+    // billing 429s, credential and placement refusals, an in-doubt execution, and any refusal on a
+    // run without a deadline still settle after three unchanged drives.
     if (
       classification !== 'terminal' &&
       !(
         classification === 'unavailable' &&
         pending === undefined &&
-        RATE_LIMIT_SIGNALS.has(upstreamUnavailableSignal(error) ?? '')
+        this.run.budget().deadlineMs > 0 &&
+        RATE_LIMIT_SIGNALS.has((upstreamUnavailableSignal(error) ?? '').toLowerCase())
       ) &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
