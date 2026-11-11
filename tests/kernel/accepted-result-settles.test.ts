@@ -137,7 +137,8 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
         return JSON.parse(body.result.content[0].text)
       }
       const turnEndsAt = new Map<string, number>()
-      const spawningTurns = new Set<string>()
+      // A spawning root turn's calls, ended once they are served or cancelled.
+      const rootCallsEnded = new Map<string, { end: () => void; ended: Promise<void> }>()
       // A burning director's exact result exists only once its calls end, served or cancelled.
       let endCalls!: () => void
       const callsEnded = new Promise<void>((resolve) => {
@@ -155,7 +156,11 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
               turnEndsAt.set(executionId, options.rootFirstTurnEndsAt())
             } else if (woken.length === 0) {
               await call('spawn_worker', { profile: director, task: 'Find the answer.' })
-              spawningTurns.add(executionId)
+              let end!: () => void
+              const ended = new Promise<void>((resolve) => {
+                end = resolve
+              })
+              if (options.rootCalls) rootCallsEnded.set(executionId, { end, ended })
             } else if (woken.some((event) => event.type === 'settled')) {
               expect(await call('submit_result', { result: ACCEPTED })).toMatchObject({
                 accepted: true,
@@ -177,7 +182,8 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
           const session = environment.session!(id, sessionOptions)
           const executionId = sessionOptions?.controlRef?.executionId ?? ''
           const endsAt = turnEndsAt.get(executionId)
-          const rootCalls = spawningTurns.has(executionId) ? options.rootCalls : undefined
+          const rootCallsEnd = rootCallsEnded.get(executionId)
+          const rootCalls = rootCallsEnd && options.rootCalls
           return {
             ...session,
             async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
@@ -198,6 +204,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
                   },
                 }
               }
+              rootCallsEnd?.end()
               const calls = role === 'director' ? options.directorCalls : undefined
               if (calls !== undefined) {
                 for (let index = 0; index < calls.count; index += 1) {
@@ -236,6 +243,7 @@ async function acceptedTree(runId: string, options: TreeOptions = {}) {
               }
               const calls = role === 'director' ? options.directorCalls : undefined
               if (calls !== undefined) await callsEnded
+              await rootCallsEnd?.ended
               return {
                 ...(await session.result()),
                 usage:
