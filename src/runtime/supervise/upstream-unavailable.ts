@@ -25,7 +25,12 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
 
 /** Rate limits and overload: a wait clears them, so they never end a run as a repeated failure. */
 export const RATE_LIMIT_SIGNALS: ReadonlySet<string> = new Set([
-  'provider_rate_limit', 'rate_limit_exceeded', 'rate_limit_error', 'overloaded_error', 'http-429', 'http-529',
+  'provider_rate_limit',
+  'rate_limit_exceeded',
+  'rate_limit_error',
+  'overloaded_error',
+  'http-429',
+  'http-529',
 ])
 
 /** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */

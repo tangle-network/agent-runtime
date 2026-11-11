@@ -431,7 +431,10 @@ export class DriverRetryLoop {
     // died of repeated-failure on a busy GLM plan). Credential and placement refusals still settle.
     if (
       classification !== 'terminal' &&
-      !(classification === 'unavailable' && RATE_LIMIT_SIGNALS.has(upstreamUnavailableSignal(error) ?? '')) &&
+      !(
+        classification === 'unavailable' &&
+        RATE_LIMIT_SIGNALS.has(upstreamUnavailableSignal(error) ?? '')
+      ) &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
       (this.sameIdle?.count ?? 0) >= SAME_CAUSE_LIMIT

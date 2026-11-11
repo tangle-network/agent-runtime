@@ -415,8 +415,7 @@ describe('a root harness turn that ends with a failed outcome', () => {
       'tangle-sandbox harness turn ended with a failed outcome: 您的账户已达到速率限制，请您控制请求频率'
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-rate-limit-storm',
-      failures: (dispatch) =>
-        dispatch <= 5 ? { error: dispatch % 2 ? GLM_429 : glm } : undefined,
+      failures: (dispatch) => (dispatch <= 5 ? { error: dispatch % 2 ? GLM_429 : glm } : undefined),
     })
     const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
     expect(result).toMatchObject({ kind: 'winner' })
