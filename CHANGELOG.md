@@ -1,3 +1,7 @@
+## 9.0.8
+
+A manager's retained environment release waits up to 5 minutes for its destroys instead of a fixed 30 s, and starts all of an owner's destroys together under that one deadline. A destroy that outlasts the wait keeps running and the owner's next release joins it, instead of reconnecting to a box being removed (which failed with `HTTP 503 ... project_deprovisioning`). A failed destroy, or one in flight for 15 minutes, is asked again at the next release, where an absent environment confirms it. No native stop is sent to a box whose delete is in flight. Retention and checkpoint holds are unchanged.
+
 ## 9.0.7
 
 The per-receipt token grant stop counts a driver's committed spend (its own and its settled children's), not its children's open reservations. A parent whose child reserved its remaining grant, such as a child spawned without a budget, is no longer cancelled and failed mid-turn: its turn runs to its boundary, where the existing budget check ends the drive without a failure. A node whose committed spend reaches its grant is still cut within one usage receipt, and its spend into reservations it handed out is bounded by the turn it happens in.
