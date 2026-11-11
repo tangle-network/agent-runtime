@@ -188,14 +188,17 @@ async function expandProfile(
           ? { provider: need, account: undefined, capabilities: undefined, alias: undefined }
           : need
       const key = account === undefined ? provider : `${provider}:${account}`
-      const connection =
-        options.needs && Object.hasOwn(options.needs, key)
-          ? options.needs[key]!
-          : await options.resolveNeed?.(provider, {
-              ...context,
-              ...(account === undefined ? {} : { account }),
-            })
-      if (connection === undefined) throw new GraphFileResolutionError(provider, node.id)
+      const hasStatic = options.needs && Object.hasOwn(options.needs, key)
+      const connection = hasStatic
+        ? options.needs![key]!
+        : await options.resolveNeed?.(provider, {
+            ...context,
+            ...(account === undefined ? {} : { account }),
+          })
+      if (connection === undefined) {
+        if (hasStatic) refuse(`node ${node.id} has an invalid static binding for ${provider}`)
+        throw new GraphFileResolutionError(provider, node.id)
+      }
       if (capabilities === undefined) return connection
       const grant = agentProfileSchema.parse({ name: node.id, connections: [connection] })
         .connections![0]!
