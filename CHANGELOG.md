@@ -1,3 +1,9 @@
+## 9.0.6
+
+The development pins move with it: `@tangle-network/sandbox` 1.0.376, whose types carry agent-interface 5.10.23's `exo` harness, and one deduplicated copy of each in the lockfile.
+
+Publishes 9.0.5's rate-limit hold. The 9.0.5 tag never reached npm: its packed-consumer check resolved `@tangle-network/agent-profile-materialize` 1.1.103, published a minute before, whose `@tangle-network/agent-interface` peer floor ^5.10.23 refused the 5.10.22 development pin. Runtime source and its published ranges are unchanged.
+
 ## 9.0.5
 
 A rate-limited or overloaded driver (429, 529, `rate_limit_*`, and Z.ai GLM's bare rate-limit text) no longer ends as `repeated-failure`: a finished turn the upstream refused for rate pauses with the doubling capacity wait until the upstream answers, the budget or the deadline. Credential and placement refusals, and an in-doubt execution the upstream keeps refusing, still settle after three unchanged drives.
