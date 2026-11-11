@@ -192,7 +192,7 @@ check: { node: verify, pointer: /pass, equals: true }
     runId: 'local-output',
     driverRetry: { enabled: false },
   }
-  await expect(runGraph(graphFromStored(loaded.graph), options)).rejects.toThrow(
+  expect(() => runGraph(graphFromStored(loaded.graph), options)).toThrow(
     'outputs require checkArtifacts',
   )
   await expect(readFile(join(cwd, 'verification.log'))).rejects.toMatchObject({ code: 'ENOENT' })
@@ -217,17 +217,26 @@ check: { node: verify, pointer: /pass, equals: true }
   const stale = await loadGraphFile(join(directory, 'stale.yaml'), {
     source: source
       .replace(/command: '[^\n]*'/, "command: 'true'")
-      .replace('check: { node: verify, pointer: /pass, equals: true }', 'check: { node: verify, pointer: /outputs/status, equals: incomplete }')
+      .replace(
+        'check: { node: verify, pointer: /pass, equals: true }',
+        'check: { node: verify, pointer: /outputs/status, equals: incomplete }',
+      )
       .replace(/edges:[\s\S]*?budget:/, 'edges: []\nbudget:'),
   })
   const staleResult = await runGraph(graphFromStored(stale.graph), {
-    ...options, runId: 'stale-output', runDir: join(directory, 'stale-run'), checkArtifacts,
+    ...options,
+    runId: 'stale-output',
+    runDir: join(directory, 'stale-run'),
+    checkArtifacts,
   })
   expect(staleResult.result.kind).toBe('winner')
   expect(JSON.stringify(staleResult.result)).toContain('capture-failed')
   await rm(cwd, { recursive: true })
-  const logs = await Promise.all(receipts.map(async (receipt) =>
-    Buffer.from(await checkArtifacts.read(receipt.outputs.files[0]!.artifact)).toString()))
+  const logs = await Promise.all(
+    receipts.map(async (receipt) =>
+      Buffer.from(await checkArtifacts.read(receipt.outputs.files[0]!.artifact)).toString(),
+    ),
+  )
   expect(logs).toEqual(['attempt=1\n', 'attempt=2\n'])
 }, 60_000)
 
@@ -314,6 +323,8 @@ async function boxCheck(
         }),
       )
       ran.push(done)
+      // Artifact capture uses stdout/stderr file streams; the fixture tears command logs only.
+      if (spawn.executable === '/usr/bin/python3') torn.add(ran.length)
       return { data: { pid: ran.length } }
     }
     const pid = Number(/\/process\/(\d+)/.exec(path)?.[1])
@@ -365,12 +376,16 @@ nodes:
     check:
       command: '${capture ? `printf "before=$PROOF_SECRET\\n" > verification.log; head -c 90000 /dev/zero >> verification.log; echo landed; exit ${capture.exit}` : 'echo landed'}'
       environment: agent-container
-      resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}${capture ? `
+      resources: { cpuCores: 8, memoryMB: 16384 }${runtimeField}${
+        capture
+          ? `
       secrets: [PROOF_SECRET]
       outputs:
         paths: [verification.log${capture.missing ? ', missing.log' : ''}]
         maxFileBytes: 100000
-        maxTotalBytes: 200000` : ''}
+        maxTotalBytes: 200000`
+          : ''
+      }
 entry: [verify]
 edges: []
 budget: { maxIterations: 2 }
@@ -435,18 +450,28 @@ it('retains complete redacted check logs in run evidence after cloud cleanup on 
     const result = await boxCheck('', true, { exit })
     expect(result.requests).toContain('DELETE /v1/sandboxes/sandbox-check-box')
     const receipt = result.evidence
-      .map((value) => (value as { graphCheckReceipt?: {
-        exitCode: number
-        valid: boolean
-        outputs: IsolatedCheckOutputEvidence
-      } }).graphCheckReceipt)
+      .map(
+        (value) =>
+          (
+            value as {
+              graphCheckReceipt?: {
+                exitCode: number
+                valid: boolean
+                outputs: IsolatedCheckOutputEvidence
+              }
+            }
+          ).graphCheckReceipt,
+      )
       .find(Boolean)!
     expect(receipt).toMatchObject({
       exitCode: exit,
       valid: exit === 0,
       outputs: { status: 'retained', missing: [] },
     })
-    const reopened = createPrivateCasArtifactPort(join(result.directory, 'cas'), 'graph-check-proof')
+    const reopened = createPrivateCasArtifactPort(
+      join(result.directory, 'cas'),
+      'graph-check-proof',
+    )
     const bytes = Buffer.from(await reopened.read(receipt.outputs.files[0]!.artifact))
     expect(bytes.toString('utf8')).toBe(`before=[redacted:PROOF_SECRET]\n${'\0'.repeat(90000)}`)
     expect(JSON.stringify(result.evidence)).not.toContain('private-check-log-secret')
@@ -457,10 +482,17 @@ it('retains complete redacted check logs in run evidence after cloud cleanup on 
 it('records incomplete retention as a failed check and keeps private recovery custody out of routed output', async () => {
   const result = await boxCheck('', true, { exit: 0, missing: true })
   const receipt = result.evidence
-    .map((value) => (value as { graphCheckReceipt?: {
-      valid: boolean
-      outputs: IsolatedCheckOutputEvidence
-    } }).graphCheckReceipt)
+    .map(
+      (value) =>
+        (
+          value as {
+            graphCheckReceipt?: {
+              valid: boolean
+              outputs: IsolatedCheckOutputEvidence
+            }
+          }
+        ).graphCheckReceipt,
+    )
     .find(Boolean)!
   expect(receipt).toMatchObject({
     valid: false,

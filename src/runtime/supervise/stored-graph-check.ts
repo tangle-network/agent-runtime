@@ -15,8 +15,8 @@ import { ValidationError } from '../../errors'
 import type { MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import { defaultRunCommand, runSettledCommand } from '../../mcp/worktree-harness'
 import type { DeclaredCheckPlacement } from '../declared-check'
-import { type IsolatedCheckBox, runIsolatedCheck } from '../isolated-checker'
 import { isolatedCheckOutputEvidenceSchema } from '../isolated-check-result'
+import { type IsolatedCheckBox, runIsolatedCheck } from '../isolated-checker'
 import {
   type IsolatedCheckOutputDeclaration,
   type IsolatedCheckOutputEvidence,
@@ -393,13 +393,18 @@ async function runLocalCheck(
   retention?: IsolatedCheckOutputOptions,
 ): Promise<CheckExecution> {
   const prior = new Map(
-    await Promise.all((retention?.paths ?? []).map(async (path) => [
-      path,
-      await lstat(join(cwd, path), { bigint: true }).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== 'ENOENT') throw error
-        return undefined
-      }),
-    ] as const)),
+    await Promise.all(
+      (retention?.paths ?? []).map(
+        async (path) =>
+          [
+            path,
+            await lstat(join(cwd, path), { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+              if (error.code !== 'ENOENT') throw error
+              return undefined
+            }),
+          ] as const,
+      ),
+    ),
   )
   const inputDigest = retention
     ? canonicalCandidateDigest(await scanMaterializedWorkspaceManifest(evidence))
@@ -420,16 +425,20 @@ async function runLocalCheck(
         const before = prior.get(path)
         if (before) {
           const after = await lstat(join(cwd, path), { bigint: true })
-          if ((['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'] as const).every((key) =>
-            before[key] === after[key]))
+          if (
+            (['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'] as const).every(
+              (key) => before[key] === after[key],
+            )
+          )
             throw new Error('Declared local check output was not changed by this command')
         }
         return readOutput(path, maxBytes, signal)
       })
     : undefined
-  const outputs = captured?.status === 'incomplete'
-    ? { ...captured, source: { kind: 'local' as const, path: cwd } }
-    : captured
+  const outputs =
+    captured?.status === 'incomplete'
+      ? { ...captured, source: { kind: 'local' as const, path: cwd } }
+      : captured
   return {
     exitCode: result.timedOut ? null : result.exitCode,
     stdout: result.stdout,
