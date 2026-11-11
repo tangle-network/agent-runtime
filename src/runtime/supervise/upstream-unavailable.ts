@@ -28,6 +28,8 @@ export const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([429, 503, 529]
 
 /** Legacy text fallback reads whole code tokens and explicitly framed HTTP statuses. */
 export function unavailableSignalInText(text: string): string | undefined {
+  // Z.ai's GLM plan states its 429 only as prose when opencode drops the code.
+  if (text.includes('速率限制')) return 'provider_rate_limit'
   for (const token of text.toLowerCase().matchAll(/[a-z_]+/gu)) {
     if (UNAVAILABLE_CODES.has(token[0])) return token[0]
   }

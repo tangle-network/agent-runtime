@@ -425,16 +425,17 @@ export class DriverRetryLoop {
       pending,
     }
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
+    // A capacity refusal (429, quota, overload) is never a repeated failure: the run pauses with
+    // growing waits until the upstream answers or its budget or deadline ends it
+    // (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM plan).
     if (
       classification !== 'terminal' &&
+      classification !== 'unavailable' &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
       (this.sameIdle?.count ?? 0) >= SAME_CAUSE_LIMIT
     ) {
-      const stop =
-        pending === undefined || classification === 'unavailable'
-          ? 'repeated-failure'
-          : 'pending-unresolved'
+      const stop = pending === undefined ? 'repeated-failure' : 'pending-unresolved'
       await this.emit({
         ...this.failureRecord(failure),
         stop,
@@ -453,7 +454,7 @@ export class DriverRetryLoop {
     else await this.retry(failure)
   }
 
-  // Capacity waits do not charge failure allowances; the unchanged-cause ceiling still applies.
+  // Capacity waits charge no failure allowance and no unchanged-cause ceiling; budget and deadline bound them.
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure
