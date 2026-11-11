@@ -409,10 +409,12 @@ describe('a root harness turn that ends with a failed outcome', () => {
   })
 
   it('holds a rate-limited driver open through an unchanged 429 storm, including bare GLM text, and wins when the upstream answers', async () => {
-    const glm = 'tangle-sandbox harness turn ended with a failed outcome: 您的账户已达到速率限制，请您控制请求频率'
+    const glm =
+      'tangle-sandbox harness turn ended with a failed outcome: 您的账户已达到速率限制，请您控制请求频率'
     const fixture = await harnessFailureFixture({
       runId: 'harness-failure-rate-limit-storm',
-      failures: (dispatch) => (dispatch <= 5 ? { error: dispatch % 2 ? ROUTER_QUOTA : glm } : undefined),
+      failures: (dispatch) =>
+        dispatch <= 5 ? { error: dispatch % 2 ? ROUTER_QUOTA : glm } : undefined,
     })
     const { result, attempts } = await fixture.run({ maxConsecutiveFailures: 1, maxAttempts: 1 })
     expect(result).toMatchObject({ kind: 'winner' })
