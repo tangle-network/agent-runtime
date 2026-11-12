@@ -200,6 +200,7 @@ export {
 } from './knowledge/activation'
 export {
   buildKnowledgeImprovementExperimentBundles,
+  captureKnowledgeImprovementCandidatePair,
   type KnowledgeImprovementCandidatePair,
   type KnowledgeImprovementExperimentBundles,
   type KnowledgeImprovementJobMeasurement,

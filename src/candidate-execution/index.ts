@@ -17,6 +17,7 @@ export {
   type AgentCandidateProfileSource,
   type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
+  captureAgentCodeCandidateWorkspace,
 } from './builder'
 export { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
 export type {

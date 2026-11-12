@@ -26,6 +26,7 @@ import {
 import { runAgentCandidateExperiment } from '../src/intelligence/improvement-cycle'
 import {
   buildKnowledgeImprovementExperimentBundles,
+  captureKnowledgeImprovementCandidatePair,
   createKnowledgeImprovementActivationExecutor,
   runKnowledgeImprovementJob,
 } from '../src/knowledge'
@@ -403,6 +404,28 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         if (!knowledge) throw new Error('expected frozen knowledge candidate')
         expect(knowledge.stateScope).toEqual(expectedScope)
         const candidateRef = knowledgeImprovementCandidateRef(proposed.improvement)
+        const recaptured = await captureKnowledgeImprovementCandidatePair({
+          root,
+          candidate: candidateRef,
+          artifacts,
+        })
+        expect(recaptured).toEqual(knowledge)
+        await expect(
+          captureKnowledgeImprovementCandidatePair({
+            root,
+            candidate: { ...candidateRef, evidenceHash: '0'.repeat(64) },
+            artifacts,
+          }),
+        ).rejects.toThrow()
+        const drift = join(root, pagesDirectory, 'unmeasured-drift.md')
+        await writeFile(drift, 'Unmeasured curated change', { flag: 'wx' })
+        try {
+          await expect(
+            captureKnowledgeImprovementCandidatePair({ root, candidate: candidateRef, artifacts }),
+          ).rejects.toThrow('current curated state')
+        } finally {
+          await rm(drift)
+        }
         const candidateBytes = await withKnowledgeImprovementCandidate(
           { root, candidate: candidateRef },
           ({ root: candidateRoot }) => liveKnowledgeBytes(candidateRoot, pagesDirectory),

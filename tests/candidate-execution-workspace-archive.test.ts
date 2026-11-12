@@ -673,6 +673,15 @@ describe('candidate workspace archive', () => {
         archive: await rawTar({ name: 'workspace/../escape', mode: 0o644, type: 'file' }),
         error: /unsafe path/,
       },
+      ...(await Promise.all(
+        ['.agent-home/.codex/auth.json', 'nested/.agent-home/.codex/auth.json'].map(
+          async (path) => ({
+            label: 'native-home',
+            archive: await rawTar({ name: `workspace/${path}`, mode: 0o644, type: 'file' }),
+            error: /unsafe path/,
+          }),
+        ),
+      )),
       {
         label: 'symlink',
         archive: await rawTar({
@@ -701,14 +710,16 @@ describe('candidate workspace archive', () => {
     ]
 
     for (const attack of cases) {
+      const destination = join(temporaryRoot('candidate-workspace-parent-'), attack.label)
       await expect(
         port.materialize({
           role: 'candidate',
           snapshot: { ...baseline.snapshot, archive: embeddedCandidateArtifact(attack.archive) },
           archive: attack.archive,
-          destination: join(temporaryRoot('candidate-workspace-parent-'), attack.label),
+          destination,
         }),
       ).rejects.toThrow(attack.error)
+      expect(existsSync(destination)).toBe(false)
     }
   })
 

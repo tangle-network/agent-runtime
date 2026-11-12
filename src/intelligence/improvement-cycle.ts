@@ -1,6 +1,6 @@
 import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
 import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
-import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
+import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   type AgentProfileImprovementExperimentExecutionInput,
   type CandidateExperimentExecutionInput,
@@ -90,6 +90,7 @@ import {
   improve,
 } from '../improvement/improve'
 import { createAgentImprovementProposal } from './activation'
+import { assertReleaseScenariosAreFresh } from './improvement-experiment-lineage'
 import {
   type AgentProfileMeasuredSurface,
   agentImprovementProfileDiffs,
@@ -527,31 +528,6 @@ function assertReleaseSplitIsFresh<TScenario extends Scenario, TArtifact>(
   }
 }
 
-function assertReleaseScenariosAreFresh(
-  improvement: ImproveMethodResult,
-  heldOutScenarios: readonly CampaignScenarioIdentity[],
-): void {
-  const optimizerScenarios = new Map<string, string>()
-  for (const [partition, scenarios] of [
-    ['train', improvement.lineage.scenarioPartitions.train],
-    ['selection', improvement.lineage.scenarioPartitions.selection],
-    ['final-test', improvement.lineage.scenarioPartitions.finalTest],
-  ] as const) {
-    for (const scenario of scenarios) {
-      optimizerScenarios.set(canonicalCandidateDigest(scenario), partition)
-    }
-  }
-  const reused = heldOutScenarios
-    .filter((scenario) => optimizerScenarios.has(canonicalCandidateDigest(scenario)))
-    .map(
-      (scenario) =>
-        `${scenario.id} (${optimizerScenarios.get(canonicalCandidateDigest(scenario))})`,
-    )
-  if (reused.length > 0) {
-    throw new Error(`release benchmark reuses optimizer scenario(s): [${reused.join(', ')}]`)
-  }
-}
-
 function assertCandidateReleaseWorkIsFresh<TScenario extends Scenario, TArtifact>(
   experiment: AgentCandidateExperiment,
   improvement: ImproveResult<TScenario, TArtifact>,
@@ -563,7 +539,7 @@ function assertCandidateReleaseWorkIsFresh<TScenario extends Scenario, TArtifact
   }
   if (improvement.mode !== 'method') return
   assertReleaseScenariosAreFresh(
-    improvement,
+    improvement.lineage.scenarioPartitions,
     experiment.benchmark.tasks.map((task) => task.scenario),
   )
 }
@@ -573,7 +549,10 @@ function assertProfileReleaseWorkIsFresh(
   improvement: ImproveMethodResult,
 ): void {
   assertReleaseSplitIsFresh(benchmark.suite.splitDigest, improvement)
-  assertReleaseScenariosAreFresh(improvement, benchmark.tasks.map(profileTaskScenarioIdentity))
+  assertReleaseScenariosAreFresh(
+    improvement.lineage.scenarioPartitions,
+    benchmark.tasks.map(profileTaskScenarioIdentity),
+  )
 }
 
 /**
@@ -747,7 +726,12 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       ? await improve(improvementInput)
       : await improve(options.profile, improvementInput)
   try {
-    if (improvement.decision !== 'ship') {
+    const deferredCode =
+      options.improvement.surface === 'code' &&
+      options.improvement.budget?.holdout === 'deferred' &&
+      improvement.mode === 'code' &&
+      improvement.raw.raw.holdout === 'deferred'
+    if (improvement.decision !== 'ship' && !deferredCode) {
       throw new Error('agent improvement search did not produce a promotable candidate')
     }
     const searchAccounting = completeImprovementSearchAccounting(analysisAccounting, improvement)
@@ -764,6 +748,12 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       await options.buildExperiment({ analysis, improvement }),
       improvement,
     )
+    if (deferredCode && options.improvement.surface === 'code') {
+      assertReleaseScenariosAreFresh(
+        { train: options.improvement.scenarios.map(campaignScenarioIdentity) },
+        experiment.benchmark.tasks.map((task) => task.scenario),
+      )
+    }
     assertCandidateProfileBinding(options.profile, experiment.baseline.profile)
     assertImprovementCandidateBinding(improvement, experiment)
     const measured = await runAgentCandidateExperiment({

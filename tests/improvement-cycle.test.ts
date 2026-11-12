@@ -1,9 +1,12 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   type CostLedgerHandle,
   minimumPairsForPairedDeltaTest,
   type ProposalFinding,
 } from '@tangle-network/agent-eval'
-import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
+import { campaignScenarioIdentity, gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
 import {
   sealAgentProfileImprovementTask,
   sealCandidateBenchmarkSuite,
@@ -11,6 +14,10 @@ import {
 } from '@tangle-network/agent-eval/contract'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  buildAgentCandidateBundle,
+  captureAgentCodeCandidateWorkspace,
+} from '../src/candidate-execution'
 
 import {
   canonicalCandidateDigest,
@@ -48,6 +55,7 @@ import {
   candidateBundle,
   candidateSha,
   cleanupCandidateFixtures,
+  createCandidateExecutionFixture,
   emptyCandidateSnapshot,
   redigestCandidateBundle,
 } from './helpers/candidate-execution-fixture'
@@ -66,7 +74,7 @@ import {
   createProfileImprovementFixture,
   createProfileImprovementRunReceipt,
 } from './helpers/profile-improvement-fixture'
-
+import { makeTempRoot } from './helpers/temp-root'
 import { trainedProfile } from './helpers/trained-profile'
 
 afterEach(() => {
@@ -96,6 +104,161 @@ const searchFinding: ProposalFinding = {
 // file one scheduling hiccup from red regardless of what changed. Size the timeout to the work
 // these tests actually do rather than leaving them at the edge of the default.
 describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
+  it('defers code-search final cases and measures the exact finalized trees only through the outer experiment', async () => {
+    // This producer is an actual deterministic child process, not an LLM.
+    // Its zero inference cost does not qualify subscription model execution.
+    const source = createCandidateExecutionFixture(true)
+    const repoRoot = source.task.stagingRoots.taskRoot
+    const directory = makeTempRoot('deferred-code-lifecycle-')
+    const profile = agentCandidateProfileAsAgentProfile(source.bundle.profile)
+    let measured: CandidateExperimentFixture | undefined
+    const scored: string[] = []
+    const cells: string[] = []
+    try {
+      const result = await proposeAgentImprovement<{ id: string; kind: string }, string>({
+        runId: 'deferred-code-lifecycle',
+        profile,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => ({
+              run_id: 'deferred-code-lifecycle',
+              correlation_id: 'deferred-code-lifecycle',
+              started_at: '2026-07-10T00:00:00.000Z',
+              ended_at: '2026-07-10T00:00:00.000Z',
+              findings: [],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: {
+          surface: 'code',
+          runDir: join(directory, 'search'),
+          scenarios: [{ id: 'code-train', kind: 'deterministic-code' }],
+          model: 'deterministic-child@2026-11-12',
+          expectUsage: 'off',
+          budget: { generations: 1, populationSize: 1, reps: 1, holdout: 'deferred' },
+          analyzeGeneration: null,
+          agent: async (surface, scenario) => {
+            scored.push(scenario.id)
+            if (typeof surface !== 'object' || surface.kind !== 'code')
+              throw new Error('expected code')
+            return readFileSync(join(surface.worktreeRef, 'source.ts'), 'utf8')
+          },
+          judge: {
+            name: 'deterministic-code-read',
+            dimensions: [{ key: 'quality', description: 'Exact code bytes' }],
+            score: ({ artifact }) => {
+              const score = artifact === 'export const value = 2\n' ? 1 : 0
+              return { dimensions: { quality: score }, composite: score, notes: '' }
+            },
+          },
+          code: {
+            repoRoot,
+            baseRef: 'HEAD',
+            worktreeDir: join(directory, 'worktrees'),
+            profile: { ...profile, model: { ...profile.model, provider: 'offline' } },
+            generator: {
+              kind: 'deterministic-child',
+              proposesWithoutFindings: true,
+              async generate({ worktreePath }) {
+                execFileSync(
+                  process.execPath,
+                  [
+                    '-e',
+                    "require('node:fs').writeFileSync('source.ts','export const value = 2\\n')",
+                  ],
+                  { cwd: worktreePath },
+                )
+                return { applied: true, summary: 'Correct exact code value' }
+              },
+            },
+          },
+        },
+        buildExperiment: async ({ improvement }) => {
+          if (improvement.mode !== 'code') throw new Error('expected code result')
+          expect(improvement.decision).toBe('hold')
+          expect(improvement.lift).toBeUndefined()
+          expect(improvement.raw.raw.holdout).toBe('deferred')
+          const surface = improvement.candidate.value
+          if (typeof surface !== 'object' || surface.kind !== 'code')
+            throw new Error('expected code winner')
+          const adapter = gitWorktreeAdapter({ repoRoot, worktreeDir: join(directory, 'baseline') })
+          const baseline = await adapter.create({
+            baseRef: surface.baseCommit,
+            label: 'outer-baseline',
+          })
+          try {
+            const before = await adapter.finalize(baseline, 'Unchanged outer baseline')
+            const compile = async (exact: typeof surface) => {
+              const code = {
+                kind: 'code-surface' as const,
+                surface: exact,
+                repository: { kind: 'github' as const, owner: 'owner', repo: 'repo' },
+              }
+              const workspace = await captureAgentCodeCandidateWorkspace(code)
+              return buildAgentCandidateBundle({
+                profile: { kind: 'candidate-profile', profile: source.bundle.profile },
+                code,
+                execution: { ...source.bundle.execution, workspace: workspace.snapshot },
+                memory: source.bundle.memory,
+              })
+            }
+            measured = createCandidateExperimentFixture({
+              baseline: await compile(before),
+              candidate: await compile(surface),
+              configureFixture: (fixture) => {
+                fixture.ports.repositories.resolve = async () => repoRoot
+              },
+              scoreForRequest: (request) => {
+                const bytes = request.inputs.candidate?.files.find(
+                  (file) => file.path === 'source.ts',
+                )?.bytes
+                return bytes && Buffer.from(bytes).toString('utf8') === 'export const value = 2\n'
+                  ? 1
+                  : 0
+              },
+            })
+            return candidateExperimentMaterial(measured.experiment)
+          } finally {
+            await adapter.discard(baseline)
+          }
+        },
+        placeCell: (input) => {
+          if (!measured) throw new Error('expected sealed code experiment')
+          const placement = measured.placeCell(input)
+          const candidateRoot = makeTempRoot('deferred-code-cell-')
+          cells.push(candidateRoot)
+          return {
+            ...placement,
+            executionRoots: { ...placement.executionRoots, candidateRoot: '/workspace/candidate' },
+            stagingRoots: { ...placement.stagingRoots, candidateRoot },
+          }
+        },
+      })
+      try {
+        expect(scored.length).toBeGreaterThan(0)
+        expect(new Set(scored)).toEqual(new Set(['code-train']))
+        expect(result.improvement.decision).toBe('hold')
+        expect(result.experiment.candidateLineage.runIds).toContain(
+          result.improvement.lineage.runId,
+        )
+        expect(result.measurements.length).toBeGreaterThan(0)
+        expect(result.proposal.evaluation).toBeDefined()
+        expect(readFileSync(join(repoRoot, 'source.ts'), 'utf8')).not.toContain('value = 2')
+      } finally {
+        await result.improvement.dispose()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+      for (const root of cells) rmSync(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
   it('builds a source-bound profile proposal without product experiment wiring', async () => {
     const template = createProfileImprovementFixture()
     const task = template.evaluation.experiment.benchmark.tasks[0]

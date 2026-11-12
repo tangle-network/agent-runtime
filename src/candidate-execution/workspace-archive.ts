@@ -729,7 +729,6 @@ export function workspaceLimits(
 export function safeArchivePath(value: unknown, maxPathBytes: number): string {
   if (
     typeof value !== 'string' ||
-    !value ||
     !isWellFormedUnicode(value) ||
     Buffer.byteLength(value, 'utf8') > maxPathBytes ||
     isAbsolute(value) ||
@@ -738,7 +737,8 @@ export function safeArchivePath(value: unknown, maxPathBytes: number): string {
     value.includes('\0') ||
     hasControlCharacter(value) ||
     value.split('/').some((part) => !part || part === '.' || part === '..') ||
-    ['.git', '.sidecar'].includes(value.split('/')[0]?.toLowerCase() ?? '')
+    ['.git', '.sidecar'].includes(value.split('/')[0]?.toLowerCase() ?? '') ||
+    value.split('/').some((part) => part.toLowerCase() === '.agent-home')
   ) {
     throw new Error(`candidate workspace archive contains an unsafe path: ${String(value)}`)
   }
