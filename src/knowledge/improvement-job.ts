@@ -70,7 +70,8 @@ export interface KnowledgeImprovementJobMeasurement {
     iterations: number
     inputTokens: number
     outputTokens: number
-    tokensKnown: boolean
+    /** Missing on older owners means unavailable completeness, not proven-known usage. */
+    tokensKnown?: boolean
     usdKnown: boolean
     usd: number
     ms: number
@@ -358,7 +359,7 @@ function addSpent(
   target.iterations += spent.iterations
   target.inputTokens += spent.tokens.input
   target.outputTokens += spent.tokens.output
-  target.tokensKnown = target.tokensKnown && spent.tokensKnown !== false
+  target.tokensKnown = target.tokensKnown === true && spent.tokensKnown !== false
   target.usdKnown = target.usdKnown && spent.usdKnown !== false
   target.usd += spent.usd
   target.ms += spent.ms
