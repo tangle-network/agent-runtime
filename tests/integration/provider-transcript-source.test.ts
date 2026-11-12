@@ -189,7 +189,9 @@ process.exitCode = code;
       nativeSessionId: null,
       coverageComplete: false,
     })
-    const bound = journal.find((event) => event.kind === 'execution-bound' && event.id === terminal.id)
+    const bound = journal.find(
+      (event) => event.kind === 'execution-bound' && event.id === terminal.id,
+    )
     if (bound?.kind !== 'execution-bound') throw new Error('native attempt binding missing')
     expect(artifact?.source?.node?.attemptId).toBe(bound.binding.attemptId)
     expect(
