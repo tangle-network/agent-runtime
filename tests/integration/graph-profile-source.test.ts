@@ -75,10 +75,16 @@ it('loads the measured nonprompt and whole-profile candidates without changing a
     )
     expect(compiled.graph.digest).not.toBe(baseline.graph.digest)
     const withoutCandidate = (value: typeof baseline) => {
-      const copy = structuredClone(value)
-      delete (copy.graph as { digest?: string }).digest
-      copy.graph.nodes[0]!.profile = { name: 'build' }
-      return canonicalCandidateDigest(copy)
+      const { digest: _digest, nodes, ...graph } = value.graph
+      return canonicalCandidateDigest({
+        ...value,
+        graph: {
+          ...graph,
+          nodes: nodes.map((node, index) =>
+            index === 0 ? { ...node, profile: { name: 'build' } } : node,
+          ),
+        },
+      })
     }
     expect(withoutCandidate(compiled)).toBe(withoutCandidate(baseline))
     expect(next.slice(0, next.indexOf('    profile:'))).toBe(
