@@ -1,5 +1,5 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
-import { captureHarnessTranscript } from '../harness-transcript'
+import { captureProviderHarnessTranscript } from './provider-harness-transcript'
 import { environmentGone } from '../retained-interactive-lifecycle'
 import { awaitAbortable } from '../retained-run-binding'
 import type { TeardownAnswer } from '../supervise/deadline'
@@ -191,9 +191,9 @@ async function captureBeforeDestroy(
   // destroy must not wait on a box that already failed to answer.
   if (state.harnessTranscript.status !== 'captured' && !state.releaseReadTried) {
     state.releaseReadTried = true
-    const capture = await captureHarnessTranscript(
-      target as Parameters<typeof captureHarnessTranscript>[0],
-      scope.profile.harness,
+    const capture = await captureProviderHarnessTranscript(
+      scope,
+      target,
       signal,
     )
     if (capture.status === 'captured') state.harnessTranscript = capture

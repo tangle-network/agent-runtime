@@ -15,6 +15,15 @@ Offline. No credentials, no network.
 The provider owns environment creation, the turn, and the session.
 Runtime owns recursion, the budget pool, the usage channel, and the settled artifact.
 
+Providers without a filesystem reader can supply a trusted host `harnessTranscript` callback,
+using the same callback contract as the Bridge executor. Runtime calls it only after the retained
+provider proves the exact execution terminal. The request carries its control reference, exact
+create-profile digest, admitted host CWD and Scope node. Captured native bytes must bind that same
+session, profile, node and run/request digest; mismatches and unsupported identities produce an
+unavailable receipt. Scope persists accepted captures through its existing CAS path, including
+incomplete coverage. Without the callback, the environment-reader behavior stays unchanged.
+This capture port adds no filesystem API and does not make an embedded Bridge survive process death.
+
 The example runs the same `ExecutorConfig` two ways:
 
 1. as a leaf factory, driving one profile through one environment;

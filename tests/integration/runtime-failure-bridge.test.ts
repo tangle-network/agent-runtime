@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { canonicalAgentProfileDigest, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { createCliBridgeProvider } from '@tangle-network/agent-provider-cli-bridge'
 import { describe, expect, it } from 'vitest'
 import { FileObserverJournal, projectPursuit, superviseGraphPursuit } from '../../src/durable/index'
 import type { RuntimeFailureCause } from '../../src/index'
@@ -10,15 +12,21 @@ import {
   type Agent,
   type AgentGraph,
   connectRemoteSupervisor,
+  captureBoundHarnessTranscript,
+  createExecutor,
+  createFileRunContext,
   createExecutorRegistry,
   createSupervisor,
   FileResultBlobStore,
   FileSpawnJournal,
+  harnessTranscriptArtifact,
   materializeTreeView,
   promptHandle,
   replaySpawnTree,
   serveCoordinationMcp,
   workerFromBackend,
+  type BridgeSeam,
+  type SpawnEvent,
 } from '../../src/runtime/index'
 import { bridgeUpstreamError } from '../../src/runtime/supervise/bridge-protocol'
 import { testContinuation } from '../helpers/continuation'
@@ -321,6 +329,120 @@ function wireRemediation(wire: GuardWire) {
 describe.skipIf(!bridgeEntry)(
   'Runtime failure projection through an installed real Bridge server',
   () => {
+    it.each(['ordinary', 'recovered', 'incomplete', 'mismatched-binding', 'unsupported-identity', 'default-reader'] as const)(
+      'retains trusted provider native capture on the %s path without a provider filesystem reader',
+      async (mode) => {
+        const fixture = await paired('capture')
+        const runId = `provider-native-${mode}`
+        const context = createFileRunContext(join(fixture.directory, 'provider-run'))
+        const calls: Parameters<NonNullable<BridgeSeam['harnessTranscript']>>[0][] = []
+        const headers = { authorization: `Bearer ${fixture.backend.bridgeBearer}` }
+        const capture: NonNullable<BridgeSeam['harnessTranscript']> = async (request) => {
+          calls.push(request)
+          if (!request.controlRef) throw new Error('missing exact provider control reference')
+          const response = await fetch(`${fixture.backend.bridgeUrl}/v1/runs/${request.controlRef.runId}`, { headers, signal: request.signal })
+          const terminal = await response.json()
+          expect(terminal).toMatchObject({ terminal: true, requestDigest: request.controlRef.requestDigest })
+          const sessions = await fetch(`${fixture.backend.bridgeUrl}/v1/sessions?limit=2`, { headers, signal: request.signal }).then((value) => value.json())
+          const session = sessions.data.find((row: { externalId: string }) => row.externalId === request.sessionId)
+          expect(session).toMatchObject({ externalId: request.sessionId, cwd: request.cwd, internalId: 'failure-projection-fixture' })
+          expect(session.metadata.agent_profile_binding.effectiveProfileDigest).toBe(request.profileDigest)
+          expect(request.cwd).toBe(fixture.directory)
+          expect(request.runs).toEqual([{ runId: request.controlRef.runId, requestDigest: request.controlRef.requestDigest }])
+          const captured = await captureBoundHarnessTranscript({
+            harness: request.harness,
+            nativeSessionId: session.internalId,
+            binding: {
+              kind: 'bridge', sessionId: request.sessionId, nativeSessionId: session.internalId,
+              profileDigest: mode === 'mismatched-binding' ? `sha256:${'0'.repeat(64)}` : request.profileDigest,
+              node: request.node, runs: request.runs,
+            },
+            files: [{ path: 'native-transcript.jsonl', nativeSessionId: session.internalId }],
+            read: async () => readFile(join(fixture.directory, 'native-transcript.jsonl')),
+            parse: (text) => ({ nativeSessionId: JSON.parse(text).nativeSessionId, children: [], integrity: { truncated: false, unparsedRecords: 0, gaps: [] } }),
+            signal: request.signal,
+          })
+          return mode === 'incomplete' && captured.status === 'captured'
+            ? { ...captured, coverageComplete: false, missing: ['fixture intentionally withholds completeness'] }
+            : captured
+        }
+        const factory = () => createExecutor({
+          backend: 'provider',
+          provider: createCliBridgeProvider({
+            baseUrl: fixture.backend.bridgeUrl,
+            bearerToken: fixture.backend.bridgeBearer,
+            ...(mode === 'unsupported-identity' ? {} : { defaultModel: 'claude-code/anthropic/protocol-fixture-model' }),
+          }),
+          defaults: { workspace: { cwd: { base: 'host', path: fixture.directory } } },
+          destroyOnSettle: false,
+          ...(mode === 'default-reader' ? {} : { harnessTranscript: capture }),
+        })
+        const worker = (): Agent<unknown, unknown> => Object.assign({ name: 'native-worker', act: async () => 'unused' }, { executorSpec: { profile, harness: null, executorFactory: factory() } })
+        const root: Agent<unknown, unknown> = {
+          name: 'capture-owner',
+          act: async (_task, scope) => {
+            if (scope.view.inFlight > 0) await scope.next()
+            const child = scope.spawn(worker(), 'Return the protocol fixture result.', { key: 'only', label: 'native-worker', budget: { maxIterations: 2, maxTokens: 1000 } })
+            if (!child.ok) throw new Error('native worker was not admitted')
+            if (child.prior?.state === 'completed') return child.prior.settled.out
+            const settled = await scope.next()
+            if (settled?.kind !== 'done') throw new Error('native worker did not settle')
+            return settled.out
+          },
+        }
+        const common = {
+          runId, budget,
+          rootIdentity: { profileDigest: canonicalCandidateDigest({ name: root.name }), taskDigest: canonicalCandidateDigest('capture-task') },
+        }
+        try {
+          if (mode === 'recovered') {
+            let lost = false
+            const journal = context.journal
+            await createSupervisor<unknown, unknown>().run(root, 'capture-task', {
+              ...context, ...common,
+              journal: {
+                beginTree: journal.beginTree.bind(journal), loadTree: journal.loadTree.bind(journal),
+                appendEvent: async (id: string, event: SpawnEvent) => {
+                  await journal.appendEvent(id, event)
+                  if (!lost && event.kind === 'execution-admitted' && event.admission.phase === 'dispatched') {
+                    lost = true
+                    throw new Error('durable dispatch acknowledgement lost')
+                  }
+                },
+              },
+            }).catch((error: unknown) => expect(error).toMatchObject({ message: expect.stringContaining('durable state unavailable') }))
+            expect(lost).toBe(true)
+          }
+          // A fresh factory/provider reads the original admitted execution on recovery.
+          const result = await createSupervisor<unknown, unknown>().run(root, 'capture-task', {
+            ...createFileRunContext(join(fixture.directory, 'provider-run')), ...common,
+            ...(mode === 'recovered' ? { recoverExecutor: factory() } : {}),
+          })
+          expect(result.kind).toBe('winner')
+          const events = (await context.journal.loadTree(runId)) ?? []
+          const leaf = events.find((event) => event.kind === 'settled' && event.id !== runId)
+          if (leaf?.kind !== 'settled') throw new Error('native child has no Scope settlement')
+          const success = mode === 'ordinary' || mode === 'recovered' || mode === 'incomplete'
+          if (success) {
+            expect(calls.length).toBeGreaterThan(0)
+            expect(calls[0]!.node?.rootId).toBe(runId)
+            expect(calls[0]!.profileDigest).toBe(canonicalAgentProfileDigest(profile))
+            if (leaf.harnessTranscript?.status !== 'available') throw new Error('native transcript did not reach Scope/CAS')
+            expect(leaf.harnessTranscript.coverageComplete).toBe(mode !== 'incomplete')
+            const artifact = await harnessTranscriptArtifact(leaf.harnessTranscript, context.blobs)
+            expect(artifact?.binding?.node?.nodeId).toBe(leaf.id)
+            expect(artifact?.files[0]?.content).toContain('actual-native-file-canary')
+          } else {
+            expect(leaf.harnessTranscript).toMatchObject({ status: 'unavailable', reason: mode === 'default-reader' ? 'unsupported-environment' : 'capture-failed' })
+            if (mode !== 'mismatched-binding') expect(calls).toHaveLength(0)
+          }
+          expect((await readFile(join(fixture.directory, 'native-capture-launches.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(1)
+        } finally {
+          await fixture.close()
+        }
+      },
+      60000,
+    )
     it.each([
       { kind: 'model', code: 'request-rejected', providerCode: 'MODEL_NOT_FOUND', exitCode: 7 },
       { kind: 'auth', code: 'credential-refused', providerCode: 'SEAT_NOT_LOGGED_IN', exitCode: 9 },

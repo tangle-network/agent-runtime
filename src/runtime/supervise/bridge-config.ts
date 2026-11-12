@@ -1,6 +1,6 @@
 /** Bridge configuration and protected credential validation; credentials resolve only at dispatch. */
 
-import type { HarnessType } from '@tangle-network/agent-interface'
+import type { AgentExactRunControlRef, HarnessType } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import type { CodexRolloutStoreRef } from '../codex-rollout-store'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
@@ -57,6 +57,8 @@ export interface BridgeSeam {
     readonly cwd?: string
     readonly node?: ExecutorNodeContext
     readonly runs: readonly { readonly runId: string; readonly requestDigest: string }[]
+    /** Present on the retained provider path; verified against its terminal status. */
+    readonly controlRef?: AgentExactRunControlRef
     readonly signal: AbortSignal
   }) => Promise<HarnessTranscriptCapture>
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
