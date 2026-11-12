@@ -54,7 +54,7 @@ export interface AgentCandidateCodeSurfaceSource {
 /** Capture executable files from the exact finalized Git tree, without Git
  * metadata or mutable/ignored worktree files in a candidate-role archive. */
 export async function captureAgentCodeCandidateWorkspace(
-  source: AgentCandidateCodeSurfaceSource,
+  source: Pick<AgentCandidateCodeSurfaceSource, 'surface' | 'worktreeDir'>,
   options: Omit<
     CaptureAgentCandidateWorkspaceOptions,
     'includeRepository' | 'repositoryContents'
