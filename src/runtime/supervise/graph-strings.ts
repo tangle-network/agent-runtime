@@ -1,6 +1,17 @@
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { isScalar, parseDocument, type Scalar } from 'yaml'
+import { redact } from '@tangle-network/agent-eval/traces'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
+import { isAlias, isMap, isScalar, isSeq, parseDocument, type Scalar, visit } from 'yaml'
 import { ValidationError } from '../../errors'
+import type { ReadonlyAgentProfile } from '../../improvement/profile-types'
+import { assertJsonData } from '../../json-data'
+import { graphFileSchema } from './graph-file-schema'
+import { compileGraphParameters } from './graph-parameters'
+import { assertExecutableAgentProfile } from './model-policy'
 
 /** Parse graph YAML strictly: any YAML error, else any warning, refuses under `label`. */
 export function parseGraphYaml(text: string, label: string) {
@@ -70,5 +81,98 @@ export function setGraphStrings(graphText: string, map: Readonly<Record<string, 
     canonicalCandidateDigest(readGraphStrings(next)) !== expected
   )
     throw new ValidationError('graph strings: the write changed more than the named prompts')
+  return next
+}
+
+function exactProfile(value: unknown, nodeId: string): AgentProfile {
+  assertJsonData(value, 'graph profile')
+  const parsed = agentProfileSchema.safeParse(value)
+  if (!parsed.success || canonicalCandidateDigest(value) !== canonicalCandidateDigest(parsed.data))
+    throw new ValidationError('graph profile: requires an exact canonical AgentProfile')
+  if (parsed.data.name !== nodeId)
+    throw new ValidationError('graph profile: profile name must equal the node id')
+  assertExecutableAgentProfile(parsed.data, 'graph profile')
+  // Bound strings are data at execution, but authored templates would change this candidate.
+  compileGraphParameters(parsed.data, {})
+  if (redact(parsed.data).report.findings.length)
+    throw new ValidationError('graph profile: private literal values are not portable candidates')
+  return parsed.data
+}
+
+function ownProfile(graphText: string, nodeId: string) {
+  const document = parseGraphYaml(graphText, 'graph profile')
+  const value: unknown = document.toJS({ maxAliasCount: 100 })
+  assertJsonData(value, 'graph profile')
+  if (!isMap(document.contents)) throw new ValidationError('graph profile: requires a graph mapping')
+  // Other graph fields may still contain authored bindings; only this profile must be static.
+  const graphNodes = graphFileSchema.shape.nodes.parse((value as Record<string, unknown>).nodes)
+  const matches = graphNodes.flatMap((node, index) => (node.id === nodeId ? [index] : []))
+  if (matches.length !== 1)
+    throw new ValidationError('graph profile: requires exactly one matching node')
+  const index = matches[0]!
+  const node = graphNodes[index]!
+  const nodes = document.getIn(['nodes'], true)
+  const own = document.getIn(['nodes', index], true)
+  const profile = document.getIn(['nodes', index, 'profile'], true)
+  const parents = [document.contents, nodes, own]
+  if (
+    !isSeq(nodes) ||
+    !isMap(own) ||
+    !isMap(profile) ||
+    parents.some(
+      (parent) =>
+        isAlias(parent) ||
+        ((isMap(parent) || isSeq(parent) || isScalar(parent)) && (parent.anchor || parent.tag)),
+    ) ||
+    node.seat !== undefined ||
+    node.needs !== undefined ||
+    node.check !== undefined
+  )
+    throw new ValidationError(
+      'graph profile: requires an unshared inline agent profile without host overlays',
+    )
+  visit(profile, (_key, item) => {
+    if (isAlias(item) || ((isMap(item) || isSeq(item) || isScalar(item)) && (item.anchor || item.tag)))
+      throw new ValidationError('graph profile: aliases, anchors and tags are not owned profile data')
+  })
+  const canonical = exactProfile({ ...node.profile, name: nodeId }, nodeId)
+  return { document, index, profile, canonical }
+}
+
+/** Read the exact executable profile owned by one inline graph node. Refuses shared YAML,
+ * host overlays, dynamic bindings, incomplete identities and private literals; never resolves them. */
+export function readGraphProfile(graphText: string, nodeId: string): AgentProfile {
+  return ownProfile(graphText, nodeId).canonical
+}
+
+/** Materialize a measured profile in its owning node. Other source bytes and graph semantics
+ * remain unchanged. Load without seat/need overrides to execute this exact candidate. */
+export function setGraphProfile(
+  graphText: string,
+  nodeId: string,
+  profile: ReadonlyAgentProfile,
+): string {
+  const parsed = ownProfile(graphText, nodeId)
+  const candidate = exactProfile(profile, nodeId)
+  if (canonicalCandidateDigest(candidate) === canonicalCandidateDigest(parsed.canonical))
+    return graphText
+  if (parsed.document.has('digest'))
+    throw new ValidationError('graph profile: a pinned graph digest requires its compilation owner')
+  const range = parsed.profile.range
+  if (!range) throw new ValidationError('graph profile: missing source range')
+  const [start, end] = range
+  const trailing = /\s*$/.exec(graphText.slice(start, end))![0].length
+  const next = graphText.slice(0, start) + JSON.stringify(candidate) + graphText.slice(end - trailing)
+  const readback = ownProfile(next, nodeId)
+  const masked = (source: typeof parsed) => {
+    const value = source.document.toJS({ maxAliasCount: 100 })
+    value.nodes[source.index].profile = null
+    return canonicalCandidateDigest(value)
+  }
+  if (
+    masked(parsed) !== masked(readback) ||
+    canonicalAgentProfileDigest(readback.canonical) !== canonicalAgentProfileDigest(candidate)
+  )
+    throw new ValidationError('graph profile: write changed more than the named profile')
   return next
 }
