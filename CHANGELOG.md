@@ -1,3 +1,7 @@
+## 9.0.11
+
+`spawn_worker` refuses a child profile granting a coordination tool the child would not be served (a name outside the coordination verbs and its manager's resolved node tools), naming it and the served list, before the spawn is journaled or a sandbox exists; the same key then admits the corrected profile.
+
 ## 9.0.10
 
 Retain declared graph-check files through the host's artifact store on success and failure, with secret redaction, complete capture receipts and explicit recovery custody when capture is incomplete. Pass event data through canonical GRAPH_INPUT files bound to the run's resume identity.
