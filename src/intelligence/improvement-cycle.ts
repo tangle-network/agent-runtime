@@ -36,6 +36,7 @@ import {
   agentImprovementSourceSchema,
   agentProfileImprovementExpectedModel,
   agentProfileImprovementModelBindingSchema,
+  agentProfileImprovementRunReceiptSchema,
   candidateExecutionEvidenceSchema,
   numbersApproximatelyEqual,
 } from '@tangle-network/agent-interface'
@@ -664,10 +665,13 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
           throw new Error('profile state changed before measurement')
         agentProfileImprovementExpectedModel(experiment, input.task, input.arm, measuredProfile)
         const { signal, ...cell } = input
-        return options.executor.measure({
+        const receipt = await options.executor.measure({
           ...immutableCandidateValue({ ...cell, profile: measuredProfile }),
           ...(signal ? { signal } : {}),
         })
+        return options.allowIncomplete === true
+          ? receipt
+          : agentProfileImprovementRunReceiptSchema.parse(receipt)
       },
     })
     if ('status' in run) {

@@ -488,6 +488,24 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       expect(accounting.facts.costUsdNanos).toBeNull()
       expect(() => verifyAgentImprovementProposal(retained)).toThrow()
       await retained.improvement.dispose()
+      // Complete mode refuses the first unavailable receipt before admitting another cell.
+      const legacy = options()
+      const beforeLegacy = measured.length
+      await expect(
+        proposeProfile({
+          ...legacy,
+          maxConcurrency: 1,
+          executor: {
+            ...legacy.executor,
+            measure: async (
+              input: Parameters<typeof createProfileImprovementRunReceipt>[0] & {
+                profile: AgentProfile
+              },
+            ) => JSON.parse(JSON.stringify(await legacy.executor.measure(input))),
+          },
+        }),
+      ).rejects.toThrow()
+      expect(measured.length - beforeLegacy).toBe(1)
       const beforeMissing = measured.length
       missingIdentity = true
       await expect(proposeProfile({ ...options(), allowIncomplete: true })).rejects.toThrow()
