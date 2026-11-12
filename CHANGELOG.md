@@ -1,3 +1,11 @@
+## 9.0.10
+
+Retain declared graph-check files through the host's artifact store on success and failure, with secret redaction, complete capture receipts and explicit recovery custody when capture is incomplete. Pass event data through canonical GRAPH_INPUT files bound to the run's resume identity.
+
+Export the portable graph need schema alongside the graph file schema so clients can validate provider bindings and generated API documentation resolves GraphFileNeed.
+
+Graph files can select provider accounts and narrow tool capabilities through portable needs, retaining host-owned connection resolution and refusing grants outside the host binding.
+
 ## 9.0.9
 
 Reopening a settled subscription run rebinds its last non-exhausted account without demanding a native credential switch on its retired environment.

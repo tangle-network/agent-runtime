@@ -6394,6 +6394,22 @@ Capture and verified persistence deadline, independent of command cancellation. 
 
 > `readonly` **artifacts**: [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
 
+##### redact?
+
+> `readonly` `optional` **redact?**: (`bytes`) => `Uint8Array`
+
+Trusted host redaction, applied before hashing or persistence; never authored by the check.
+
+###### Parameters
+
+###### bytes
+
+`Uint8Array`
+
+###### Returns
+
+`Uint8Array`
+
 ***
 
 ### IsolatedCheckOutputEvidence
@@ -22410,6 +22426,18 @@ Where check nodes run: a fresh Sandbox box per check, created by `client` on the
  from each node's `environment`. Absent = locally, in the run's working directory (a loopback
  Bridge `cwd` or a `cli-in-place` workspace).
 
+##### checkArtifacts?
+
+> `readonly` `optional` **checkArtifacts?**: [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+Trusted readable artifact store for declared check outputs, retained before box cleanup.
+
+##### trigger?
+
+> `readonly` `optional` **trigger?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Structured event data for GRAPH_INPUT; bound to the run's task identity, never a shell slot.
+
 ##### runContext?
 
 > `readonly` `optional` **runContext?**: [`InMemoryRunContext`](#inmemoryruncontext)
@@ -27744,6 +27772,12 @@ Environment variable names the command needs; a missing one fails the node. In a
 
 The box's size under `checkPlacement`.
 
+##### outputs?
+
+> `readonly` `optional` **outputs?**: [`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration)
+
+Explicit tree-relative files to retain before cleanup, on success or failure.
+
 ***
 
 ### GraphCheckPlacement
@@ -27829,6 +27863,12 @@ The last 64 KiB of stdout followed by stderr.
 ##### json?
 
 > `readonly` `optional` **json?**: `Record`\<`string`, `unknown`\>
+
+##### outputs?
+
+> `readonly` `optional` **outputs?**: `Omit`\<[`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence), `"source"`\>
+
+Verified artifact references; private recovery coordinates never reach downstream nodes.
 
 ***
 
@@ -38309,6 +38349,12 @@ The finalization seam: ledger in, output (or `undefined` = nothing deliverable) 
 
 ***
 
+### GraphFileNeed
+
+> **GraphFileNeed** = `z.infer`\<*typeof* [`graphFileNeedSchema`](#graphfileneedschema)\>
+
+***
+
 ### GraphTriggerBinding
 
 > **GraphTriggerBinding** = `object`
@@ -39226,9 +39272,17 @@ The same data grammar as routes; no executable expressions or additional operato
 
 ***
 
+### graphFileNeedSchema
+
+> `const` **graphFileNeedSchema**: `ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `provider`: `ZodString`; `account`: `ZodOptional`\<`ZodString`\>; `capabilities`: `ZodArray`\<`ZodString`\>; `alias`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>\]\>
+
+Portable provider selection; credentials and concrete connection IDs belong to the host.
+
+***
+
 ### graphFileSchema
 
-> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `check`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; `environment`: `ZodOptional`\<`ZodString`\>; `egress`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `runtime`: `ZodOptional`\<`ZodEnum`\<\{ `docker`: ...; `firecracker`: ...; \}\>\>; `secrets`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `resources`: `ZodOptional`\<`ZodObject`\<\{ `cpuCores`: ...; `memoryMB`: ...; `diskGB`: ...; \}, `$strict`\>\>; \}, `$strict`\>\>; \}, `$strict`\>\>; `workspace`: `ZodOptional`\<`ZodEnum`\<\{ `cwd`: `"cwd"`; `fresh`: `"fresh"`; \}\>\>; `continuation`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<[`PortableContinuationPolicy`](#portablecontinuationpolicy), `unknown`\>\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
+> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `provider`: ...; `account`: ...; `capabilities`: ...; `alias`: ...; \}, `$strict`\>\]\>\>\>; `check`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; `environment`: `ZodOptional`\<`ZodString`\>; `egress`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `runtime`: `ZodOptional`\<`ZodEnum`\<\{ `docker`: ...; `firecracker`: ...; \}\>\>; `secrets`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `outputs`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<..., ...\>\>\>; `resources`: `ZodOptional`\<`ZodObject`\<\{ `cpuCores`: ...; `memoryMB`: ...; `diskGB`: ...; \}, `$strict`\>\>; \}, `$strict`\>\>; \}, `$strict`\>\>; `workspace`: `ZodOptional`\<`ZodEnum`\<\{ `cwd`: `"cwd"`; `fresh`: `"fresh"`; \}\>\>; `continuation`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<[`PortableContinuationPolicy`](#portablecontinuationpolicy), `unknown`\>\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
 
 Authoring envelope. Canonical profiles and topology are validated by their existing owners.
 
