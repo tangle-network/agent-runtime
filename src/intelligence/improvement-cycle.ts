@@ -1,9 +1,6 @@
 import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
 import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
-import {
-  type CampaignScenarioIdentity,
-  campaignScenarioIdentity,
-} from '@tangle-network/agent-eval/campaign'
+import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   type AgentProfileImprovementExperimentExecutionInput,
   type CandidateExperimentExecutionInput,
