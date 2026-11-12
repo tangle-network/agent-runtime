@@ -70,6 +70,7 @@ export interface KnowledgeImprovementJobMeasurement {
     iterations: number
     inputTokens: number
     outputTokens: number
+    tokensKnown: boolean
     usdKnown: boolean
     usd: number
     ms: number
@@ -338,7 +339,15 @@ async function captureKnowledgeEvidence(
  *  nothing ran, so a zero dollar total IS the measured amount; `addSpent` lowers `usdKnown` as
  *  soon as it folds a run whose own dollars were not proven. */
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {
-  return { iterations: 0, inputTokens: 0, outputTokens: 0, usdKnown: true, usd: 0, ms: 0 }
+  return {
+    iterations: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    tokensKnown: true,
+    usdKnown: true,
+    usd: 0,
+    ms: 0,
+  }
 }
 
 function addSpent(
@@ -349,6 +358,7 @@ function addSpent(
   target.iterations += spent.iterations
   target.inputTokens += spent.tokens.input
   target.outputTokens += spent.tokens.output
+  target.tokensKnown = target.tokensKnown && spent.tokensKnown !== false
   target.usdKnown = target.usdKnown && spent.usdKnown !== false
   target.usd += spent.usd
   target.ms += spent.ms

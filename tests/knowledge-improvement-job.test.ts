@@ -74,6 +74,7 @@ function winner(): SupervisedResult<unknown> {
     spentTotal: {
       iterations: 2,
       tokens: { input: 30, output: 12 },
+      tokensKnown: false,
       usdKnown: false,
       usd: 0.004,
       ms: 75,
@@ -279,6 +280,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           iterations: 2,
           inputTokens: 30,
           outputTokens: 12,
+          tokensKnown: false,
           usdKnown: false,
           usd: 0.004,
           ms: 75,
