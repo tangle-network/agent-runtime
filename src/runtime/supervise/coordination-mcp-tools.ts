@@ -1,8 +1,3 @@
-/**
- * Which tools one coordination server serves: the options its coordination tools are built from,
- * and the granted subset of coordination verbs and node tools, fenced and single-flight.
- */
-
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
