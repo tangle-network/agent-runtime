@@ -17,3 +17,5 @@
 **Delegated interactive control.** An explicit grant of an existing provider-issued claim to the same trusted local OS principal through private Runtime state. It preserves the real holder and exact process binding, grants full terminal authority, and ends on detach, revocation, owner loss or provider expiry; observer history is never a grant.
 
 **Settled usage.** Measured tokens are a complete total or an explicitly incomplete lower bound; unreported usage is never estimated. Unknown-attempt counts remain null when retained evidence cannot establish their cardinality. Requested models and provider observations state separate facts.
+
+**Isolated check command evidence.** Runtime-owned local command-launch wall time and exact bounded stdout/stderr bytes, separate from input staging, output retention and cleanup. A refused launch does not establish execution; backends without this evidence leave it absent.
