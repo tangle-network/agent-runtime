@@ -467,6 +467,8 @@ export interface SpawnPreflightContext {
   readonly key?: string
   readonly task: unknown
   readonly resources?: ResourceRequest
+  /** The node tools the spawning manager was resolved, when Runtime serves it. */
+  readonly nodeToolNames?: ReadonlyArray<string>
 }
 
 /** The gate `CoordinationToolsOptions.preflightSpawn` installs. */

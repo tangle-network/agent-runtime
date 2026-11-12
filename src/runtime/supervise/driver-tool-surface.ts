@@ -3,6 +3,7 @@ import type { McpToolDescriptor } from '../../mcp/server'
 import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
 import { createCoordinationTools } from '../../mcp/tools/coordination-manager'
 import type { ToolSpec } from '../router-request-body'
+import { preflightWithNodeTools, unservedToolsRefusal } from './coordination-mcp-tools'
 import type { DriverAgentOptions } from './driver-agent-options'
 import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 import type { Scope } from './types'
@@ -52,7 +53,7 @@ export async function openDriverToolSurface(
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
-    ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
+    ...preflightWithNodeTools(opts.preflightSpawn, opts.nodeTools),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
     ...(opts.profiles ? { profiles: opts.profiles } : {}),
@@ -81,16 +82,14 @@ export async function openDriverToolSurface(
   const availableTools = [...coord.tools, ...(opts.nodeTools ?? [])]
   const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
   const extraByName = new Map((opts.extraTools ?? []).map((tool) => [tool.name, tool]))
+  const served = [...availableByName.keys(), ...extraByName.keys()]
+  const refusal = unservedToolsRefusal(opts.toolNames, served)
+  if (refusal !== undefined) throw new ValidationError(`driverAgent: ${refusal}`)
   const selectedTools = opts.toolNames.map((name) => {
     const descriptor = availableByName.get(name)
     if (descriptor !== undefined) return { kind: 'descriptor' as const, descriptor }
     const extra = extraByName.get(name)
-    if (extra === undefined) {
-      throw new ValidationError(
-        `driverAgent: requested tool ${JSON.stringify(name)} is unavailable`,
-      )
-    }
-    return { kind: 'extra' as const, extra }
+    return { kind: 'extra' as const, extra: extra as NonNullable<typeof extra> }
   })
   const modelTools = selectedTools.flatMap((selected) =>
     selected.kind === 'descriptor' ? [selected.descriptor] : [],
