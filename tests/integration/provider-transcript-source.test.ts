@@ -174,6 +174,8 @@ process.exitCode = code;
     if (!terminal || terminal.kind !== 'settled' || !terminal.harnessTranscript)
       throw new Error(`native settlement missing: ${JSON.stringify(journal)}`)
     expect(terminal.harnessTranscript.status).toBe('available')
+    // Readers have only the durable blob and journal; the original native files are gone.
+    await rm(home, { recursive: true })
     const artifact = await harnessTranscriptArtifact(terminal.harnessTranscript, context.blobs)
     expect(artifact?.source).toMatchObject({
       controlRef,
@@ -185,7 +187,11 @@ process.exitCode = code;
       coverageComplete: false,
     })
     expect(artifact?.source?.node?.attemptId).toBeTruthy()
-    expect(artifact?.files.some((file) => 'content' in file && file.content.includes('stored native work'))).toBe(true)
+    expect(
+      artifact?.files.some(
+        (file) => 'content' in file && file.content.includes('stored native work'),
+      ),
+    ).toBe(true)
     expect(artifact?.binding).toBeUndefined()
   } finally {
     await rm(directory, { recursive: true, force: true })
