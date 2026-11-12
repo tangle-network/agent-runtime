@@ -66,10 +66,8 @@ it.each<Scenario>(['trace-owner', 'trace-owner-evidence', 'trace-owner-cancel'])
           fixture.outcomes().some((row) => row.kind === 'settled'),
         )
       if (scenario === 'trace-owner-evidence') {
-        // The in-place subprocess journals its post-result execution-evidence COPY of the committed
-        // snapshot just after `settled`, so the single read below raced it and lost under host-CPU
-        // starvation (the flake: `expect(copies).toBeGreaterThan(0)` saw 0). Wait for the copy first;
-        // a real regression (copy never produced) still fails, named, when the settle owner ends.
+        // Historical evidence is copied after its execution-result commits, while the append
+        // still owns the run claim. Require the exact copy before inspecting its trace roots.
         const settledBlobs = new FileResultBlobStore(join(fixture.directory, 'run', 'blobs'))
         await fixture.wait(
           'trace-owner execution-evidence copy of the committed snapshot journaled',

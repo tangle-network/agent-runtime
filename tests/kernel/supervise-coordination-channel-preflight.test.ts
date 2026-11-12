@@ -372,9 +372,8 @@ it('refuses a child granted an unserved tool, then admits its corrected profile'
       backend: { backend: 'provider', provider },
       coordination: { authentication: true, publicUrl: ({ port }) => `${local}:${port}/mcp` },
       driverRetry: { enabled: false },
-      resolveSupervisorTools: Object.assign(() => [{ ...knowledge, handler: async () => 'none' }], {
-        servesToolNames: ['knowledge_search'],
-      }),
+      servesToolNames: ['knowledge_search'],
+      resolveSupervisorTools: () => [{ ...knowledge, handler: async () => 'none' }],
     },
     true,
     ['steere_agent', 'steer_agent'].map((verb) => ({ ...spawnCapableChild, tools: tools(verb) })),

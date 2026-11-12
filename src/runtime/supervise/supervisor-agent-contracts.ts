@@ -122,13 +122,9 @@ export interface SupervisorToolDescriptor extends Omit<McpToolDescriptor, 'handl
 }
 
 /** Product policy for the tools one exact supervisor node may call. Resolved once per node. */
-export interface ResolveSupervisorTools {
-  (
-    context: SupervisorNodeContext,
-  ): ReadonlyArray<SupervisorToolDescriptor> | Promise<ReadonlyArray<SupervisorToolDescriptor>>
-  /** Product tool vocabulary across nodes; declared names are checked before child admission. */
-  readonly servesToolNames?: ReadonlyArray<string>
-}
+export type ResolveSupervisorTools = (
+  context: SupervisorNodeContext,
+) => ReadonlyArray<SupervisorToolDescriptor> | Promise<ReadonlyArray<SupervisorToolDescriptor>>
 
 /** Context-aware observer used internally to bind product transactions to the actual live node. */
 export type ObserveSupervisorNodeEvent = (

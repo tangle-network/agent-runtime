@@ -232,13 +232,11 @@ describe('explicit per-play Knowledge binding over the real Runtime MCP path', (
           makeLeafAgent: () => {
             throw new Error('Every fixture child explicitly declares managed tools')
           },
-          resolveSupervisorTools: Object.assign(
-            (context: SupervisorNodeContext) => {
-              contexts.push(context)
-              return resolver(context)
-            },
-            { servesToolNames: resolver.servesToolNames },
-          ),
+          servesToolNames: resolver.servesToolNames,
+          resolveSupervisorTools: (context) => {
+            contexts.push(context)
+            return resolver(context)
+          },
         },
       )
       expect(driverFailures).toEqual([])

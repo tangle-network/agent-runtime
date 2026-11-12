@@ -34,7 +34,7 @@ function runtimeTool(tool: ToolDefinition): SupervisorToolDescriptor {
 /** Example consumer binding over Runtime's existing node-scoped tool resolver. */
 export async function createPlayKnowledgeResolver(
   options: PlayKnowledgeBinding,
-): Promise<ResolveSupervisorTools> {
+): Promise<ResolveSupervisorTools & { readonly servesToolNames: ReadonlyArray<string> }> {
   const { branch, onCheckpoint, recordRetrieval, qmd } = options
   const run = Object.freeze({ ...options.run })
   if (!run.runId.trim() || !run.namespace.trim()) {
