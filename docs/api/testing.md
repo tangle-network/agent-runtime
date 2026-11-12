@@ -872,6 +872,26 @@ Where check nodes run: a fresh Sandbox box per check, created by `client` on the
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`checkPlacement`](runtime.md#checkplacement)
 
+##### checkArtifacts?
+
+> `readonly` `optional` **checkArtifacts?**: [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+Trusted readable artifact store for declared check outputs, retained before box cleanup.
+
+###### Inherited from
+
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`checkArtifacts`](runtime.md#checkartifacts)
+
+##### trigger?
+
+> `readonly` `optional` **trigger?**: `Readonly`\<`Record`\<`string`, `unknown`\>\>
+
+Structured event data for GRAPH_INPUT; bound to the run's task identity, never a shell slot.
+
+###### Inherited from
+
+[`RunGraphTestOptions`](#rungraphtestoptions).[`trigger`](#trigger)
+
 ##### brain
 
 > `readonly` **brain**: [`ToolLoopChat`](runtime.md#toolloopchat)
