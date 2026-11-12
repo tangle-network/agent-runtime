@@ -24,6 +24,7 @@ import {
 
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
+let capacitySince: number | undefined
 const ledger = join(directory, 'service-ledger.jsonl')
 const state: ServiceState = {
   scenario,
@@ -861,6 +862,18 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         code: 'UNAUTHORIZED',
         message: 'Invalid or missing authentication token',
       })
+    }
+    if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
+      capacitySince ??= Date.now()
+      if (Date.now() - capacitySince < 600_000) {
+        note('capacity-http-error', { environmentId: id, status: 503 })
+        response.setHeader('Retry-After', '30')
+        return jsonError(response, 503, {
+          code: 'CAPACITY_EXHAUSTED',
+          message: 'No host has capacity for this sandbox; retry later',
+        })
+      }
+      note('capacity-recovered', { environmentId: id, elapsedMs: Date.now() - capacitySince })
     }
     note('get', { environmentId: id, absent: state.lost.includes(id) })
     return json(
