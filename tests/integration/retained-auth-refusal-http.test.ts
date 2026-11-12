@@ -1,10 +1,12 @@
 import { readFile, rm } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { Sandbox } from '@tangle-network/sandbox'
-import { afterAll, beforeAll, expect, it } from 'vitest'
+import { afterAll, beforeAll, expect, it, onTestFinished } from 'vitest'
 import { appendCommittedJsonLine } from '../../src/durable/jsonl-file'
 import { reconnectRetainedRun, startRetainedRun } from '../../src/runtime/retained-run-start'
+import { acquireSandbox } from '../../src/runtime/sandbox-acquire'
 import {
   type DriverAttemptRecord,
   DriverAttemptsExhaustedError,
@@ -27,7 +29,7 @@ afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 
-it.each([401, 403] as const)(
+it.each([401, 403, 500] as const)(
   'stops caller-auth retries without replacing the retained native execution (HTTP %s)',
   async (status) => {
     const fixture = await ProcessFixture.start(
@@ -104,11 +106,17 @@ it.each([401, 403] as const)(
         failure = error
       }
       expect(failure).toBeInstanceOf(DriverAttemptsExhaustedError)
+      if (!(failure instanceof DriverAttemptsExhaustedError)) throw failure
+      expect(failure.cause).toBeInstanceOf(RetainedExecutionPendingError)
+      expect((failure.cause as RetainedExecutionPendingError).cause).toMatchObject({
+        status,
+        retryable: false,
+      })
       expect(records).toHaveLength(1)
       expect(records.at(-1)).toMatchObject({
         classification: 'terminal',
         stop: 'terminal-error',
-        pendingCause: 'unobservable',
+        pendingCause: status === 500 ? 'transport' : 'unobservable',
       })
       expect(replacements).toBe(0)
       const before = await fixture.state()
@@ -152,3 +160,27 @@ it.each([401, 403] as const)(
   },
   60_000,
 )
+
+it('does not repeat or search for a create refused by the real SDK nonretryable configuration verdict', async () => {
+  const requests: string[] = []
+  const server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`)
+    response.writeHead(500, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({
+      error: { code: 'CONFIGURATION_ERROR', message: 'Upstream service credential was refused', retryable: false },
+    }))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('missing HTTP boundary')
+  const client = new Sandbox({ apiKey: 'offline-not-a-secret', baseUrl: `http://127.0.0.1:${address.port}` })
+  let failure: unknown
+  try {
+    await acquireSandbox(client, {}, { readyTimeoutMs: 1_000, pollIntervalMs: 1, signal: AbortSignal.timeout(5_000) })
+  } catch (error) {
+    failure = error
+  }
+  expect(failure).toMatchObject({ code: 'CONFIGURATION_ERROR', status: 500, retryable: false })
+  expect(requests).toEqual(['POST /v1/sandboxes'])
+}, 15_000)

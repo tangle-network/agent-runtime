@@ -859,8 +859,9 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       const status = Number(scenario.split('-').at(-2))
       note('retained-read-refused', { environmentId: id, status })
       return jsonError(response, status, {
-        code: 'UNAUTHORIZED',
-        message: 'Invalid or missing authentication token',
+        code: status === 500 ? 'CONFIGURATION_ERROR' : 'UNAUTHORIZED',
+        message: status === 500 ? 'Upstream service credential was refused' : 'Invalid or missing authentication token',
+        retryable: false,
       })
     }
     if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
