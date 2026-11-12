@@ -159,44 +159,48 @@ it.each([401, 403, 500] as const)(
   60_000,
 )
 
-it('does not repeat or search for a create refused by the real SDK nonretryable configuration verdict', async () => {
-  const requests: string[] = []
-  const server = createServer(async (request, response) => {
-    for await (const _chunk of request) {
-      // Drain the actual request before answering its deterministic pre-admission refusal.
+it(
+  'does not repeat or search for a create refused by the real SDK nonretryable configuration verdict',
+  async () => {
+    const requests: string[] = []
+    const server = createServer(async (request, response) => {
+      for await (const _chunk of request) {
+        // Drain the actual request before answering its deterministic pre-admission refusal.
+      }
+      requests.push(`${request.method} ${request.url}`)
+      response.writeHead(500, { 'content-type': 'application/json' })
+      response.end(
+        JSON.stringify({
+          error: {
+            code: 'CONFIGURATION_ERROR',
+            message: 'Upstream service credential was refused',
+            retryable: false,
+          },
+        }),
+      )
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('missing HTTP boundary')
+    const client = new Sandbox({
+      apiKey: 'offline-not-a-secret',
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      trustLocalCliAuth: false,
+      directExec: false,
+    })
+    let failure: unknown
+    try {
+      await acquireSandbox(
+        client,
+        {},
+        { readyTimeoutMs: 1_000, pollIntervalMs: 1, signal: AbortSignal.timeout(5_000) },
+      )
+    } catch (error) {
+      failure = error
     }
-    requests.push(`${request.method} ${request.url}`)
-    response.writeHead(500, { 'content-type': 'application/json' })
-    response.end(
-      JSON.stringify({
-        error: {
-          code: 'CONFIGURATION_ERROR',
-          message: 'Upstream service credential was refused',
-          retryable: false,
-        },
-      }),
-    )
-  })
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('missing HTTP boundary')
-  const client = new Sandbox({
-    apiKey: 'offline-not-a-secret',
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    trustLocalCliAuth: false,
-    directExec: false,
-  })
-  let failure: unknown
-  try {
-    await acquireSandbox(
-      client,
-      {},
-      { readyTimeoutMs: 1_000, pollIntervalMs: 1, signal: AbortSignal.timeout(5_000) },
-    )
-  } catch (error) {
-    failure = error
-  }
-  expect(failure).toMatchObject({ code: 'CONFIGURATION_ERROR', status: 500, retryable: false })
-  expect(requests).toEqual(['POST /v1/sandboxes'])
-}, 15_000)
+    expect(failure).toMatchObject({ code: 'CONFIGURATION_ERROR', status: 500, retryable: false })
+    expect(requests).toEqual(['POST /v1/sandboxes'])
+  },
+  15_000,
+)

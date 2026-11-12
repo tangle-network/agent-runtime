@@ -281,19 +281,17 @@ export function classifyDriverFailure(
   if (
     error instanceof RetainedExecutionPendingError &&
     (error.pendingCause === 'provider-contract' ||
-      causeChain(error.cause).some(
-        (cause) => {
-          try {
-            return (
-              cause instanceof Error &&
-              (Reflect.get(cause, 'retryable') === false ||
-                [401, 403].includes(errorHttpStatus(cause) ?? 0))
-            )
-          } catch {
-            return false
-          }
-        },
-      ))
+      causeChain(error.cause).some((cause) => {
+        try {
+          return (
+            cause instanceof Error &&
+            (Reflect.get(cause, 'retryable') === false ||
+              [401, 403].includes(errorHttpStatus(cause) ?? 0))
+          )
+        } catch {
+          return false
+        }
+      }))
   )
     return 'terminal'
   // Nothing was dispatched, so nothing is pending: a pause, never a reconciliation to count.
