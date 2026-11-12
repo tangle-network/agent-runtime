@@ -96,6 +96,11 @@ defect to report.
 
 ## What the run cannot claim
 
+Retained environment transcript captures carry their admitted node, attempt and exact provider
+control reference in the existing `source` metadata. That binds the environment capture to its
+execution; it does not attest which harness-native session each file contains. Native-session
+identity and full native coverage remain unknown without a provider attestation.
+
 No provider event carries a billing receipt, so the executor reports `usdKnown: false`. A
 dollar-capped budget pool REFUSES an unknown dollar cost rather than comparing against a floor, so
 this example sets a token budget and no dollar cap. That refusal is the contract working: a

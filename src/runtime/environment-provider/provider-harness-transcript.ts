@@ -25,12 +25,40 @@ async function readProviderHarnessTranscript(
   sourceSignal?: AbortSignal,
 ): Promise<HarnessTranscriptCapture> {
   const capture = scope.options.harnessTranscript
-  if (!capture)
-    return captureHarnessTranscript(
+  if (!capture) {
+    const fallback = await captureHarnessTranscript(
       environment as Parameters<typeof captureHarnessTranscript>[0],
       scope.profile.harness,
       sourceSignal,
     )
+    const controlRef = scope.state.workspaceControlRef
+    if (
+      fallback.status !== 'captured' ||
+      !scope.node ||
+      controlRef?.environmentId !== environment.id
+    )
+      return fallback
+    // Environment-wide bytes have exact dispatch provenance, but no native-session attestation.
+    return detachedSnapshot(
+      {
+        ...fallback,
+        artifact: {
+          ...fallback.artifact,
+          source: {
+            executionId: scope.state.workspaceExecutionId,
+            controlRef,
+            node: scope.node,
+            environmentId: environment.id,
+            profileDigest: canonicalAgentProfileDigest(scope.createProfile),
+            providerSessionId: controlRef.sessionId,
+            nativeSessionId: null,
+            coverageComplete: false,
+          },
+        },
+      },
+      'provider environment transcript source',
+    )
+  }
   const refused = (reason: string): HarnessTranscriptCapture => ({
     status: 'unavailable',
     reason: 'capture-failed',

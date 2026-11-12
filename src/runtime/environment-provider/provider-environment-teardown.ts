@@ -214,8 +214,7 @@ async function captureBeforeDestroy(
     const capture = await captureProviderHarnessTranscript(scope, target, signal)
     if (capture.status !== 'unavailable') {
       state.harnessTranscript = capture
-      if (scope.options.harnessTranscript)
-        await persistProviderHarnessTranscript(scope, state.transcriptTask, state.transcriptResult)
+      await persistProviderHarnessTranscript(scope, state.transcriptTask, state.transcriptResult)
     }
   }
 }
