@@ -24,6 +24,7 @@ import {
 
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
+let capacitySince: number | undefined
 const ledger = join(directory, 'service-ledger.jsonl')
 const state: ServiceState = {
   scenario,
@@ -704,6 +705,18 @@ async function runtime(
     if (exactResult && scenario.startsWith('json-observation-')) {
       durableBytes(join(directory, `${nativeEventFile(run.executionId)}.exact`), 'ready')
       note('exact-result-handshake', { executionId: run.executionId, sessionId: run.sessionId })
+      if (scenario === 'json-observation-long-capacity-success') {
+        capacitySince ??= Date.now()
+        if (Date.now() - capacitySince < 600_000) {
+          note('exact-result-http-error', { executionId: run.executionId, status: 503 })
+          response.setHeader('Retry-After', '30')
+          return jsonError(response, 503, {
+            code: 'CAPACITY_EXHAUSTED',
+            message: 'No host has capacity for this sandbox; retry later',
+          })
+        }
+        note('capacity-recovered', { executionId: run.executionId, elapsedMs: Date.now() - capacitySince })
+      }
       if (scenario === 'json-observation-429') {
         note('exact-result-http-error', { executionId: run.executionId, status: 429 })
         return jsonError(response, 429, {
