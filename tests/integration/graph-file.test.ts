@@ -3,15 +3,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { agentProfileSeatSchema } from '@tangle-network/agent-interface'
+import {
+  agentProfileSeatSchema,
+  canonicalAgentProfileDigest,
+} from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { contentAddress } from '../../src/durable/content-address'
 import { SettledRunDirectoryError } from '../../src/durable/settle-record'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { superviseGraphPursuit } from '../../src/durable/supervise-pursuit'
+import { discoverDurableSupervisionRun } from '../../src/durable/supervision-discovery'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
 import { runSettledCommand } from '../../src/mcp/worktree-harness'
+import {
+  FileCoordinationLog,
+  FileResultBlobStore,
+  graphFlowSpawnProfile,
+  type RouteFlowEvent,
+} from '../../src/runtime/index'
 import type { PortableContinuationPolicy } from '../../src/runtime/supervise/continuation-data'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
@@ -43,7 +53,7 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
         executionSignal = AbortSignal.any([signal, stop.signal])
         pending = runSettledCommand({
           command: process.execPath,
-          args: ['-e', script, profile.name, JSON.stringify(task)],
+          args: ['-e', script, profile.name, JSON.stringify(task), JSON.stringify(profile)],
           cwd,
           timeoutMs: 10000,
           signal: executionSignal,
@@ -600,7 +610,7 @@ it('resumes an entry node under the profile its session started with', async () 
   const script = [
     "const fs=require('node:fs');",
     "if(process.argv[1]==='checker'){const again=!fs.existsSync('checked');fs.writeFileSync('checked','');",
-    "process.stdout.write(JSON.stringify({again}))}else process.stdout.write(JSON.stringify({answer:'x'}))",
+    "process.stdout.write(JSON.stringify({again,profile:JSON.parse(process.argv[3])}))}else process.stdout.write(JSON.stringify({answer:'x',profile:JSON.parse(process.argv[3])}))",
   ].join('')
   const brief = { surface: 'delegates/worker-brief', version: 1 }
   const loaded = await loadGraphFile(join(directory, 'resume-entry.graph.json'), {
@@ -637,10 +647,12 @@ it('resumes an entry node under the profile its session started with', async () 
   })
   const stages = processStages(directory, script)
   const worker: unknown[] = []
+  const admitted = new Map<string, unknown[]>()
   try {
     const result = await runGraph(graphFromStored(loaded.graph, { trigger: {} }), {
       makeLeafAgent: (profile, ...rest) => {
         if (profile.name === 'worker') worker.push(profile)
+        admitted.set(profile.name, [...(admitted.get(profile.name) ?? []), profile])
         return stages(profile, ...rest)
       },
       runDir: join(directory, 'run'),
@@ -651,6 +663,49 @@ it('resumes an entry node under the profile its session started with', async () 
     expect(result.result.kind, JSON.stringify(result.result)).toBe('winner')
     expect(worker).toHaveLength(2)
     expect(worker[1]).toEqual(worker[0])
+    const discovery = await discoverDurableSupervisionRun(join(directory, 'run'))
+    const log = new FileCoordinationLog(discovery.coordinationLogPath)
+    const traversals: Extract<RouteFlowEvent, { kind: 'traversal' }>[] = []
+    const blobs = new FileResultBlobStore(join(directory, 'run', 'blobs'))
+    for (const stream of discovery.coordinationStreams) {
+      expect(stream.unscopedRecords).toBe(0)
+      for (const owner of stream.ownerIds) {
+        const prior = await log.load(stream.runId, owner)
+        for (const record of prior.records) {
+          if (
+            record.event.type !== 'route' ||
+            record.event.route.kind !== 'traversal' ||
+            !record.event.route.workerId
+          )
+            continue
+          const traversal = record.event.route
+          const derived = graphFlowSpawnProfile(
+            graphFromStored(loaded.graph, { trigger: {} }),
+            traversal,
+          )
+          traversals.push(traversal)
+          expect(admitted.get(traversal.to)).toContainEqual(derived)
+          const child = result.result.tree.nodes.find((item) => item.id === traversal.workerId)
+          expect(child?.identity?.profileDigest).toBe(canonicalAgentProfileDigest(derived))
+          expect(child?.outRef).toBeTruthy()
+          const output = child?.outRef ? await blobs.get(child.outRef) : undefined
+          expect((output as { profile?: unknown } | undefined)?.profile).toEqual(derived)
+          expect(() =>
+            graphFlowSpawnProfile(graphFromStored(loaded.graph), { ...traversal, edge: 'unknown' }),
+          ).toThrow()
+          expect(() =>
+            graphFlowSpawnProfile(graphFromStored(loaded.graph), {
+              ...traversal,
+              outcome: 'unpropagated',
+            }),
+          ).toThrow()
+        }
+      }
+    }
+    expect(traversals.some((item) => item.to === 'checker')).toBe(true)
+    expect(admitted.get('checker')?.[0]).not.toEqual(
+      loaded.graph.nodes.find((item) => item.id === 'checker')?.profile,
+    )
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

@@ -21,9 +21,16 @@ import type { CoordinationEvent } from '../../mcp/tools/coordination-events'
 import { safeJsonText as stringifyPayload } from '../../mcp/tools/coordination-json'
 import type { MapOnSettleRoute } from '../../mcp/tools/coordination-map-contracts'
 import type { AuthorizedDownMessage, ContinuityMode } from '../../mcp/tools/coordination-messages'
-import type { EdgeDeliveryOutcome, EdgeTraversal, GraphNode, TraversalContinuity } from './graph'
+import type { RouteFlowEvent, RouteSpawnMarker } from '../../mcp/tools/coordination-route-contracts'
+import type {
+  EdgeDeliveryOutcome,
+  EdgeTraversal,
+  GraphNode,
+  GraphTopology,
+  TraversalContinuity,
+} from './graph'
 import { GraphEdgeLedger } from './graph-edge-ledger'
-import { routeLedgerEntry } from './graph-flow'
+import { routeLedgerEntry, type ValidatedFlow, validateFlowGraph } from './graph-flow'
 import {
   type AnalyzesEdge,
   type DelegatesEdge,
@@ -33,9 +40,10 @@ import {
   parseGraphSubtaskTopology,
   type ValidatedGraph,
 } from './graph-topology'
-import { formatPromptHandle, type PromptRegistry } from './prompt-registry'
+import { formatPromptHandle, kernelPromptRegistry, type PromptRegistry } from './prompt-registry'
 import { runtimeGraphMetadataKey } from './provider-visible-profile'
 import type { SuperviseOptions } from './supervise'
+import { profileGuidanceComposer } from './supervise-root-profile'
 import type { NodeId, SpawnJournal } from './types'
 
 type SpawnAuthorization = NonNullable<SuperviseOptions['authorizeSpawn']>
@@ -361,6 +369,15 @@ function pinRouteSpawn(
   requested: string | undefined,
 ): AgentProfile {
   const marker = input.route as NonNullable<SpawnAuthorizationInput['route']>
+  return flowSpawnProfile(flow, registry, marker, requested)
+}
+
+function flowSpawnProfile(
+  flow: ValidatedFlow | undefined,
+  registry: PromptRegistry,
+  marker: RouteSpawnMarker,
+  requested: string | undefined,
+): AgentProfile {
   const node = requested === undefined ? undefined : flow?.nodes.get(requested)
   const edge = flow?.routes.get(marker.edge)
   const starts = flow?.starts.get(marker.edge)?.has(requested as NodeId) === true
@@ -374,6 +391,30 @@ function pinRouteSpawn(
   return edge === undefined || reentry
     ? node.profile
     : withDirective(node.profile, registry.resolve(edge.directive).text)
+}
+
+/** Derive the exact flow-node profile named by an actual retained route traversal.
+ * Uses the execution transform; arbitrary authorization callbacks are outside this contract. */
+export function graphFlowSpawnProfile(
+  graph: GraphTopology,
+  traversal: Extract<RouteFlowEvent, { kind: 'traversal' }>,
+  options: {
+    registry?: PromptRegistry
+    profileGuidance?: SuperviseOptions['profileGuidance']
+  } = {},
+): AgentProfile {
+  if (traversal.kind !== 'traversal' || traversal.outcome !== 'delivered' || !traversal.workerId)
+    throw new ValidationError('graphFlowSpawnProfile requires an admitted worker traversal')
+  const registry = options.registry ?? kernelPromptRegistry()
+  const validated = validateFlowGraph(graph, registry, undefined)
+  const profile = flowSpawnProfile(
+    validated.flow,
+    registry,
+    { edge: traversal.edge, node: traversal.to },
+    traversal.to,
+  )
+  const guidance = profileGuidanceComposer(options.profileGuidance)
+  return guidance ? guidance(profile) : profile
 }
 
 // A LENS edge's directive wraps the findings for the recipient (a driver-destined lens route
