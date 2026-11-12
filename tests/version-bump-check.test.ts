@@ -888,6 +888,11 @@ describe('a shape change is classified from the declarations it was built from',
       (member: string) =>
         `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = (typeof keys)[number]; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`,
     ],
+    [
+      'an interface with excluded tuple-derived Pick keys',
+      (member: string) =>
+        `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = Exclude<(typeof keys)[number], 'skip'>; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`,
+    ],
     ['a callable interface argument', callable],
     ['each variant of an untagged union', (member: string) => variants(member)],
   ])(

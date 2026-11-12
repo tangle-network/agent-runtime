@@ -482,6 +482,13 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       return keys.every((item) => item !== null) ? keys.flat() : null
     }
     if (type?.type === 'TSTypeOperator' && type.operator === 'readonly') return literalKeys(type.typeAnnotation, file, names)
+    if (type?.type === 'TSTypeReference' && type.typeName.type === 'Identifier' &&
+        type.typeName.name === 'Exclude' && resolveBinding(file, 'Exclude', ctx) === null &&
+        type.typeArguments?.params.length === 2) {
+      const all = literalKeys(type.typeArguments.params[0], file, names)
+      const removed = literalKeys(type.typeArguments.params[1], file, names)
+      return all && removed ? all.filter((key) => !removed.includes(key)) : null
+    }
     const query = type?.type === 'TSIndexedAccessType' && type.indexType.type === 'TSNumberKeyword'
       ? unwrap(type.objectType) : null
     const name = query?.type === 'TSTypeQuery' ? query.exprName
