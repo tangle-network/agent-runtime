@@ -197,15 +197,18 @@ function readStatus(box: SandboxInstance): string | undefined {
 
 function isRetryable(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
-  const e = err as { status?: number; statusCode?: number; name?: string; message?: string }
+  const e = err as {
+    retryable?: boolean
+    status?: number
+    statusCode?: number
+    name?: string
+    message?: string
+  }
+  if (e.retryable === false) return false
   const status = e.status ?? e.statusCode
   if (typeof status === 'number') {
-    // An explicit HTTP status is authoritative: retry the known-transient set
-    // and server-side faults (>=500, where provisioning may recover), and treat
-    // every other status — permanent 4xx like 400/401/403 — as terminal no
-    // matter what the message says. A permanent rejection often carries a
-    // transient-looking message ("provision failed"), and retrying it burns the
-    // entire ready budget on an error that cannot heal.
+    // Without a producer's nonretryable verdict, status precedes message text:
+    // known transient statuses and server faults retry; other statuses fail loud.
     return RETRYABLE_HTTP.has(status) || status >= 500
   }
   const name = e.name ?? ''

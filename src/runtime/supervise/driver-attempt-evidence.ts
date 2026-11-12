@@ -277,12 +277,22 @@ export function classifyDriverFailure(
   if (materializationTimedOut(error)) return 'terminal'
   if (error instanceof CheckUnavailableError || error instanceof CoordinationUnreachableError)
     return 'unavailable'
-  // A broken or unauthorized reader needs repair; stopping it never resolves retained work.
+  // A broken or nonretryable reader needs repair; stopping it never resolves retained work.
   if (
     error instanceof RetainedExecutionPendingError &&
     (error.pendingCause === 'provider-contract' ||
       causeChain(error.cause).some(
-        (cause) => cause instanceof Error && [401, 403].includes(errorHttpStatus(cause) ?? 0),
+        (cause) => {
+          try {
+            return (
+              cause instanceof Error &&
+              (Reflect.get(cause, 'retryable') === false ||
+                [401, 403].includes(errorHttpStatus(cause) ?? 0))
+            )
+          } catch {
+            return false
+          }
+        },
       ))
   )
     return 'terminal'

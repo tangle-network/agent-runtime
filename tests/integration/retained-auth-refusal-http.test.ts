@@ -30,7 +30,7 @@ afterAll(async () => {
 })
 
 it.each([401, 403, 500] as const)(
-  'stops caller-auth retries without replacing the retained native execution (HTTP %s)',
+  'stops refused reads without replacing the retained native execution (HTTP %s)',
   async (status) => {
     const fixture = await ProcessFixture.start(
       `json-observation-long-auth-${status}-success`,
