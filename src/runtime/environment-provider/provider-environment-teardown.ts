@@ -1,11 +1,11 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
-import { captureProviderHarnessTranscript } from './provider-harness-transcript'
 import { environmentGone } from '../retained-interactive-lifecycle'
 import { awaitAbortable } from '../retained-run-binding'
 import type { TeardownAnswer } from '../supervise/deadline'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { EnvironmentTeardownReceipt } from '../supervise/types'
 import type { ProviderExecutorScope } from './provider-executor-state'
+import { captureProviderHarnessTranscript } from './provider-harness-transcript'
 
 /** The environment id the latest durable admission names, when creation got that far. */
 export function admittedEnvironmentId(
@@ -191,11 +191,7 @@ async function captureBeforeDestroy(
   // destroy must not wait on a box that already failed to answer.
   if (state.harnessTranscript.status !== 'captured' && !state.releaseReadTried) {
     state.releaseReadTried = true
-    const capture = await captureProviderHarnessTranscript(
-      scope,
-      target,
-      signal,
-    )
+    const capture = await captureProviderHarnessTranscript(scope, target, signal)
     if (capture.status === 'captured') state.harnessTranscript = capture
   }
 }

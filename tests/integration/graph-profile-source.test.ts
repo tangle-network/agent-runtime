@@ -8,7 +8,12 @@ import {
 } from '@tangle-network/agent-interface'
 import { expect, it, onTestFinished } from 'vitest'
 import { parse } from 'yaml'
-import { loadGraphFile, readGraphProfile, setGraphProfile, setGraphStrings } from '../../src/runtime'
+import {
+  loadGraphFile,
+  readGraphProfile,
+  setGraphProfile,
+  setGraphStrings,
+} from '../../src/runtime'
 
 const SOURCE = `# Keep the authored graph and this comment.
 graph: measured-profiles
@@ -92,10 +97,12 @@ it('loads the measured nonprompt and whole-profile candidates without changing a
     )
     const retained = '  # The reviewer'
     expect(next.slice(next.indexOf(retained))).toBe(SOURCE.slice(SOURCE.indexOf(retained)))
-    expect(readGraphProfile(setGraphStrings(next, { build: 'Only the prompt.' }), 'build')).toEqual({
-      ...candidate,
-      prompt: { systemPrompt: 'Only the prompt.' },
-    })
+    expect(readGraphProfile(setGraphStrings(next, { build: 'Only the prompt.' }), 'build')).toEqual(
+      {
+        ...candidate,
+        prompt: { systemPrompt: 'Only the prompt.' },
+      },
+    )
   }
 })
 
@@ -126,7 +133,7 @@ it('refuses shared, host-dependent and malformed source instead of rewriting ano
     SOURCE.replace('nodes:\n', 'nodes: &nodes\n'),
     SOURCE.replace('  - id: build', '  - &node id: build'),
     SOURCE.replace('prompt: { systemPrompt:', 'prompt: &prompt { systemPrompt:'),
-    anchored.replace(/    profile: \{ harness: cli-base[^\n]+/, '    profile: *shared'),
+    anchored.replace(/ {4}profile: \{ harness: cli-base[^\n]+/, '    profile: *shared'),
     SOURCE.replace('    profile:\n', '    profile: profile.yaml\n    unused:\n'),
     SOURCE.replace('    profile:\n', '    seat: selected-by-host\n    profile:\n'),
     SOURCE.replace('    profile:\n', '    needs: [google-drive]\n    profile:\n'),
@@ -153,7 +160,10 @@ it('refuses lossy or private candidates before any source is returned', () => {
     { ...baseline, unexpectedProfileField: true },
     { ...baseline, model: { default: 'offline/local-process' } },
     { ...baseline, prompt: { systemPrompt: '${trigger.message}' } },
-    { ...baseline, mcp: { catalog: { command: 'catalog-server', env: { API_KEY: 'private-value' } } } },
+    {
+      ...baseline,
+      mcp: { catalog: { command: 'catalog-server', env: { API_KEY: 'private-value' } } },
+    },
     {
       ...baseline,
       get metadata() {

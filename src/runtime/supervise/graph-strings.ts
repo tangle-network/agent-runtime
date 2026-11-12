@@ -103,7 +103,8 @@ function ownProfile(graphText: string, nodeId: string) {
   const document = parseGraphYaml(graphText, 'graph profile')
   const value: unknown = document.toJS({ maxAliasCount: 100 })
   assertJsonData(value, 'graph profile')
-  if (!isMap(document.contents)) throw new ValidationError('graph profile: requires a graph mapping')
+  if (!isMap(document.contents))
+    throw new ValidationError('graph profile: requires a graph mapping')
   // Other graph fields may still contain authored bindings; only this profile must be static.
   const graphNodes = graphFileSchema.shape.nodes.parse((value as Record<string, unknown>).nodes)
   const matches = graphNodes.flatMap((node, index) => (node.id === nodeId ? [index] : []))
@@ -132,8 +133,13 @@ function ownProfile(graphText: string, nodeId: string) {
       'graph profile: requires an unshared inline agent profile without host overlays',
     )
   visit(profile, (_key, item) => {
-    if (isAlias(item) || ((isMap(item) || isSeq(item) || isScalar(item)) && (item.anchor || item.tag)))
-      throw new ValidationError('graph profile: aliases, anchors and tags are not owned profile data')
+    if (
+      isAlias(item) ||
+      ((isMap(item) || isSeq(item) || isScalar(item)) && (item.anchor || item.tag))
+    )
+      throw new ValidationError(
+        'graph profile: aliases, anchors and tags are not owned profile data',
+      )
   })
   const canonical = exactProfile({ ...node.profile, name: nodeId }, nodeId)
   return { document, index, profile, canonical }
@@ -162,7 +168,8 @@ export function setGraphProfile(
   if (!range) throw new ValidationError('graph profile: missing source range')
   const [start, end] = range
   const trailing = /\s*$/.exec(graphText.slice(start, end))![0].length
-  const next = graphText.slice(0, start) + JSON.stringify(candidate) + graphText.slice(end - trailing)
+  const next =
+    graphText.slice(0, start) + JSON.stringify(candidate) + graphText.slice(end - trailing)
   const readback = ownProfile(next, nodeId)
   const masked = (source: typeof parsed) => {
     const value = source.document.toJS({ maxAliasCount: 100 })

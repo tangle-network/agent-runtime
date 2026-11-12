@@ -1,17 +1,17 @@
 import {
-  BOUND_HARNESS_SESSION_READ_LIMITS,
-  HARNESS_TRANSCRIPT_DENY,
-  readBoundHarnessSessions as readNativeFamily,
-  type BoundHarnessSession,
-  type HarnessFileBinding,
-} from '@tangle-network/harness-sessions'
-import {
   type AgentCandidateArtifactRef,
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
   agentCandidateArtifactRefSchema,
   agentCandidateWorkspaceManifestMaterialSchema,
 } from '@tangle-network/agent-interface'
+import {
+  BOUND_HARNESS_SESSION_READ_LIMITS,
+  type BoundHarnessSession,
+  HARNESS_TRANSCRIPT_DENY,
+  type HarnessFileBinding,
+  readBoundHarnessSessions as readNativeFamily,
+} from '@tangle-network/harness-sessions'
 import { z } from 'zod'
 import { verifiedArtifactChunks } from '../candidate-execution/artifact-streams'
 import { deepFreezeCandidate, sha256Bytes } from '../candidate-execution/digest'
@@ -434,8 +434,8 @@ export async function resolveHarnessTranscriptCapture(
   })
 }
 
-export { HARNESS_TRANSCRIPT_DENY }
 export type { BoundHarnessSession, HarnessFileBinding }
+export { HARNESS_TRANSCRIPT_DENY }
 
 /** Compatibility entry. The shared reader owns native-family integrity; Runtime
  * retains its archive path policy, abort behavior and public error identity. */
@@ -448,10 +448,13 @@ export async function readBoundHarnessSessions<S extends BoundHarnessSession>(in
 }) {
   return readNativeFamily({
     ...input,
-    validatePath: (path) => { safeArchivePath(path, workspaceLimits(undefined).maxPathBytes) },
+    validatePath: (path) => {
+      safeArchivePath(path, workspaceLimits(undefined).maxPathBytes)
+    },
     failure: (message) => new ValidationError(message),
-    read: (file, signal) => signal
-      ? runAbortable(() => input.read(file, signal), signal, 'Native source read stopped')
-      : input.read(file),
+    read: (file, signal) =>
+      signal
+        ? runAbortable(() => input.read(file, signal), signal, 'Native source read stopped')
+        : input.read(file),
   })
 }

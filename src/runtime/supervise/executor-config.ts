@@ -125,7 +125,9 @@ export function snapshotExecutorConfig(
           'createExecutor(provider): JSON output is not supported with steering',
         )
       if (config.harnessTranscript !== undefined && config.steering !== undefined)
-        throw new ValidationError('createExecutor(provider): native capture is not supported with steering')
+        throw new ValidationError(
+          'createExecutor(provider): native capture is not supported with steering',
+        )
       // `validator` is an executable port like `provider`: retained live by reference, never
       // cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
       const {
@@ -139,7 +141,9 @@ export function snapshotExecutorConfig(
         ...decisionData
       } = config
       if (harnessTranscript !== undefined && typeof harnessTranscript !== 'function')
-        throw new ValidationError('createExecutor provider: harnessTranscript must be a capture function')
+        throw new ValidationError(
+          'createExecutor provider: harnessTranscript must be a capture function',
+        )
       if (
         shared !== undefined &&
         (decisionData.steering !== undefined || decisionData.placements !== undefined)
