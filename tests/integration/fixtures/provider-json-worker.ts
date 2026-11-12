@@ -63,7 +63,7 @@ if (mode.startsWith('json-observation-')) {
           index + 1,
         ),
       )
-    const success = mode === 'json-observation-long-success'
+    const success = mode.endsWith('success')
     const data = {
       ...coordinates,
       success,

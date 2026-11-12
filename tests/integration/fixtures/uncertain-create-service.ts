@@ -849,6 +849,19 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       state.lost.push(id)
       return json(response, 200, { id, outcome: 'destroyed', removal: 'complete' })
     }
+    if (
+      scenario.startsWith('json-observation-long-auth-') &&
+      request.method === 'GET' &&
+      state.runs.length > 0 &&
+      !state.finish
+    ) {
+      const status = Number(scenario.split('-').at(-2))
+      note('retained-read-refused', { environmentId: id, status })
+      return jsonError(response, status, {
+        code: status === 404 ? 'NOT_FOUND' : 'UNAUTHORIZED',
+        message: status === 404 ? 'Sandbox not found' : 'Invalid or missing authentication token',
+      })
+    }
     note('get', { environmentId: id, absent: state.lost.includes(id) })
     return json(
       response,
