@@ -89,6 +89,15 @@ export const isolatedCheckBoxEvidenceSchema: ZodType<IsolatedCheckBoxEvidence> =
       })
   })
 
+const isolatedCheckCommandEvidenceSchema = z
+  .object({
+    wallMs: z.number().finite().nonnegative(),
+    stdoutBase64: z.base64(),
+    stderrBase64: z.base64(),
+    outputComplete: z.boolean(),
+  })
+  .strict()
+
 /** Execution evidence, not a verdict about task correctness or permission to execute again. */
 export const isolatedCheckResultSchema: ZodType<IsolatedCheckResult> = z.discriminatedUnion(
   'succeeded',
@@ -99,6 +108,7 @@ export const isolatedCheckResultSchema: ZodType<IsolatedCheckResult> = z.discrim
         value: z.object({ stdout: z.string(), stderr: z.string() }).strict(),
         box: isolatedCheckBoxEvidenceSchema.optional(),
         outputs: isolatedCheckOutputEvidenceSchema.optional(),
+        command: isolatedCheckCommandEvidenceSchema.optional(),
       })
       .strict(),
     z
@@ -120,6 +130,7 @@ export const isolatedCheckResultSchema: ZodType<IsolatedCheckResult> = z.discrim
         cleanupDiagnostic: z.string().optional(),
         box: isolatedCheckBoxEvidenceSchema.optional(),
         outputs: isolatedCheckOutputEvidenceSchema.optional(),
+        command: isolatedCheckCommandEvidenceSchema.optional(),
       })
       .strict(),
   ],

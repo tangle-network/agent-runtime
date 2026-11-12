@@ -131,12 +131,24 @@ export interface IsolatedCheckBoxEvidence {
   inputDigest: Sha256Digest
 }
 
+/** Local protected-command launch through closed pipes, excluding input staging and cleanup.
+ * Capture contains exact bounded bytes; outputComplete is false when the capture limit omitted bytes.
+ * A refused launch can carry diagnostics without proving command execution. Box backends leave this absent.
+ */
+export interface IsolatedCheckCommandEvidence {
+  wallMs: number
+  stdoutBase64: string
+  stderrBase64: string
+  outputComplete: boolean
+}
+
 export type IsolatedCheckResult =
   | {
       succeeded: true
       value: { stdout: string; stderr: string }
       box?: IsolatedCheckBoxEvidence
       outputs?: IsolatedCheckOutputEvidence
+      command?: IsolatedCheckCommandEvidence
     }
   | {
       succeeded: false
@@ -158,6 +170,7 @@ export type IsolatedCheckResult =
       /** Present once a check box received its complete input. */
       box?: IsolatedCheckBoxEvidence
       outputs?: IsolatedCheckOutputEvidence
+      command?: IsolatedCheckCommandEvidence
     }
 
 const toolchains = ['/usr', '/bin', '/lib', '/lib64']
@@ -293,6 +306,7 @@ export async function runIsolatedCheck(
             stdout: result.value.stdout,
             stderr: result.value.stderr,
             exitCode: 0,
+            ...(result.command ? { command: result.command } : {}),
           }
         : { ...result, cleanupDiagnostic }
     }
@@ -329,6 +343,7 @@ function withRetainedOutputs(
     stdout: result.value.stdout,
     stderr: result.value.stderr,
     exitCode: 0,
+    ...(result.command ? { command: result.command } : {}),
     outputs,
   }
 }
@@ -639,6 +654,7 @@ async function runInBox(
             stdout: result.value.stdout,
             stderr: result.value.stderr,
             exitCode: 0,
+            ...(result.command ? { command: result.command } : {}),
           }
         : {
             ...result,
@@ -805,6 +821,7 @@ function execute(
   signal?: AbortSignal,
 ): Promise<IsolatedCheckResult> {
   return new Promise((done) => {
+    const began = performance.now()
     const child = spawn('/usr/bin/bwrap', ['--json-status-fd', '3', ...args], {
       env: {},
       stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
@@ -851,9 +868,17 @@ function execute(
     child.on('close', (code) => {
       clearTimer()
       signal?.removeEventListener('abort', cancel)
-      const out = Buffer.concat(stdout).toString()
-      const err = Buffer.concat(stderr).toString()
-      const evidence = { stdout: out, stderr: err, exitCode: code }
+      const outBytes = Buffer.concat(stdout)
+      const errBytes = Buffer.concat(stderr)
+      const out = outBytes.toString()
+      const err = errBytes.toString()
+      const command = {
+        wallMs: performance.now() - began,
+        stdoutBase64: outBytes.toString('base64'),
+        stderrBase64: errBytes.toString('base64'),
+        outputComplete: bytes <= limit,
+      }
+      const evidence = { stdout: out, stderr: err, exitCode: code, command }
       // Only Bubblewrap writes this private pipe; command stderr cannot forge setup status.
       const executed = status.split('\n').some((line) => {
         try {
@@ -887,7 +912,7 @@ function execute(
           diagnostic: err || out || `Check exited ${code}`,
           ...evidence,
         })
-      else done({ succeeded: true, value: { stdout: out, stderr: err } })
+      else done({ succeeded: true, value: { stdout: out, stderr: err }, command })
     })
   })
 }
