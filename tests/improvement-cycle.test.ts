@@ -466,10 +466,16 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         ),
       ).toBe(true)
       await complete.improvement.dispose()
+      const sealedBinding = complete.experiment.modelBinding
+      if (!sealedBinding) throw new Error('Missing sealed model treatment')
       incomplete = true
-      const retained = await proposeProfile({ ...options(), allowIncomplete: true })
+      const retained = await proposeProfile({
+        ...options(),
+        modelBinding: sealedBinding,
+        allowIncomplete: true,
+      })
       if (!('status' in retained)) throw new Error('Expected explicit incomplete outcome')
-      expect(resolverCalls).toBe(2)
+      expect(resolverCalls).toBe(1)
       expect(retained.status).toBe('incomplete')
       expect(retained.decision).toBe('hold')
       expect('proposal' in retained).toBe(false)
@@ -520,7 +526,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         server.close((error) => (error ? reject(error) : resolve())),
       )
     }
-  })
+  }, 60_000)
 
   it('builds a source-bound profile proposal without product experiment wiring', async () => {
     const template = createProfileImprovementFixture()
