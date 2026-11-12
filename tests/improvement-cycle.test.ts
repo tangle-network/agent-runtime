@@ -303,6 +303,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     let missingIdentity = false
     let wrongObservedModel = false
     let incomplete = false
+    let unchanged = false
     let resolverCalls = 0
     const measured: string[] = []
     const server = createServer(async (request, response) => {
@@ -313,7 +314,9 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         request.url === '/observed'
           ? `${baselineModel.model}@${baselineModel.snapshot}`
           : request.url === '/candidate'
-            ? candidate
+            ? unchanged
+              ? baseline
+              : candidate
             : request.url === '/resolve'
               ? {
                   kind: 'profile-default',
@@ -490,7 +493,8 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
         modelBinding: sealedBinding,
         allowIncomplete: true,
       })
-      if (!('status' in retained)) throw new Error('Expected explicit incomplete outcome')
+      if (!('status' in retained) || retained.status !== 'incomplete')
+        throw new Error('Expected explicit incomplete outcome')
       expect(resolverCalls).toBe(1)
       expect(retained.status).toBe('incomplete')
       expect(retained.decision).toBe('hold')
@@ -504,6 +508,49 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       expect(accounting.facts.costUsdNanos).toBeNull()
       expect(() => verifyAgentImprovementProposal(retained)).toThrow()
       await retained.improvement.dispose()
+      incomplete = false
+      unchanged = true
+      const beforeHold = measured.length
+      const noChange = await proposeProfile({ ...options(), allowIncomplete: true })
+      if (!('status' in noChange) || noChange.status !== 'held')
+        throw new Error('Expected normal unchanged search hold')
+      expect(noChange.phase).toBe('search')
+      expect(noChange.decision).toBe('hold')
+      expect(noChange.improvement.decision).toBe('hold')
+      expect('proposal' in noChange).toBe(false)
+      expect('measurements' in noChange).toBe(false)
+      expect(measured).toHaveLength(beforeHold)
+      await noChange.improvement.dispose()
+      unchanged = false
+      const unknownSearch = options()
+      unknownSearch.executor.optimize = async (candidateProfile, _scenario, context) => {
+        const paid = await context.cost.runPaidCall({
+          actor: 'http-native-profile',
+          model: candidateProfile.model!.default!,
+          maximumCharge: { externallyEnforcedMaximumUsd: 0 },
+          execute: async () => {
+            await call('/execute', { profile: candidateProfile })
+            return candidateProfile.prompt?.systemPrompt ?? ''
+          },
+          receipt: () => ({
+            model: candidateProfile.model!.default!,
+            inputTokens: 1,
+            outputTokens: 1,
+            costUnknown: true,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      }
+      const unavailableSearch = await proposeProfile({ ...unknownSearch, allowIncomplete: true })
+      if (!('status' in unavailableSearch) || unavailableSearch.status !== 'held')
+        throw new Error('Expected retained unknown search accounting hold')
+      expect(unavailableSearch.accounting.accountingComplete).toBe(false)
+      expect(unavailableSearch.accounting.incompleteReasons.length).toBeGreaterThan(0)
+      expect(measured).toHaveLength(beforeHold)
+      expect('proposal' in unavailableSearch).toBe(false)
+      await unavailableSearch.improvement.dispose()
+      incomplete = true
       // Complete mode refuses the first unavailable receipt before admitting another cell.
       const legacy = options()
       const beforeLegacy = measured.length

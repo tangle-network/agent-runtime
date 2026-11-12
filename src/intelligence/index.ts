@@ -142,6 +142,7 @@ export type {
   ExecuteAgentCandidateExperimentCellOptions,
   ProposeAgentImprovementOptions,
   ProposeAgentImprovementResult,
+  ProposeAgentProfileImprovementHeldResult,
   ProposeAgentProfileImprovementIncompleteResult,
   ProposeAgentProfileImprovementOptions,
   ProposeAgentProfileImprovementResult,

@@ -1,4 +1,8 @@
-import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
+import {
+  CostLedger,
+  type CostLedgerHandle,
+  type CostLedgerSummary,
+} from '@tangle-network/agent-eval'
 import type { ProposalFinding } from '@tangle-network/agent-eval/analyst'
 import {
   type CampaignScenarioIdentity,
@@ -137,6 +141,52 @@ export interface ProposeAgentProfileImprovementIncompleteResult
   analysis: RunAnalystLoopResult
   improvement: ImproveMethodResult
   experiment: AgentProfileImprovementExperiment
+}
+
+/** Opt-in normal hold before a paired experiment can be measured. No proposal is constructed. */
+export interface ProposeAgentProfileImprovementHeldResult {
+  status: 'held'
+  decision: 'hold'
+  phase: 'search' | 'preparation'
+  source: AgentImprovementSource
+  analysis: RunAnalystLoopResult
+  improvement: ImproveMethodResult
+  accounting: CostLedgerSummary
+  reasons: string[]
+}
+
+export function profileImprovementHold(
+  allowIncomplete: boolean | undefined,
+  source: AgentImprovementSource,
+  analysis: RunAnalystLoopResult,
+  improvement: ImproveMethodResult,
+  ledger: CostLedgerHandle,
+): ProposeAgentProfileImprovementHeldResult | undefined {
+  if (allowIncomplete !== true) return undefined
+  const accounting = ledger.summary()
+  const phase =
+    improvement.decision !== 'ship'
+      ? 'search'
+      : !accounting.accountingComplete || accounting.costProvenance.kind === 'uncaptured'
+        ? 'preparation'
+        : undefined
+  if (!phase) return undefined
+  return {
+    status: 'held',
+    decision: 'hold',
+    phase,
+    source,
+    analysis,
+    improvement,
+    accounting,
+    reasons: [
+      ...(phase === 'search' ? ['Search did not establish a promotable profile change'] : []),
+      ...accounting.incompleteReasons,
+      ...(accounting.costProvenance.kind === 'uncaptured'
+        ? ['Preparation cost provenance is uncaptured']
+        : []),
+    ],
+  }
 }
 
 export function createProfileImprovementCostLedger(

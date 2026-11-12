@@ -94,9 +94,11 @@ import {
   completeImprovementSearchAccounting,
   createProfileImprovementCostLedger,
   type ImprovementSearchAccounting,
+  type ProposeAgentProfileImprovementHeldResult,
   type ProposeAgentProfileImprovementIncompleteResult,
   type ProposeAgentProfileImprovementOptions,
   type ProposeAgentProfileImprovementResult,
+  profileImprovementHold,
   profileImprovementMetadata,
   profilePolicyWithBudget,
   profilePreparationAccounting,
@@ -220,6 +222,7 @@ export type {
   AgentProfileImprovementExecutor,
   AgentProfileImprovementMethodOptions,
   AgentProfileImprovementModelBindingSource,
+  ProposeAgentProfileImprovementHeldResult,
   ProposeAgentProfileImprovementIncompleteResult,
   ProposeAgentProfileImprovementOptions,
   ProposeAgentProfileImprovementResult,
@@ -369,6 +372,9 @@ async function analyzeAgentImprovement(
   const analysis = await runAnalystLoop({
     ...options,
     runId,
+    // The library proposal entrypoint must not write diagnostics into a caller's JSON stdout.
+    // Caller-supplied analysis callbacks remain prohibited by measured admission.
+    log: () => {},
     ...(costLedger ? { costLedger, costPhase: 'profile-improvement-analysis' } : {}),
     ...(signal ? { signal } : {}),
   })
@@ -497,13 +503,14 @@ function assertProfileReleaseWorkIsFresh(
   )
 }
 
-/**
- * Analyze a product-owned profile, search one profile surface, then run the
- * exact baseline and candidate through the product executor before proposing.
- */
+/** Search one profile, then independently measure its exact states before proposing. */
 export function proposeAgentProfileImprovement<TScenario extends Scenario, TArtifact>(
   options: RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
-): Promise<ProposeAgentProfileImprovementResult | ProposeAgentProfileImprovementIncompleteResult>
+): Promise<
+  | ProposeAgentProfileImprovementResult
+  | ProposeAgentProfileImprovementIncompleteResult
+  | ProposeAgentProfileImprovementHeldResult
+>
 export function proposeAgentProfileImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentProfileImprovementOptions<TScenario, TArtifact>,
 ): Promise<ProposeAgentProfileImprovementResult>
@@ -511,7 +518,11 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
   options:
     | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
     | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
-): Promise<ProposeAgentProfileImprovementResult | ProposeAgentProfileImprovementIncompleteResult> {
+): Promise<
+  | ProposeAgentProfileImprovementResult
+  | ProposeAgentProfileImprovementIncompleteResult
+  | ProposeAgentProfileImprovementHeldResult
+> {
   const bindingSource =
     typeof options.modelBinding === 'function'
       ? options.modelBinding
@@ -569,6 +580,14 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     findings: proposalFindings,
   })
   try {
+    const held = profileImprovementHold(
+      options.allowIncomplete,
+      source,
+      analysis,
+      improvement,
+      costLedger,
+    )
+    if (held) return held
     if (improvement.decision !== 'ship') {
       throw new Error('agent profile improvement search did not produce a promotable candidate')
     }
