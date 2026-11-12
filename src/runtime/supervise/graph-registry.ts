@@ -401,13 +401,8 @@ export async function recordStoredGraphRun(
 async function persistGraph(reg: GraphRegistryDir, stored: StoredGraph): Promise<void> {
   if (await loadGraph(reg, stored.digest)) return
   // Content-addressed revisions are immutable; the same reader verifies existing bytes.
-  writeAtomicDurableFile(
-    join(reg.root, GRAPHS_DIR, `${stored.digest}.json`),
-    JSON.stringify(stored),
-    {
-      preserveMode: true,
-    },
-  )
+  const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
+  writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
 }
 
 /** All records, newest last. */

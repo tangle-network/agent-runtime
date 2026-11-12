@@ -221,7 +221,7 @@ it('loads one canonical file, persists its data check, and runs and resumes real
     expect(await listGraphRuns(registry)).toEqual([])
     const stored = await loadGraph(registry, loaded.graph.digest)
     if (!stored) throw new Error('registered canonical graph was not readable')
-    const revision = join(registry.root, 'graphs', stored.digest + '.json')
+    const revision = join(registry.root, 'graphs', `${stored.digest}.json`)
     const original = await readFile(revision, 'utf8')
     const { digest: _digest, ...definition } = stored
     if (!definition.budget?.maxTokens) throw new Error('canonical fixture has no token budget')
