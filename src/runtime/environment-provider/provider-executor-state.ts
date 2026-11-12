@@ -1,9 +1,18 @@
-import type { AgentExactRunControlRef, AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentExactRunControlRef,
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+} from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { type HarnessTranscriptCapture, harnessTranscriptUnavailable } from '../harness-transcript'
+import { deepFreezeCandidate } from '../../candidate-execution/digest'
+import {
+  captureHarnessTranscript,
+  type HarnessTranscriptCapture,
+  harnessTranscriptUnavailable,
+} from '../harness-transcript'
 import type { RetainedRunHandle } from '../retained-run-types'
 import { RunCancellationReason } from '../supervise/abortable'
 import type { TeardownAnswer } from '../supervise/deadline'
@@ -70,6 +79,38 @@ export class ProviderExecutorState {
       this.callerSignal?.reason instanceof RunCancellationReason ||
       this.runSignal?.reason instanceof RunCancellationReason
     )
+  }
+
+  /** Bind environment bytes to their admitted execution, without inventing a native session. */
+  async captureTranscript(
+    scope: ProviderExecutorScope,
+    environment: AgentEnvironment,
+    signal?: AbortSignal,
+  ): Promise<HarnessTranscriptCapture> {
+    const capture = await captureHarnessTranscript(environment, scope.profile.harness, signal)
+    const controlRef = this.workspaceControlRef
+    if (
+      capture.status !== 'captured' ||
+      !scope.node ||
+      controlRef?.environmentId !== environment.id
+    )
+      return capture
+    return deepFreezeCandidate({
+      ...capture,
+      artifact: {
+        ...capture.artifact,
+        source: {
+          executionId: this.workspaceExecutionId,
+          controlRef,
+          node: scope.node,
+          environmentId: environment.id,
+          profileDigest: canonicalAgentProfileDigest(scope.createProfile),
+          providerSessionId: controlRef.sessionId,
+          nativeSessionId: null,
+          coverageComplete: false,
+        },
+      },
+    })
   }
 
   /** Forget the capture generation: the next one owns its own snapshot, receipts and verdicts. */

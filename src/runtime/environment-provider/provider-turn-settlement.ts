@@ -1,5 +1,4 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
-import { captureHarnessTranscript } from '../harness-transcript'
 import { retainedSessionReplaced } from '../retained-run-binding'
 import type { SandboxOutcomeCarrier } from '../sandbox-outcome'
 import { errorText } from '../supervise/error-message'
@@ -63,9 +62,9 @@ export class ProviderTurnSettlement {
   /** Read the provider transcript while its environment is still available. */
   private async readLiveTranscript(): Promise<void> {
     const { args } = this
-    args.scope.state.harnessTranscript = await captureHarnessTranscript(
-      this.environment as Parameters<typeof captureHarnessTranscript>[0],
-      args.profile.harness,
+    args.scope.state.harnessTranscript = await args.scope.state.captureTranscript(
+      args.scope,
+      this.environment,
       args.signal,
     )
   }
