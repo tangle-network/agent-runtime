@@ -36,6 +36,10 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/in-memory-spawn-stores'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { projectPursuit } from '../../src/durable/observer-projection'
 import { closesCursorSlot } from '../../src/durable/spawn-journal/event-index'
@@ -47,9 +51,20 @@ import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import { sumSpendFromEvents } from '../../src/runtime/supervise/recover-executors'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import {
+  bindScopeRetainedOwnerProvider,
+  noteScopeRetainedOwnerCoordination,
+  prepareScopeRetainedOwnerTask,
+  registerScopeRetainedOwner,
+  releaseScopeRetainedOwnerEnvironment,
+  retainedOwnerReleaseRetriable,
+  scopeRetainedOwnerCheckpointing,
+  scopeRetainedOwnerContext,
+} from '../../src/runtime/supervise/retained-scope-owner'
+import {
   createFileRunContext,
   createInMemoryRunContext,
 } from '../../src/runtime/supervise/run-context'
+import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
@@ -63,6 +78,7 @@ import type {
   SupervisorOpts,
 } from '../../src/runtime/supervise/types'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
+import { forbiddenCheckpointForks } from '../helpers/checkpoint-capture'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { testAgentProfile } from './test-agent-profile'
 
@@ -1378,6 +1394,157 @@ describe('retained environments at root settlement', () => {
       releaseUnconfirmed: 1,
     })
   })
+  // agent-runtime 9.0.1 on tangle-sandbox: every nested worker's box was destroyed, yet each kept
+  // its restore-point checkpoints "uncaptured" (no capture writer exists) and a destroy that failed
+  // once was never asked again, so 9 of 9 research managers with workers ended teardown-unconfirmed.
+  it.each(['an uncaptured restore-point checkpoint', 'a box destroy that failed once'] as const)(
+    "confirms a nested manager whose worker's box held %s",
+    async (shape) => {
+      const box = { live: true, destroys: 0, checkpoints: new Set<string>() }
+      const environment: AgentEnvironment = {
+        id: 'worker-box',
+        provider: 'owner-box',
+        status: async () => 'running',
+        async *stream() {},
+        write: async () => {},
+        destroy: async () => {
+          box.destroys += 1
+          if (shape === 'a box destroy that failed once' && box.destroys === 1)
+            throw new Error('504 Gateway Timeout: delete still running')
+          box.live = false
+        },
+        workspaceBranching: {
+          checkpoint: async (request) => {
+            box.checkpoints.add(request.idempotencyKey)
+            return {
+              status: 'created',
+              idempotencyKey: request.idempotencyKey,
+              requestDigest: request.requestDigest,
+              checkpoint: {
+                checkpointId: request.idempotencyKey,
+                provider: 'owner-box',
+                source: request.source,
+                idempotencyKey: request.idempotencyKey,
+                requestDigest: request.requestDigest,
+                createdAt: new Date(0).toISOString(),
+              },
+            }
+          },
+          lookupCheckpoint: async (input) => ({ ...input, status: 'not_found' }),
+          deleteCheckpoint: async (request) => {
+            box.checkpoints.delete(request.targetId)
+            return { ...request, status: 'deleted' }
+          },
+          ...forbiddenCheckpointForks,
+        },
+      }
+      const ownerProvider: AgentEnvironmentProvider = {
+        name: 'owner-box',
+        capabilities: async () => ({ create: { workspaceCheckpoint: true } }),
+        create: async () => environment,
+        get: async (id) => (id === environment.id && box.live ? environment : null),
+      }
+      const context = createInMemoryRunContext({ withDriver: true })
+      const worker = driverChild(
+        testAgentProfile('worker'),
+        {
+          name: 'worker',
+          async act(_task, scope) {
+            bindScopeRetainedOwnerProvider(scope, ownerProvider)
+            await prepareScopeRetainedOwnerTask(scope, 'work')
+            const owner = scopeRetainedOwnerContext(scope)!
+            const executionId = owner.executionId
+            await owner.onAdmission({
+              phase: 'intent',
+              provider: ownerProvider.name,
+              sessionId: 'worker-session',
+              executionId,
+              idempotencyKey: 'worker-input',
+              turnId: 'worker-turn',
+              runId: 'root',
+              requestedProfileDigest: `sha256:${'b'.repeat(64)}`,
+              requestDigest: `sha256:${'a'.repeat(64)}`,
+            })
+            await owner.onAdmission({
+              phase: 'environment',
+              provider: ownerProvider.name,
+              environmentId: environment.id,
+              sessionId: 'worker-session',
+              executionId,
+              idempotencyKey: 'worker-input',
+              turnId: 'worker-turn',
+            })
+            await owner.onAdmission({
+              phase: 'dispatched',
+              controlRef: {
+                runId: 'root',
+                provider: ownerProvider.name,
+                environmentId: environment.id,
+                sessionId: 'worker-session',
+                executionId,
+                requestDigest: `sha256:${'a'.repeat(64)}`,
+              },
+              idempotencyKey: 'worker-input',
+              turnId: 'worker-turn',
+            })
+            noteScopeRetainedOwnerCoordination(scope)
+            await scopeRetainedOwnerCheckpointing(scope)
+            expect(box.checkpoints.size).toBe(1)
+            return 'worker done'
+          },
+        },
+        context.journal,
+      )
+      const manager = driverChild(
+        testAgentProfile('manager'),
+        {
+          name: 'manager',
+          async act(_task, scope) {
+            expect(
+              scope.spawn(worker, 'work', { budget: { maxIterations: 1, maxTokens: 10 } }).ok,
+            ).toBe(true)
+            expect((await scope.next())?.kind).toBe('done')
+            return 'manager done'
+          },
+        },
+        context.journal,
+      )
+      const result = await createSupervisor<unknown, unknown>().run(
+        {
+          name: 'root',
+          async act(_task, scope) {
+            expect(
+              scope.spawn(manager, 'manage', { budget: { maxIterations: 2, maxTokens: 20 } }).ok,
+            ).toBe(true)
+            await scope.next()
+            return 'finished'
+          },
+        },
+        'task',
+        { ...context, runId: 'root', budget: { maxIterations: 4, maxTokens: 100 } },
+      )
+      expect(result.kind, JSON.stringify(result)).toBe('winner')
+      expect(box).toMatchObject({ live: false, checkpoints: new Set() })
+      expect(result.teardownUnconfirmed).toBeUndefined()
+      const receipts = releaseReceipts(
+        (await context.journal.loadTree('root/root:s0/root:s0:s0')) ?? [],
+      )
+      if (shape === 'a box destroy that failed once') {
+        // The worker had confirmed before this failure; only the settlement retry destroyed the box.
+        expect(box.destroys).toBe(2)
+        expect(receipts).toMatchObject([
+          { destroyed: false, detail: expect.stringContaining('504 Gateway Timeout') },
+          { destroyed: true },
+        ])
+      } else expect(receipts).toMatchObject([{ destroyed: true }])
+      for (const tree of ['root', 'root/root:s0', 'root/root:s0/root:s0:s0'])
+        expect(
+          ((await context.journal.loadTree(tree)) ?? []).filter(
+            (event) => event.kind === 'teardown-unconfirmed',
+          ),
+        ).toEqual([])
+    },
+  )
 })
 
 /**
@@ -1973,4 +2140,135 @@ describe('a crash between the receipt and the released record heals on the next 
       releaseUnconfirmed: 0,
     })
   })
+})
+
+/**
+ * Sandbox seals a retained workspace before it answers a delete, so the delete grows with the
+ * workspace: measured 2026-11-11 on the Tangle Sandbox, 2 to 4 s for 1 MB, 30 s for 300 MB and 72 s
+ * for 1 GB. On rehearsed-futures-nested-fork-20261111b every worker's first release gave up at 30 s
+ * while its delete went on; each later release reconnected to a box already being removed, whose
+ * sidecar answered 503 `project_deprovisioning`, and 21 of 22 teardown receipts stayed unconfirmed.
+ */
+describe('a manager environment whose delete outlasts the release wait', () => {
+  it('joins the delete in flight on the next release and confirms it without reconnecting', async () => {
+    const environmentId = 'slow-delete-environment'
+    const events: SpawnEvent[] = []
+    let gets = 0
+    let destroys = 0
+    let deleting = false
+    let removed = false
+    let finishDelete = (): void => {}
+    const deleted = new Promise<void>((resolve) => {
+      finishDelete = resolve
+    })
+    const environment: AgentEnvironment = {
+      id: environmentId,
+      provider: 'slow-delete-provider',
+      status: async () => 'running',
+      async *stream() {},
+      async destroy() {
+        destroys += 1
+        deleting = true
+        await deleted
+        removed = true
+      },
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: 'slow-delete-provider',
+      capabilities: async () => ({}),
+      create: async () => {
+        throw new Error('release must not create an environment')
+      },
+      async get(id) {
+        gets += 1
+        if (id !== environmentId || removed) return null
+        // A native-capture reconnect reads the selected backend from the sidecar, which a box
+        // being removed no longer serves.
+        if (deleting)
+          throw new Error('native capture requires the current selected backend before reconnect', {
+            cause: new Error(
+              `HTTP 503: Sidecar with id ${id} is not ready: project_deprovisioning`,
+            ),
+          })
+        return environment
+      },
+    }
+    let failure: unknown
+    await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'slow-delete-owner',
+        async act(_task, scope) {
+          try {
+            registerScopeRetainedOwner(scope, {
+              rootId: 'slow-delete-root',
+              nodeId: 'slow-delete-root',
+              blobs: new InMemoryResultBlobStore(),
+              priorEvents: [],
+              now: () => 0,
+              journal: {
+                loadTree: async () => [...events],
+                beginTree: async () => {},
+                appendEvent: async (_root, event) => {
+                  events.push(event)
+                },
+              },
+            })
+            bindScopeRetainedOwnerProvider(scope, provider)
+            await scopeRetainedOwnerContext(scope)!.onAdmission({
+              phase: 'environment',
+              provider: provider.name,
+              environmentId,
+              idempotencyKey: 'slow-delete-key',
+              turnId: 'slow-delete-turn',
+              sessionId: 'slow-delete-session',
+              executionId: 'slow-delete-execution',
+            })
+
+            // The delete outlasts the first release's wait: unconfirmed, and worth asking again.
+            expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([
+              expect.objectContaining({
+                label: 'scope owner',
+                environments: [{ provider: provider.name, environmentId }],
+              }),
+            ])
+            expect(retainedOwnerReleaseRetriable(scope)).toBe(true)
+            // A release while the delete still runs waits on that delete, not on a reconnect.
+            expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([
+              expect.objectContaining({
+                environments: [{ provider: provider.name, environmentId }],
+              }),
+            ])
+            finishDelete()
+            expect(await releaseScopeRetainedOwnerEnvironment(scope, { destroyMs: 50 })).toEqual([])
+            expect(retainedOwnerReleaseRetriable(scope)).toBe(false)
+          } catch (error) {
+            failure = error
+          }
+        },
+      },
+      'test',
+      {
+        runId: 'slow-delete-root',
+        budget: { maxIterations: 2, maxTokens: 10 },
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+      },
+    )
+    if (failure) throw failure
+    expect({ gets, destroys }).toEqual({ gets: 1, destroys: 1 })
+    expect(releaseReceipts(events).map(({ destroyed, detail }) => ({ destroyed, detail }))).toEqual(
+      [
+        {
+          destroyed: false,
+          detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /),
+        },
+        {
+          destroyed: false,
+          detail: expect.stringMatching(/^retained owner environment cleanup was not confirmed: /),
+        },
+        { destroyed: true },
+      ],
+    )
+  }, 120_000)
 })

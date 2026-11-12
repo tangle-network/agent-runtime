@@ -35,6 +35,7 @@ import { sha256 } from '../../content-digest'
 import { fenceRunWrite } from '../../durable/run-fence'
 import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { RetainedRunEffect } from '../retained-run-types'
+import type { DriverAttemptStop } from './driver-attempt-evidence'
 import {
   appendDurableFile,
   assertNoSymlinkDescendant,
@@ -81,6 +82,8 @@ export interface WorkerSteerAcknowledgement {
   readonly requestedAt: string
   readonly observedAt: string
   readonly detail: string
+  /** The stop a paused root holds this steer on; `tokensLeft` when tokens are capped. */
+  readonly pausedOn?: { readonly stop: DriverAttemptStop; readonly tokensLeft?: number }
 }
 
 /** Caller input for one retry-safe steer operation. @stable */
@@ -819,7 +822,8 @@ function parseWorkerSteerAcknowledgement(value: unknown): WorkerSteerAcknowledge
       record.effect !== 'refused') ||
     typeof record.requestedAt !== 'string' ||
     typeof record.observedAt !== 'string' ||
-    typeof record.detail !== 'string'
+    typeof record.detail !== 'string' ||
+    (record.pausedOn !== undefined && typeof record.pausedOn?.stop !== 'string')
   ) {
     throw new Error('steer acknowledgement is malformed')
   }

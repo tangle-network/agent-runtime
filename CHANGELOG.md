@@ -1,3 +1,47 @@
+## 9.0.10
+
+Retain declared graph-check files through the host's artifact store on success and failure, with secret redaction, complete capture receipts and explicit recovery custody when capture is incomplete. Pass event data through canonical GRAPH_INPUT files bound to the run's resume identity.
+
+Export the portable graph need schema alongside the graph file schema so clients can validate provider bindings and generated API documentation resolves GraphFileNeed.
+
+Graph files can select provider accounts and narrow tool capabilities through portable needs, retaining host-owned connection resolution and refusing grants outside the host binding.
+
+## 9.0.9
+
+Reopening a settled subscription run rebinds its last non-exhausted account without demanding a native credential switch on its retired environment.
+
+## 9.0.8
+
+A manager's retained environment release waits up to 5 minutes for its destroys instead of a fixed 30 s, and starts all of an owner's destroys together under that one deadline. A destroy that outlasts the wait keeps running and the owner's next release joins it, instead of reconnecting to a box being removed (which failed with `HTTP 503 ... project_deprovisioning`). A failed destroy, or one in flight for 15 minutes, is asked again at the next release, where an absent environment confirms it. No native stop is sent to a box whose delete is in flight. Retention and checkpoint holds are unchanged.
+
+## 9.0.7
+
+The per-receipt token grant stop counts a driver's committed spend (its own and its settled children's), not its children's open reservations. A parent whose child reserved its remaining grant, such as a child spawned without a budget, is no longer cancelled and failed mid-turn: its turn runs to its boundary, where the existing budget check ends the drive without a failure. A node whose committed spend reaches its grant is still cut within one usage receipt, and its spend into reservations it handed out is bounded by the turn it happens in.
+
+## 9.0.6
+
+The development pins move with it: `@tangle-network/sandbox` 1.0.376, whose types carry agent-interface 5.10.23's `exo` harness, and one deduplicated copy of each in the lockfile.
+
+Publishes 9.0.5's rate-limit hold. The 9.0.5 tag never reached npm: its packed-consumer check resolved `@tangle-network/agent-profile-materialize` 1.1.103, published a minute before, whose `@tangle-network/agent-interface` peer floor ^5.10.23 refused the 5.10.22 development pin. Runtime source and its published ranges are unchanged.
+
+## 9.0.5
+
+A rate-limited or overloaded driver (429, 529, `rate_limit_*`, and Z.ai GLM's bare rate-limit text) no longer ends as `repeated-failure`: a finished turn the upstream refused for rate pauses with the doubling capacity wait until the upstream answers, the budget or the deadline. Credential and placement refusals, and an in-doubt execution the upstream keeps refusing, still settle after three unchanged drives.
+
+## 9.0.4
+
+A settled owner deletes its restore-point checkpoints instead of keeping them as "uncaptured", so a nested manager whose workers' boxes are destroyed settles with its teardown confirmed. A nested owner's environment destroy that failed is asked again at settlement, and its unconfirmed receipt names the provider's error. A descendant that only keeps a box as evidence no longer marks its manager's teardown unconfirmed; the kept box stays named in `teardownUnconfirmed[].kept`.
+
+`skills/profile-authoring/SKILL.md` is the procedure only, 7,492 of 17,241 bytes; harness tool ids, Runtime verbs, the starting leaf and method detail move to `references/`, which the skill names with when to read each.
+
+A retained execution whose exact-result read fails (for example a Sandbox result replay that times out after 30 s) keeps observing its open stream and reads the result again, instead of failing at once with "retained provider stream remained open after its exact result".
+
+A retained execution reconnects to the same execution through a planned host-agent restart (Sandbox 503 `HOST_AGENT_RESTARTING`) for up to 3 minutes instead of failing "lost its transport; status in doubt".
+
+A root steer the manager reads in its own journal is acknowledged `delivered` at the read, so a turn that later fails no longer reports it `not_live`; a root steer queued while the root is stop-paused carries `pausedOn` (`stop`, and `tokensLeft` when tokens are capped) on its acknowledgement at once.
+
+A worker's token grant is enforced inside its turn: after each usage receipt, a driver node whose charged tokens (input − cacheRead + output) plus its children's open reservations reach its grant is stopped through its budget stop. A retained provider run is cancelled at once, so it overspends by at most one receipt; bridge and non-retained provider turns still end at their turn boundary, and a harness that reports usage only when its turn ends is bounded by that turn. Settlement now exposes `ownSpent` on each tree node (its own work, without descendants; `spent` stays the subtree its grant bounds) and `spentSplit: { root, children }` on the result, each counting every node once. An unknown token sample no longer pins a nested node's reservation at its cap minus reported spend: unknown token counts stay a lower bound, so a settled node's grant returns to its parent.
+
 ## 9.0.3
 
 A box check whose process log stream ends before its exit event reads the output the box retains again, within the check's timeout, and settles on the real exit instead of `refused`.

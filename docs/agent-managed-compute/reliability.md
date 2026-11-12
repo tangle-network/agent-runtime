@@ -144,8 +144,7 @@ The normal child cleanup barrier still runs; explicit cancellation never turns a
 An old source mutated by a later invocation cannot be reconstructed as historical evidence.
 `tests/runtime/retained-capture-resume.test.ts` covers real coordinator loss, direct historical receipt verification and cold native custody.
 An accepted submission still gets the bounded grace owned by the deadline policy, and a nested manager's release still waits for its drive and acknowledged end-of-turn work.
-Ordinary checkpoint cleanup requires an existing verified capture receipt; missing capture keeps the checkpoint without requiring a source solely for a retired capture writer.
-The existing provider-capacity retirement path may delete an old checkpoint only through its exact cleanup acknowledgement.
+Checkpoints are restore points: rotation and release delete them through the exact cleanup acknowledgement, except those of a source whose evidence is incomplete.
 Historical capture forks remain custody obligations until their provider confirms destruction.
 A `not_found` answer for a checkpoint request older than the source-owned lookup window no longer keeps the source environment alive.
 Recoverable tool failures inside a completed turn do not fail the child.
@@ -482,6 +481,8 @@ Each child must declare every resource enforced by its parent, with matching uni
 Known settlement commits measured usage and refunds the unused allocation.
 An overrun is committed and recorded on the settlement as `budgetViolation`, naming each overspent channel with its reserved and spent amounts.
 It does not change the outcome: a child that completed settles `done` with its output, and later reservations are refused from the reduced balance.
+A driver's token grant is checked in charged tokens (input − cacheRead + output) after each usage receipt: a node whose committed spend (its own and its settled children's) reaches its grant is stopped through its budget stop. Children's open reservations are held, not spent: a parent they leave without headroom is never cut mid-turn, and its turn ends at its boundary through the budget stop, without a failure. A retained provider run is cancelled at once, so its overrun is at most one receipt; a bridge or non-retained provider turn ends at its turn boundary, and a harness that reports usage only at its turn's end is bounded by that turn.
+A node's `spent` is its subtree, which its grant bounds; `ownSpent` is its own work, and the result's `spentSplit` gives the root's own spend and its children's, each node counted once.
 Missing or unknown enforced measurements close admission for that dimension.
 An omitted measurement becomes unknown, including when an executor terminates or cancellation interrupts reporting.
 Only a proven refusal before execution can refund an unmeasured allocation as known zero.

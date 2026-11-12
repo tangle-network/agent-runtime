@@ -29,6 +29,7 @@ import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
   jitteredMs,
+  RATE_LIMIT_SIGNALS,
   reportedResetAt,
   unavailablePauseMs,
   unavailableResumeAt,
@@ -425,8 +426,19 @@ export class DriverRetryLoop {
       pending,
     }
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
+    // A named rate limit or overload on a run with a deadline is never a repeated failure: the run
+    // pauses with growing waits until the upstream answers, its budget or its deadline
+    // (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM plan). Quota and
+    // billing 429s, credential and placement refusals, an in-doubt execution, and any refusal on a
+    // run without a deadline still settle after three unchanged drives.
     if (
       classification !== 'terminal' &&
+      !(
+        classification === 'unavailable' &&
+        pending === undefined &&
+        this.run.budget().deadlineMs > 0 &&
+        RATE_LIMIT_SIGNALS.has((upstreamUnavailableSignal(error) ?? '').toLowerCase())
+      ) &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
       (this.sameIdle?.count ?? 0) >= SAME_CAUSE_LIMIT
@@ -453,7 +465,7 @@ export class DriverRetryLoop {
     else await this.retry(failure)
   }
 
-  // Capacity waits do not charge failure allowances; the unchanged-cause ceiling still applies.
+  // Capacity waits charge no failure allowance; only rate limits are exempt from the unchanged-cause ceiling.
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure

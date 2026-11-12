@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { resolveJsonPointer } from '../../mcp/tools/coordination-map-routing'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
+import { validateIsolatedCheckOutputs } from '../isolated-checker-outputs'
 import { portableContinuationPolicySchema } from './continuation-data'
 
 const scalar = z.union([z.string(), z.number().finite(), z.boolean(), z.null()])
@@ -24,6 +25,17 @@ const command = z.strictObject({
 })
 const nonnegativeInteger = z.number().int().nonnegative()
 
+/** Portable provider selection; credentials and concrete connection IDs belong to the host. */
+export const graphFileNeedSchema = z.union([
+  z.string().trim().min(1),
+  z.strictObject({
+    provider: z.string().trim().min(1),
+    account: z.string().trim().min(1).optional(),
+    capabilities: z.array(z.string().trim().min(1)).min(1),
+    alias: z.string().trim().min(1).optional(),
+  }),
+])
+
 /** A check node's command: no model, no seat. Params substitute as elsewhere. */
 export const graphCheckNodeSchema = z.strictObject({
   command: z.string().min(1),
@@ -32,6 +44,7 @@ export const graphCheckNodeSchema = z.strictObject({
   egress: z.array(z.string().min(1)).optional(),
   runtime: z.enum(['docker', 'firecracker']).optional(),
   secrets: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
+  outputs: z.unknown().transform(validateIsolatedCheckOutputs).optional(),
   resources: z
     .strictObject({
       cpuCores: z.number().positive().optional(),
@@ -53,7 +66,7 @@ export const graphFileSchema = z.strictObject({
         id: z.string().min(1),
         profile: z.record(z.string(), z.unknown()).optional(),
         seat: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]).optional(),
-        needs: z.array(z.string().min(1)).optional(),
+        needs: z.array(graphFileNeedSchema).optional(),
         check: graphCheckNodeSchema.optional(),
       }),
     )

@@ -4,7 +4,7 @@ import {
   canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
-import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
+import { addSpend as addRetainedSpend, chargedTokens, unmeteredSpend, zeroSpend } from '../util'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { HarnessTurnFailedError } from './driver-attempt-evidence'
 import { errMessage } from './error-message'
@@ -259,6 +259,22 @@ export class DriverExecutionAttempt {
     this.stops.budgetStop.abort(`supervise: budget exhausted (${spent})`)
   }
 
+  // Charged tokens (input − cacheRead + output) per receipt cut a turn at its grant (s4:s8: 328,290 of
+  // 6,200); children's held reservations end the turn at its boundary in `meterPending`, never here.
+  private stopAtGrant(): void {
+    if (this.stops.signal.aborted) return
+    const projected = newUsageTotals(spendFromUsageTotals(this.ownerUsage))
+    for (const event of this.pendingUsage) meterUsageEvent(projected, event)
+    const unmetered = ownerSpendDelta(
+      spendFromUsageTotals(projected),
+      this.retainedOwner ? this.committedOwnerSpend : this.observedOwnerSpend,
+    )
+    const { budget } = this.scope
+    const left = budget.tokensLeft + budget.reservedTokens - chargedTokens(unmetered.tokens)
+    if (budget.tokensCapped === false || left > 0) return
+    this.stops.budgetStop.abort(`supervise: budget exhausted (tokens: ${-left} over the cap)`)
+  }
+
   private async publishMaterialization(
     exactDeclaration: ExecutorMaterialization,
     exactBinding: ExecutorExecutionBinding,
@@ -385,6 +401,7 @@ export class DriverExecutionAttempt {
         sink.onModelEvent?.()
       } else {
         this.pendingUsage.push(event)
+        if (event.kind === 'tokens') this.stopAtGrant()
       }
     }
     await this.meterPending()

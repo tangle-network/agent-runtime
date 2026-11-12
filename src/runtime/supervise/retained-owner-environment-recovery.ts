@@ -13,11 +13,19 @@ export function restoreBefore(
   inputIndex: number,
 ): CheckpointEvent | undefined {
   const unusable = unusableEnvironmentIds(owned)
+  // Rotation deletes superseded checkpoints; restore from the newest one still held.
+  const deleted = new Set(
+    owned.flatMap((event) =>
+      event.kind === 'workspace-checkpoint-cleanup' && event.confirmed ? [event.checkpointId] : [],
+    ),
+  )
   return owned
     .slice(0, inputIndex < 0 ? owned.length : inputIndex)
     .filter(
       (event): event is CheckpointEvent =>
-        event.kind === 'workspace-checkpoint' && unusable.has(event.environmentId),
+        event.kind === 'workspace-checkpoint' &&
+        unusable.has(event.environmentId) &&
+        !deleted.has(event.checkpoint.checkpointId),
     )
     .at(-1)
 }

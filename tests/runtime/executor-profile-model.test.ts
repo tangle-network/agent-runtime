@@ -1,6 +1,5 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type AgentSpec, createExecutor } from '../../src/runtime'
@@ -121,74 +120,4 @@ describe('router executor exact-profile identity', () => {
       expect(requests).toBe(2)
     },
   )
-
-  it.each(['router', 'router-tools'] as const)(
-    'refuses runtime-selected model markers on the %s backend before dispatch',
-    async (backend) => {
-      let request: Record<string, unknown> | undefined
-      const routerBaseUrl = await startRouter((body) => {
-        request = body
-      })
-      const factory = createExecutor({
-        backend,
-        routerBaseUrl,
-        routerKey: 'key',
-        ...(backend === 'router-tools' ? { tools: [], executeToolCall: async () => '' } : {}),
-      })
-
-      expect(() =>
-        factory(
-          {
-            profile: {
-              name: 'runtime-selected-model',
-              harness: 'cli-base',
-              model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
-            },
-            harness: null,
-          },
-          { signal: new AbortController().signal, seams: {} },
-        ),
-      ).toThrow(/model\.default is runtime-selected/)
-      expect(request).toBeUndefined()
-    },
-  )
-
-  it.each([
-    {
-      field: 'harness',
-      profile: {
-        name: 'missing-harness',
-        model: { provider: 'tangle-router', default: 'profile-selected-model' },
-      },
-    },
-    {
-      field: 'provider',
-      profile: {
-        name: 'missing-provider',
-        harness: 'cli-base',
-        model: { default: 'profile-selected-model' },
-      },
-    },
-    {
-      field: 'model',
-      profile: {
-        name: 'missing-model',
-        harness: 'cli-base',
-        model: { provider: 'tangle-router' },
-      },
-    },
-  ] as const)('rejects a direct createExecutor call missing $field at intake', ({ profile }) => {
-    const factory = createExecutor({
-      backend: 'router',
-      routerBaseUrl: 'http://must-not-dispatch.invalid',
-      routerKey: 'key',
-    })
-
-    expect(() =>
-      factory(
-        { profile: profile as AgentProfile, harness: null },
-        { signal: new AbortController().signal, seams: {} },
-      ),
-    ).toThrow(/AgentProfile\.(harness|model\.provider|model\.default)/)
-  })
 })

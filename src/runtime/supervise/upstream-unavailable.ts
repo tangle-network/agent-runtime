@@ -23,6 +23,15 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'provisioning_paused',
 ])
 
+/** Rate limits and overload: a wait clears them, so they never end a run as a repeated failure. */
+export const RATE_LIMIT_SIGNALS: ReadonlySet<string> = new Set([
+  'provider_rate_limit',
+  'rate_limit_exceeded',
+  'rate_limit_error',
+  'overloaded_error',
+  'http-529',
+])
+
 /** 429 Too Many Requests, 503 Service Unavailable, and 529, which Anthropic uses for overload. */
 export const UNAVAILABLE_STATUSES: ReadonlySet<number> = new Set([429, 503, 529])
 
@@ -31,6 +40,8 @@ export function unavailableSignalInText(text: string): string | undefined {
   for (const token of text.toLowerCase().matchAll(/[a-z_]+/gu)) {
     if (UNAVAILABLE_CODES.has(token[0])) return token[0]
   }
+  // Z.ai's GLM plan states its 429 only as this sentence when opencode drops the code.
+  if (text.includes('您的账户已达到速率限制')) return 'provider_rate_limit'
   const status = printedStatus(text)
   return status !== undefined && UNAVAILABLE_STATUSES.has(status) ? `http-${status}` : undefined
 }

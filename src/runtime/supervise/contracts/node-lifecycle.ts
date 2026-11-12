@@ -260,8 +260,10 @@ export interface NodeSnapshot {
   readonly settledAt?: number
   /** Epoch ms of the spawn journal record; absent when legacy evidence lacks a parseable `at`. */
   readonly spawnedAt?: number
-  /** Conserved spend so far for this node. */
+  /** Conserved spend so far for this node and its descendants; its grant bounds this. */
   readonly spent: Spend
+  /** This node's own work without its descendants', set at settlement; sums count nodes once. */
+  readonly ownSpent?: Spend
   /** Finished execution whose result the manager has not read. Terminal status/failure are
    * published after durable settlement, independently of this delivery marker. */
   readonly settlementPending?: { readonly kind: 'done' | 'down' }

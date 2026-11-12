@@ -867,9 +867,34 @@ describe('a shape change is classified from the declarations it was built from',
   const callable = (member: string) =>
     `export interface Drive {\n  (args: {\n  readonly cwd: string;\n${member}}): void;\n}\n`
 
+  // An untagged union of an object and an intersection, the shape of SupervisedResult (9.0.4).
+  const variants = (member: string, rest = '  readonly attempts: number;\n') =>
+    `export type Outcome =\n  | {\n  readonly winner: string;\n${member}}\n  | ({\n${rest}${member}} & ({ readonly a: 1 } | { readonly b: 2 }));\n`
+
   it.each([
     ['an options interface', options],
+    [
+      'an interface with a public parent',
+      (member: string) =>
+        `export interface Parent { readonly cwd: string; } export interface StartOptions extends Parent { ${member} }`,
+    ],
+    [
+      'an interface with literal Pick keys',
+      (member: string) =>
+        `export interface Parent { readonly cwd: string; readonly skip?: boolean; } export interface StartOptions extends Pick<Parent, 'cwd' | 'skip'> { ${member} }`,
+    ],
+    [
+      'an interface with tuple-derived Pick keys',
+      (member: string) =>
+        `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = (typeof keys)[number]; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`,
+    ],
+    [
+      'an interface with excluded tuple-derived Pick keys',
+      (member: string) =>
+        `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = Exclude<(typeof keys)[number], 'skip'>; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`,
+    ],
     ['a callable interface argument', callable],
+    ['each variant of an untagged union', (member: string) => variants(member)],
   ])(
     'asks a patch for an added optional member of %s and a major for an added required one',
     async (_form, options) => {
@@ -890,4 +915,49 @@ describe('a shape change is classified from the declarations it was built from',
       expect(failure.stderr).toContain('breaking change needing a major bump')
     },
   )
+
+  it('does not classify a narrowed inherited optional property as an additive extension', async () => {
+    const inherited = (own: string) =>
+      `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-heritage-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', inherited(''))
+    await publish(root, 'v1.0.0')
+    await build(root, '1.0.1', inherited('readonly mode?: string;'))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
+
+  it('reads an inferred promised union part by part: an optional member is a patch, a removed one a major', async () => {
+    const promised = (member: string, rest = '  readonly attempts: number;\n') =>
+      `export declare function run(): Promise<{\n  readonly winner: string;\n${member}} | {\n${rest}${member}}>;\n`
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', promised(''))
+    await publish(root, 'v1.0.0')
+    await build(root, '1.0.1', promised('  readonly journalRoot?: string;\n'))
+    await expect(check(root, released)).resolves.toMatchObject({
+      stdout: expect.stringContaining('needing a patch bump, paid for by 1.0.0 -> 1.0.1 (patch)'),
+    })
+    await build(root, '1.0.1', promised('', ''))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
+
+  it.each([
+    ['a removed member', ''],
+    ['a retyped member', '  readonly attempts: string;\n'],
+  ])('asks a major for %s of an untagged union variant', async (_change, rest) => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-shape-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', variants(''))
+    await publish(root, 'v1.0.0')
+    await build(root, '1.0.1', variants('  readonly journalRoot?: string;\n', rest))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('readonly attempts')
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
 })

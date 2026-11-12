@@ -34,6 +34,8 @@ export interface OwnerState {
   nextSequence: () => number
   /** A failed or unanswered destroy, not a source preserved on purpose. */
   releaseRetriable?: boolean
+  /** Each environment's destroy in flight, joined by every later release until it succeeds. */
+  destroys?: Map<string, { readonly destroy: Promise<void>; readonly since: number }>
   taskRef?: string
   accepted?: ExecutorResult<unknown>
   acceptedRef?: Extract<SpawnEvent, { kind: 'execution-result' }>
@@ -45,9 +47,7 @@ export interface OwnerState {
   lastCheckpointAt?: number
   /** Set once checkpoints cannot be taken for this owner, with why; no later call retries. */
   checkpointsUnavailable?: string
-  /** Captures this process refused. Rotation keeps them; release tries each once more. */
-  captureRefused?: Set<string>
-  /** Stops a rotation's captures when the turn's own workspace capture starts. */
+  /** Stops a rotation's checkpoint deletes when the turn's own workspace capture starts. */
   rotationCaptures?: AbortController
   /** The drive in progress: from before its executor exists until its turn has ended. */
   drive?: Promise<void>

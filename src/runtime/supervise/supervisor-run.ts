@@ -459,6 +459,7 @@ async function settleRootResult<Out>(settled: RootSettlement<Out>): Promise<Supe
         ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
         ...(accounting.gaps.length > 0 ? { spendGaps: accounting.gaps } : {}),
         fleetYield: accounting.fleetYield,
+        spentSplit: accounting.spentSplit,
         ...(isNonEmptySpend(accounting.driverInference)
           ? {
               spentBreakdown: {
@@ -483,12 +484,13 @@ async function noWinner<Out>(
   rejection?: DriverRejection,
 ): Promise<SupervisedResult<Out>> {
   const { controller, teardownUnconfirmed, leakedReservations } = settled
-  const { tree, spentTotal, gaps, providerModel, fleetYield, usage } = await terminalAccounting(
-    settled.journal,
-    settled.opts.runId,
-    settled.now() - settled.runEpochMs,
-    settled.opts.requestedProfile,
-  )
+  const { tree, spentTotal, gaps, providerModel, fleetYield, usage, spentSplit } =
+    await terminalAccounting(
+      settled.journal,
+      settled.opts.runId,
+      settled.now() - settled.runEpochMs,
+      settled.opts.requestedProfile,
+    )
   const common = {
     kind: 'no-winner' as const,
     tree,
@@ -500,6 +502,7 @@ async function noWinner<Out>(
     ...(leakedReservations.length > 0 ? { leakedReservations } : {}),
     ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
     fleetYield,
+    spentSplit,
   }
   // Lifecycle causes outrank the driver's own rejection; `undefined` means they explain nothing.
   const lifecycle = classifyNoWinner(

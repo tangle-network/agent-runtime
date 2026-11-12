@@ -438,8 +438,10 @@ const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typ
  *
  *   `name` `name?` `readonly name`  a property     `name()` `name?()`  a method
  *   `(0)` `(1?)` `(...2)` `this`    a parameter    `=>`  the return type
- *   `|<digest>` or `|tag:...` a union variant; `&<digest>` an opaque intersection part
+ *   `|<digest>` or `|tag:...` a union variant, an untagged one with its parts when it has them;
+ *   `&<digest>` an opaque intersection part
  *   `@0` `@1`    a signature of a function value         `<>` type parameters
+ *   `Promise<>`  the value of a `Promise`
  *   `~form`     completely accounted declaration kind; private heritage is flattened
  *   `~call` an interface's call signature; `~<digest>` any other member (index, construct, accessor)
  *
@@ -467,6 +469,39 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
     if (parts === null || '<>' in parts) return null
     const { '~form': _form, ...body } = parts
     return body
+  }
+  // Pick's exact key set lets own members be compared without expanding the generic parent.
+  // A shadowing member stays opaque: an optional redeclaration could narrow an inherited value.
+  const literalKeys = (type, file = module.file, names = new Set()) => {
+    type = unwrap(type)
+    if (type?.type === 'TSLiteralType' && typeof type.literal.value === 'string') return [type.literal.value]
+    const list = type?.type === 'TSUnionType' ? type.types
+      : type?.type === 'TSTupleType' ? type.elementTypes : null
+    if (list) {
+      const keys = list.map((item) => literalKeys(item, file, names))
+      return keys.every((item) => item !== null) ? keys.flat() : null
+    }
+    if (type?.type === 'TSTypeOperator' && type.operator === 'readonly') return literalKeys(type.typeAnnotation, file, names)
+    if (type?.type === 'TSTypeReference' && type.typeName.type === 'Identifier' &&
+        type.typeName.name === 'Exclude' && resolveBinding(file, 'Exclude', ctx) === null &&
+        type.typeArguments?.params.length === 2) {
+      const all = literalKeys(type.typeArguments.params[0], file, names)
+      const removed = literalKeys(type.typeArguments.params[1], file, names)
+      return all && removed ? all.filter((key) => !removed.includes(key)) : null
+    }
+    const query = type?.type === 'TSIndexedAccessType' && type.indexType.type === 'TSNumberKeyword'
+      ? unwrap(type.objectType) : null
+    const name = query?.type === 'TSTypeQuery' ? query.exprName
+      : type?.type === 'TSTypeReference' && !type.typeArguments ? type.typeName : null
+    if (name?.type !== 'Identifier' || names.size >= 64) return null
+    const target = resolveBinding(file, name.name, ctx)
+    if (!target?.file || names.has(originKey(target))) return null
+    const nodes = readModule(target.file, ctx.modules).declarations.get(target.name)
+    if (nodes?.length !== 1) return null
+    const node = nodes[0]
+    const annotation = query ? node.type === 'VariableDeclaration' && node.kind === 'const' && node.declarations.length === 1 && node.declarations[0].id.typeAnnotation?.typeAnnotation
+      : node.type === 'TSTypeAliasDeclaration' && node.typeAnnotation
+    return annotation ? literalKeys(annotation, target.file, new Set([...names, originKey(target)])) : null
   }
   const typePart = (type) => {
     const parts = typeParts(unwrap(type))
@@ -528,7 +563,11 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       return new Set(values.map(([tag]) => JSON.stringify(literalValue(tag)))).size === variants.length
     })
     return Object.fromEntries(variants.map((variant) => {
-      if (candidates.length !== 1) return [`|${digest(variant)}`, 1]
+      if (candidates.length !== 1) {
+        // An untagged variant keeps its parts, so the comparison can pair it with its successor.
+        const part = typePart(variant)
+        return [`|${digest(variant)}`, Array.isArray(part) ? part : 1]
+      }
       const tag = tags(variant).find((member) => memberName(member) === candidates[0])
       return [`|tag:${JSON.stringify([candidates[0], literalValue(tag)])}`, typePart(variant)]
     }))
@@ -542,6 +581,11 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       case 'TSUnionType':
         return unionParts(type.types)
       case 'TSTypeReference':
+        // A promise only hands its value out, so its value compares part by part (an inferred
+        // `Promise<{...} | ...>` return); every other generic stays opaque.
+        if (type.typeName.type === 'Identifier' && type.typeName.name === 'Promise' &&
+          type.typeArguments?.params.length === 1)
+          return { 'Promise<>': typePart(type.typeArguments.params[0]) }
         return type.typeArguments ? null : localParts(type.typeName)
       case 'TSMappedType': {
         const constraint = type.constraint
@@ -580,15 +624,33 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
   let parts = null
   if (node.type === 'TSInterfaceDeclaration') {
     parts = {}
-    for (const parent of node.extends ?? []) {
+    const inheritedNames = new Set()
+    for (const [index, parent] of (node.extends ?? []).entries()) {
       const inherited = parent.typeArguments ? null : localParts(parent.expression)
-      if (inherited === null || Object.keys(inherited).some((key) =>
+      if (inherited === null) {
+        let keys = null
+        if (parent.expression.type === 'Identifier' && parent.expression.name === 'Pick' &&
+            resolveBinding(module.file, 'Pick', ctx) === null && parent.typeArguments?.params.length === 2)
+          keys = literalKeys(parent.typeArguments.params[1])
+        else if (!parent.typeArguments && parent.expression.type === 'Identifier') {
+          const target = resolveBinding(module.file, parent.expression.name, ctx)
+          const stated = partsOfOrigin(target, ctx, seen)
+          if (stated && Object.keys(stated).every((key) => key === '~form' || /^(readonly )?[A-Za-z_$][\w$]*\??$/.test(key)))
+            keys = Object.keys(stated).filter((key) => key !== '~form').map((key) => key.replace(/^readonly /, '').replace(/\?$/, ''))
+        }
+        if (keys === null || keys.some((key) => inheritedNames.has(key))) return null
+        for (const name of keys) inheritedNames.add(name)
+        parts[`extends ${index}`] = digest(parent)
+        continue
+      }
+      if (Object.keys(inherited).some((key) =>
         !/^(readonly )?[A-Za-z_$][\w$]*\??$/.test(key) || key in parts)) return null
       Object.assign(parts, inherited)
+      for (const key of Object.keys(inherited)) inheritedNames.add(key.replace(/^readonly /, '').replace(/\?$/, ''))
     }
     if (node.extends?.length && node.body.body.some((member) =>
       member.type !== 'TSPropertySignature' || member.computed || member.key.type !== 'Identifier' ||
-      Object.keys(parts).some((key) => key.replace(/^readonly /, '').replace(/\?$/, '') === member.key.name))) return null
+      inheritedNames.has(member.key.name))) return null
     memberParts(node.body.body, parts)
   } else if (node.type === 'TSTypeAliasDeclaration') {
     parts = typeParts(unwrap(node.typeAnnotation))

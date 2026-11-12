@@ -101,6 +101,9 @@ export async function stopRetainedNativeExecution(options: {
  * its last turn, so the receipt says so instead of letting a reader take the settled spend as
  * complete.
  */
+/** The phrase a stop description carries when the harness may still be running. */
+export const NATIVE_STOP_UNCONFIRMED = 'it may still be running'
+
 export function describeRetainedNativeStops(stops: ReadonlyArray<RetainedNativeStop>): string {
   return stops
     .map((stop) => {
@@ -112,7 +115,7 @@ export function describeRetainedNativeStops(stops: ReadonlyArray<RetainedNativeS
       }
       return `native execution ${stop.executionId} stop unconfirmed at ${stop.at} (effect ${stop.effect}${
         stop.error === undefined ? '' : `: ${stop.error}`
-      }); it may still be running`
+      }); ${NATIVE_STOP_UNCONFIRMED}`
     })
     .join('; ')
 }

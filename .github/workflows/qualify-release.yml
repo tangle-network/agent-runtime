@@ -324,7 +324,7 @@ jobs:
           python -m venv "$grader/terminal-bench" && "$grader/terminal-bench/bin/pip" install -q terminal-bench==0.2.18
           npm install --prefix "$grader" --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/agent-bench-package/*.tgz
           package="$grader/node_modules/@tangle-network/agent-bench"
-          PYTHONPATH="$package" AGENT_BENCH_PYTHON="$grader/swebench/bin/python" TERMINAL_BENCH_VENV="$grader/terminal-bench" \
+          DOCKER_CONFIG="${DOCKER_CONFIG:-$HOME/.docker}" HOME="$grader/home" PYTHONPATH="$package" AGENT_BENCH_PYTHON="$grader/swebench/bin/python" TERMINAL_BENCH_VENV="$grader/terminal-bench" \
             node "$package/scripts/grade-recorded-evidence.mjs" \
             "$GITHUB_WORKSPACE/bench/evidence/public-agent-benchmarks-20260924"
       - name: Upload exact agent-bench archive

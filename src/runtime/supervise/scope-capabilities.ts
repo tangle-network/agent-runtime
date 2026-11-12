@@ -3,6 +3,7 @@ import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import type { TeamProgress } from './progress'
 import {
   releaseScopeRetainedOwnerEnvironment,
+  retainedOwnerReleaseRetriable,
   scopeRetainedOwnerSettled,
 } from './retained-scope-owner'
 import type { LiveChild } from './scope-contract'
@@ -194,8 +195,12 @@ async function releaseNestedManagerEnvironments(scope: Scope<unknown>): Promise<
   await Promise.all(
     nestedManagerScopes(scope).map(async (nested) => {
       await releaseNestedManagerEnvironments(nested)
-      // One a retained release already reached keeps that release's answer.
-      if (!ownerUnconfirmedByScope.has(nested)) await releaseManagerEnvironment(nested)
+      const prior = ownerUnconfirmedByScope.get(nested)
+      if (prior === undefined) await releaseManagerEnvironment(nested)
+      // A finished manager's child confirmed its own teardown before this release answered, so
+      // no child retry reaches a destroy that failed; ask again while another try could succeed.
+      else if (prior.length > 0 && retainedOwnerReleaseRetriable(nested))
+        ownerUnconfirmedByScope.set(nested, await releaseScopeRetainedOwnerEnvironment(nested))
     }),
   )
 }
