@@ -256,6 +256,13 @@ export {
   superviseDispatch,
 } from './loop-dispatch'
 export * from './mcp-environment'
+export {
+  type CanonicalObservedModelParts,
+  canonicalObservedModelParts,
+  observedModelHasSnapshot,
+  observedModelMatchesDeclared,
+  type SnapshotKind,
+} from './model-identity'
 export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).

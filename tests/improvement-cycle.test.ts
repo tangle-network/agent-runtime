@@ -55,6 +55,11 @@ import {
   agentImprovementTargetInput,
   deriveChangedSurfaces,
 } from '../src/intelligence/improvement-surfaces'
+import {
+  canonicalObservedModelParts,
+  observedModelHasSnapshot,
+  observedModelMatchesDeclared,
+} from '../src/runtime'
 
 import {
   candidateBundle,
@@ -305,22 +310,24 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       for await (const chunk of request) bytes += chunk
       const body = bytes ? JSON.parse(bytes) : {}
       const value =
-        request.url === '/candidate'
-          ? candidate
-          : request.url === '/resolve'
-            ? {
-                kind: 'profile-default',
-                baseline: { authored: body.baseline.model, resolved: baselineModel },
-                candidate: {
-                  authored: body.candidate.model,
-                  resolved: { ...candidateModel, ...(missingIdentity ? { snapshot: null } : {}) },
-                },
-              }
-            : wrongObservedModel
-              ? baselineModel
-              : body.profile.model.default === baselineModel.requested
+        request.url === '/observed'
+          ? `${baselineModel.model}@${baselineModel.snapshot}`
+          : request.url === '/candidate'
+            ? candidate
+            : request.url === '/resolve'
+              ? {
+                  kind: 'profile-default',
+                  baseline: { authored: body.baseline.model, resolved: baselineModel },
+                  candidate: {
+                    authored: body.candidate.model,
+                    resolved: { ...candidateModel, ...(missingIdentity ? { snapshot: null } : {}) },
+                  },
+                }
+              : wrongObservedModel
                 ? baselineModel
-                : candidateModel
+                : body.profile.model.default === baselineModel.requested
+                  ? baselineModel
+                  : candidateModel
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify(value))
     })
@@ -337,6 +344,15 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     }
     const stateDigest = ({ profile }: { identity: string; profile: AgentProfile }) =>
       canonicalCandidateDigest(profile)
+    const observed = await call('/observed', {})
+    expect(canonicalObservedModelParts(observed)).toMatchObject({
+      base: baselineModel.model,
+      snapshot: baselineModel.snapshot,
+    })
+    expect(observedModelHasSnapshot(observed)).toBe(true)
+    expect(observedModelMatchesDeclared(observed, baselineModel.requested)).toBe(true)
+    expect(observedModelMatchesDeclared(observed, candidate.model!.default!)).toBe(false)
+    expect(observedModelHasSnapshot(baselineModel.requested)).toBe(false)
     const options = () => {
       const { agent: optimize, executionRef, ...improvement } = improvementOptions()
       return {

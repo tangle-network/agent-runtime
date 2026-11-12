@@ -5,7 +5,7 @@ const datedIsoSuffix = /^(.*)-(\d{4})-(\d{2})-(\d{2})$/u
 const datedCompactSuffix = /^(.*)-(\d{4})(\d{2})(\d{2})$/u
 const datedMonthSuffix = /^(.*)-(\d{4})-(\d{2})$/u
 
-type SnapshotKind = 'date' | 'opaque'
+export type SnapshotKind = 'date' | 'opaque'
 
 interface ModelIdentityParts {
   readonly base: string
@@ -13,7 +13,7 @@ interface ModelIdentityParts {
   readonly snapshotKind?: SnapshotKind
 }
 
-interface CanonicalObservedModelParts {
+export interface CanonicalObservedModelParts {
   readonly base: string
   readonly snapshot?: string
   readonly snapshotKind?: SnapshotKind
