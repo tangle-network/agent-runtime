@@ -158,6 +158,10 @@ process.exitCode = code;
       {
         ...context,
         runId,
+        rootIdentity: {
+          profileDigest: canonicalCandidateDigest({ name: 'root' }),
+          taskDigest: canonicalCandidateDigest(null),
+        },
         workerSlots: 1,
         retainedAtSettlement: 'keep',
         budget: { maxIterations: 2, maxTokens: 200 },
