@@ -583,7 +583,7 @@ export {
   type TraversalContinuity,
 } from './supervise/graph'
 export * from './supervise/graph-file'
-export { graphFileSchema, graphRouteWhenSchema } from './supervise/graph-file-schema'
+export { graphFileNeedSchema, graphFileSchema, graphRouteWhenSchema } from './supervise/graph-file-schema'
 // The designer's memory: graphs and their outcomes as files in a workspace, so a rerun over
 // the same sandbox replays a known-good graph (near-zero inference) or authors a better one.
 export * from './supervise/graph-registry'
