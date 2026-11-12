@@ -221,6 +221,25 @@ it('loads one canonical file, persists its data check, and runs and resumes real
     expect(await listGraphRuns(registry)).toEqual([])
     const stored = await loadGraph(registry, loaded.graph.digest)
     if (!stored) throw new Error('registered canonical graph was not readable')
+    const revision = join(registry.root, 'graphs', stored.digest + '.json')
+    const original = await readFile(revision, 'utf8')
+    const { digest: _digest, ...definition } = stored
+    if (!definition.budget?.maxTokens) throw new Error('canonical fixture has no token budget')
+    const alternate = await recordStoredGraphRun(registry, {
+      ...definition,
+      budget: { ...definition.budget, maxTokens: definition.budget.maxTokens + 1 },
+    })
+    try {
+      await writeFile(revision, JSON.stringify(alternate))
+      await expect(loadGraph(registry, stored.digest)).rejects.toThrow('content differs')
+      await expect(recordStoredGraphRun(registry, stored)).rejects.toThrow('content differs')
+      expect(await readFile(revision, 'utf8')).toBe(JSON.stringify(alternate))
+      await writeFile(revision, JSON.stringify({ ...alternate, digest: stored.digest }))
+      await expect(loadGraph(registry, stored.digest)).rejects.toThrow('content differs')
+    } finally {
+      await writeFile(revision, original)
+    }
+    expect(await loadGraph(registry, stored.digest)).toEqual(stored)
     const processScript = [
       "const fs=require('node:fs');const input=JSON.parse(process.argv[2]);",
       "fs.appendFileSync('stages.jsonl',JSON.stringify({stage:process.argv[1],input})+'\\n');",
