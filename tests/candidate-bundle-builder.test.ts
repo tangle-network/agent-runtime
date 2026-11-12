@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
@@ -15,6 +15,8 @@ import {
   agentCandidateProfileAsAgentProfile,
   assertCandidateProfileBinding,
   buildAgentCandidateBundle,
+  captureAgentCodeCandidateWorkspace,
+  createAgentCandidateWorkspacePort,
   sealAgentCandidateBundle,
   verifyAgentCandidateBundle,
 } from '../src/candidate-execution'
@@ -45,6 +47,21 @@ describe('public agent candidate bundle builder', () => {
     const worktree = await adapter.create({ baseRef: 'HEAD', label: 'candidate' })
     writeFileSync(join(worktree.path, 'source.ts'), 'export const value = 2\n')
     const surface = await adapter.finalize(worktree, 'feat: candidate implementation')
+    const code = {
+      kind: 'code-surface' as const,
+      surface,
+      repository: { kind: 'github' as const, owner: 'owner', repo: 'repo' },
+    }
+    const captured = await captureAgentCodeCandidateWorkspace(code)
+    const destination = temporaryRoot('candidate-builder-materialized-')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'candidate',
+      snapshot: captured.snapshot,
+      archive: captured.archive,
+      destination,
+    })
+    expect(readFileSync(join(destination, 'source.ts'), 'utf8')).toBe('export const value = 2\n')
+    expect(existsSync(join(destination, '.git'))).toBe(false)
 
     const base: AgentProfile = {
       name: 'candidate',
@@ -76,12 +93,8 @@ describe('public agent candidate bundle builder', () => {
     const memorySeed = storeArtifact(stored, 'memory/seed.json', '{"entries":[]}\n')
     const input: BuildAgentCandidateBundleInput = {
       profile: { kind: 'profile-diffs', base, diffs: [diff] },
-      code: {
-        kind: 'code-surface',
-        surface,
-        repository: { kind: 'github', owner: 'owner', repo: 'repo' },
-      },
-      execution: fixture.bundle.execution,
+      code,
+      execution: { ...fixture.bundle.execution, workspace: captured.snapshot },
       knowledge: {
         candidate: {
           kind: 'knowledge-improvement-candidate',

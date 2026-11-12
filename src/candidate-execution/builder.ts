@@ -13,6 +13,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import { type AgentCandidateBundleInput, sealAgentCandidateBundle } from './bundle'
 import { embeddedCandidateArtifact } from './digest'
+import { readCandidateGitTreeFiles } from './git-materialize'
 import {
   applyExactAgentProfileDiff,
   freezeGenericAgentCandidateProfile,
@@ -20,6 +21,8 @@ import {
   parseExactAgentProfileDiff,
   parseExactCandidateProfile,
 } from './profile'
+import { captureAgentCandidateWorkspaceFiles, workspaceLimits } from './workspace-archive'
+import type { CaptureAgentCandidateWorkspaceOptions } from './workspace-archive-local'
 
 /** A complete profile that can be frozen without losing behavior. */
 export type AgentCandidateProfileSource =
@@ -46,6 +49,25 @@ export interface AgentCandidateCodeSurfaceSource {
   repository: AgentCandidateGitHubRepository
   /** Optional parent directory used to resolve a relative `surface.worktreeRef`. */
   worktreeDir?: string
+}
+
+/** Capture executable files from the exact finalized Git tree, without Git
+ * metadata or mutable/ignored worktree files in a candidate-role archive. */
+export async function captureAgentCodeCandidateWorkspace(
+  source: AgentCandidateCodeSurfaceSource,
+  options: Omit<
+    CaptureAgentCandidateWorkspaceOptions,
+    'includeRepository' | 'repositoryContents'
+  > = {},
+) {
+  const verified = verifyCodeSurface(source.surface, source.worktreeDir)
+  const files = await readCandidateGitTreeFiles(
+    verified.path,
+    source.surface.candidateTree,
+    {},
+    workspaceLimits(options.limits),
+  )
+  return captureAgentCandidateWorkspaceFiles(files, options)
 }
 
 /** Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. */

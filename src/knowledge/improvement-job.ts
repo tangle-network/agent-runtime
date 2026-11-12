@@ -8,12 +8,15 @@ import {
 import {
   type BuildEvalKnowledgeBundleOptions,
   evaluateKnowledgeBaseReadiness,
+  hashKnowledgeBase,
   improveKnowledgeBase,
   type KnowledgeBaseQualityOptions,
+  type KnowledgeImprovementCandidateRef,
   type KnowledgeImprovementOptions,
   type KnowledgeImprovementResult,
   type KnowledgeReadinessSpec,
   knowledgeImprovementCandidateRef,
+  loadKnowledgeImprovementState,
   normalizeKnowledgeStateScope,
   toAgentCandidateKnowledgeRef,
   withKnowledgeImprovementComparison,
@@ -196,12 +199,12 @@ export async function runKnowledgeImprovementJob(
     resolvedImprovement.candidate?.status === 'candidate-ready' ||
     resolvedImprovement.candidate?.status === 'promoted'
   ) {
-    knowledge = await freezeKnowledgeCandidatePair(
-      options.root,
-      resolvedImprovement,
-      candidateArtifacts,
-      knowledgeOptions.signal,
-    )
+    knowledge = await captureKnowledgeImprovementCandidatePair({
+      root: options.root,
+      candidate: knowledgeImprovementCandidateRef(resolvedImprovement),
+      artifacts: candidateArtifacts,
+      signal: knowledgeOptions.signal,
+    })
   }
   const finishedAtMs = Date.now()
   const measurement: KnowledgeImprovementJobMeasurement = {
@@ -240,15 +243,34 @@ export function buildKnowledgeImprovementExperimentBundles(
   })
 }
 
-async function freezeKnowledgeCandidatePair(
-  root: string,
-  improvement: KnowledgeImprovementResult,
-  artifacts: AgentCandidateOutputArtifactPort | undefined,
-  signal: AbortSignal | undefined,
-): Promise<KnowledgeImprovementCandidatePair> {
-  const candidate = knowledgeImprovementCandidateRef(improvement)
+/** Capture an already measured Knowledge candidate and its original baseline.
+ * The Knowledge owner revalidates the exact reference, evidence and isolated
+ * bytes before Runtime freezes the existing execution snapshot contracts.
+ * This does not update, evaluate or promote the curated Knowledge store. */
+export async function captureKnowledgeImprovementCandidatePair(options: {
+  root: string
+  candidate: KnowledgeImprovementCandidateRef
+  artifacts?: AgentCandidateOutputArtifactPort
+  signal?: AbortSignal
+}): Promise<KnowledgeImprovementCandidatePair> {
+  const { root, candidate, artifacts, signal } = options
+  signal?.throwIfAborted()
+  const state = await loadKnowledgeImprovementState(root, candidate.runId)
+  if (!state) throw new Error('Knowledge candidate has no persisted owner state')
+  const expectedHash =
+    state.status === 'promoted' && state.promotedCandidateId === candidate.candidateId
+      ? candidate.candidateHash
+      : candidate.baseHash
+  const assertCurrent = async () => {
+    signal?.throwIfAborted()
+    if ((await hashKnowledgeBase(root, state.stateScope)) !== expectedHash)
+      throw new Error('Knowledge candidate no longer matches the current curated state')
+  }
+  await assertCurrent()
   const candidateRef = toAgentCandidateKnowledgeRef(candidate)
   return withKnowledgeImprovementComparison({ root, candidate }, async (comparison) => {
+    if (!comparison.evaluation.passed)
+      throw new Error('Knowledge candidate has no passing measured evaluation')
     const freeze = async (
       target: 'baseline' | 'candidate',
     ): Promise<AgentCandidateKnowledge['snapshot']> => {
@@ -289,6 +311,7 @@ async function freezeKnowledgeCandidatePair(
         : Object.freeze(normalizedScope)
     const baseline = await freeze('baseline')
     const proposed = await freeze('candidate')
+    await assertCurrent()
     return Object.freeze({
       reference: candidateRef,
       ...(stateScope ? { stateScope } : {}),
