@@ -167,8 +167,8 @@ process.exitCode = code;
         budget: { maxIterations: 2, maxTokens: 200 },
       },
     )
-    expect(nativeExit).toBe(exitCode)
     const journal = (await context.journal.loadTree(runId))!
+    expect(nativeExit, JSON.stringify(journal)).toBe(exitCode)
     const dispatch = journal.find(
       (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
     )
