@@ -63,8 +63,10 @@ it.each([401, 403, 500] as const)(
         journalRoot: join(fixture.directory, 'admissions'),
         onAdmission: (admission) => appendCommittedJsonLine(admissions, admission),
       })
-      await fixture.wait('independent native worker started', async () =>
-        readRecords(join(fixture.directory, 'json-worker-processes.jsonl')).length === 1,
+      await fixture.wait(
+        'independent native worker started',
+        async () =>
+          readRecords(join(fixture.directory, 'json-worker-processes.jsonl')).length === 1,
       )
       const prefix = await readFile(admissions)
       const records: DriverAttemptRecord[] = []
@@ -121,9 +123,9 @@ it.each([401, 403, 500] as const)(
       expect(replacements).toBe(0)
       const before = await fixture.state()
       expect(before.requests.filter((row) => row.kind === 'retained-read-refused')).toHaveLength(1)
-      expect(before.requests.filter((row) => row.kind === 'cancel' || row.kind === 'delete')).toEqual(
-        [],
-      )
+      expect(
+        before.requests.filter((row) => row.kind === 'cancel' || row.kind === 'delete'),
+      ).toEqual([])
       expect(before.runs).toHaveLength(1)
       expect(before.runs[0]).toMatchObject({ status: 'running' })
       expect(await readFile(admissions)).toEqual(prefix)
@@ -142,9 +144,9 @@ it.each([401, 403, 500] as const)(
       expect(after.failures).toEqual([])
       expect(after.runs).toHaveLength(1)
       expect(after.requests.filter((row) => row.kind === 'dispatch')).toHaveLength(1)
-      expect(after.requests.filter((row) => row.kind === 'cancel' || row.kind === 'delete')).toEqual(
-        [],
-      )
+      expect(
+        after.requests.filter((row) => row.kind === 'cancel' || row.kind === 'delete'),
+      ).toEqual([])
       expect(await readFile(admissions)).toEqual(prefix)
       expect(readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))).toEqual([
         nativeProcess,
@@ -159,48 +161,44 @@ it.each([401, 403, 500] as const)(
   60_000,
 )
 
-it(
-  'does not repeat or search for a create refused by the real SDK nonretryable configuration verdict',
-  async () => {
-    const requests: string[] = []
-    const server = createServer(async (request, response) => {
-      for await (const _chunk of request) {
-        // Drain the actual request before answering its deterministic pre-admission refusal.
-      }
-      requests.push(`${request.method} ${request.url}`)
-      response.writeHead(500, { 'content-type': 'application/json' })
-      response.end(
-        JSON.stringify({
-          error: {
-            code: 'CONFIGURATION_ERROR',
-            message: 'Upstream service credential was refused',
-            retryable: false,
-          },
-        }),
-      )
-    })
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-    onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
-    const address = server.address()
-    if (!address || typeof address === 'string') throw new Error('missing HTTP boundary')
-    const client = new Sandbox({
-      apiKey: 'offline-not-a-secret',
-      baseUrl: `http://127.0.0.1:${address.port}`,
-      trustLocalCliAuth: false,
-      directExec: false,
-    })
-    let failure: unknown
-    try {
-      await acquireSandbox(
-        client,
-        {},
-        { readyTimeoutMs: 1_000, pollIntervalMs: 1, signal: AbortSignal.timeout(5_000) },
-      )
-    } catch (error) {
-      failure = error
+it('does not repeat or search for a create refused by the real SDK nonretryable configuration verdict', async () => {
+  const requests: string[] = []
+  const server = createServer(async (request, response) => {
+    for await (const _chunk of request) {
+      // Drain the actual request before answering its deterministic pre-admission refusal.
     }
-    expect(failure).toMatchObject({ code: 'CONFIGURATION_ERROR', status: 500, retryable: false })
-    expect(requests).toEqual(['POST /v1/sandboxes'])
-  },
-  15_000,
-)
+    requests.push(`${request.method} ${request.url}`)
+    response.writeHead(500, { 'content-type': 'application/json' })
+    response.end(
+      JSON.stringify({
+        error: {
+          code: 'CONFIGURATION_ERROR',
+          message: 'Upstream service credential was refused',
+          retryable: false,
+        },
+      }),
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('missing HTTP boundary')
+  const client = new Sandbox({
+    apiKey: 'offline-not-a-secret',
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    trustLocalCliAuth: false,
+    directExec: false,
+  })
+  let failure: unknown
+  try {
+    await acquireSandbox(
+      client,
+      {},
+      { readyTimeoutMs: 1_000, pollIntervalMs: 1, signal: AbortSignal.timeout(5_000) },
+    )
+  } catch (error) {
+    failure = error
+  }
+  expect(failure).toMatchObject({ code: 'CONFIGURATION_ERROR', status: 500, retryable: false })
+  expect(requests).toEqual(['POST /v1/sandboxes'])
+}, 15_000)
