@@ -439,6 +439,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'resolveDriveHarness',
   'driveHarnessMaterialization',
   'resolveSupervisorTools',
+  'servesToolNames',
   'extraTools',
   'executeExtraTool',
   'recoverExecutor',
