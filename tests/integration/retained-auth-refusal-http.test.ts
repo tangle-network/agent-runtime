@@ -15,8 +15,8 @@ import { runDriverWithRetry } from '../../src/runtime/supervise/driver-retry'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
 import {
   type Executables,
-  prepareExecutables,
   ProcessFixture,
+  prepareExecutables,
 } from './fixtures/uncertain-create-harness'
 import { readRecords } from './fixtures/uncertain-create-protocol'
 
@@ -120,9 +120,7 @@ it.each([401, 403, 500] as const)(
       })
       expect(replacements).toBe(0)
       const before = await fixture.state()
-      expect(before.requests.filter((row) => row.kind === 'retained-read-refused')).toHaveLength(
-        1,
-      )
+      expect(before.requests.filter((row) => row.kind === 'retained-read-refused')).toHaveLength(1)
       expect(before.requests.filter((row) => row.kind === 'cancel' || row.kind === 'delete')).toEqual(
         [],
       )
