@@ -873,6 +873,9 @@ describe('a shape change is classified from the declarations it was built from',
 
   it.each([
     ['an options interface', options],
+    ['an interface with a public parent', (member: string) => `export interface Parent { readonly cwd: string; } export interface StartOptions extends Parent { ${member} }`],
+    ['an interface with literal Pick keys', (member: string) => `export interface Parent { readonly cwd: string; readonly skip?: boolean; } export interface StartOptions extends Pick<Parent, 'cwd' | 'skip'> { ${member} }`],
+    ['an interface with tuple-derived Pick keys', (member: string) => `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = (typeof keys)[number]; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`],
     ['a callable interface argument', callable],
     ['each variant of an untagged union', (member: string) => variants(member)],
   ])(
@@ -895,6 +898,18 @@ describe('a shape change is classified from the declarations it was built from',
       expect(failure.stderr).toContain('breaking change needing a major bump')
     },
   )
+
+  it('does not classify a narrowed inherited optional property as an additive extension', async () => {
+    const inherited = (own: string) => `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-heritage-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', inherited(''))
+    await publish(root, 'v1.0.0')
+    await build(root, '1.0.1', inherited('readonly mode?: string;'))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
 
   it('reads an inferred promised union part by part: an optional member is a patch, a removed one a major', async () => {
     const promised = (member: string, rest = '  readonly attempts: number;\n') =>
