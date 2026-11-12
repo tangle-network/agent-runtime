@@ -55,11 +55,7 @@ export interface RunKnowledgeImprovementJobOptions
     >
   >
   allowedModels?: readonly string[]
-  runSupervised?: (
-    profile: SupervisorProfile,
-    task: unknown,
-    opts: SuperviseOptions,
-  ) => Promise<SupervisedResult<unknown>>
+  runSupervised?: SupervisedKnowledgeUpdateOptions['runSupervised']
   candidateArtifacts?: AgentCandidateOutputArtifactPort
   onMeasurement?: (measurement: KnowledgeImprovementJobMeasurement) => Promise<void> | void
 }

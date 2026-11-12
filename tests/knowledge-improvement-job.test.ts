@@ -194,6 +194,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               profile: SupervisorProfile
               task: unknown
               opts: SuperviseOptions
+              root: string
             }
           | undefined
 
@@ -216,9 +217,12 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               return { ready: false, summary: 'runtime job page missing' }
             }
           },
-          runSupervised: async (profile, task, opts) => {
-            captured = { profile, task, opts }
-            const candidateRoot = rootFromTask(task)
+          runSupervised: async (profile, task, opts, context) => {
+            if (!context) throw new Error('isolated execution context was not supplied')
+            expect(context.goal).toBe('Add runtime job knowledge')
+            expect(context.root).not.toBe(root)
+            captured = { profile, task, opts, root: context.root }
+            const candidateRoot = context.root
             const page = join(candidateRoot, 'knowledge', 'runtime-job.md')
             await mkdir(dirname(page), { recursive: true })
             await writeFile(
@@ -258,6 +262,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         await withKnowledgeImprovementCandidate(
           { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
           async ({ root: candidateRoot }) => {
+            expect(candidateRoot).toBe(captured?.root)
             expect(result.knowledge?.reference.candidateHash).toBe(
               `sha256:${await hashKnowledgeBase(candidateRoot)}`,
             )
