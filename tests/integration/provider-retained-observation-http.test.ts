@@ -101,6 +101,8 @@ it.each<Scenario>([
       const { delivered, budget } = JSON.parse(
         await readFile(join(fixture.directory, 'observed.json'), 'utf8'),
       )
+      if (scenario === 'json-observation-long-capacity-success')
+        expect(object(delivered).kind).toBe('done')
       await fixture.wait('actual native process closed', async () =>
         (await fixture.state()).requests.some((row) => row.kind === 'json-worker-closed'),
       )
