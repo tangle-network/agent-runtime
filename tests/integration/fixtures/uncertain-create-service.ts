@@ -850,6 +850,23 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       state.lost.push(id)
       return json(response, 200, { id, outcome: 'destroyed', removal: 'complete' })
     }
+    if (
+      scenario.startsWith('json-observation-long-auth-') &&
+      request.method === 'GET' &&
+      state.runs.length > 0 &&
+      !state.finish
+    ) {
+      const status = Number(scenario.split('-').at(-2))
+      note('retained-read-refused', { environmentId: id, status })
+      return jsonError(response, status, {
+        code: status === 500 ? 'CONFIGURATION_ERROR' : 'UNAUTHORIZED',
+        message:
+          status === 500
+            ? 'Upstream service credential was refused'
+            : 'Invalid or missing authentication token',
+        retryable: false,
+      })
+    }
     if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
       capacitySince ??= Date.now()
       if (Date.now() - capacitySince < 600_000) {
