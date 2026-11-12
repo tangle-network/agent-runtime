@@ -366,6 +366,8 @@ Successive pages reuse one encoding of the selected artifact.
 Changing the selection or finishing its final page releases that encoding.
 The blob remains unchanged, and reads remain scoped to workers visible to the manager.
 
+Knowledge update hosts receive the exact isolated `root` and `goal` in the optional fourth `runSupervised` callback argument. Bind the executor workspace from that context, retain the actual supervised result, and honor the supplied readiness deliverable. The formatted task is agent input, not a workspace authority. Existing three-argument callbacks remain supported. Job `supervisedSpent.tokensKnown` preserves Runtime's completeness flag; numeric input/output totals remain the observed subtotals when a native counter is unavailable. Legacy summaries without this flag have unavailable completeness, not proven-known usage.
+
 Knowledge improvement jobs carry nondefault `stateScope` into both frozen experiment bundles and prepared execution.
 Knowledge owns scope normalization and hashing, including the selected pages directory and optional research state.
 Default scope remains absent from portable bundles to preserve their existing identity.

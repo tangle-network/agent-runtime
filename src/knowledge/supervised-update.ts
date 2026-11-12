@@ -67,6 +67,8 @@ export interface SupervisedKnowledgeUpdateOptions {
     profile: SupervisorProfile,
     task: unknown,
     opts: SuperviseOptions,
+    /** Exact isolated update workspace; never infer this authority from task text. */
+    context?: Readonly<Pick<SupervisedKnowledgeUpdateOptions, 'root' | 'goal'>>,
   ) => Promise<SupervisedResult<unknown>>
 }
 
@@ -116,16 +118,22 @@ export async function runSupervisedKnowledgeUpdate(
 ): Promise<SupervisedKnowledgeUpdateResult> {
   const exactSupervisor = agentProfileSchema.parse(options.supervisorProfile) as SupervisorProfile
   assertExecutableAgentProfile(exactSupervisor, 'runSupervisedKnowledgeUpdate')
-  const run = options.runSupervised ?? supervise
+  const run: NonNullable<SupervisedKnowledgeUpdateOptions['runSupervised']> =
+    options.runSupervised ?? supervise
   const task = formatSupervisedKnowledgeTask(options)
-  const supervised = await run(exactSupervisor, task, {
-    ...options.superviseOptions,
-    budget: options.budget,
-    backend: options.backend,
-    deliverable: knowledgeReadinessDeliverable(options),
-    makeWorkerAgent: options.makeWorkerAgent,
-    allowedModels: options.allowedModels,
-  })
+  const supervised = await run(
+    exactSupervisor,
+    task,
+    {
+      ...options.superviseOptions,
+      budget: options.budget,
+      backend: options.backend,
+      deliverable: knowledgeReadinessDeliverable(options),
+      makeWorkerAgent: options.makeWorkerAgent,
+      allowedModels: options.allowedModels,
+    },
+    Object.freeze({ root: options.root, goal: options.goal }),
+  )
   return {
     applied: supervised.kind === 'winner',
     summary:
