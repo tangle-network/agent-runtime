@@ -104,15 +104,14 @@ export function modelSettingsSpawnPreflight(
 export function profileToolSpawnPreflight(
   runtimeOwnsManager: boolean,
   canResolveProductTools: boolean,
+  servesToolNames: ReadonlyArray<string> | undefined,
 ): SpawnPreflight {
-  return async (profile, { nodeToolNames }) => {
-    // A caller-owned worker factory is the execution port. It receives the exact profile and owns
-    // its own native tool mount, just as it owns retry and completion behavior; Runtime cannot
-    // truthfully infer that mount from a function value.
+  return async (profile) => {
+    // Caller-owned factories receive exact profiles and own their native tool mounts.
+    // A function value cannot establish those grants.
     if (!runtimeOwnsManager) return undefined
-    // A child is served coordination verbs and the node tools its manager's resolver gives; any
-    // other name would settle it down after its sandbox exists (canary-chain-20261109d).
-    const served = nodeToolNames && [...coordinationVerbNames, ...nodeToolNames]
+    // Per-node grants cannot establish a child's vocabulary; an undeclared resolver checks at serve.
+    const served = servesToolNames && [...coordinationVerbNames, ...servesToolNames]
     const detail =
       runtimeToolDeclarationError(profile, canResolveProductTools) ??
       (served && unservedToolsRefusal(declaredRuntimeToolNames(profile), served))
