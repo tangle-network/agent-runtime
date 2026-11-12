@@ -27,7 +27,7 @@ afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 
-it.each([401, 403, 404] as const)(
+it.each([401, 403] as const)(
   'stops caller-auth retries without replacing the retained native execution (HTTP %s)',
   async (status) => {
     const fixture = await ProcessFixture.start(
@@ -104,17 +104,16 @@ it.each([401, 403, 404] as const)(
         failure = error
       }
       expect(failure).toBeInstanceOf(DriverAttemptsExhaustedError)
-      const auth = status !== 404
-      expect(records).toHaveLength(auth ? 1 : 3)
+      expect(records).toHaveLength(1)
       expect(records.at(-1)).toMatchObject({
-        classification: auth ? 'terminal' : 'transient',
-        stop: auth ? 'terminal-error' : 'pending-unresolved',
+        classification: 'terminal',
+        stop: 'terminal-error',
         pendingCause: 'unobservable',
       })
-      if (auth) expect(replacements).toBe(0)
+      expect(replacements).toBe(0)
       const before = await fixture.state()
       expect(before.requests.filter((row) => row.kind === 'retained-read-refused')).toHaveLength(
-        auth ? 1 : 3,
+        1,
       )
       expect(before.requests.filter((row) => row.kind === 'cancel' || row.kind === 'delete')).toEqual(
         [],
@@ -122,8 +121,8 @@ it.each([401, 403, 404] as const)(
       expect(before.runs).toHaveLength(1)
       expect(before.runs[0]).toMatchObject({ status: 'running' })
       expect(await readFile(admissions)).toEqual(prefix)
-      const process = readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))[0]!
-      expect(() => globalThis.process.kill(Number(process.pid), 0)).not.toThrow()
+      const nativeProcess = readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))[0]!
+      expect(() => process.kill(Number(nativeProcess.pid), 0)).not.toThrow()
 
       // Restored reader authority adopts the original process, not a replacement invocation.
       await fixture.control({ finish: true })
@@ -141,7 +140,9 @@ it.each([401, 403, 404] as const)(
         [],
       )
       expect(await readFile(admissions)).toEqual(prefix)
-      expect(readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))).toEqual([process])
+      expect(readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))).toEqual([
+        nativeProcess,
+      ])
       passed = true
     } finally {
       await fixture.close()

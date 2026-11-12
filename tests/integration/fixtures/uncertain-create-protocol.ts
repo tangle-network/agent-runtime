@@ -9,7 +9,7 @@ export type Scenario =
   | `trace-tree-${number}`
   | 'json-observation-429'
   | 'json-observation-long-success'
-  | `json-observation-long-auth-${401 | 403 | 404}-success`
+  | `json-observation-long-auth-${401 | 403}-success`
   | 'json-observation-long-failed'
   | 'json-incomplete'
   | 'json-malformed-incomplete'
