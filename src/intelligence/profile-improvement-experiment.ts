@@ -41,7 +41,12 @@ import {
 } from '@tangle-network/agent-interface'
 import type { RunAnalystLoopResult } from '../analyst-loop/types'
 import { immutableCandidateValue } from '../candidate-execution/digest'
-import type { ImproveMethodOptions, ImproveMethodResult } from '../improvement/improve'
+import type {
+  ImproveMethodOptions,
+  ImproveMethodResult,
+  ImproveSearchOptions,
+  ImproveSearchResult,
+} from '../improvement/improve'
 import type { ReadonlyAgentProfile } from '../improvement/profile-types'
 import type { AgentImprovementAnalysisOptions } from './improvement-cycle'
 import type { AgentProfileMeasuredSurface } from './improvement-surfaces'
@@ -73,10 +78,16 @@ export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TAr
 }
 
 /** The portable profile changes that the measured-profile contract permits. */
-export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
-  ImproveMethodOptions<TScenario, TArtifact>,
-  'agent' | 'executionRef' | 'findings' | 'surface'
-> & {
+export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = (
+  | Omit<
+      ImproveMethodOptions<TScenario, TArtifact>,
+      'agent' | 'executionRef' | 'findings' | 'surface'
+    >
+  | Omit<
+      ImproveSearchOptions<TScenario, TArtifact>,
+      'agent' | 'executionRef' | 'findings' | 'surface'
+    >
+) & {
   surface?: AgentProfileMeasuredSurface
   findings?: readonly ProposalFinding[]
 }
@@ -117,7 +128,7 @@ export interface ProposeAgentProfileImprovementOptions<TScenario extends Scenari
 
 export interface ProposeAgentProfileImprovementResult {
   analysis: RunAnalystLoopResult
-  improvement: ImproveMethodResult
+  improvement: ImproveMethodResult | ImproveSearchResult
   experiment: AgentProfileImprovementExperiment
   measurements: AgentProfileImprovementMeasurement[]
   proposal: AgentImprovementProposal
@@ -139,7 +150,7 @@ export interface RecordAgentProfileImprovementOptions<TScenario extends Scenario
 export interface ProposeAgentProfileImprovementIncompleteResult
   extends AgentProfileImprovementIncompleteExperimentRun {
   analysis: RunAnalystLoopResult
-  improvement: ImproveMethodResult
+  improvement: ImproveMethodResult | ImproveSearchResult
   experiment: AgentProfileImprovementExperiment
 }
 
@@ -150,7 +161,7 @@ export interface ProposeAgentProfileImprovementHeldResult {
   phase: 'search' | 'preparation'
   source: AgentImprovementSource
   analysis: RunAnalystLoopResult
-  improvement: ImproveMethodResult
+  improvement: ImproveMethodResult | ImproveSearchResult
   accounting: CostLedgerSummary
   reasons: string[]
 }
@@ -159,7 +170,7 @@ export function profileImprovementHold(
   allowIncomplete: boolean | undefined,
   source: AgentImprovementSource,
   analysis: RunAnalystLoopResult,
-  improvement: ImproveMethodResult,
+  improvement: ImproveMethodResult | ImproveSearchResult,
   ledger: CostLedgerHandle,
 ): ProposeAgentProfileImprovementHeldResult | undefined {
   if (allowIncomplete !== true) return undefined

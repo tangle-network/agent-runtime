@@ -20,6 +20,7 @@ import {
   createToolProgressObserver,
   executorObservationSeamKey,
 } from './executor-observation'
+import { recordHarnessTranscriptEvidence } from './harness-transcript-evidence'
 import {
   interactiveAdmissionSeamKey,
   writeWorkerInteractiveAdmission,
@@ -234,9 +235,32 @@ export function liveChildRecord<C>(
       ),
     ),
     id,
+    executionTask: child.task,
     status: start.granted ? 'acquiring' : 'queued',
     runtime: executor.runtime,
     ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+    ...(ownedTreeRoot === undefined
+      ? {
+          recordTranscriptEvidence: (harnessTranscript, outRef) =>
+            recordHarnessTranscriptEvidence({
+              node: {
+                rootId: args.root,
+                parentId: args.parentId,
+                nodeId: id,
+                depth: args.depth + 1,
+                attemptId: child.attemptId,
+                ...(identity ? { identity } : {}),
+              },
+              task: live.executionTask,
+              harnessTranscript,
+              ...(outRef === undefined ? {} : { outRef }),
+              journal: args.journal,
+              roots: [args.root],
+              blobs: args.blobs,
+              now,
+            }),
+        }
+      : {}),
     ...(identity ? { identity } : {}),
     ...(modelSubstitution === undefined ? {} : { modelSubstitution }),
     budget: opts.budget,

@@ -20,7 +20,10 @@ import {
 } from './retained-owner-evidence'
 import { type OwnerRegistration, type OwnerState, owners } from './retained-owner-state'
 import { preemptRotationCaptures } from './retained-owner-turn-lifecycle'
-import { ownerMaterializationStates } from './scope-owner-materialization'
+import {
+  ownerMaterializationStates,
+  recordScopeOwnerHarnessTranscript,
+} from './scope-owner-materialization'
 import { detachedSnapshot } from './snapshot'
 import { assertValidSpend } from './spend-validation'
 import { traceRootWriter } from './trace-root'
@@ -125,6 +128,8 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         now: args.now,
         traceRoots,
       }),
+      onHarnessTranscript: (task, capture, result) =>
+        recordScopeOwnerHarnessTranscript(scope, task, capture, result),
       onEndOfTurnWork: (work) => {
         // The rotation yields when the turn ends, not when its capture starts.
         preemptRotationCaptures(state)

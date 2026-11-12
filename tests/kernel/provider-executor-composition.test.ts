@@ -115,6 +115,19 @@ const providerProfile: AgentProfile = testAgentProfile('provider-worker', { harn
 const spec: AgentSpec = { profile: providerProfile, harness: null }
 
 describe("createExecutor({ backend: 'provider' })", () => {
+  it('refuses native capture on steering instead of silently dropping its exact binding', () => {
+    const { provider } = recordingProvider()
+    const factory = createExecutor({
+      backend: 'provider',
+      provider,
+      steering: {},
+      harnessTranscript: async () => ({ status: 'unavailable', reason: 'capture-failed' }),
+    })
+    expect(() => factory(spec, ctx())).toThrow(
+      /native transcript capture requires an exact retained provider execution/,
+    )
+  })
+
   it('runs one AgentProfile through the provider contract and settles its artifact', async () => {
     const { provider, creates, turns } = recordingProvider('ANSWER=42')
 

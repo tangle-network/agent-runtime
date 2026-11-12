@@ -3,13 +3,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CostLedger } from '@tangle-network/agent-eval'
 import {
+  type FinalEvidencePolicy,
   incumbent,
   type SearchClaim,
   type SurfaceProposer,
   uniform,
 } from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
-import { type EvaluationClaim, verifySealedExperiment } from '@tangle-network/agent-eval/experiment'
+import {
+  type EvaluationClaim,
+  openFinalEvidenceLedger,
+  verifySealedExperiment,
+} from '@tangle-network/agent-eval/experiment'
 import {
   type AgentProfile,
   canonicalAgentProfileDigest,
@@ -74,7 +79,12 @@ const profile: AgentProfile = {
 
 /** A search whose agent's first call on each named task fails in transit with no
  * receipt, as `fetch failed` did; the kernel retries the cell and it passes. */
-async function runSearch(runDir: string, failOnce: readonly string[], costCeiling: number) {
+async function runSearch(
+  runDir: string,
+  failOnce: readonly string[],
+  costCeiling: number,
+  finalEvidence?: FinalEvidencePolicy,
+) {
   const failed = new Set<string>()
   const agent = async (
     candidate: ReadonlyAgentProfile,
@@ -123,6 +133,7 @@ async function runSearch(runDir: string, failOnce: readonly string[], costCeilin
     agent,
     costCeiling,
     runDir,
+    ...(finalEvidence ? { finalEvidence } : {}),
   }) as Promise<ImproveSearchResult>
 }
 
@@ -132,6 +143,47 @@ const searchDirOf = (runDir: string) => {
 }
 
 describe('a search whose calls failed with no receipt', () => {
+  it('resumes an exposed sealed claim and refuses the same evidence in a fresh search directory', async () => {
+    const runDir = mkdtempSync(join(tmpdir(), 'search-final-evidence-'))
+    const ledger = openFinalEvidenceLedger({ path: join(runDir, 'shared-final-evidence.jsonl') })
+    const policy: FinalEvidencePolicy = {
+      ledger,
+      requestId: 'protected-search',
+      evaluatorDigest: canonicalCandidateDigest({ test: 'search-final-evidence' }),
+    }
+    let interrupted = false
+    const interruptedPolicy: FinalEvidencePolicy = {
+      ...policy,
+      ledger: {
+        ...ledger,
+        async expose(...args) {
+          const result = await ledger.expose(...args)
+          if (result.succeeded && !interrupted) {
+            interrupted = true
+            throw new Error('process stopped after durable final exposure')
+          }
+          return result
+        },
+      },
+    }
+    await expect(runSearch(runDir, [], 1, interruptedPolicy)).rejects.toThrow(
+      'process stopped after durable final exposure',
+    )
+    const consumed = await ledger.read()
+    if (!consumed.succeeded) throw new Error(consumed.error.message)
+    expect(consumed.value).toHaveLength(1)
+    expect(consumed.value[0]!.exposure).not.toBeNull()
+    const result = await runSearch(runDir, [], 1, policy)
+    expect(result.finalEvidence?.record).toEqual(consumed.value[0])
+    const costLedger = join(searchDirOf(runDir), 'cost-ledger.jsonl')
+    const costBefore = readFileSync(costLedger, 'utf8')
+    const replay = await runSearch(runDir, [], 1, policy)
+    expect(replay.finalEvidence).toEqual(result.finalEvidence)
+    expect(readFileSync(costLedger, 'utf8')).toBe(costBefore)
+    const freshRunDir = mkdtempSync(join(tmpdir(), 'search-final-reuse-'))
+    await expect(runSearch(freshRunDir, [], 1, policy)).rejects.toThrow(/exposed|sealed|final/i)
+  }, 240_000)
+
   it('ships with the unknown cost counted at its declared maximum, and cites its claim as a promotion', async () => {
     const runDir = mkdtempSync(join(tmpdir(), 'search-decision-'))
     const result = await runSearch(runDir, ['selection-1', 'test-3', 'test-7'], 1)

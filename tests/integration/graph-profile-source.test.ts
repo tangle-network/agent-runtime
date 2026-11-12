@@ -58,7 +58,7 @@ it('loads the measured nonprompt and whole-profile candidates without changing a
   const complete: AgentProfile = {
     ...nonprompt,
     prompt: { systemPrompt: 'Execute the measured procedure.\nReport the evidence.' },
-    mcp: { catalog: { command: 'catalog-server', args: ['--public'] } },
+    mcp: { catalog: { command: 'catalog-server', args: [{ kind: 'public', value: '--public' }] } },
     hooks: { Stop: [{ command: 'node verify-result.mjs', blocking: true }] },
     subagents: { critic: { description: 'Find a confound', prompt: 'Challenge the result.' } },
     resources: {
@@ -144,9 +144,9 @@ it('refuses shared, host-dependent and malformed source instead of rewriting ano
     SOURCE.replace('tools: { Read: true, Bash: false }', 'tools: { Read: true, Read: false }'),
   ]
   const candidate = readGraphProfile(SOURCE, 'build')
-  for (const source of candidates) {
-    expect(() => readGraphProfile(source, 'build')).toThrow()
-    expect(() => setGraphProfile(source, 'build', candidate)).toThrow()
+  for (const [index, source] of candidates.entries()) {
+    expect(() => readGraphProfile(source, 'build'), `source variant ${index}`).toThrow()
+    expect(() => setGraphProfile(source, 'build', candidate), `source variant ${index}`).toThrow()
   }
   expect(() => readGraphProfile(SOURCE, 'verify')).toThrow()
   expect(() => readGraphProfile(SOURCE, 'absent')).toThrow()

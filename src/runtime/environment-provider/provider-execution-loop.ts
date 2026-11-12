@@ -208,7 +208,10 @@ export async function* runProviderExecution(
     let refusalsInARow = 0
     for (let attempt = 1; ; attempt += 1) {
       const continued = attempt > 1
+      state.transcriptTask = invocation.task
+      state.transcriptResult = undefined
       if (continued && state.environment !== undefined) {
+        state.harnessTranscript = harnessTranscriptUnavailable('capture-did-not-run')
         // A resumed turn can change this same workspace. Its predecessor's receipt cannot
         // authorize cleanup, including when dispatch fails before returning a new handle.
         state.resetWorkspace(state.environment, invocation.executionId)
@@ -253,7 +256,9 @@ async function pauseForContinuation(
   if (
     refusal === undefined ||
     continueInvocation === undefined ||
-    state.workspacePreservationRequired
+    state.workspacePreservationRequired ||
+    state.transcriptPreservationRequired ||
+    state.transcriptPersistenceFailed
   ) {
     return undefined
   }

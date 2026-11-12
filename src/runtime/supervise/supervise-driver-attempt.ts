@@ -6,10 +6,14 @@ import {
   mergeProxySecretBindings,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
-import { ValidationError } from '../../errors'
+import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
-import type { HarnessTranscriptCapture } from '../harness-transcript'
+import {
+  type HarnessTranscriptCapture,
+  readHarnessTranscript,
+  settleHarnessTranscript,
+} from '../harness-transcript'
 import { isAsyncIterable, zeroSpend } from '../util'
 import { coordinationBindingHost } from './coordination-mcp'
 import { type DriverAttemptIdentity, DriverExecutionAttempt } from './driver-execution-attempt'
@@ -32,7 +36,10 @@ import {
   createExecutor,
 } from './runtime'
 import { scopeOwnerExecutorNodeContext } from './scope'
-import { scopeOwnerExecutionObservation } from './scope-owner-materialization'
+import {
+  recordScopeOwnerHarnessTranscript,
+  scopeOwnerExecutionObservation,
+} from './scope-owner-materialization'
 import type { ActiveSeat } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
 import { exhaustedBudgetChannels } from './supervise-budget'
@@ -176,10 +183,36 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   } catch (error) {
     attempt.noteFailure(error)
   } finally {
-    await attempt.release(pending, input.drive)
-    input.keepTranscript(executor.harnessTranscript?.())
-    if (state.activeExecutor === executor) state.activeExecutor = undefined
-    endDrive()
+    try {
+      await attempt.release(pending, input.drive)
+      if (state.boundBackend.backend === 'bridge' || state.boundBackend.backend === 'provider') {
+        // A continuation may start a new native session. Keep each completed attempt before the
+        // next drive replaces its executor, including explicit capture failures and exact inputs.
+        await settleHarnessTranscript(executor)
+        try {
+          await recordScopeOwnerHarnessTranscript(
+            scope,
+            input.originalTask,
+            readHarnessTranscript(executor),
+            attempt.terminalArtifact,
+          )
+        } catch (cause) {
+          // Evidence debt is terminal even when the original turn failed transiently: retrying
+          // could spend again while the previous attempt has no durable capture receipt.
+          attempt.failed = true
+          attempt.failure = new RuntimeRunStateError(
+            'manager transcript evidence could not be persisted',
+            {
+              cause,
+            },
+          )
+        }
+      }
+      input.keepTranscript(executor.harnessTranscript?.())
+    } finally {
+      if (state.activeExecutor === executor) state.activeExecutor = undefined
+      endDrive()
+    }
   }
   if (attempt.failed) throw attempt.failure
   state.managerArtifact = attempt.terminalArtifact

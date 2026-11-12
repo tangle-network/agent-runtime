@@ -5618,6 +5618,57 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
 
+##### harnessTranscript?
+
+> `optional` **harnessTranscript?**: (`request`) => `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+**`Experimental`**
+
+Trusted host capture after exact retained terminal proof. Reuses the Bridge capture
+contract and Scope/CAS retention; absent keeps the environment-reader behavior.
+
+###### Parameters
+
+###### request
+
+###### sessionId
+
+`string`
+
+###### harness
+
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"nanocode"` \| `"exo"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
+
+###### profileDigest
+
+`` `sha256:${string}` ``
+
+###### cwd?
+
+`string`
+
+###### node?
+
+[`ExecutorNodeContext`](#executornodecontext)
+
+###### runs
+
+readonly `object`[]
+
+###### controlRef?
+
+`AgentExactRunControlRef`
+
+Present on the retained provider path; verified against its terminal status.
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
 ##### promptOptions?
 
 > `optional` **promptOptions?**: [`ProviderPromptOptions`](#providerpromptoptions)
@@ -5893,15 +5944,45 @@ Translate unsupported Sandbox controls while preserving requested custody.
 
 > `readonly` **content**: `string`
 
+##### attribution?
+
+> `readonly` `optional` **attribution?**: `object`
+
+Original provider-native path and source, independent of the archive's storage layout.
+
+###### providerSessionId
+
+> `readonly` **providerSessionId**: `string`
+
+###### sourceId?
+
+> `readonly` `optional` **sourceId?**: `string`
+
+###### rootScope
+
+> `readonly` **rootScope**: `"session-home"` \| `"workspace-session"`
+
+###### nativePath
+
+> `readonly` **nativePath**: `string`
+
 ***
 
 ### HarnessTranscriptBinding
+
+Exact execution coordinates supplied by the trusted Bridge or provider capture owner.
 
 #### Properties
 
 ##### kind
 
-> `readonly` **kind**: `"bridge"`
+> `readonly` **kind**: `"provider"` \| `"bridge"`
+
+##### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+Required for provider captures; identifies the exact admitted native run.
 
 ##### node?
 
@@ -5914,6 +5995,12 @@ Translate unsupported Sandbox controls while preserving requested custody.
 ##### nativeSessionId
 
 > `readonly` **nativeSessionId**: `string`
+
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+Ordered native sessions observed across retries of this exact execution.
 
 ##### profileDigest
 
@@ -5973,6 +6060,10 @@ Translate unsupported Sandbox controls while preserving requested custody.
 
 > `readonly` **nativeSessionId**: `string` \| `null`
 
+###### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
 ###### coverageComplete
 
 > `readonly` **coverageComplete**: `boolean`
@@ -5990,6 +6081,10 @@ Translate unsupported Sandbox controls while preserving requested custody.
 > `readonly` **skipped**: readonly `object`[]
 
 Paths found but not read, with why — a gap named is a gap an operator can act on.
+
+##### omitted?
+
+> `readonly` `optional` **omitted?**: readonly `object`[]
 
 ***
 
@@ -7174,6 +7269,28 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 ###### Returns
 
 [`AgenticTool`](#agentictool)[]
+
+***
+
+### CanonicalObservedModelParts
+
+#### Properties
+
+##### base
+
+> `readonly` **base**: `string`
+
+##### snapshot?
+
+> `readonly` `optional` **snapshot?**: `string`
+
+##### snapshotKind?
+
+> `readonly` `optional` **snapshotKind?**: [`SnapshotKind`](#snapshotkind)
+
+##### canonical
+
+> `readonly` **canonical**: `string`
 
 ***
 
@@ -9905,6 +10022,12 @@ Exact provider-create profile identity; materialization receipts bind it to the 
 
 > `readonly` **nativeSessionId**: `string` \| `null`
 
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+Ordered native conversation identities observed for this exact provider execution.
+
 ##### snapshot
 
 > `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
@@ -10034,6 +10157,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 
 > `readonly` **nativeSessionId**: `string` \| `null`
 
+###### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
 ###### coverageComplete
 
 > `readonly` **coverageComplete**: `boolean`
@@ -10077,6 +10204,12 @@ Inventory and source identity only; native bytes remain in the original workspac
 ##### skipped
 
 > `readonly` **skipped**: readonly `object`[]
+
+##### omitted?
+
+> `readonly` `optional` **omitted?**: readonly `object`[]
+
+Producer-declared non-session material intentionally excluded from native byte retention.
 
 ##### missing
 
@@ -10134,6 +10267,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 
 > `readonly` **skipped**: readonly `object`[]
 
+##### omitted?
+
+> `readonly` `optional` **omitted?**: readonly `object`[]
+
 ##### source?
 
 > `readonly` `optional` **source?**: `object`
@@ -10165,6 +10302,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 ###### nativeSessionId
 
 > `readonly` **nativeSessionId**: `string` \| `null`
+
+###### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
 
 ###### coverageComplete
 
@@ -10235,62 +10376,6 @@ Projection limits do not change what the original archive retained.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
-
-***
-
-### BoundHarnessSession
-
-#### Properties
-
-##### nativeSessionId
-
-> `readonly` **nativeSessionId**: `string`
-
-##### parentNativeSessionId?
-
-> `readonly` `optional` **parentNativeSessionId?**: `string` \| `null`
-
-##### children
-
-> `readonly` **children**: readonly `object`[]
-
-##### integrity
-
-> `readonly` **integrity**: `object`
-
-###### truncated
-
-> `readonly` **truncated**: `boolean`
-
-###### unparsedRecords
-
-> `readonly` **unparsedRecords**: `number`
-
-###### gaps
-
-> `readonly` **gaps**: readonly `unknown`[]
-
-***
-
-### HarnessFileBinding
-
-#### Properties
-
-##### path
-
-> `readonly` **path**: `string`
-
-##### nativeSessionId
-
-> `readonly` **nativeSessionId**: `string`
-
-##### sha256?
-
-> `readonly` `optional` **sha256?**: `string`
-
-##### byteLength?
-
-> `readonly` `optional` **byteLength?**: `number`
 
 ***
 
@@ -15496,6 +15581,12 @@ Local native capture, after the admitted jobs are proven terminal. Retained live
 ###### runs
 
 readonly `object`[]
+
+###### controlRef?
+
+`AgentExactRunControlRef`
+
+Present on the retained provider path; verified against its terminal status.
 
 ###### signal
 
@@ -26360,6 +26451,59 @@ Exact final-message JSON for graph output; requires Runtime-owned durable eviden
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`outputFormat`](#outputformat)
 
+##### harnessTranscript?
+
+> `optional` **harnessTranscript?**: (`request`) => `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+Trusted host capture after exact retained terminal proof. Reuses the Bridge capture
+contract and Scope/CAS retention; absent keeps the environment-reader behavior.
+
+###### Parameters
+
+###### request
+
+###### sessionId
+
+`string`
+
+###### harness
+
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"nanocode"` \| `"exo"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
+
+###### profileDigest
+
+`` `sha256:${string}` ``
+
+###### cwd?
+
+`string`
+
+###### node?
+
+[`ExecutorNodeContext`](#executornodecontext)
+
+###### runs
+
+readonly `object`[]
+
+###### controlRef?
+
+`AgentExactRunControlRef`
+
+Present on the retained provider path; verified against its terminal status.
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`harnessTranscript`](#harnesstranscript)
+
 ##### promptOptions?
 
 > `optional` **promptOptions?**: [`ProviderPromptOptions`](#providerpromptoptions)
@@ -29601,7 +29745,7 @@ Optional capture of the manager's own harness session from its newest attempt.
 
 > `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
 
-Resolves once [harnessTranscript](#harnesstranscript-3) is final (`Executor.harnessTranscriptSettled`).
+Resolves once [harnessTranscript](#harnesstranscript-5) is final (`Executor.harnessTranscriptSettled`).
 
 ###### Returns
 
@@ -33031,6 +33175,12 @@ Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 
 ## Type Aliases
 
+### BoundHarnessSession
+
+> **BoundHarnessSession** = `any`
+
+***
+
 ### AnalystLensOutput
 
 > **AnalystLensOutput** = `ReadonlyArray`\<`AnalystFinding`\> \| \{ `summary`: `string`; \}
@@ -33067,7 +33217,7 @@ unvalidated shape (#630) while the authored lens keeps working.
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"tool-timing"`; `call`: \{ `tool`: `string`; `receivedAt`: `number`; `elapsedMs`: `number`; `responseBytes`: `number`; `ok`: `boolean`; \}; \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \} \| \{ `type`: `"route"`; `route`: [`RouteFlowEvent`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"tool-timing"`; `call`: \{ `tool`: `string`; `receivedAt`: `number`; `elapsedMs`: `number`; `responseBytes`: `number`; `ok`: `boolean`; \}; \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \} \| \{ `type`: `"route"`; `route`: [`RouteFlowEvent`](#routeflowevent); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -33230,7 +33380,7 @@ One step of a map route. Record-only, except an expansion that was refused and a
 
 ##### Type Literal
 
-\{ `type`: `"route"`; `route`: [`RouteFlowEvent`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts); \}
+\{ `type`: `"route"`; `route`: [`RouteFlowEvent`](#routeflowevent); \}
 
 One flow step (see [RouteFlowEvent](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)). Record-only: the settle that caused it already
  woke the manager, and a flow manager makes no decision of its own.
@@ -33323,6 +33473,155 @@ A route condition: one match, or every match of `all`.
 
 The caller's answer to one gate visit: route on a choice, or end the run. `by` names who
  decided and rides the decision's ledger row.
+
+***
+
+### RouteFlowEvent
+
+> **RouteFlowEvent** = \{ `kind`: `"traversal"`; `edge`: `string`; `from`: `string`; `to`: `string`; `outcome`: `"delivered"` \| `"unpropagated"`; `continuity`: [`ContinuityMode`](durable.md#continuitymode); `bytes`: `number`; `reason?`: `string`; `workerId?`: `string`; `sourceWorker?`: `string`; `gate?`: [`GateDecisionRecord`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts) & `object`; \} \| \{ `kind`: `"output"`; `node`: `string`; `workerId`: `string`; `result`: `unknown`; `edge?`: `string`; \} \| \{ `kind`: `"stopped"`; `code?`: `string`; `at`: `string`; `workerId`: `string`; `reason`: `string`; `edge?`: `string`; \} \| \{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
+
+One flow step, published as a record-only `route` event (the settle that caused it already woke
+the manager):
+
+- `traversal`: an entry or a routes edge fired, or was skipped at its cap, or its spawn was
+  refused, or a gate was decided (`gate` set; its edge is `gate:<id>`);
+- `output`: a terminal node or a `finish` edge made this settle part of the run's output;
+- `stopped`: a `stop` edge fired, a gate decided `stop`, or a flow node settled down or without a
+  usable result where a route was needed, or a gate was undecided at the deadline, and the flow
+  spawns nothing more;
+- `unrouted`: a flow node's usable settle matched no edge (`unrouted`), or a fired edge named a
+  node that still has a running worker (`target-live`); converging branches use a join.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"traversal"`; `edge`: `string`; `from`: `string`; `to`: `string`; `outcome`: `"delivered"` \| `"unpropagated"`; `continuity`: [`ContinuityMode`](durable.md#continuitymode); `bytes`: `number`; `reason?`: `string`; `workerId?`: `string`; `sourceWorker?`: `string`; `gate?`: [`GateDecisionRecord`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts) & `object`; \}
+
+###### kind
+
+> `readonly` **kind**: `"traversal"`
+
+###### edge
+
+> `readonly` **edge**: `string`
+
+###### from
+
+> `readonly` **from**: `string`
+
+###### to
+
+> `readonly` **to**: `string`
+
+###### outcome
+
+> `readonly` **outcome**: `"delivered"` \| `"unpropagated"`
+
+###### continuity
+
+> `readonly` **continuity**: [`ContinuityMode`](durable.md#continuitymode)
+
+###### bytes
+
+> `readonly` **bytes**: `number`
+
+Bytes of the task that crossed, or of the result a stop or finish took.
+
+###### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+###### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+The spawned worker, when a node target started.
+
+###### sourceWorker?
+
+> `readonly` `optional` **sourceWorker?**: `string`
+
+The settled worker whose result fired the edge. Absent on an entry.
+
+###### gate?
+
+> `readonly` `optional` **gate?**: [`GateDecisionRecord`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts) & `object`
+
+A gate decision: who decided and what. `replayed` decisions are already journaled.
+
+###### Type Declaration
+
+###### replayed?
+
+> `readonly` `optional` **replayed?**: `boolean`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"output"`; `node`: `string`; `workerId`: `string`; `result`: `unknown`; `edge?`: `string`; \}
+
+###### kind
+
+> `readonly` **kind**: `"output"`
+
+###### node
+
+> `readonly` **node**: `string`
+
+###### workerId
+
+> `readonly` **workerId**: `string`
+
+###### result
+
+> `readonly` **result**: `unknown`
+
+###### edge?
+
+> `readonly` `optional` **edge?**: `string`
+
+The finish edge, or absent for a terminal node.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"stopped"`; `code?`: `string`; `at`: `string`; `workerId`: `string`; `reason`: `string`; `edge?`: `string`; \}
+
+###### kind
+
+> `readonly` **kind**: `"stopped"`
+
+###### code?
+
+> `readonly` `optional` **code?**: `string`
+
+###### at
+
+> `readonly` **at**: `string`
+
+###### workerId
+
+> `readonly` **workerId**: `string`
+
+###### reason
+
+> `readonly` **reason**: `string`
+
+###### edge?
+
+> `readonly` `optional` **edge?**: `string`
+
+The stop edge or `gate:<id>`, or absent when a down or unusable settle or the deadline
+ ended the flow.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
 
 ***
 
@@ -33866,6 +34165,12 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 > **SuperviseOptionsForDispatch** = `Omit`\<[`SuperviseOptions`](#superviseoptions), `"signal"`\>
 
 `supervise` options minus Eval-owned cancellation.
+
+***
+
+### SnapshotKind
+
+> **SnapshotKind** = `"date"` \| `"opaque"`
 
 ***
 
@@ -40402,6 +40707,68 @@ Expose a neutral provider through the existing Sandbox client port.
 
 ***
 
+### readVerifiedHarnessTranscript()
+
+> **readVerifiedHarnessTranscript**(`receipt`, `blobs`, `options`): `Promise`\<\{ `succeeded`: `true`; `value`: \{ `metadata`: [`HarnessTranscriptMetadata`](#harnesstranscriptmetadata); `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
+
+Verify complete native evidence and its exact execution before ending source custody. Original
+retained archive bytes are checked even when binary or bounded files have no text projection.
+Parsed conversation completeness is a separate check owned by `readHarnessTranscriptSessions`.
+
+#### Parameters
+
+##### receipt
+
+`unknown`
+
+##### blobs
+
+`Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+##### options
+
+`Omit`\<[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions), `"content"`\> & `object`
+
+#### Returns
+
+`Promise`\<\{ `succeeded`: `true`; `value`: \{ `metadata`: [`HarnessTranscriptMetadata`](#harnesstranscriptmetadata); `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
+
+***
+
+### readHarnessTranscriptSessions()
+
+> **readHarnessTranscriptSessions**\<`S`\>(`receipt`, `blobs`, `options`): `Promise`\<\{ `succeeded`: `true`; `value`: \{ `sessions`: readonly `S`[]; \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
+
+Resolve complete native sessions for one exact Runtime execution. The existing capture reader
+verifies retained bytes; the caller supplies its native parser. Missing coverage, a different
+attempt, and incomplete native families return explicit failures rather than training examples.
+
+#### Type Parameters
+
+##### S
+
+`S` *extends* `BoundHarnessSession`
+
+#### Parameters
+
+##### receipt
+
+`unknown`
+
+##### blobs
+
+`Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+##### options
+
+`Omit`\<[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions), `"content"`\> & `object` & `object`
+
+#### Returns
+
+`Promise`\<\{ `succeeded`: `true`; `value`: \{ `sessions`: readonly `S`[]; \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
+
+***
+
 ### captureHarnessTranscript()
 
 > **captureHarnessTranscript**(`environment`, `harness`, `signal?`): `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
@@ -40525,7 +40892,7 @@ Local native bytes enter the same artifact/settlement path as every other transc
 
 ##### S
 
-`S` *extends* [`BoundHarnessSession`](#boundharnesssession)
+`S` *extends* `BoundHarnessSession`
 
 #### Parameters
 
@@ -40987,6 +41354,64 @@ Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` wi
 #### Returns
 
 [`AgenticSurface`](#agenticsurface)
+
+***
+
+### observedModelMatchesDeclared()
+
+> **observedModelMatchesDeclared**(`observed`, `declared`): `boolean`
+
+Match equivalent bare and provider-qualified spellings without discarding observed identity.
+
+#### Parameters
+
+##### observed
+
+`string`
+
+##### declared
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
+### canonicalObservedModelParts()
+
+> **canonicalObservedModelParts**(`model`): [`CanonicalObservedModelParts`](#canonicalobservedmodelparts) \| `undefined`
+
+Return the canonical model and its validated snapshot kind for runtime evidence reduction.
+
+#### Parameters
+
+##### model
+
+`string`
+
+#### Returns
+
+[`CanonicalObservedModelParts`](#canonicalobservedmodelparts) \| `undefined`
+
+***
+
+### observedModelHasSnapshot()
+
+> **observedModelHasSnapshot**(`model`): `boolean`
+
+Return whether an observed identity includes a provider snapshot.
+
+#### Parameters
+
+##### model
+
+`string`
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -41846,15 +42271,16 @@ Read native metadata without archive I/O, or verify retained bytes before projec
 
 ### readBoundHarnessSessions()
 
-> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<\{ `files`: `object`[]; `sessions`: `S`[]; \}\>
+> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<`any`\>
 
-Verify a bound native family without owning a store, filesystem layout or native parser.
+Compatibility entry. The shared reader owns native-family integrity; Runtime
+retains its archive path policy, abort behavior and public error identity.
 
 #### Type Parameters
 
 ##### S
 
-`S` *extends* [`BoundHarnessSession`](#boundharnesssession)
+`S` *extends* `BoundHarnessSession`
 
 #### Parameters
 
@@ -41864,9 +42290,15 @@ Verify a bound native family without owning a store, filesystem layout or native
 
 `string`
 
+###### nativeSessionIds?
+
+readonly `string`[]
+
+Every native conversation observed for this execution, in execution order.
+
 ###### files
 
-readonly [`HarnessFileBinding`](#harnessfilebinding)[]
+readonly `HarnessFileBinding`[]
 
 ###### read
 
@@ -41882,7 +42314,7 @@ readonly [`HarnessFileBinding`](#harnessfilebinding)[]
 
 #### Returns
 
-`Promise`\<\{ `files`: `object`[]; `sessions`: `S`[]; \}\>
+`Promise`\<`any`\>
 
 ***
 
@@ -43799,6 +44231,89 @@ the backend's working directory, where agent and check nodes both run.
 
 ***
 
+### graphFlowSpawnProfile()
+
+> **graphFlowSpawnProfile**(`graph`, `traversal`, `options?`): `AgentProfile`
+
+Derive the exact flow-node profile named by an actual retained route traversal.
+Uses the execution transform; arbitrary authorization callbacks are outside this contract.
+
+#### Parameters
+
+##### graph
+
+[`GraphTopology`](#graphtopology)
+
+##### traversal
+
+###### kind
+
+`"traversal"`
+
+###### edge
+
+`string`
+
+###### from
+
+`string`
+
+###### to
+
+`string`
+
+###### outcome
+
+`"delivered"` \| `"unpropagated"`
+
+###### continuity
+
+[`ContinuityMode`](durable.md#continuitymode)
+
+###### bytes
+
+`number`
+
+Bytes of the task that crossed, or of the result a stop or finish took.
+
+###### reason?
+
+`string`
+
+###### workerId?
+
+`string`
+
+The spawned worker, when a node target started.
+
+###### sourceWorker?
+
+`string`
+
+The settled worker whose result fired the edge. Absent on an entry.
+
+###### gate?
+
+GateDecisionRecord & \{ readonly replayed?: boolean \| undefined; \}
+
+A gate decision: who decided and what. `replayed` decisions are already journaled.
+
+##### options?
+
+###### registry?
+
+[`PromptRegistry`](#promptregistry)
+
+###### profileGuidance?
+
+`"profile-kb"`
+
+#### Returns
+
+`AgentProfile`
+
+***
+
 ### graphDigest()
 
 > **graphDigest**(`graph`): `string`
@@ -44031,7 +44546,7 @@ readonly [`GraphRunRecord`](#graphrunrecord)[]
 
 > **loadGraph**(`reg`, `digest`): `Promise`\<[`StoredGraph`](#storedgraph) \| `undefined`\>
 
-Load a stored graph by digest.
+Read the exact content-addressed graph, including non-executable observations.
 
 #### Parameters
 
@@ -44181,6 +44696,56 @@ prompt of its own, and when the masked graph changed or the strings do not read 
 ##### map
 
 `Readonly`\<`Record`\<`string`, `string`\>\>
+
+#### Returns
+
+`string`
+
+***
+
+### readGraphProfile()
+
+> **readGraphProfile**(`graphText`, `nodeId`): `AgentProfile`
+
+Read the exact executable profile owned by one inline graph node. Refuses shared YAML,
+host overlays, dynamic bindings, incomplete identities and private literals; never resolves them.
+
+#### Parameters
+
+##### graphText
+
+`string`
+
+##### nodeId
+
+`string`
+
+#### Returns
+
+`AgentProfile`
+
+***
+
+### setGraphProfile()
+
+> **setGraphProfile**(`graphText`, `nodeId`, `profile`): `string`
+
+Materialize a measured profile in its owning node. Other source bytes and graph semantics
+remain unchanged. Load without seat/need overrides to execute this exact candidate.
+
+#### Parameters
+
+##### graphText
+
+`string`
+
+##### nodeId
+
+`string`
+
+##### profile
+
+\{ \}
 
 #### Returns
 
@@ -46291,6 +46856,12 @@ Re-exports [SpawnJournalReadResult](durable.md#spawnjournalreadresult)
 ### createOtelExporter
 
 Re-exports [createOtelExporter](index.md#createotelexporter)
+
+***
+
+### HarnessFileBinding
+
+Renames and re-exports [BoundHarnessSession](#boundharnesssession)
 
 ***
 

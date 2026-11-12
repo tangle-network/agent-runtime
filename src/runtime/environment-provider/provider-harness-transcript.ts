@@ -2,6 +2,7 @@ import {
   AgentExactRunControlRefSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
+  sameAgentRunControlRef,
   workspaceCwdPathForBase,
 } from '@tangle-network/agent-interface'
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
@@ -12,11 +13,13 @@ import {
   type HarnessTranscriptCapture,
 } from '../harness-transcript'
 import { runAbortable } from '../supervise/abortable'
+import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import { detachedSnapshot } from '../supervise/snapshot'
+import type { ExecutorResult } from '../supervise/types'
 import type { ProviderExecutorScope } from './provider-executor-state'
 
 /** Select the existing reader or trusted host port; Scope alone persists its result. */
-export async function captureProviderHarnessTranscript(
+async function readProviderHarnessTranscript(
   scope: ProviderExecutorScope,
   environment: AgentEnvironment,
   sourceSignal?: AbortSignal,
@@ -90,7 +93,9 @@ export async function captureProviderHarnessTranscript(
           !artifact ||
           artifact.harness !== harness ||
           !binding ||
-          binding.kind !== 'bridge' ||
+          (binding.kind !== 'bridge' && binding.kind !== 'provider') ||
+          (binding.controlRef !== undefined &&
+            !sameAgentRunControlRef(binding.controlRef, control.data)) ||
           binding.sessionId !== request.sessionId ||
           binding.profileDigest !== request.profileDigest ||
           canonicalCandidateDigest(binding.node ?? null) !==
@@ -98,7 +103,16 @@ export async function captureProviderHarnessTranscript(
           canonicalCandidateDigest(binding.runs) !== canonicalCandidateDigest(request.runs)
         )
           return refused('Native capture returned a different or unsupported execution binding')
-        return detachedSnapshot(result, 'provider native capture')
+        return detachedSnapshot(
+          {
+            ...result,
+            artifact: {
+              ...artifact,
+              binding: { ...binding, kind: 'provider' as const, controlRef: control.data },
+            },
+          },
+          'provider native capture',
+        )
       },
       signal,
       'Provider native capture stopped',
@@ -106,5 +120,46 @@ export async function captureProviderHarnessTranscript(
   } catch {
     // A trusted port can close over credentials; its exception text is not public evidence.
     return refused('Trusted provider native capture failed or exceeded its bound')
+  }
+}
+
+/** Retain failed capture as evidence debt until an exact repair has been persisted. */
+export async function captureProviderHarnessTranscript(
+  scope: ProviderExecutorScope,
+  environment: AgentEnvironment,
+  signal?: AbortSignal,
+): Promise<HarnessTranscriptCapture> {
+  const capture = await readProviderHarnessTranscript(scope, environment, signal)
+  if (scope.options.harnessTranscript) {
+    scope.state.transcriptPreservationRequired =
+      capture.status === 'unavailable' ||
+      (capture.status === 'captured'
+        ? capture.coverageComplete !== true || capture.skippedCount > 0 || !!capture.missing?.length
+        : !capture.descriptor.source.coverageComplete ||
+          capture.descriptor.skipped.length > 0 ||
+          capture.descriptor.missing.length > 0)
+  }
+  return capture
+}
+
+/** A repaired read repays evidence debt only after its exact invocation receipt is durable. */
+export async function persistProviderHarnessTranscript(
+  scope: ProviderExecutorScope,
+  task: unknown,
+  result: ExecutorResult<unknown> | undefined,
+  retention: RetainedExecutorContext | undefined = scope.retention,
+): Promise<void> {
+  scope.state.transcriptResult = result
+  try {
+    await retention?.onHarnessTranscript?.(task, scope.state.harnessTranscript, result)
+    if (retention?.onHarnessTranscript) {
+      scope.state.transcriptPersistenceFailed = false
+      // A prior cleanup cached its evidence-custody refusal. Only durable repair can reopen it.
+      if (!scope.state.transcriptPreservationRequired && !scope.state.workspacePreservationRequired)
+        scope.state.workspaceCleanupPromise = undefined
+    }
+  } catch (error) {
+    scope.state.transcriptPersistenceFailed = true
+    throw error
   }
 }

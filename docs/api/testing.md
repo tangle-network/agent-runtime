@@ -129,6 +129,12 @@ What a pre-flight sees: the authored child profile and the spawn it is being ask
 
 > `readonly` `optional` **resources?**: `ResourceRequest`
 
+##### nodeToolNames?
+
+> `readonly` `optional` **nodeToolNames?**: readonly `string`[]
+
+The node tools the spawning manager was resolved, when Runtime serves it.
+
 ***
 
 ### PriorCoordination

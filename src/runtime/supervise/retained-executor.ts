@@ -1,5 +1,6 @@
 import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
+import type { HarnessTranscriptCapture } from '../harness-transcript'
 import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
@@ -54,6 +55,12 @@ export interface RetainedExecutorContext {
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
   /** Retain failure evidence without accepting a result or changing recovery state. */
   readonly onEvidence?: (out: unknown) => Promise<void>
+  /** Persist an invocation's capture before its provider environment can be destroyed or reused. */
+  readonly onHarnessTranscript?: (
+    task: unknown,
+    capture: HarnessTranscriptCapture,
+    result: ExecutorResult<unknown> | undefined,
+  ) => Promise<void>
   /** Start this node's next invocation in its last one's environment and session, once that one
    *  committed its result: the scope journals `task` as the next `execution-input` and answers the
    *  new invocation's context. A Scope leaf has it; an owner's driver re-enters instead. */

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspaceFiles } from '../candidate-execution'
 import { sha256Bytes } from '../candidate-execution/digest'
@@ -12,6 +13,10 @@ import {
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
 } from './harness-transcript'
+import {
+  readHarnessTranscriptSessions,
+  readVerifiedHarnessTranscript,
+} from './harness-transcript-sessions'
 import { createPrivateCasArtifactPort } from './private-cas'
 import type { ProviderWorkspaceCaptureReceipt } from './provider-workspace-retention'
 
@@ -93,6 +98,205 @@ async function fixture(contents = [Buffer.from('\uFEFF{"role":"assistant","text"
 }
 
 describe('retained native transcript projection', () => {
+  it('proves raw custody independently of a binary text projection and rejects archive corruption', async () => {
+    const { receipt, artifacts } = await fixture([Buffer.from([0xff, 0])])
+    const blobs = new InMemoryResultBlobStore()
+    const evidence = await persistHarnessTranscript(
+      retainHarnessTranscript(receipt, 'future-harness'),
+      blobs,
+    )
+    const options = { node: receipt.node!, executionId: receipt.executionId, artifacts }
+    const verified = await readVerifiedHarnessTranscript(evidence, blobs, options)
+    expect(verified).toMatchObject({
+      succeeded: true,
+      value: {
+        metadata: { files: [{ bytes: 2 }], skipped: [] },
+        artifact: { files: [], skipped: [{ reason: expect.stringContaining('binary') }] },
+      },
+    })
+    expect(
+      await readVerifiedHarnessTranscript(evidence, blobs, {
+        ...options,
+        artifacts: {
+          ...artifacts,
+          async *readStream(locator, signal) {
+            if (locator.sha256 === receipt.snapshot.archive.sha256) yield Buffer.from('corrupt')
+            else yield* artifacts.readStream!(locator, signal)
+          },
+        },
+      }),
+    ).toMatchObject({ succeeded: false })
+  })
+
+  it.each(['controlRef', 'profileDigest', 'executionId'] as const)(
+    'refuses another %s before reading the retained archive',
+    async (key) => {
+      const { receipt } = await fixture()
+      const controlRef: AgentExactRunControlRef = {
+        provider: 'any-provider',
+        environmentId: 'environment',
+        sessionId: 'session',
+        executionId: 'native-execution',
+        runId: 'native-run',
+        requestDigest: `sha256:${'2'.repeat(64)}`,
+      }
+      const blobs = new InMemoryResultBlobStore()
+      const evidence = await persistHarnessTranscript(
+        retainHarnessTranscript({ ...receipt, controlRef }, 'future-harness'),
+        blobs,
+      )
+      const expected = {
+        controlRef,
+        profileDigest: receipt.profileDigest!,
+        executionId: receipt.executionId,
+        [key]: key === 'controlRef' ? { ...controlRef, runId: 'another-run' } : 'another',
+      }
+      const result = await readVerifiedHarnessTranscript(evidence, blobs, {
+        ...expected,
+        node: receipt.node!,
+        // No artifact reader: identity refusal must precede content resolution.
+      })
+      expect(result).toEqual({
+        succeeded: false,
+        error: `Native transcript ${
+          key === 'controlRef'
+            ? 'control reference'
+            : key === 'profileDigest'
+              ? 'profile'
+              : 'invocation'
+        } does not match the requested execution`,
+      })
+    },
+  )
+
+  it('accounts for declared cache and credential omissions without pretending their bytes were retained', async () => {
+    const { receipt, artifacts } = await fixture()
+    const session = receipt.provenance.sessions![0]!
+    const store = session.nativeStore!
+    const capture = retainHarnessTranscript(
+      {
+        ...receipt,
+        provenance: {
+          ...receipt.provenance,
+          sessions: [
+            {
+              ...session,
+              nativeStore: {
+                ...store,
+                entries: [
+                  ...store.entries,
+                  {
+                    ...store.entries[0]!,
+                    path: '.codex/plugins/cache/package.bin',
+                    sizeBytes: 999,
+                    contentOmitted: 'harness-cache',
+                  },
+                ],
+                excludedPaths: [
+                  {
+                    rootScope: 'session-home',
+                    path: '.codex/auth.json',
+                    kind: 'file',
+                    mode: 0o600,
+                    sizeBytes: 17,
+                    reason: 'credential',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      'future-harness',
+    )
+    const metadata = await resolveHarnessTranscriptCapture(capture, { content: false })
+    expect(metadata?.files).toHaveLength(1)
+    expect(metadata?.skipped).toEqual([])
+    expect(
+      metadata?.omitted?.map((entry) => ({ reason: entry.reason, bytes: entry.bytes })),
+    ).toEqual([
+      { reason: 'harness-cache', bytes: 999 },
+      { reason: 'credential', bytes: 17 },
+    ])
+    const content = await resolveHarnessTranscriptCapture(capture, { artifacts })
+    expect(content?.files).toHaveLength(1)
+    expect(content?.omitted).toEqual(metadata?.omitted)
+    expect(await persistHarnessTranscript(capture, new InMemoryResultBlobStore())).toMatchObject({
+      status: 'available',
+      coverageComplete: true,
+      skippedCount: 0,
+      fileCount: 1,
+    })
+  })
+
+  it('verifies the exact native family while unrelated binary bytes stay in the original archive', async () => {
+    const session = {
+      nativeSessionId: 'native-session',
+      children: [],
+      integrity: { truncated: false, unparsedRecords: 0, gaps: [] },
+    }
+    const { receipt, artifacts } = await fixture([
+      Buffer.from(JSON.stringify(session)),
+      Buffer.from([0xff, 0]),
+    ])
+    const blobs = new InMemoryResultBlobStore()
+    const evidence = await persistHarnessTranscript(
+      retainHarnessTranscript(receipt, 'future-harness'),
+      blobs,
+    )
+    expect(
+      await readHarnessTranscriptSessions(evidence, blobs, {
+        node: receipt.node!,
+        artifacts,
+        readSessions: async (artifact) => artifact.files.map((file) => JSON.parse(file.content)),
+      }),
+    ).toEqual({ succeeded: true, value: { sessions: [session] } })
+  })
+
+  it('retains all native attempts observed under the exact provider execution', async () => {
+    const { receipt, artifacts } = await fixture()
+    const withAttempts: ProviderWorkspaceCaptureReceipt = {
+      ...receipt,
+      controlRef: {
+        provider: 'any-provider',
+        environmentId: 'environment',
+        sessionId: 'session',
+        executionId: 'native-execution',
+        runId: 'native-run',
+        requestDigest: `sha256:${'2'.repeat(64)}`,
+      },
+      provenance: {
+        ...receipt.provenance,
+        attempts: [
+          {
+            executionId: 'native-execution',
+            ordinal: 0,
+            providerSessionId: 'session',
+            nativeSessionIds: ['native-first', 'native-session'],
+            processIds: ['process-1'],
+            outcome: 'succeeded',
+            missingReasons: [],
+          },
+        ],
+      },
+    }
+    const capture = retainHarnessTranscript(withAttempts, 'future-harness')
+    const metadata = await resolveHarnessTranscriptCapture(capture, { content: false })
+    expect(metadata?.source?.nativeSessionIds).toEqual(['native-first', 'native-session'])
+    const content = await resolveHarnessTranscriptCapture(capture, { artifacts })
+    expect(content?.files[0]?.attribution).toMatchObject({
+      providerSessionId: 'session',
+      sourceId: 'native-execution',
+      nativePath: 'native/0.jsonl',
+    })
+    expect(() =>
+      retainHarnessTranscript(
+        { ...withAttempts, nativeSessionIds: ['native-session'] },
+        'future-harness',
+      ),
+    ).toThrow(/omits an observed native execution attempt/)
+  })
+
   it('persists only a descriptor, reads metadata without storage, and preserves native attribution and BOM bytes', async () => {
     const { receipt, artifacts, contents } = await fixture()
     const capture = retainHarnessTranscript(receipt, 'future-harness')

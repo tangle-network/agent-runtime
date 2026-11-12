@@ -93,6 +93,8 @@ export interface ProviderWorkspaceCaptureProvenance {
         readonly sizeBytes: number
         readonly sha256: string | null
         readonly linkTarget: string | null
+        /** Provider policy retains metadata for reinstallable packages and caches, not their bytes. */
+        readonly contentOmitted?: 'harness-install' | 'harness-cache'
       }>
       readonly excludedPaths: ReadonlyArray<{
         readonly sourceId?: string
@@ -138,6 +140,8 @@ export interface ProviderWorkspaceCaptureReceipt {
   readonly profileDigest: string
   readonly providerSessionId: string | null
   readonly nativeSessionId: string | null
+  /** Ordered native conversation identities observed for this exact provider execution. */
+  readonly nativeSessionIds?: readonly string[]
   readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
   readonly provenance: ProviderWorkspaceCaptureProvenance
   readonly coverageComplete: boolean

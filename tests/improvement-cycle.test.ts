@@ -7,7 +7,12 @@ import {
   minimumPairsForPairedDeltaTest,
   type ProposalFinding,
 } from '@tangle-network/agent-eval'
-import { campaignScenarioIdentity, gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
+import {
+  campaignScenarioIdentity,
+  gitWorktreeAdapter,
+  incumbent,
+  uniform,
+} from '@tangle-network/agent-eval/campaign'
 import {
   sealAgentProfileImprovementTask,
   sealCandidateBenchmarkSuite,
@@ -31,6 +36,7 @@ import {
   freezeGenericAgentCandidateProfile,
 } from '../src/candidate-execution/profile'
 import type { ReadonlyAgentProfile } from '../src/improvement'
+import { routerLane, searchMethod } from '../src/improvement/improve'
 import { proposeAgentProfileImprovement as proposeProfile } from '../src/intelligence'
 import {
   createAgentImprovementActivation,
@@ -608,6 +614,122 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       )
     }
   }, 60_000)
+
+  it.each([0, 1])(
+    'routes native profile search through the canonical lifecycle with %i expansions',
+    async (maxExpansions) => {
+      const template = createProfileImprovementFixture()
+      const { digest: _taskDigest, ...task } = template.evaluation.experiment.benchmark.tasks[0]!
+      const {
+        agent: optimize,
+        executionRef,
+        method: _method,
+        resamples: _resamples,
+        confidence: _confidence,
+        ...improvement
+      } = improvementOptions()
+      const profile: AgentProfile = { name: 'native-profile', prompt: { systemPrompt: 'BASELINE' } }
+      const stateDigest = ({ profile: value }: { identity: string; profile: AgentProfile }) =>
+        canonicalCandidateDigest(value)
+      let measured = 0
+      const result = await proposeAgentProfileImprovement({
+        runId: `native-profile-${maxExpansions}`,
+        source: {
+          kind: 'platform-agent-profile',
+          sourceIdentity: 'native-profile',
+          sourceDigest: stateDigest({ identity: 'native-profile', profile }),
+          sourceRevision: 1,
+        },
+        profile,
+        stateDigest,
+        budgetUsd: minimumPairedRuns * 2 + 1,
+        allowIncomplete: true,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => ({
+              run_id: 'native-profile',
+              correlation_id: 'native-profile',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:00.000Z',
+              findings: [],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed' as const, usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: {
+          ...improvement,
+          method: searchMethod({
+            proposer: { kind: 'native-profile-fixture', propose: async () => ['PROMOTED'] },
+            maxExpansions,
+            policy: incumbent(),
+            allocation: uniform(),
+            lanes: [routerLane({ capacity: 4, cellUsd: 0.0001 })],
+          }),
+          claim: {
+            use: 'comparison',
+            population: { id: 'native-profile-tasks', description: 'Deterministic profile tasks' },
+            samplingFrame: 'Fixture task inventory',
+            independentUnit: 'id',
+            generalization: 'new-units',
+            // The fixture changes every binary outcome from zero to one.
+            minimumEffect: 1,
+          },
+          selectionScenarios: Array.from({ length: 6 }, (_, i) => ({
+            id: `native-selection-${i}`,
+            kind: 'improvement-test' as const,
+          })),
+          testScenarios: Array.from({ length: 20 }, (_, i) => ({
+            id: `native-test-${i}`,
+            kind: 'improvement-test' as const,
+          })),
+        },
+        benchmark: {
+          tasks: [task],
+          reps: minimumPairedRuns,
+          seeds: Array.from({ length: minimumPairedRuns }, (_, i) => i + 41) as [
+            number,
+            ...number[],
+          ],
+          policy: template.evaluation.experiment.policy,
+        },
+        executor: {
+          executionRef: {
+            kind: 'agent-profile-improvement-execution-ref',
+            identity: 'native-profile-executor',
+            digest: executionRef,
+          },
+          optimize,
+          measure: async (input) => {
+            measured += 1
+            return createProfileImprovementRunReceipt(input, input.arm === 'candidate' ? 1 : 0)
+          },
+        },
+      })
+      expect(result.improvement.mode).toBe('search')
+      if (result.improvement.mode !== 'search') throw new Error('Expected native search result')
+      expect(result.improvement.claimVerification.status).toBe('verified')
+      if (maxExpansions === 0) {
+        expect(result).toMatchObject({ status: 'held', phase: 'search', decision: 'hold' })
+        expect(measured).toBe(0)
+        expect('proposal' in result).toBe(false)
+      } else {
+        if ('status' in result)
+          throw new Error(`Expected measured native profile proposal: ${result.improvement.reason}`)
+        expect(measured).toBe(minimumPairedRuns * 2)
+        expect(result.proposal.evaluation.decision.outcome).toBe('ship')
+        expect(result.experiment.candidateLineage.runIds).toEqual([
+          result.improvement.lineage.runId,
+        ])
+        expect(result.improvement.lineage.finalTestSplitDigest).toBeTruthy()
+      }
+      await result.improvement.dispose()
+    },
+  )
 
   it('builds a source-bound profile proposal without product experiment wiring', async () => {
     const template = createProfileImprovementFixture()

@@ -86,6 +86,8 @@ export function setGraphStrings(graphText: string, map: Readonly<Record<string, 
 
 function exactProfile(value: unknown, nodeId: string): AgentProfile {
   assertJsonData(value, 'graph profile')
+  if (redact(value).report.findings.length)
+    throw new ValidationError('graph profile: private literal values are not portable candidates')
   const parsed = agentProfileSchema.safeParse(value)
   if (!parsed.success || canonicalCandidateDigest(value) !== canonicalCandidateDigest(parsed.data))
     throw new ValidationError('graph profile: requires an exact canonical AgentProfile')
@@ -94,8 +96,6 @@ function exactProfile(value: unknown, nodeId: string): AgentProfile {
   assertExecutableAgentProfile(parsed.data, 'graph profile')
   // Bound strings are data at execution, but authored templates would change this candidate.
   compileGraphParameters(parsed.data, {})
-  if (redact(parsed.data).report.findings.length)
-    throw new ValidationError('graph profile: private literal values are not portable candidates')
   return parsed.data
 }
 
@@ -132,7 +132,7 @@ function ownProfile(graphText: string, nodeId: string) {
     throw new ValidationError(
       'graph profile: requires an unshared inline agent profile without host overlays',
     )
-  visit(profile, (_key, item) => {
+  visit(own, (_key, item) => {
     if (
       isAlias(item) ||
       ((isMap(item) || isSeq(item) || isScalar(item)) && (item.anchor || item.tag))

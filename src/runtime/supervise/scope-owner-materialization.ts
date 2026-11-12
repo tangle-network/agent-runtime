@@ -7,12 +7,14 @@ import {
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import type { RuntimeHooks } from '../../runtime-hooks'
+import { type HarnessTranscriptCapture, persistHarnessTranscript } from '../harness-transcript'
 import {
   createExecutorObservation,
   createToolProgressObserver,
   type ExecutorObservation,
   executorObservation,
 } from './executor-observation'
+import { recordHarnessTranscriptEvidence } from './harness-transcript-evidence'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -31,6 +33,7 @@ import type {
   ExecutorExecutionBinding,
   ExecutorNodeContext,
   ExecutorProgressEvent,
+  ExecutorResult,
   MaterializedExecutionIdentity,
   NodeId,
   NodeSnapshot,
@@ -337,6 +340,39 @@ export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNo
     nodeId: state.nodeId,
     depth: state.depth,
     attemptId: state.attemptId,
+  })
+}
+
+/** Retain every manager attempt's native evidence without accepting another execution result. */
+export async function recordScopeOwnerHarnessTranscript(
+  scope: Scope<unknown>,
+  task: unknown,
+  capture: HarnessTranscriptCapture,
+  result?: ExecutorResult<unknown>,
+): Promise<void> {
+  const state = ownerMaterializationState(scope)
+  const node = scopeOwnerExecutorNodeContext(scope)
+  const input = detachedSnapshot(task, 'manager execution input')
+  await serializedOwnerWrite(state, async () => {
+    const output =
+      result?.out === undefined
+        ? undefined
+        : detachedSnapshot(result.out, 'manager execution output')
+    const outRef = output === undefined ? undefined : contentAddress(output)
+    if (outRef !== undefined) await state.blobs.put(outRef, output)
+    const harnessTranscript = await persistHarnessTranscript(capture, state.blobs)
+    await recordHarnessTranscriptEvidence({
+      node,
+      task: input,
+      ...(outRef === undefined ? {} : { outRef }),
+      harnessTranscript,
+      journal: state.journal,
+      roots: [state.root, state.retainedRoot],
+      blobs: state.blobs,
+      now: state.now,
+    })
+    if (harnessTranscript.status === 'unavailable' && capture.status !== 'unavailable')
+      throw new ValidationError('manager transcript capture could not be persisted')
   })
 }
 

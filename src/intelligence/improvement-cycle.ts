@@ -80,6 +80,7 @@ import {
   type ImproveMethodResult,
   type ImproveOptions,
   type ImproveResult,
+  type ImproveSearchResult,
   improve,
 } from '../improvement/improve'
 import { createAgentImprovementProposal } from './activation'
@@ -464,10 +465,10 @@ function assertReleaseSplitIsFresh<TScenario extends Scenario, TArtifact>(
   improvement: ImproveResult<TScenario, TArtifact>,
 ): void {
   const consumedSplits = [improvement.lineage.developmentSplitDigest]
-  if (improvement.mode === 'method') {
+  if (improvement.mode !== 'code') {
     const finalTestSplitDigest = improvement.lineage.finalTestSplitDigest
     if (!finalTestSplitDigest) {
-      throw new Error('method improvement does not retain its final-test split digest')
+      throw new Error('profile improvement does not retain its final-test split digest')
     }
     consumedSplits.push(finalTestSplitDigest)
   }
@@ -485,7 +486,7 @@ function assertCandidateReleaseWorkIsFresh<TScenario extends Scenario, TArtifact
   )) {
     assertReleaseSplitIsFresh(splitDigest, improvement)
   }
-  if (improvement.mode !== 'method') return
+  if (improvement.mode === 'code') return
   assertReleaseScenariosAreFresh(
     improvement.lineage.scenarioPartitions,
     experiment.benchmark.tasks.map((task) => task.scenario),
@@ -494,7 +495,7 @@ function assertCandidateReleaseWorkIsFresh<TScenario extends Scenario, TArtifact
 
 function assertProfileReleaseWorkIsFresh(
   benchmark: AgentProfileImprovementSuiteInputs,
-  improvement: ImproveMethodResult,
+  improvement: ImproveMethodResult | ImproveSearchResult,
 ): void {
   assertReleaseSplitIsFresh(benchmark.suite.splitDigest, improvement)
   assertReleaseScenariosAreFresh(
@@ -698,7 +699,8 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
         throw new Error('profile improvement measurement accounting is incomplete')
       return { ...run, analysis, improvement, experiment }
     }
-    const optimizationReceipt = createOptimizationActivationReceipt(improvement)
+    const optimizationReceipt =
+      improvement.mode === 'method' ? createOptimizationActivationReceipt(improvement) : undefined
     const evaluation = verifyAgentProfileImprovementExperimentComparison(
       measuredComparisonFromAgentProfileImprovementExperiment({
         experiment,
