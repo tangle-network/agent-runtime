@@ -860,7 +860,10 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       note('retained-read-refused', { environmentId: id, status })
       return jsonError(response, status, {
         code: status === 500 ? 'CONFIGURATION_ERROR' : 'UNAUTHORIZED',
-        message: status === 500 ? 'Upstream service credential was refused' : 'Invalid or missing authentication token',
+        message:
+          status === 500
+            ? 'Upstream service credential was refused'
+            : 'Invalid or missing authentication token',
         retryable: false,
       })
     }
