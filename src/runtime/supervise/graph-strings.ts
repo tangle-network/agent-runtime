@@ -154,6 +154,10 @@ export function setGraphProfile(
 ): string {
   const parsed = ownProfile(graphText, nodeId)
   const candidate = exactProfile(profile, nodeId)
+  if (canonicalCandidateDigest(candidate) === canonicalCandidateDigest(parsed.canonical))
+    return graphText
+  if (parsed.document.has('digest'))
+    throw new ValidationError('graph profile: a pinned graph digest requires its compilation owner')
   const range = parsed.profile.range
   if (!range) throw new ValidationError('graph profile: missing source range')
   const [start, end] = range

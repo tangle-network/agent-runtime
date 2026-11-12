@@ -99,6 +99,10 @@ it('materializes JSON and flow YAML profiles through the real loader too', async
   const candidate: AgentProfile = { ...baseline, tools: { Bash: false } }
   const next = setGraphProfile(SOURCE, 'review', candidate)
   expect((await load(next)).graph.nodes[1]!.profile).toEqual(candidate)
+  const pinned = `digest: ${(await load(SOURCE)).graph.digest}\n${SOURCE}`
+  expect((await load(pinned)).graph.nodes[1]!.profile).toEqual(baseline)
+  expect(setGraphProfile(pinned, 'review', baseline)).toBe(pinned)
+  expect(() => setGraphProfile(pinned, 'review', candidate)).toThrow(/pinned graph digest/)
   const json = JSON.stringify(parse(SOURCE))
   const written = setGraphProfile(json, 'review', candidate)
   expect(JSON.parse(written).nodes[1].profile).toEqual(candidate)
