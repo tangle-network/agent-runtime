@@ -117,7 +117,9 @@ it.each<Scenario>([
           elapsedMs: expect.any(Number),
         })
         expect(Number(recovered!.elapsedMs)).toBeGreaterThanOrEqual(600_000)
-        expect(events.filter((row) => row.kind === 'driver-attempt' && row.record.error)).toEqual([])
+        expect(
+          events.filter((row) => row.kind === 'driver-attempt' && row.record.error),
+        ).toEqual([])
       }
       expect(state.failures).toEqual([])
       expect(state.runs).toHaveLength(1)
