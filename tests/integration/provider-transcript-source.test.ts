@@ -125,7 +125,6 @@ process.exitCode = code;
       },
     }
     const profile = testAgentProfile('native-proof')
-    const servedProfile = { ...profile, prompt: { instructions: ['provider overlay'] } }
     const context = createFileRunContext(join(directory, 'run'))
     const runId = `native-source-${exitCode}`
     await createSupervisor().run(
@@ -141,9 +140,7 @@ process.exitCode = code;
               executorSpec: {
                 profile,
                 harness: null,
-                executorFactory: providerAsExecutor(provider, {
-                  profileForCreate: () => servedProfile,
-                }),
+                executorFactory: providerAsExecutor(provider),
               },
             },
             'perform native work',
@@ -172,7 +169,9 @@ process.exitCode = code;
     const dispatch = journal.find(
       (event) => event.kind === 'execution-admitted' && event.admission.phase === 'dispatched',
     )
-    expect(dispatch).toBeDefined()
+    if (dispatch?.kind !== 'execution-admitted' || dispatch.admission.phase !== 'dispatched')
+      throw new Error(`native dispatch missing: ${JSON.stringify(journal)}`)
+    expect(dispatch.admission.controlRef).toEqual(controlRef)
     const terminal = journal.find((event) => event.kind === 'settled' && event.id === `${runId}:s0`)
     if (!terminal || terminal.kind !== 'settled' || !terminal.harnessTranscript)
       throw new Error(`native settlement missing: ${JSON.stringify(journal)}`)
@@ -184,7 +183,7 @@ process.exitCode = code;
       controlRef,
       node: { rootId: runId, parentId: runId, nodeId: `${runId}:s0` },
       environmentId: environment.id,
-      profileDigest: canonicalAgentProfileDigest(servedProfile),
+      profileDigest: canonicalAgentProfileDigest(profile),
       providerSessionId: controlRef!.sessionId,
       nativeSessionId: null,
       coverageComplete: false,
