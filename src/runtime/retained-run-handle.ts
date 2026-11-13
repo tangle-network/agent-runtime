@@ -30,6 +30,7 @@ import {
   htmlTransportFailure,
   isTerminalSessionStatus,
   RetainedRunProviderContractError,
+  sameControlCoordinates,
 } from './retained-run-binding'
 import { RetainedRunControl } from './retained-run-control'
 import { retainedRunEvents } from './retained-run-events'
@@ -259,6 +260,16 @@ export function createRetainedRunHandle(
     get capabilities() {
       return structuredClone(measuredCapabilities)
     },
+    ...(environment.retainFileOutput && measuredCapabilities.workspace?.retainFileOutput === true
+      ? {
+          retainFileOutput: async (...args: Parameters<NonNullable<AgentEnvironment['retainFileOutput']>>) => {
+            control.sync()
+            if (!sameControlCoordinates(control.current, args[0].controlRef))
+              return { status: 'unavailable' as const, reason: 'original retained execution is no longer current' }
+            return environment.retainFileOutput!(...args)
+          },
+        }
+      : {}),
     status: (options) => retainedStatus(control, clock, options),
     events: (options) => {
       control.sync()

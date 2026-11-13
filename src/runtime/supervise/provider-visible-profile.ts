@@ -12,7 +12,7 @@ export const runtimeGraphMetadataKey = 'agentRuntimeGraph'
 
 /** Remove Runtime-only grants, seat policy and graph topology from the provider-facing profile. */
 export function providerVisibleProfile(profile: AgentProfile): AgentProfile {
-  const { seats: _seats, ...withoutSeats } = profile as AgentProfile & { seats?: unknown }
+  const { seats: _seats, outputFile: _outputFile, ...withoutSeats } = profile as AgentProfile & { seats?: unknown }
   const visible = withoutRuntimeGraph(withoutSeats)
   if (profile.tools === undefined) return visible
   const providerTools = Object.fromEntries(
