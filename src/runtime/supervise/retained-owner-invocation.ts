@@ -36,6 +36,8 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
     event.kind === 'execution-admitted' ? [event.admission] : [],
   )
   const acceptedRef = [...attempt].reverse().find((event) => event.kind === 'execution-result')
+  const acceptedConsumed =
+    acceptedRef?.kind === 'execution-result' && failedTurnReplayed(attempt, acceptedRef)
   const records = events.flatMap((event) => (event.kind === 'driver-attempt' ? [event.record] : []))
   let observed = records.filter((record) => record.observed).at(-1)?.observed
   const priorSession = taskEvent === undefined ? undefined : committedSession(events, start)
@@ -49,6 +51,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       ? { taskRef: taskEvent.taskRef, inputSequence: taskEvent.seq }
       : {}),
     ...(acceptedRef?.kind === 'execution-result' ? { acceptedRef } : {}),
+    ...(acceptedConsumed ? { acceptedConsumed } : {}),
     ...(priorSession ? { priorSession } : {}),
     context: {
       get executionId() {
@@ -155,12 +158,30 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         }
         await args.journal.appendEvent(args.rootId, event)
         state.acceptedRef = event
-        state.accepted = detachedSnapshot(result, 'retained owner result')
         state.acceptedConsumed = true
       },
     },
   }
   owners.set(scope, state)
+}
+
+/**
+ * Whether a drive other than the one that ran this failed turn journaled an attempt after its
+ * result. The drive that ran it records its failure under the attempt id its binding names; the
+ * first drive after a restart replays it once under a new id. That record consumes the turn
+ * durably: every later drive, in this process or after another restart, starts a new turn.
+ */
+function failedTurnReplayed(
+  attempt: readonly SpawnEvent[],
+  result: Extract<SpawnEvent, { kind: 'execution-result' }>,
+): boolean {
+  const at = attempt.indexOf(result)
+  const bound = attempt.slice(0, at).filter((event) => event.kind === 'execution-bound')
+  const last = bound.at(-1)
+  const ranBy = last?.kind === 'execution-bound' ? last.binding.attemptId : undefined
+  const byAnotherDrive = (event: SpawnEvent) =>
+    event.kind === 'driver-attempt' && event.attemptId !== ranBy
+  return attempt.slice(at + 1).some(byAnotherDrive) && executorFailureReason(result) !== undefined
 }
 
 /** Continue the latest committed environment, past abandoned ones. A live session stays. */
@@ -327,7 +348,8 @@ export async function prepareScopeRetainedOwnerTask(
     delete state.taskRef
     state.admissions.length = 0
   }
-  if (state.prepared && state.acceptedRef && state.acceptedConsumed) {
+  // Also on this scope's first prepare: a seat replay or a replayed record consumed it already.
+  if (state.acceptedRef && state.acceptedConsumed) {
     await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
     const currentEnvironment = [...state.admissions]
       .reverse()
@@ -336,7 +358,6 @@ export async function prepareScopeRetainedOwnerTask(
     delete state.inputSequence
     delete state.taskRef
     delete state.acceptedRef
-    delete state.accepted
     // A deliberate later drive starts a distinct invocation after an accepted result.
     state.admissions.length = 0
     delete state.acceptedConsumed
@@ -378,7 +399,6 @@ export async function prepareScopeRetainedOwnerTask(
     delete state.priorSession
     delete state.forceNewSession
   }
-  state.prepared = true
   // The journal fixes the restore point before input, so recovery replays that create.
   const capable = await restoreCapable(state.provider)
   const restoreFor = (inputIndex: number): RetainedWorkspaceRestore | undefined => {
@@ -428,13 +448,13 @@ export async function prepareScopeRetainedOwnerTask(
   return snapshot
 }
 
-/** Accepted backend output remains evidence, never the supervisor's finalized output. */
+/** The committed result no drive has consumed yet. Accepted backend output remains evidence,
+ *  never the supervisor's finalized output. */
 export async function scopeRetainedOwnerResult(
   scope: Scope<unknown>,
 ): Promise<ExecutorResult<unknown> | undefined> {
   const state = owners.get(scope)
-  if (!state?.acceptedRef) return undefined
-  if (state.accepted) return state.accepted
+  if (!state?.acceptedRef || state.acceptedConsumed) return undefined
   const event = state.acceptedRef
   const out = await state.args.blobs.get(event.outRef)
   if (out === undefined || contentAddress(out) !== event.outRef) {
