@@ -7,6 +7,7 @@ import { runSettledCommand } from '../../src/mcp/worktree-harness'
 import { createExecutorRegistry, FileResultBlobStore, FileSpawnJournal } from '../../src/runtime'
 import { type BudgetReadout, createBudgetPool } from '../../src/runtime/supervise/budget'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
+import { seatAdmissionPauses } from '../../src/runtime/supervise/scope-capabilities'
 import { createScope } from '../../src/runtime/supervise/scope-construction'
 import type { Agent, AgentSpec, Executor } from '../../src/runtime/supervise/types'
 import { zeroSpend } from '../../src/runtime/util'
@@ -130,6 +131,12 @@ it.each([
       {
         name: 'director',
         async act(_task, directorScope) {
+          // A real seat pause/resume creates the nested lease whose later refresh
+          // must precede observation. Ordinary unrebased reservations have no lease.
+          const pause = seatAdmissionPauses.get(directorScope)
+          if (!pause) throw new Error('nested seat admission was not bound')
+          const resume = await pause()
+          await resume()
           const spawned = directorScope.spawn(leaf, null, {
             label: 'process leaf',
             budget: { maxTokens: 100, maxIterations: 2 },
