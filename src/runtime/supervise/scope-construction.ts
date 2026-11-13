@@ -72,7 +72,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     isAdmissionClosed: () => admissionClosed,
     checkInAtTimeBox: workers.checkInAtTimeBox,
     releaseHeld,
-    publishSettlement: (child, settlement) => cursor.publish(child, settlement),
+    publishSettlement: (child, settlement): Promise<unknown> => cursor.publish(child, settlement),
   })
   const cursor = new ScopeSettlementCursor<Out>(args, children, now, recordKeyedSettlement)
 
