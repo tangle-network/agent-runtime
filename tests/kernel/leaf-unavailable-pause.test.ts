@@ -299,10 +299,13 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
         outRef: string
         harnessTranscript: HarnessTranscriptEvidence
       }
+      // The record holds content; the journal row names the exact attempt.
+      const { attemptId, ...captureNode } = captures[index]!.node!
+      expect(event.attemptId).toBe(attemptId)
+      expect(wrapper.node).toEqual(captureNode)
       expect(wrapper).toMatchObject({
         kind: 'harness-transcript',
         schemaVersion: 1,
-        node: captures[index]!.node,
         taskRef: inputs[index]!.taskRef,
         outRef: outputs[index]!.outRef,
         harnessTranscript: { status: 'available', coverageComplete: true },
@@ -322,7 +325,7 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
         wrapper.harnessTranscript,
         fixture.context.blobs,
         {
-          node: wrapper.node,
+          node: { ...wrapper.node, attemptId: event.attemptId! },
           readSessions: async (value) =>
             value.files.map((file) => JSON.parse(file.content) as BoundHarnessSession),
         },
@@ -420,14 +423,11 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
     expect(released).toEqual([expect.objectContaining({ destroyed: true })])
     expect(reads).toBe(2)
     expect(await fixture.liveEnvironments()).toEqual([])
+    const rows = (await fixture.leafEvents()).filter((event) => event.kind === 'execution-evidence')
     const receipts = (await Promise.all(
-      (
-        await fixture.leafEvents()
-      )
-        .filter((event) => event.kind === 'execution-evidence')
-        .map((event) => fixture.context.blobs.get(event.outRef)),
+      rows.map((event) => fixture.context.blobs.get(event.outRef)),
     )) as Array<{
-      node: { attemptId: string }
+      node: Record<string, unknown>
       taskRef: string
       outRef: string
       harnessTranscript: HarnessTranscriptEvidence
@@ -436,7 +436,9 @@ describe('a leaf whose model provider refuses its turn for capacity', () => {
       'unavailable',
       'available',
     ])
-    expect(new Set(receipts.map((receipt) => receipt.node.attemptId)).size).toBe(1)
+    expect(receipts.every((receipt) => !('attemptId' in receipt.node))).toBe(true)
+    expect(rows.every((row) => typeof row.attemptId === 'string')).toBe(true)
+    expect(new Set(rows.map((row) => row.attemptId)).size).toBe(1)
     expect(new Set(receipts.map((receipt) => receipt.taskRef)).size).toBe(1)
     expect(new Set(receipts.map((receipt) => receipt.outRef)).size).toBe(1)
   })

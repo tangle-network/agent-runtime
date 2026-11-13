@@ -569,7 +569,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       )
       const events = (await journal.loadTree(runId)) ?? []
       const retained: Array<{
-        node: { nodeId: string; attemptId: string }
+        attemptId: string
+        node: { nodeId: string }
         taskRef: string
         harnessTranscript: HarnessTranscriptEvidence
       }> = []
@@ -577,10 +578,16 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         if (event.kind !== 'execution-evidence') continue
         const value = await blobs.get(event.outRef)
         expect(value).toMatchObject({ kind: 'harness-transcript', schemaVersion: 1 })
-        retained.push(value as (typeof retained)[number])
+        // The record holds content; the journal row names the exact attempt.
+        expect(value).not.toHaveProperty('node.attemptId')
+        expect(event.attemptId).toEqual(expect.any(String))
+        retained.push({
+          ...(value as Omit<(typeof retained)[number], 'attemptId'>),
+          attemptId: event.attemptId!,
+        })
       }
       expect(retained).toHaveLength(4)
-      expect(new Set(retained.map((value) => value.node.attemptId)).size).toBe(4)
+      expect(new Set(retained.map((value) => value.attemptId)).size).toBe(4)
       const rootEvidence = retained.filter((value) => value.node.nodeId === runId)
       expect(await blobs.get(rootEvidence[0]!.taskRef)).toEqual(task)
       expect(await blobs.get(rootEvidence[1]!.taskRef)).not.toEqual(task)
@@ -593,7 +600,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           continue
         }
         const artifact = await harnessTranscriptArtifact(evidence.harnessTranscript, blobs)
-        expect(artifact?.binding?.node?.attemptId).toBe(evidence.node.attemptId)
+        expect(artifact?.binding?.node?.attemptId).toBe(evidence.attemptId)
         const request = requests.find(
           (request) => request.run_id === artifact?.binding?.runs[0]?.runId,
         )

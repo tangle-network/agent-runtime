@@ -219,10 +219,14 @@ describe("the root's harness session", () => {
     const events = (await journal.loadTree('root-provider-native')) ?? []
     const evidence = events.filter((event) => event.kind === 'execution-evidence')
     expect(evidence.length).toBeGreaterThan(0)
+    // The record holds content; the journal row names the exact attempt.
+    const { attemptId, ...requestNode } = request.node!
     for (const event of evidence) {
-      expect(await blobs.get(event.outRef)).toMatchObject({
+      expect(event.attemptId).toBe(attemptId)
+      const record = (await blobs.get(event.outRef)) as { node: unknown }
+      expect(record.node).toEqual(requestNode)
+      expect(record).toMatchObject({
         kind: 'harness-transcript',
-        node: request.node,
         harnessTranscript: result.rootHarnessTranscript,
       })
     }
@@ -236,11 +240,22 @@ describe("the root's harness session", () => {
     )
     expect(
       await readHarnessTranscriptSessions(result.rootHarnessTranscript, blobs, {
-        node: request.node!,
+        node: { ...requestNode, attemptId: evidence[0]!.attemptId! },
         readSessions: async (artifact) =>
           artifact.files.map((file) => JSON.parse(file.content) as BoundHarnessSession),
       }),
     ).toMatchObject({ succeeded: true })
+    // A row naming another attempt does not verify against this capture.
+    expect(
+      await readHarnessTranscriptSessions(result.rootHarnessTranscript, blobs, {
+        node: { ...requestNode, attemptId: `${evidence[0]!.attemptId}:other` },
+        readSessions: async (artifact) =>
+          artifact.files.map((file) => JSON.parse(file.content) as BoundHarnessSession),
+      }),
+    ).toEqual({
+      succeeded: false,
+      error: 'Native transcript attemptId does not match the requested execution',
+    })
   })
 
   it('reaches the result as a persisted receipt, like a child settlement', async () => {

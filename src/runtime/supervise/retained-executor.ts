@@ -88,6 +88,8 @@ export function executorEvidenceWriter(args: {
   blobs: ResultBlobStore
   rootId: string
   nodeId: string
+  /** The exact attempt the evidence belongs to, recorded on the row rather than in the blob. */
+  attemptId?: string
   nextSequence: () => number
   now: () => number
   /** The node's trace-root writer: evidence whose events its result already rooted gets none. */
@@ -102,6 +104,7 @@ export function executorEvidenceWriter(args: {
     await args.journal.appendEvent(args.rootId, {
       kind: 'execution-evidence',
       id: args.nodeId,
+      ...(args.attemptId === undefined ? {} : { attemptId: args.attemptId }),
       outRef,
       ...(traceRoot === undefined ? {} : { traceRoot }),
       seq: args.nextSequence(),
