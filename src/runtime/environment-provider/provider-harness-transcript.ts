@@ -65,11 +65,13 @@ async function readProviderHarnessTranscript(
     skipped: [{ path: scope.executionId, reason }],
   })
   const handle = scope.state.retained
-  const control = AgentExactRunControlRefSchema.safeParse(handle?.controlRef)
+  // The provider offered no retained run for this execution, so no exact native read exists now
+  // or later; `captureProviderHarnessTranscript` owes no custody for this refusal.
+  if (!handle) return refused('Native capture requires a retained provider execution')
+  const control = AgentExactRunControlRefSchema.safeParse(handle.controlRef)
   const expected = scope.state.workspaceControlRef
   const harness = agentHarness(scope.createProfile.harness)
   if (
-    !handle ||
     !control.success ||
     !expected ||
     !scope.node ||
@@ -151,21 +153,29 @@ async function readProviderHarnessTranscript(
   }
 }
 
-/** Retain failed capture as evidence debt until an exact repair has been persisted. */
+/**
+ * Retain failed capture as evidence debt until an exact repair has been persisted. Custody is owed
+ * only when a later exact repair could succeed: without a retained provider run, Runtime refuses
+ * before any native read and no repair can bind one, so the explicit failure is the whole record.
+ */
 export async function captureProviderHarnessTranscript(
   scope: ProviderExecutorScope,
   environment: AgentEnvironment,
   signal?: AbortSignal,
 ): Promise<HarnessTranscriptCapture> {
+  const repairable = scope.state.retained !== undefined
   const capture = await readProviderHarnessTranscript(scope, environment, signal)
   if (scope.options.harnessTranscript) {
     scope.state.transcriptPreservationRequired =
-      capture.status === 'unavailable' ||
-      (capture.status === 'captured'
-        ? capture.coverageComplete !== true || capture.skippedCount > 0 || !!capture.missing?.length
-        : !capture.descriptor.source.coverageComplete ||
-          capture.descriptor.skipped.length > 0 ||
-          capture.descriptor.missing.length > 0)
+      repairable &&
+      (capture.status === 'unavailable' ||
+        (capture.status === 'captured'
+          ? capture.coverageComplete !== true ||
+            capture.skippedCount > 0 ||
+            !!capture.missing?.length
+          : !capture.descriptor.source.coverageComplete ||
+            capture.descriptor.skipped.length > 0 ||
+            capture.descriptor.missing.length > 0))
   }
   return capture
 }
