@@ -1,3 +1,7 @@
+## 9.0.12
+
+Run-level provider-model evidence accepts dated served snapshots such as `claude-sonnet-4-5-20250929` through the parser the bridge recorder uses, so a bridge run that served a dated model reports `known` instead of `provider-model-missing`.
+
 ## 9.0.11
 
 Retained provider acquisition backs off through explicit retry-later capacity refusals before charging a failed driver attempt, preserving the same environment and execution identity and honoring cancellation.
