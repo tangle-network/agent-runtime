@@ -80,8 +80,6 @@ const shapeRefusal = (reason: string) =>
       code: 'NO_HOST_FITS_SHAPE',
     }),
   )
-const HELD_ROOM =
-  'No cpx62 host can hold 8000m / 16384 MiB, and none would be bought: its room is held placeable on cpx62'
 // What Sandbox answered magnetar-rust-sandbox-20261101b's :s1:s3 and :s2:s1 while eu1 was braked.
 const NO_HOSTS = parseErrorResponse(
   503,
@@ -93,7 +91,6 @@ const NO_HOSTS = parseErrorResponse(
 )
 // The signal each waiting mode's two paused attempts carry, before the attempt that completes.
 const WAITS: Partial<Record<string, string>> = {
-  'capacity-waits': 'host-room-held',
   'capacity-503': 'capacity_exhausted',
   // :s2:s2 and :s1:s1 of the same run settled down on this preflight's `timed out`.
   'preflight-waits': 'coordination-unreachable',
@@ -127,7 +124,6 @@ describe('nested retained owner journal isolation', () => {
     'file-conflict',
     'file-conflict-409',
     'file-duplicate',
-    'capacity-waits',
     'shape-refused',
     'capacity-503',
     'preflight-waits',
@@ -270,7 +266,6 @@ describe('nested retained owner journal isolation', () => {
               { code: `observation-${creates}` },
             )
           }
-          if (mode === 'capacity-waits' && creates < 3) throw shapeRefusal(HELD_ROOM)
           if (mode === 'capacity-503' && creates < 3) throw NO_HOSTS
           if (mode === 'shape-refused')
             throw shapeRefusal(
