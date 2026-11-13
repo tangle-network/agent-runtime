@@ -339,7 +339,7 @@ function ownerEnvironmentDestroy(
   })()
   const entry = { destroy, since: Date.now() }
   destroys.set(environmentId, entry)
-  destroy.catch((error: unknown) => {
+  destroy.catch((error) => {
     if (destroys.get(environmentId) === entry) destroys.delete(environmentId)
     // The provider keeps the box for its own retention: evidence, not a leak. Another ask only
     // reconnects to it, and a refused box is stopped, so the reconnect would wake it.

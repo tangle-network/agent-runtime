@@ -87,7 +87,7 @@ export async function confirmSettledTeardowns(
   scope: Scope<unknown>,
   windowMs: number,
   release: boolean,
-  opensAt: number = Date.now(),
+  opensAt: number,
 ): Promise<ReadonlyArray<UnconfirmedTeardown>> {
   const closesAt = opensAt + windowMs
   const maxDelayMs = windowMs / 10
