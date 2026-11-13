@@ -1,11 +1,170 @@
 // Real delegated Linux execution; no containers, credentials or model calls.
 import assert from 'node:assert/strict'
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { appendFileSync } from 'node:fs'
+import { access, mkdir, mkdtemp, readFile, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { meanConfidenceInterval } from '@tangle-network/agent-eval'
 import { isolatedCheckResultSchema } from '../../dist/index.js'
 import { createIsolatedCheckCpuSession, runIsolatedCheck } from '../../dist/kernel.js'
+
+const journal = (record) => {
+  if (process.env.RUNTIME_CPU_PROOF_JOURNAL)
+    appendFileSync(
+      process.env.RUNTIME_CPU_PROOF_JOURNAL,
+      `${JSON.stringify({ allocation: JSON.parse(process.env.BEELINK_GATE_CORES ?? 'null'), ...record })}\n`,
+    )
+}
+if (process.argv.includes('--cpu-observer-worker')) {
+  const [tree, metadata, marker] = process.argv.slice(-3)
+  const opened = await createIsolatedCheckCpuSession()
+  assert.equal(opened.succeeded, true, JSON.stringify(opened))
+  const session = opened.value
+  await writeFile(
+    metadata,
+    JSON.stringify({ path: session.cgroupPath, inode: (await stat(session.cgroupPath)).ino }),
+  )
+  await runIsolatedCheck({
+    workspaceRoot: tree,
+    tree,
+    cpuSession: session,
+    timeoutMs: 30000,
+    command: [
+      '/usr/bin/python3',
+      '-I',
+      '-c',
+      `import ctypes,time; ctypes.CDLL(None).prctl(15,${JSON.stringify(marker)}.encode(),0,0,0); time.sleep(30)`,
+    ],
+  })
+  await session.close()
+  process.exit(0)
+}
+
+async function observerDeath(tree, workspace) {
+  const marker = `cpu-proof-${process.pid.toString(16).slice(-5)}`
+  const metadata = join(workspace, 'observer.json')
+  const worker = spawn(
+    process.execPath,
+    [import.meta.filename, '--cpu-observer-worker', tree, metadata, marker],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  )
+  const exited = once(worker, 'exit')
+  let identity
+  let candidate
+  let outcome
+  let cleanupFailure
+  let stderr = ''
+  worker.stderr.on('data', (chunk) => {
+    stderr += chunk
+  })
+  const snapshot = async () => {
+    if ((await stat(identity.path)).ino !== identity.inode)
+      throw new Error('Observer cgroup identity changed')
+    const pids = (await readFile(join(identity.path, 'cgroup.procs'), 'utf8'))
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    const processes = []
+    for (const pid of pids) {
+      try {
+        const raw = await readFile(`/proc/${pid}/stat`, 'utf8')
+        const end = raw.lastIndexOf(')')
+        const fields = raw.slice(end + 2).split(' ')
+        processes.push({
+          pid: Number(pid),
+          comm: raw.slice(raw.indexOf('(') + 1, end),
+          parent: Number(fields[1]),
+          born: fields[19],
+        })
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error
+      }
+    }
+    return {
+      identity,
+      processes,
+      events: await readFile(join(identity.path, 'cgroup.events'), 'utf8'),
+    }
+  }
+  try {
+    const readyDeadline = performance.now() + 10000
+    while (performance.now() < readyDeadline && !candidate) {
+      try {
+        identity ??= JSON.parse(await readFile(metadata, 'utf8'))
+      } catch (error) {
+        if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error
+      }
+      if (identity) {
+        assert.equal(dirname(identity.path), dirname(session.cgroupPath))
+        assert.match(identity.path.split('/').at(-1), /^runtime-check-[0-9a-f-]{36}$/)
+        const ready = await snapshot()
+        candidate = ready.processes.find((p) => p.comm === marker)
+        if (candidate)
+          journal({ kind: 'cpu-observer-ready', observerPid: worker.pid, candidate, ...ready })
+      }
+      if (!candidate) await delay(20)
+    }
+    assert.ok(candidate, `CPU workload must actually execute before observer death: ${stderr}`)
+    assert.notEqual(candidate.parent, worker.pid)
+    worker.kill('SIGKILL')
+    await exited
+    const deadline = performance.now() + 5000
+    let after = await snapshot()
+    while (!/^populated 0$/m.test(after.events) && performance.now() < deadline) {
+      await delay(20)
+      after = await snapshot()
+    }
+    journal({ kind: 'cpu-observer-dead', observerPid: worker.pid, candidate, ...after })
+    assert.match(
+      after.events,
+      /^populated 0$/m,
+      'Actual CPU workload must stop with its Node observer',
+    )
+    await rmdir(identity.path)
+    await assert.rejects(access(identity.path), { code: 'ENOENT' })
+    outcome = {
+      candidate,
+      observerPid: worker.pid,
+      identity,
+      workloadStopped: true,
+      emptyOwnedCgroupRecovered: true,
+    }
+  } finally {
+    journal({ kind: 'cpu-observer-cleanup', identity, observerPid: worker.pid, stderr })
+    worker.kill('SIGKILL')
+    await exited.catch((error) => {
+      cleanupFailure = error
+    })
+    if (identity) {
+      try {
+        assert.equal(
+          (await stat(identity.path)).ino,
+          identity.inode,
+          'Recovery cgroup identity changed',
+        )
+        // Preserve a live-workload failure before cleaning only this exact owned test group.
+        await writeFile(join(identity.path, 'cgroup.kill'), '1')
+        const end = performance.now() + 5000
+        while (
+          !/^populated 0$/m.test(await readFile(join(identity.path, 'cgroup.events'), 'utf8')) &&
+          performance.now() < end
+        )
+          await delay(20)
+        await rmdir(identity.path)
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          cleanupFailure = error
+          journal({ kind: 'cpu-observer-cleanup-failed', identity, diagnostic: String(error) })
+        }
+      }
+    }
+  }
+  if (cleanupFailure) throw cleanupFailure
+  return outcome
+}
 
 const workspace = await mkdtemp(join(tmpdir(), 'runtime-cpu-proof-'))
 const tree = join(workspace, 'candidate')
@@ -34,6 +193,7 @@ const run = async (name, program, options = {}) => {
   })
   isolatedCheckResultSchema.parse(result)
   observations.push({ name, allocation, fullWallMs: performance.now() - began, result })
+  journal({ kind: 'cpu-case', observation: observations.at(-1) })
   return result
 }
 const burn =
@@ -114,6 +274,8 @@ print('sealed')`,
   await session.close()
   await assert.rejects(access(session.cgroupPath), { code: 'ENOENT' })
   assert.equal((await run('closed-session-refused', burn)).reason, 'refused')
+  const observerDeathResult = await observerDeath(tree, workspace)
+  assert.deepEqual(await limits(), beforeLimits)
   const arithmetic = meanConfidenceInterval([-1, 0, 1], 0.9)
   assert.equal(arithmetic.n, 3)
   assert.ok(Math.abs(arithmetic.criticalValue - 2.919985580355516) < 1e-7)
@@ -121,6 +283,7 @@ print('sealed')`,
   console.log(
     JSON.stringify({
       observations,
+      observerDeath: observerDeathResult,
       arithmetic,
       unchangedParentLimits: true,
       ownedCgroupRemoved: true,

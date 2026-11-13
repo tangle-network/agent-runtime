@@ -1,3 +1,19 @@
+## 9.0.12
+
+Run-level provider-model evidence accepts dated served snapshots such as `claude-sonnet-4-5-20250929` through the parser the bridge recorder uses, so a bridge run that served a dated model reports `known` instead of `provider-model-missing`.
+
+## 9.0.11
+
+Retained provider acquisition backs off through explicit retry-later capacity refusals before charging a failed driver attempt, preserving the same environment and execution identity and honoring cancellation.
+
+Expose optional trusted local command wall time and byte-preserving stdout/stderr capture on isolated check results, with capture-limit completeness explicit.
+
+Nonretryable SDK refusals stop sandbox acquisition and retained-reader retries. Caller authentication and authorization refusals also stop unchanged retained-reader retries while preserving the unresolved execution for recovery after authority is repaired.
+
+Child tool preflight uses the resolver's declared vocabulary instead of the parent's grants, so valid per-node grants can differ. Resolvers without a vocabulary retain the child's serve-time check.
+
+`spawn_worker` refuses a child profile granting a coordination tool the child would not be served (a name outside the coordination verbs and the run's declared `servesToolNames` vocabulary for `resolveSupervisorTools`), naming it and the served list, before the spawn is journaled or a sandbox exists; the same key then admits the corrected profile. A resolver that declares no vocabulary is unpredictable at spawn time, so the child's own serve-time check decides as before.
+
 ## 9.0.10
 
 Retain declared graph-check files through the host's artifact store on success and failure, with secret redaction, complete capture receipts and explicit recovery custody when capture is incomplete. Pass event data through canonical GRAPH_INPUT files bound to the run's resume identity.
