@@ -40,9 +40,7 @@ export async function destroyExecutorEnvironment(
     if (
       !result.destroyed &&
       state.workspaceCleanupPromise === cleanupReference &&
-      !state.workspacePreservationRequired &&
-      !state.transcriptPreservationRequired &&
-      !state.transcriptPersistenceFailed
+      !state.sourcePreservationRequired
     ) {
       state.workspaceCleanupPromise = undefined
     }
@@ -66,7 +64,7 @@ async function attemptDestroy(
       permanent: true,
     }
   }
-  if (state.transcriptPreservationRequired || state.transcriptPersistenceFailed) {
+  if (state.sourcePreservationRequired) {
     return {
       destroyed: false,
       detail: 'provider native transcript retention is incomplete; source environment preserved',
@@ -125,9 +123,7 @@ export async function releaseRetainedExecution(
     if (
       state.retainedReleasePromise === releaseReference &&
       !receipts.every((entry) => entry.destroyed) &&
-      !state.workspacePreservationRequired &&
-      !state.transcriptPreservationRequired &&
-      !state.transcriptPersistenceFailed
+      !state.sourcePreservationRequired
     ) {
       state.retainedReleasePromise = undefined
     }

@@ -196,8 +196,7 @@ export async function persistProviderHarnessTranscript(
     if (retention?.onHarnessTranscript) {
       scope.state.transcriptPersistenceFailed = false
       // A prior cleanup cached its evidence-custody refusal. Only durable repair can reopen it.
-      if (!scope.state.transcriptPreservationRequired && !scope.state.workspacePreservationRequired)
-        scope.state.workspaceCleanupPromise = undefined
+      if (!scope.state.sourcePreservationRequired) scope.state.workspaceCleanupPromise = undefined
     }
   } catch (error) {
     scope.state.transcriptPersistenceFailed = true

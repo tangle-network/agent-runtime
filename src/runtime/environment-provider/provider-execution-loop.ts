@@ -256,9 +256,7 @@ async function pauseForContinuation(
   if (
     refusal === undefined ||
     continueInvocation === undefined ||
-    state.workspacePreservationRequired ||
-    state.transcriptPreservationRequired ||
-    state.transcriptPersistenceFailed
+    state.sourcePreservationRequired
   ) {
     return undefined
   }

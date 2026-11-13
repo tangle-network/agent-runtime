@@ -52,6 +52,14 @@ export class ProviderExecutorState {
   transcriptPreservationRequired = false
   /** A capture existed but its durable writer failed. A later read alone cannot repay this debt. */
   transcriptPersistenceFailed = false
+  /** Any open workspace or transcript custody debt keeps the source environment. */
+  get sourcePreservationRequired(): boolean {
+    return (
+      this.workspacePreservationRequired ||
+      this.transcriptPreservationRequired ||
+      this.transcriptPersistenceFailed
+    )
+  }
   /** Exact current invocation input for a capture recovered during retained release. */
   transcriptTask: unknown
   /** This invocation's result, independent of the prior result kept across a continuation. */
