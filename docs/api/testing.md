@@ -943,7 +943,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-34)
 
 ##### execution?
 
@@ -954,7 +954,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-5)
 
 ##### selectSeat?
 
@@ -1381,6 +1381,16 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`servesToolNames`](runtime.md#servestoolnames-1)
 
 ##### escalateQuestion?
 
@@ -1857,7 +1867,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-34)
 
 ##### execution?
 
@@ -1868,7 +1878,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-5)
 
 ##### backend?
 
@@ -2462,6 +2472,16 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`servesToolNames`](runtime.md#servestoolnames-1)
 
 ##### escalateQuestion?
 
