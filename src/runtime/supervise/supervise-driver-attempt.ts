@@ -64,6 +64,7 @@ import {
 } from './supervisor-agent'
 import type {
   AgentSpec,
+  Executor,
   ExecutorFactory,
   ExecutorProgressEvent,
   ExecutorResult,
@@ -87,15 +88,7 @@ interface DriverAttemptInput extends Omit<Parameters<DriveHarness>[0], 'task' | 
 
 export async function executeDriverAttempt(input: DriverAttemptInput): Promise<void> {
   const { state, scope, retainedOwner, turnCap } = input
-  if (!(scope.view.inFlight > 0)) {
-    const spent =
-      exhaustedBudgetChannels(scope.budget, input.now()) ??
-      (scope.budget.iterationsCapped !== false && scope.budget.iterationsLeft <= 0
-        ? 'iterations: none left'
-        : undefined)
-    if (spent)
-      throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
-  }
+  assertDriverBudget(input)
   const identity = admitDriverProfiles(input)
   const spec: AgentSpec = {
     profile: identity.providerProfile,
@@ -130,33 +123,18 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   // A retained provider turn journals its own capture through the owner seam; the driver writes
   // one only for an attempt that seam did not record, so each attempt has exactly one receipt.
   let transcriptRecorded = false
-  const recordRetainedTranscript = retainedOwner?.onHarnessTranscript
   const executor = factory(spec, {
     signal: scope.signal,
     node: scopeOwnerExecutorNodeContext(scope),
     seams: {
       [executorObservationSeamKey]: observation,
-      ...(retainedOwner
-        ? {
-            [retainedExecutorSeamKey]: {
-              ...retainedOwner,
-              onResult: async (result: ExecutorResult<unknown>) =>
-                attempt.commitOwnerResult(result),
-              ...(recordRetainedTranscript === undefined
-                ? {}
-                : {
-                    onHarnessTranscript: async (
-                      task: unknown,
-                      capture: HarnessTranscriptCapture,
-                      result: ExecutorResult<unknown> | undefined,
-                    ) => {
-                      await recordRetainedTranscript(task, capture, result)
-                      transcriptRecorded = true
-                    },
-                  }),
-            },
-          }
-        : {}),
+      ...retainedOwnerSeam(
+        retainedOwner,
+        async (result) => attempt.commitOwnerResult(result),
+        () => {
+          transcriptRecorded = true
+        },
+      ),
       [bridgeStopSignalKey]: stopSignal,
       ...(state.boundBackend.backend === 'provider'
         ? {}
@@ -206,32 +184,7 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   } finally {
     try {
       await attempt.release(pending, input.drive)
-      if (state.boundBackend.backend === 'bridge' || state.boundBackend.backend === 'provider') {
-        // A continuation may start a new native session. Keep each completed attempt before the
-        // next drive replaces its executor, including explicit capture failures and exact inputs.
-        await settleHarnessTranscript(executor)
-        // The retained owner seam already journaled this attempt when it recorded a capture.
-        if (!transcriptRecorded) {
-          try {
-            await recordScopeOwnerHarnessTranscript(
-              scope,
-              input.originalTask,
-              readHarnessTranscript(executor),
-              attempt.terminalArtifact,
-            )
-          } catch (cause) {
-            // Evidence debt is terminal even when the original turn failed transiently: retrying
-            // could spend again while the previous attempt has no durable capture receipt.
-            attempt.failed = true
-            attempt.failure = new RuntimeRunStateError(
-              'manager transcript evidence could not be persisted',
-              {
-                cause,
-              },
-            )
-          }
-        }
-      }
+      await recordAttemptTranscript(input, executor, attempt, () => transcriptRecorded)
       input.keepTranscript(executor.harnessTranscript?.())
     } finally {
       if (state.activeExecutor === executor) state.activeExecutor = undefined
@@ -242,6 +195,79 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   if (attempt.failed) throw attempt.failure
   state.managerArtifact = attempt.terminalArtifact
   if (attempt.turnFailure !== undefined) throw attempt.turnFailure
+}
+
+/** A driver with no child in flight starts no turn once a supervisor budget channel is spent. */
+function assertDriverBudget({ scope, now }: DriverAttemptInput): void {
+  if (scope.view.inFlight > 0) return
+  const spent =
+    exhaustedBudgetChannels(scope.budget, now()) ??
+    (scope.budget.iterationsCapped !== false && scope.budget.iterationsLeft <= 0
+      ? 'iterations: none left'
+      : undefined)
+  if (spent)
+    throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
+}
+
+/**
+ * A continuation may start a new native session. Keep each completed bridge or provider attempt
+ * before the next drive replaces its executor, including explicit capture failures and exact
+ * inputs, unless the retained owner seam already journaled it.
+ */
+async function recordAttemptTranscript(
+  input: DriverAttemptInput,
+  executor: Executor<unknown>,
+  attempt: DriverExecutionAttempt,
+  recorded: () => boolean,
+): Promise<void> {
+  const { backend } = input.state.boundBackend
+  if (backend !== 'bridge' && backend !== 'provider') return
+  await settleHarnessTranscript(executor)
+  if (recorded()) return
+  try {
+    await recordScopeOwnerHarnessTranscript(
+      input.scope,
+      input.originalTask,
+      readHarnessTranscript(executor),
+      attempt.terminalArtifact,
+    )
+  } catch (cause) {
+    // Evidence debt is terminal even when the original turn failed transiently: retrying could
+    // spend again while the previous attempt has no durable capture receipt.
+    attempt.failed = true
+    attempt.failure = new RuntimeRunStateError(
+      'manager transcript evidence could not be persisted',
+      { cause },
+    )
+  }
+}
+
+/** The retained owner seam for one attempt, reporting when it journaled the attempt's capture. */
+function retainedOwnerSeam(
+  retainedOwner: DriverAttemptInput['retainedOwner'],
+  commitResult: (result: ExecutorResult<unknown>) => Promise<void>,
+  onRecorded: () => void,
+) {
+  if (!retainedOwner) return {}
+  const record = retainedOwner.onHarnessTranscript
+  return {
+    [retainedExecutorSeamKey]: {
+      ...retainedOwner,
+      onResult: commitResult,
+      ...(record === undefined
+        ? {}
+        : {
+            onHarnessTranscript: async (
+              task: unknown,
+              capture: HarnessTranscriptCapture,
+              result: ExecutorResult<unknown> | undefined,
+            ) => {
+              await record(task, capture, result)
+              onRecorded()
+            },
+          }),
+    },
+  }
 }
 
 function admitDriverProfiles(input: DriverAttemptInput): DriverAttemptIdentity {
