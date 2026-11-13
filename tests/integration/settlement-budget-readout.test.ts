@@ -135,7 +135,7 @@ it.each([
           // must precede observation. Ordinary unrebased reservations have no lease.
           const pause = seatAdmissionPauses.get(directorScope)
           if (!pause) throw new Error('nested seat admission was not bound')
-          const resume = await pause()
+          const resume = await pause(new Date().toISOString())
           await resume()
           const spawned = directorScope.spawn(leaf, null, {
             label: 'process leaf',
