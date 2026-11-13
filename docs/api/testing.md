@@ -943,7 +943,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-34)
 
 ##### execution?
 
@@ -954,7 +954,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-5)
 
 ##### selectSeat?
 
@@ -1867,7 +1867,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-33)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-34)
 
 ##### execution?
 
@@ -1878,7 +1878,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-5)
 
 ##### backend?
 

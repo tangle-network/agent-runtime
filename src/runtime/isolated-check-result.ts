@@ -5,6 +5,7 @@ import {
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
 import { type ZodType, z } from 'zod'
+import { isolatedCheckCpuAncestorLimit } from './isolated-check-cpu'
 import type { IsolatedCheckBoxEvidence, IsolatedCheckResult } from './isolated-checker'
 import {
   type IsolatedCheckOutputEvidence,
@@ -89,12 +90,62 @@ export const isolatedCheckBoxEvidenceSchema: ZodType<IsolatedCheckBoxEvidence> =
       })
   })
 
+const cpuCounterSchema = z
+  .object({
+    usageUsec: z.number().int().nonnegative(),
+    userUsec: z.number().int().nonnegative(),
+    systemUsec: z.number().int().nonnegative(),
+    resources: z
+      .object({
+        runnableWaitSomeUsec: z.number().int().nonnegative().nullable(),
+        ancestorsComplete: z.boolean(),
+        ancestors: z
+          .array(
+            z
+              .object({
+                cgroupPath: z.string().min(1),
+                inode: z.number().int().positive().nullable(),
+                cpuMax: z.string().nullable(),
+                throttledUsec: z.number().int().nonnegative().nullable(),
+              })
+              .strict(),
+          )
+          .max(isolatedCheckCpuAncestorLimit),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+const cpuIdentityShape = {
+  source: z.literal('cgroup-v2'),
+  boundary: z.literal('after-membership-through-tree-exit'),
+  sessionId: z.string().uuid(),
+  cgroupPath: z.string().min(1),
+  inode: z.number().int().positive(),
+}
+
 const isolatedCheckCommandEvidenceSchema = z
   .object({
     wallMs: z.number().finite().nonnegative(),
+    inputDigest: sha256DigestSchema.optional(),
     stdoutBase64: z.base64(),
     stderrBase64: z.base64(),
     outputComplete: z.boolean(),
+    cpu: z
+      .discriminatedUnion('available', [
+        z
+          .object({
+            ...cpuIdentityShape,
+            available: z.literal(true),
+            before: cpuCounterSchema,
+            after: cpuCounterSchema,
+          })
+          .strict(),
+        z
+          .object({ ...cpuIdentityShape, available: z.literal(false), diagnostic: z.string() })
+          .strict(),
+      ])
+      .optional(),
   })
   .strict()
 
