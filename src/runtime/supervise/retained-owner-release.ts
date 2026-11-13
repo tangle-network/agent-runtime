@@ -3,7 +3,7 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { contentAddress } from '../../durable/content-address'
 import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
 import { runAbortable } from './abortable'
-import { causeChain, errMessage, errorHttpStatus, errorProperty } from './error-message'
+import { causeChain, errMessage } from './error-message'
 import { cleanCheckpoints, settleCaptureForks } from './retained-owner-checkpoint-capture'
 import {
   type CheckpointEvent,
@@ -162,20 +162,16 @@ async function releaseOwnerEnvironment(
     if (released.has(environmentId)) continue
     let destroyed = false
     let detail: string | undefined
-    const retentionReason = retentionFailures.get(environmentId)
-    const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
     const asked = destroys.get(environmentId)
     // Refused under a retention hold before this release, whose native runs were stopped then.
     const heldBefore = asked === undefined ? held.get(environmentId) : undefined
-    if (
-      retentionReason !== undefined ||
-      pendingSources.has(environmentId) ||
-      heldBefore !== undefined
-    ) {
+    const retentionReason = retentionFailures.get(environmentId) ?? heldBefore
+    const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
+    if (retentionReason !== undefined || pendingSources.has(environmentId)) {
       detail =
         !nativeHold && pendingSources.has(environmentId)
           ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
-          : retentionReason ?? heldBefore
+          : retentionReason
       preserved.push(environmentId)
       lastDetail = detail
     } else {
@@ -296,16 +292,13 @@ class PermanentReleaseRefusal extends Error {}
 
 /**
  * A provider that keeps an environment under a retention hold refuses its delete until the hold is
- * released: 409 `RETENTION_HOLD`, or an HTTP refusal whose message names the hold. The holder, not
- * this release, decides when the environment goes.
+ * released: 409 `RETENTION_HOLD`, or a refusal whose message names the hold. The holder, not this
+ * release, decides when the environment goes.
  */
 function retentionHoldRefusal(error: unknown): boolean {
-  return causeChain(error).some(
-    (cause) =>
-      Reflect.get(cause, 'code') === 'RETENTION_HOLD' ||
-      (cause instanceof Error &&
-        errorHttpStatus(cause) !== undefined &&
-        /\bunder retention hold\b/iu.test(errorProperty(cause, 'message') ?? '')),
+  return (
+    causeChain(error).some((cause) => Reflect.get(cause, 'code') === 'RETENTION_HOLD') ||
+    /\bunder retention hold\b/iu.test(errMessage(error))
   )
 }
 
