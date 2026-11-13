@@ -13,6 +13,7 @@ import {
   type RetainedExecutorContext,
 } from './retained-executor'
 import { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
+import { childNode } from './scope-child-start'
 import type { ChildAdmission, LiveChild, ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import { assertValidSpend } from './spend-validation'
@@ -183,14 +184,7 @@ export function createChildRetention({
       // Capture remains legal after abort and finishes before a continuation journals its input.
       const harnessTranscript = await persistHarnessTranscript(capture, args.blobs)
       await recordHarnessTranscriptEvidence({
-        node: {
-          rootId: args.root,
-          parentId: args.parentId,
-          nodeId: id,
-          depth: args.depth + 1,
-          attemptId,
-          ...(identity ? { identity } : {}),
-        },
+        node: childNode(args, { id, attemptId, identity }),
         task,
         ...(result?.out === undefined ? {} : { outRef: contentAddress(result.out) }),
         harnessTranscript,

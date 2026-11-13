@@ -46,6 +46,7 @@ import type {
   ExecutionBindingReceipt,
   Executor,
   ExecutorContext,
+  ExecutorNodeContext,
   ExecutorProgressEvent,
   Handle,
   HeldRelease,
@@ -89,6 +90,21 @@ export interface AdmittedChild {
   readonly continuing: HeldContinuation | undefined
 }
 
+/** The child's node coordinates, shared by its executor context and its transcript evidence. */
+export function childNode(
+  args: ScopeArgs,
+  child: Pick<AdmittedChild, 'id' | 'attemptId' | 'identity'>,
+): ExecutorNodeContext {
+  return {
+    rootId: args.root,
+    parentId: args.parentId,
+    nodeId: child.id,
+    depth: args.depth + 1,
+    attemptId: child.attemptId,
+    ...(child.identity ? { identity: child.identity } : {}),
+  }
+}
+
 /**
  * Seed THIS scope's keystone deps into the child's `ExecutorContext.seams`, so a DRIVER child can
  * mount a nested `Scope` at `depth+1` over a pool backed by THIS reservation. Leaves ignore it.
@@ -107,7 +123,7 @@ export function childExecutorContext(
     readonly onProgress: (event: ExecutorProgressEvent) => void
   },
 ): ExecutorContext {
-  const { id, identity, recovery, continuing, opts } = child
+  const { id, recovery, continuing, opts } = child
   const interactiveBindingDir = args.interactiveBindingDir
   const observation = createExecutorObservation(
     args.hooks,
@@ -121,14 +137,7 @@ export function childExecutorContext(
   )
   return {
     signal: controller.signal,
-    node: {
-      rootId: args.root,
-      parentId: args.parentId,
-      nodeId: id,
-      depth: args.depth + 1,
-      attemptId: child.attemptId,
-      ...(identity ? { identity } : {}),
-    },
+    node: childNode(args, child),
     seams: {
       ...args.seams,
       [executorObservationSeamKey]: observation,
@@ -245,14 +254,7 @@ export function liveChildRecord<C>(
       ? {
           recordTranscriptEvidence: (harnessTranscript, outRef) =>
             recordHarnessTranscriptEvidence({
-              node: {
-                rootId: args.root,
-                parentId: args.parentId,
-                nodeId: id,
-                depth: args.depth + 1,
-                attemptId: child.attemptId,
-                ...(identity ? { identity } : {}),
-              },
+              node: childNode(args, child),
               task: live.executionTask,
               harnessTranscript,
               ...(outRef === undefined ? {} : { outRef }),
