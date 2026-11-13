@@ -99,6 +99,13 @@ function exactProfile(value: unknown, nodeId: string): AgentProfile {
   return parsed.data
 }
 
+/** An alias, anchor or tag shares or reinterprets YAML another owner may also read. */
+function sharedYaml(item: unknown): boolean {
+  return (
+    isAlias(item) || ((isMap(item) || isSeq(item) || isScalar(item)) && !!(item.anchor || item.tag))
+  )
+}
+
 function ownProfile(graphText: string, nodeId: string) {
   const document = parseGraphYaml(graphText, 'graph profile')
   const value: unknown = document.toJS({ maxAliasCount: 100 })
@@ -120,11 +127,7 @@ function ownProfile(graphText: string, nodeId: string) {
     !isSeq(nodes) ||
     !isMap(own) ||
     !isMap(profile) ||
-    parents.some(
-      (parent) =>
-        isAlias(parent) ||
-        ((isMap(parent) || isSeq(parent) || isScalar(parent)) && (parent.anchor || parent.tag)),
-    ) ||
+    parents.some(sharedYaml) ||
     node.seat !== undefined ||
     node.needs !== undefined ||
     node.check !== undefined
@@ -133,10 +136,7 @@ function ownProfile(graphText: string, nodeId: string) {
       'graph profile: requires an unshared inline agent profile without host overlays',
     )
   visit(own, (_key, item) => {
-    if (
-      isAlias(item) ||
-      ((isMap(item) || isSeq(item) || isScalar(item)) && (item.anchor || item.tag))
-    )
+    if (sharedYaml(item))
       throw new ValidationError(
         'graph profile: aliases, anchors and tags are not owned profile data',
       )
