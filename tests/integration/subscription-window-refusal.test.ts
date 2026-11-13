@@ -68,8 +68,9 @@ it.each(['legacy', 'typed', 'rate'] as const)(
           },
         }),
       ).rejects.toBe(paused)
-      const records: DriverAttemptRecord[] = (await new FileSpawnJournal(file).loadTree('root'))!
-        .flatMap((event) => (event.kind === 'driver-attempt' ? [event.record] : []))
+      const records: DriverAttemptRecord[] = (
+        await new FileSpawnJournal(file).loadTree('root')
+      )!.flatMap((event) => (event.kind === 'driver-attempt' ? [event.record] : []))
       expect(calls).toBe(1)
       expect(records).toHaveLength(1)
       expect(waits).toHaveLength(1)
