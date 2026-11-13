@@ -34,9 +34,6 @@ import {
   agentCandidateMaterializationReceiptSchema,
   agentCandidateRunReceiptSchema,
   agentImprovementSourceSchema,
-  agentProfileImprovementExpectedModel,
-  agentProfileImprovementModelBindingSchema,
-  agentProfileImprovementRunReceiptSchema,
   candidateExecutionEvidenceSchema,
   numbersApproximatelyEqual,
 } from '@tangle-network/agent-interface'
@@ -100,7 +97,9 @@ import {
   type ProposeAgentProfileImprovementOptions,
   type ProposeAgentProfileImprovementResult,
   profileImprovementHold,
+  profileImprovementMeasure,
   profileImprovementMetadata,
+  profileImprovementModelBinding,
   profilePolicyWithBudget,
   profilePreparationAccounting,
   profileStateDigest,
@@ -512,14 +511,7 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
   | ProposeAgentProfileImprovementIncompleteResult
   | ProposeAgentProfileImprovementHeldResult
 > {
-  const bindingSource =
-    typeof options.modelBinding === 'function'
-      ? options.modelBinding
-      : options.modelBinding === undefined
-        ? undefined
-        : immutableCandidateValue(
-            agentProfileImprovementModelBindingSchema.parse(options.modelBinding),
-          )
+  const resolveModelBinding = profileImprovementModelBinding(options.modelBinding)
   const source = agentImprovementSourceSchema.parse(options.source)
   const surface = options.improvement.surface ?? 'prompt'
   if (!isAgentProfileMeasuredSurface(surface)) {
@@ -605,32 +597,16 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     })
     assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
     assertProfileReleaseWorkIsFresh(benchmark, improvement)
-    const modelBinding =
-      bindingSource === undefined
-        ? undefined
-        : agentProfileImprovementModelBindingSchema.parse(
-            typeof bindingSource === 'function'
-              ? await bindingSource(
-                  immutableCandidateValue({ baseline: profile, candidate: candidateProfile }),
-                )
-              : bindingSource,
-          )
-    if (
-      profileStateDigest(options.stateDigest, source.sourceIdentity, profile) !==
-        baselineStateDigest ||
-      profileStateDigest(options.stateDigest, source.sourceIdentity, candidateProfile) !==
-        candidateStateDigest
-    )
-      throw new Error('profile state changed before the measured experiment was sealed')
-    for (const task of benchmark.tasks) {
-      agentProfileImprovementExpectedModel({ change, modelBinding }, task, 'baseline', profile)
-      agentProfileImprovementExpectedModel(
-        { change, modelBinding },
-        task,
-        'candidate',
-        candidateProfile,
-      )
-    }
+    const modelBinding = await resolveModelBinding({
+      change,
+      tasks: benchmark.tasks,
+      profiles: { baseline: profile, candidate: candidateProfile },
+      unchanged: () =>
+        profileStateDigest(options.stateDigest, source.sourceIdentity, profile) ===
+          baselineStateDigest &&
+        profileStateDigest(options.stateDigest, source.sourceIdentity, candidateProfile) ===
+          candidateStateDigest,
+    })
     const experiment = sealAgentProfileImprovementExperiment({
       kind: 'agent-profile-improvement-experiment',
       digestAlgorithm: 'rfc8785-sha256',
@@ -650,10 +626,6 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
       benchmark,
       policy,
     })
-    const profilesByStateDigest = new Map<Sha256Digest, AgentProfile>([
-      [baselineStateDigest, profile],
-      [candidateStateDigest, candidateProfile],
-    ])
     const preparation = profilePreparationAccounting(costLedger, preparationStartedAt)
     const run = await runAgentProfileImprovementExperiment({
       allowIncomplete: true,
@@ -661,26 +633,15 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
       ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
       costLedger,
       ...(options.signal ? { signal: options.signal } : {}),
-      execute: async (input) => {
-        const measuredProfile = profilesByStateDigest.get(input.stateDigest)
-        if (!measuredProfile) {
-          throw new Error('profile improvement execution requested an unknown profile state')
-        }
-        if (
-          profileStateDigest(options.stateDigest, source.sourceIdentity, measuredProfile) !==
-          input.stateDigest
-        )
-          throw new Error('profile state changed before measurement')
-        agentProfileImprovementExpectedModel(experiment, input.task, input.arm, measuredProfile)
-        const { signal, ...cell } = input
-        const receipt = await options.executor.measure({
-          ...immutableCandidateValue({ ...cell, profile: measuredProfile }),
-          ...(signal ? { signal } : {}),
-        })
-        return options.allowIncomplete === true
-          ? receipt
-          : agentProfileImprovementRunReceiptSchema.parse(receipt)
-      },
+      execute: profileImprovementMeasure(
+        options,
+        source.sourceIdentity,
+        experiment,
+        new Map<Sha256Digest, AgentProfile>([
+          [baselineStateDigest, profile],
+          [candidateStateDigest, candidateProfile],
+        ]),
+      ),
     })
     if ('status' in run) {
       if (options.allowIncomplete !== true)

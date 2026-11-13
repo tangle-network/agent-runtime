@@ -37,6 +37,9 @@ import {
   AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
   agentImprovementSourceMetadata,
   agentProfileImprovementArmSchema,
+  agentProfileImprovementExpectedModel,
+  agentProfileImprovementModelBindingSchema,
+  agentProfileImprovementRunReceiptSchema,
   numbersApproximatelyEqual,
 } from '@tangle-network/agent-interface'
 import type { RunAnalystLoopResult } from '../analyst-loop/types'
@@ -246,6 +249,68 @@ export function profileStateDigest(
   return agentProfileImprovementArmSchema.parse({
     stateDigest: stateDigest({ identity, profile }),
   }).stateDigest
+}
+
+/** Parse a static binding before any spend. The returned step resolves a function binding once on
+ *  frozen states, refuses a state that changed meanwhile, and checks each task's expected model. */
+export function profileImprovementModelBinding(
+  binding: AgentProfileImprovementModelBindingSource | undefined,
+): (input: {
+  change: AgentProfileImprovementExperiment['change']
+  tasks: readonly AgentProfileImprovementTask[]
+  profiles: { baseline: AgentProfile; candidate: AgentProfile }
+  unchanged: () => boolean
+}) => Promise<AgentProfileImprovementModelBinding | undefined> {
+  const source =
+    typeof binding === 'function' || binding === undefined
+      ? binding
+      : immutableCandidateValue(agentProfileImprovementModelBindingSchema.parse(binding))
+  return async ({ change, tasks, profiles, unchanged }) => {
+    const modelBinding =
+      source === undefined
+        ? undefined
+        : agentProfileImprovementModelBindingSchema.parse(
+            typeof source === 'function' ? await source(immutableCandidateValue(profiles)) : source,
+          )
+    if (!unchanged())
+      throw new Error('profile state changed before the measured experiment was sealed')
+    for (const task of tasks)
+      for (const arm of ['baseline', 'candidate'] as const)
+        agentProfileImprovementExpectedModel({ change, modelBinding }, task, arm, profiles[arm])
+    return modelBinding
+  }
+}
+
+/** Measure only the sealed profile states, re-checking each state and its model before the cell. */
+export function profileImprovementMeasure<TScenario extends Scenario, TArtifact>(
+  options:
+    | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
+    | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
+  sourceIdentity: string,
+  experiment: AgentProfileImprovementExperiment,
+  profiles: ReadonlyMap<Sha256Digest, AgentProfile>,
+) {
+  return async (
+    input: AgentProfileImprovementExperimentExecutionInput,
+  ): Promise<AgentProfileImprovementRecordedRunReceipt> => {
+    const measuredProfile = profiles.get(input.stateDigest)
+    if (!measuredProfile) {
+      throw new Error('profile improvement execution requested an unknown profile state')
+    }
+    if (
+      profileStateDigest(options.stateDigest, sourceIdentity, measuredProfile) !== input.stateDigest
+    )
+      throw new Error('profile state changed before measurement')
+    agentProfileImprovementExpectedModel(experiment, input.task, input.arm, measuredProfile)
+    const { signal, ...cell } = input
+    const receipt = await options.executor.measure({
+      ...immutableCandidateValue({ ...cell, profile: measuredProfile }),
+      ...(signal ? { signal } : {}),
+    })
+    return options.allowIncomplete === true
+      ? receipt
+      : agentProfileImprovementRunReceiptSchema.parse(receipt)
+  }
 }
 
 export function sealProfileImprovementBenchmark(
