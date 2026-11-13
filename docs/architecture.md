@@ -134,6 +134,15 @@ opencode-style extension surface *and* the live projection of the recursive agen
 each node's status, steps, child count, and deployable score. The journal stays the durable
 record; the hook stream is its live projection (both agree).
 
+Child settlement refreshes nested budget leases after its terminal journal write,
+then captures the existing `BudgetReadout` in the `agent.child` payload's `budget`.
+The event's `parentId` identifies the scope that owns this pool, `payload.childId`
+the settled child, `runId` its journal tree and `stepIndex` the settled cursor sequence.
+Its timestamp is the readout observation time; `payload.settledAt` keeps the terminal
+record's time. `FileObserverJournal` durably retains this detached observation.
+Compare it with the independently declared pool cap while keeping live reservations
+separate from committed work; an unknown flag remains unknown.
+
 ---
 
 ## 2. Two timescales, one machinery (the unification)
