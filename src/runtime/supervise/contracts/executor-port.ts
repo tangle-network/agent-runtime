@@ -23,6 +23,12 @@ import type { UsageEvent } from './execution-events'
  * own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this interface.
  */
 export interface Executor<Out> {
+  /** Trusted intake for file-mode submissions. Captures the current invocation before checking
+   * and committing the prepared value; its lifecycle awaits the entire transaction. */
+  withFileOutput?(
+    submission: unknown,
+    accept: (output: unknown) => Promise<unknown>,
+  ): Promise<unknown>
   /** Stable runtime tag for traces + the equal-k exemption check. */
   readonly runtime: Runtime
   /**

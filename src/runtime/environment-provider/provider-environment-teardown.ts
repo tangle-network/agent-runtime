@@ -54,7 +54,12 @@ async function attemptDestroy(
   const { state, provider } = scope
   const target = state.environment
   if (target === undefined) return { destroyed: true }
-  if (state.workspacePreservationRequired) {
+  await state.fileOutput?.settled()
+  if (
+    state.workspacePreservationRequired ||
+    state.fileOutputRequired ||
+    state.fileOutput?.requiresPreservation
+  ) {
     return {
       destroyed: false,
       detail: 'provider native stop was not confirmed; source environment preserved',

@@ -1,4 +1,5 @@
 import { ValidationError } from '../../errors'
+import { providerOutputOptions } from '../environment-provider/provider-executor-admission'
 import type { ExecutorConfig } from './executor-config'
 import type { RootStreamSink } from './root-stream'
 import { driveHarnessFromBackend } from './supervise-driver-session'
@@ -30,14 +31,28 @@ export function managerHarnessResolver(
   const claimDriveHarness = driveHarnessClaims()
   return (context) => {
     if (options.resolveDriveHarness) {
-      return claimDriveHarness(options.resolveDriveHarness(context), context.ownerId)
+      return claimDriveHarness(
+        options.resolveDriveHarness(context),
+        context.ownerId,
+        context.profile.outputFile !== undefined,
+      )
     }
     if (options.driveHarness) {
-      return claimDriveHarness(options.driveHarness, context.ownerId)
+      return claimDriveHarness(
+        options.driveHarness,
+        context.ownerId,
+        context.profile.outputFile !== undefined,
+      )
     }
-    return managerBackend && source.automaticDriver
+    const selectedBackend =
+      managerBackend?.backend === 'provider'
+        ? { ...managerBackend, ...providerOutputOptions(context.profile, managerBackend) }
+        : managerBackend
+    if (context.profile.outputFile !== undefined && selectedBackend?.backend !== 'provider')
+      throw new ValidationError('profile outputFile requires a retained provider backend')
+    return selectedBackend && source.automaticDriver
       ? driveHarnessFromBackend(
-          managerBackend,
+          selectedBackend,
           externalExecutionId('supervised-manager', {
             runNamespace: source.runNamespace,
             ownerId: context.ownerId,
@@ -95,18 +110,26 @@ function emitSeatEvent(
 }
 
 /** A harness claimed by one manager owner. A steerable harness binds to exactly one owner. */
-function driveHarnessClaims(): (rawHarness: unknown, ownerId: string) => DriveHarness {
+function driveHarnessClaims(): (
+  rawHarness: unknown,
+  ownerId: string,
+  fileOutput: boolean,
+) => DriveHarness {
   const harnessClaims = new WeakMap<
     DriveHarness,
     { readonly owners: Set<string>; steerable: boolean }
   >()
-  return (rawHarness, ownerId) => {
+  return (rawHarness, ownerId, fileOutput) => {
     if (typeof rawHarness !== 'function') {
       throw new ValidationError(
         'supervise: resolveDriveHarness must return a DriveHarness function',
       )
     }
     const harness = rawHarness as DriveHarness
+    if (fileOutput && typeof harness.withFileOutput !== 'function')
+      throw new ValidationError(
+        'profile outputFile requires a harness with retained file submission support',
+      )
     const deliver: unknown = harness.deliver
     if (deliver !== undefined && typeof deliver !== 'function') {
       throw new ValidationError('supervise: driveHarness.deliver must be a function when provided')

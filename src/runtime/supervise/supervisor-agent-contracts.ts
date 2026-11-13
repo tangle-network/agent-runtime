@@ -32,7 +32,14 @@ import type { RunCancelRequest } from './run-cancellation'
 import type { StopRule } from './stop-rules'
 import type { SupervisorProfile } from './supervisor-agent-profile'
 import type { TraceSource } from './trace-source'
-import type { Budget, ExecutorResult, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
+import type {
+  Budget,
+  Executor,
+  ExecutorResult,
+  NodeExecutionIdentity,
+  ResultBlobStore,
+  Scope,
+} from './types'
 import type { ManagerWakePolicy } from './wake'
 
 export type CoordinationBinding = CoordinationTransportOptions
@@ -135,6 +142,7 @@ export type ObserveSupervisorNodeEvent = (
 
 /** Drive an external harness with the live scope's coordination tools mounted over MCP. */
 export interface DriveHarness {
+  withFileOutput?: Executor<unknown>['withFileOutput']
   (args: {
     /** The exact provider-visible projection. Runtime-owned coordination tool declarations are
      *  removed only when their descriptors are actually mounted; send this profile to the provider. */

@@ -524,6 +524,11 @@ async function invokeManagerHarness(
   state.harnessInvocationActive = true
   let completed = false
   try {
+    if (driveHarness.withFileOutput) {
+      if (!mcp.rotateManagerCredential)
+        throw new Error('file output requires invocation-bound coordination credentials')
+      await mcp.rotateManagerCredential()
+    }
     await driveHarness({
       profile: loop.providerProfile,
       authoredProfile: config.profile,

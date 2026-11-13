@@ -68,6 +68,9 @@ export interface CoordinationMcpHandle {
   readonly credentialExpiresAt: number | undefined
   readonly credentialSigned?: boolean
   rotateCredential(): void
+  /** Revoke the preceding file producer's manager bearer and await its trusted holder's install.
+   * Independent read/operator capabilities survive this invocation boundary. */
+  rotateManagerCredential?(): Promise<void>
   /** Bind a trusted holder; renewal stops and drains before its release. */
   bindCredential?(
     install: (headers: Readonly<Record<string, string>>) => Promise<void>,
@@ -448,6 +451,9 @@ export async function serveCoordinationMcpForManager(
 
   let stopCredentialBinding: (() => Promise<void>) | undefined
   let refreshBoundCredential: (() => void) | undefined
+  let rotateManagerCredential = async () => {
+    credentials.rotate(true)
+  }
   const bindCredential: NonNullable<CoordinationMcpHandle['bindCredential']> = async (install) => {
     if (stopCredentialBinding) throw new ConfigError('coordination already has a credential holder')
     let active = true,
@@ -490,6 +496,16 @@ export async function serveCoordinationMcpForManager(
     refreshBoundCredential = () => {
       cancelTimer?.()
       renew()
+    }
+    rotateManagerCredential = async () => {
+      cancelTimer?.()
+      await pending
+      cancelTimer?.()
+      if (stopped()) throw new ConfigError('coordination credential holder stopped')
+      credentials.rotate(true)
+      pending = credentials.replace(install)
+      await pending
+      schedule()
     }
     try {
       pending = credentials.replace(install)
@@ -538,6 +554,7 @@ export async function serveCoordinationMcpForManager(
       credentials.rotate()
       refreshBoundCredential?.()
     },
+    rotateManagerCredential: () => rotateManagerCredential(),
     bindCredential,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
