@@ -239,7 +239,9 @@ export function liveChildRecord<C>(
     status: start.granted ? 'acquiring' : 'queued',
     runtime: executor.runtime,
     ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-    ...(ownedTreeRoot === undefined
+    // Only an executor with a transcript port has a capture to bind to its attempt; a leaf with
+    // none records nothing beyond its settlement's named absence.
+    ...(ownedTreeRoot === undefined && executor.harnessTranscript
       ? {
           recordTranscriptEvidence: (harnessTranscript, outRef) =>
             recordHarnessTranscriptEvidence({
