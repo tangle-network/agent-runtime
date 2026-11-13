@@ -218,18 +218,6 @@ export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArti
   proposal: AgentImprovementProposal
 }
 
-export type {
-  AgentProfileImprovementBenchmark,
-  AgentProfileImprovementExecutor,
-  AgentProfileImprovementMethodOptions,
-  AgentProfileImprovementModelBindingSource,
-  ProposeAgentProfileImprovementHeldResult,
-  ProposeAgentProfileImprovementIncompleteResult,
-  ProposeAgentProfileImprovementOptions,
-  ProposeAgentProfileImprovementResult,
-  RecordAgentProfileImprovementOptions,
-} from './profile-improvement-experiment'
-
 function sealAgentImprovementExperiment<TScenario extends Scenario, TArtifact>(
   material: AgentImprovementExperimentMaterial,
   improvement: ImproveResult<TScenario, TArtifact>,
