@@ -117,6 +117,10 @@ export const bridgeStopSignalKey = '__bridge_stop_signal'
  * authored profile digest that binds a durable session. */
 export const bridgeRuntimeAttachmentsKey = '__bridge_runtime_attachments'
 
+/** Internal secret seam beside {@link bridgeRuntimeAttachmentsKey}: request `env` the bridge lifts
+ * into memory before it records the run, so a secret-ref attachment header resolves to it. */
+export const bridgeRuntimeEnvKey = '__bridge_runtime_env'
+
 export const maxBridgeTimeoutMs = 2_147_483_647
 
 function isLoopbackBridgeHost(hostname: string): boolean {

@@ -8,6 +8,7 @@ import { linkAbort } from './abortable'
 import {
   type BridgeSeam,
   bridgeRuntimeAttachmentsKey,
+  bridgeRuntimeEnvKey,
   bridgeSeamKey,
   bridgeStopSignalKey,
   maxBridgeTimeoutMs,
@@ -27,7 +28,12 @@ import {
   bridgeRunStateGet,
   cancelBridgeRunToTerminal,
 } from './bridge-transport'
-import { readOptionalAbortSignal, readOptionalMcpAttachments, readSeam } from './executor-seams'
+import {
+  readOptionalAbortSignal,
+  readOptionalMcpAttachments,
+  readOptionalRuntimeEnv,
+  readSeam,
+} from './executor-seams'
 import { createInbox, failPendingAfter } from './inbox'
 import {
   attestRuntimeOwnedPendingExecutor,
@@ -75,6 +81,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
   const stopSignal = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'bridge')
   const runtimeAttachments = readOptionalMcpAttachments(ctx, bridgeRuntimeAttachmentsKey, 'bridge')
+  const runtimeEnv = readOptionalRuntimeEnv(ctx, bridgeRuntimeEnvKey, 'bridge')
   const modelCredential = validateBridgeModelCredential(
     base.modelCredential,
     base.bridgeUrl,
@@ -257,6 +264,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         signal,
         ...(stopSignal === undefined ? {} : { stopSignal }),
         ...(runtimeAttachments === undefined ? {} : { runtimeAttachments }),
+        ...(runtimeEnv === undefined ? {} : { runtimeEnv }),
         profile: effectiveProfile,
         seam,
         sessionId,

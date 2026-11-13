@@ -7,7 +7,6 @@ import {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
-import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import {
   type HarnessTranscriptCapture,
@@ -32,6 +31,7 @@ import type { RootStreamSink } from './root-stream'
 import {
   bindReusableExecutorExecutionId,
   bridgeRuntimeAttachmentsKey,
+  bridgeRuntimeEnvKey,
   bridgeStopSignalKey,
   createExecutor,
 } from './runtime'
@@ -52,6 +52,7 @@ import {
 } from './supervise-profile-admission'
 import {
   CLAUDE_CODE_ONE_HOUR_CACHE,
+  COORDINATION_TOKEN_ENV,
   coordinationRuntimeAttachment,
   peerMailMcpAlias,
   peerMailRuntimeAttachment,
@@ -107,12 +108,6 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   const peerMailAttachment = peerMailRuntimeAttachment(input.authoredProfile, state.boundBackend, {
     peerMailUrl: input.peerMailUrl,
   })
-  const attachment = {
-    transport: 'http' as const,
-    url: input.coordinationMcpUrl,
-    ...(input.coordinationMcpHeaders ? { headers: input.coordinationMcpHeaders } : {}),
-    metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
-  }
   const factory =
     reusedAttemptFactory(input) ??
     (await providerAttemptFactory(input, identity.providerProfile.harness))
@@ -138,12 +133,7 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
       [bridgeStopSignalKey]: stopSignal,
       ...(state.boundBackend.backend === 'provider'
         ? {}
-        : {
-            [bridgeRuntimeAttachmentsKey]: {
-              ...(peerMailAttachment ?? {}),
-              [coordinationMcpAlias]: attachment,
-            },
-          }),
+        : bridgeCoordinationSeams(input, peerMailAttachment)),
     },
   })
   input.keepTranscript(state.lastExecutor?.harnessTranscript?.())
@@ -308,6 +298,28 @@ function admitDriverProfiles(input: DriverAttemptInput): DriverAttemptIdentity {
   }
 }
 
+/** Bridge coordination rides as a secret reference; the bearer goes in request env, which the
+ * bridge lifts into memory and resolves only into a private MCP config or its jail relay. */
+function bridgeCoordinationSeams(
+  input: DriverAttemptInput,
+  peerMail: ReturnType<typeof peerMailRuntimeAttachment>,
+) {
+  const authorization = input.coordinationMcpHeaders?.Authorization
+  if (
+    authorization !== undefined &&
+    (!authorization.startsWith('Bearer ') || authorization.length === 7)
+  )
+    throw new ValidationError('bridge coordination requires a bearer credential')
+  const key = authorization === undefined ? undefined : COORDINATION_TOKEN_ENV
+  return {
+    [bridgeRuntimeAttachmentsKey]: {
+      ...peerMail,
+      [coordinationMcpAlias]: coordinationRuntimeAttachment(input.coordinationMcpUrl, key),
+    },
+    ...(key === undefined ? {} : { [bridgeRuntimeEnvKey]: { [key]: authorization!.slice(7) } }),
+  }
+}
+
 /** Resume with unchanged profile identity and a fresh runtime attachment. */
 function reusedAttemptFactory(input: DriverAttemptInput): ExecutorFactory<unknown> | undefined {
   const backend = input.state.boundBackend
@@ -350,13 +362,13 @@ async function providerAttemptFactory(
   const suffix = canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
     .slice(7, 31)
     .toUpperCase()
-  const credentialName = `AGENT_RUNTIME_COORDINATION_TOKEN${protectedPath ? `_${suffix}` : ''}`
+  const credentialName = `${COORDINATION_TOKEN_ENV}${protectedPath ? `_${suffix}` : ''}`
   const defaults = backend.defaults ?? {}
   const env: Record<string, string> = {
     ...(providerHarness === 'claude-code' ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' } : {}),
     ...defaults.env,
   }
-  delete env.AGENT_RUNTIME_COORDINATION_TOKEN
+  delete env[COORDINATION_TOKEN_ENV]
   delete env[credentialName]
   for (const mcp of [
     defaults.runtimeAttachments?.mcp,
