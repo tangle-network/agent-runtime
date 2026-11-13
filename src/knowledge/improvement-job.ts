@@ -10,6 +10,9 @@ import {
   evaluateKnowledgeBaseReadiness,
   hashKnowledgeBase,
   improveKnowledgeBase,
+  KB_CLAIM_LEDGER_DIR,
+  KB_EVENTS_PATH,
+  KB_STORE_DIR,
   type KnowledgeBaseQualityOptions,
   type KnowledgeImprovementCandidateRef,
   type KnowledgeImprovementOptions,
@@ -21,6 +24,7 @@ import {
   toAgentCandidateKnowledgeRef,
   withKnowledgeImprovementComparison,
 } from '@tangle-network/agent-knowledge'
+import { captureMaterializedWorkspace } from '../candidate-execution/artifacts'
 import { sealAgentCandidateBundle } from '../candidate-execution/bundle'
 import {
   canonicalCandidateBytes,
@@ -29,7 +33,7 @@ import {
 } from '../candidate-execution/digest'
 import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
-import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive-local'
+import { captureAgentCandidateWorkspaceFiles } from '../candidate-execution/workspace-archive'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
@@ -273,8 +277,9 @@ export async function captureKnowledgeImprovementCandidatePair(options: {
       target: 'baseline' | 'candidate',
     ): Promise<AgentCandidateKnowledge['snapshot']> => {
       const executionId = `knowledge-${candidate.candidateId}-${target}`
-      const captured = await captureAgentCandidateWorkspace(
-        await realpath(comparison[target].root),
+      const { files } = await captureMaterializedWorkspace(await realpath(comparison[target].root))
+      const captured = await captureAgentCandidateWorkspaceFiles(
+        files.filter((file) => isMeasuredKnowledgePath(file.path, comparison.stateScope)),
         {
           ...(artifacts
             ? {
@@ -318,6 +323,26 @@ export async function captureKnowledgeImprovementCandidatePair(options: {
       candidate: proposed,
     })
   })
+}
+
+/**
+ * The Knowledge state a candidate hash measures: pages, raw sources and the source registry, plus
+ * claim ledgers and the event log for a research scope. Each comparison view also rewrites
+ * agent-knowledge's own index, mutation epoch and lock owner with its root, clock and holder, so
+ * freezing those would make two captures of one measured candidate differ.
+ */
+function isMeasuredKnowledgePath(
+  path: string,
+  scope: Parameters<typeof normalizeKnowledgeStateScope>[0],
+): boolean {
+  const normalized = normalizeKnowledgeStateScope(scope)
+  const within = (prefix: string) => path === prefix || path.startsWith(`${prefix}/`)
+  if (within(normalized.pagesDirectory) || within('raw')) return true
+  if (path === `${KB_STORE_DIR}/sources.json`) return true
+  return (
+    normalized.researchState === true &&
+    (within(KB_CLAIM_LEDGER_DIR) || path === KB_EVENTS_PATH || within(`${KB_STORE_DIR}/event-log`))
+  )
 }
 
 async function captureKnowledgeEvidence(
