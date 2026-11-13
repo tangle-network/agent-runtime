@@ -21,12 +21,6 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
   return owners.get(scope)?.releaseRetriable ?? false
 }
 
-/** @internal Bound this owner's releases by the settling run's teardown deadline (epoch ms). */
-export function boundScopeRetainedOwnerRelease(scope: Scope<unknown>, deadlineAt: number): void {
-  const state = owners.get(scope)
-  if (state !== undefined) state.releaseDeadlineAt = deadlineAt
-}
-
 /** One budget for every checkpoint lookup, delete and fork cleanup this release starts. Work cut short keeps its checkpoint and source. */
 const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
@@ -141,10 +135,8 @@ async function releaseOwnerEnvironment(
   for (const { event } of checkpointFailures) pendingSources.add(event.environmentId)
   // Every destroy starts at once under one deadline, never past the settling run's; receipts are
   // still journaled in order.
-  const waitMs = Math.max(
-    0,
-    Math.min(destroyMs, (state.releaseDeadlineAt ?? Number.POSITIVE_INFINITY) - Date.now()),
-  )
+  const left = (state.releaseDeadlineAt ?? Number.POSITIVE_INFINITY) - Date.now()
+  const waitMs = Math.max(0, Math.min(destroyMs, left))
   const destroyDeadline = AbortSignal.timeout(waitMs)
   const held = (state.held ??= new Map())
   const destroys = new Map(
@@ -175,15 +167,15 @@ async function releaseOwnerEnvironment(
     const asked = destroys.get(environmentId)
     // Refused under a retention hold before this release, whose native runs were stopped then.
     const heldBefore = asked === undefined ? held.get(environmentId) : undefined
-    if (retentionReason !== undefined || pendingSources.has(environmentId)) {
+    if (
+      retentionReason !== undefined ||
+      pendingSources.has(environmentId) ||
+      heldBefore !== undefined
+    ) {
       detail =
         !nativeHold && pendingSources.has(environmentId)
           ? 'checkpoint cleanup unresolved: source preserved for exact lookup and cleanup'
-          : retentionReason
-      preserved.push(environmentId)
-      lastDetail = detail
-    } else if (heldBefore !== undefined) {
-      detail = heldBefore
+          : retentionReason ?? heldBefore
       preserved.push(environmentId)
       lastDetail = detail
     } else {
@@ -193,18 +185,17 @@ async function releaseOwnerEnvironment(
       } catch (error) {
         // The destroy itself remembers a hold refusal, so one answered after this wait still
         // keeps the box from every later release.
-        const heldNow = held.get(environmentId)
-        if (heldNow !== undefined) {
-          detail = heldNow
-          preserved.push(environmentId)
-        } else {
-          detail = `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
+        detail =
+          held.get(environmentId) ??
+          `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
+        lastDetail = detail
+        if (held.has(environmentId)) preserved.push(environmentId)
+        else {
           unconfirmed.push(environmentId)
           // A provider that cannot reconstruct or destroy the environment answers the same way
           // every time; only a destroy that failed or went unanswered is worth asking again.
           if (!(error instanceof PermanentReleaseRefusal)) retriable = true
         }
-        lastDetail = detail
       }
     }
     // A delete still running ends the harness with the box; a stop would reconnect to it.

@@ -1,8 +1,8 @@
 import { ValidationError } from '../../errors'
 import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import type { TeamProgress } from './progress'
+import { owners } from './retained-owner-state'
 import {
-  boundScopeRetainedOwnerRelease,
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
   scopeRetainedOwnerSettled,
@@ -194,7 +194,8 @@ export async function releaseRetainedEnvironments(
 /** @internal Bound every owner release in this scope's tree by the settling run's teardown
  *  deadline (epoch ms), so no destroy wait at any level outlasts it. */
 export function boundRetainedReleases(scope: Scope<unknown>, deadlineAt: number): void {
-  boundScopeRetainedOwnerRelease(scope, deadlineAt)
+  const owner = owners.get(scope)
+  if (owner !== undefined) owner.releaseDeadlineAt = deadlineAt
   for (const nested of nestedManagerScopes(scope)) boundRetainedReleases(nested, deadlineAt)
 }
 

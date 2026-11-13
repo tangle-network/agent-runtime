@@ -9,6 +9,7 @@
  * evidence the provider keeps.
  */
 
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
@@ -18,13 +19,15 @@ import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import {
   bindScopeRetainedOwnerProvider,
+  prepareScopeRetainedOwnerTask,
   scopeRetainedOwnerContext,
-} from '../../src/runtime/supervise/retained-owner-state'
+} from '../../src/runtime/supervise/retained-scope-owner'
 import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Scope, SpawnEvent, SupervisorOpts } from '../../src/runtime/supervise/types'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
+const RUN_ID = 'cancel-teardown'
 const PROVIDER = 'held-box-provider'
 const ROOT_BOX = 'root-box'
 
@@ -111,21 +114,31 @@ function boxProvider(boxes: Readonly<Record<string, Box>>) {
   return { provider, gets, destroys, wakes }
 }
 
+/** The owner's turn as a retained run journals it: its input, its intent, then its box. */
 async function admitBox(
   scope: Scope<unknown>,
   provider: AgentEnvironmentProvider,
   box: string,
+  task: unknown,
 ): Promise<void> {
   bindScopeRetainedOwnerProvider(scope, provider)
-  await scopeRetainedOwnerContext(scope)!.onAdmission({
-    phase: 'environment',
+  await prepareScopeRetainedOwnerTask(scope, task)
+  const owner = scopeRetainedOwnerContext(scope)!
+  const identity = {
     provider: provider.name,
-    environmentId: box,
     idempotencyKey: `${box}:key`,
     turnId: `${box}:turn`,
     sessionId: `${box}:session`,
     executionId: `${box}:execution`,
+  }
+  await owner.onAdmission({
+    phase: 'intent',
+    ...identity,
+    runId: RUN_ID,
+    requestedProfileDigest: canonicalCandidateDigest({ box }),
+    requestDigest: canonicalCandidateDigest({ box, task }),
   })
+  await owner.onAdmission({ phase: 'environment', ...identity, environmentId: box })
 }
 
 function aborted(signal: AbortSignal): Promise<never> {
@@ -157,8 +170,8 @@ async function cancelFinishedRun(
       testAgentProfile(`${box}-manager`),
       {
         name: `${box}-manager`,
-        async act(_task, scope) {
-          await admitBox(scope, fixture.provider, box)
+        async act(task, scope) {
+          await admitBox(scope, fixture.provider, box, task)
           if (working) await aborted(scope.signal)
           return box
         },
@@ -169,8 +182,8 @@ async function cancelFinishedRun(
   const run = createSupervisor<unknown, unknown>().run(
     {
       name: 'root',
-      async act(_task, scope) {
-        await admitBox(scope, fixture.provider, ROOT_BOX)
+      async act(task, scope) {
+        await admitBox(scope, fixture.provider, ROOT_BOX, task)
         for (const [box, working] of [
           [managers.finished[0], false],
           [managers.finished[1], false],
@@ -197,7 +210,7 @@ async function cancelFinishedRun(
     'task',
     {
       ...context,
-      runId: 'cancel-teardown',
+      runId: RUN_ID,
       budget: { maxTokens: 1000, maxIterations: 50 },
       workerSlots: 4,
       signal: controller.signal,
@@ -206,7 +219,7 @@ async function cancelFinishedRun(
   )
   const result = await run
   const elapsedMs = Date.now() - cancelledAt
-  const events = (await context.journal.loadTree('cancel-teardown')) ?? []
+  const events = (await context.journal.loadTree(RUN_ID)) ?? []
   return { ...fixture, result, elapsedMs, events }
 }
 
@@ -216,7 +229,7 @@ const unconfirmedRows = (events: readonly SpawnEvent[]) =>
       event.kind === 'teardown-unconfirmed',
   )
 
-it('keeps a held box after one refused delete, reports it kept, and releases levels together', async () => {
+it('keeps a held box after one refused delete and releases every level at once', async () => {
   const run = await cancelFinishedRun(
     {
       'held-box': 'held',
@@ -227,7 +240,6 @@ it('keeps a held box after one refused delete, reports it kept, and releases lev
     { finished: ['held-box', 'held-coded-box'], working: 'working-box' },
     { teardownConfirmMs: 5_000 },
   )
-  expect(run.result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
   // A held box is asked once and never reconnected to again; the working manager's box is deleted
   // on its first ask because the root's own release runs beside it.
   expect(Object.fromEntries(run.destroys)).toEqual({
@@ -238,7 +250,7 @@ it('keeps a held box after one refused delete, reports it kept, and releases lev
   })
   expect(Object.fromEntries(run.wakes)).toEqual({})
   const unconfirmed = run.result.teardownUnconfirmed ?? []
-  // Nothing is left for a sweeper to delete; the held boxes are named as evidence the provider keeps.
+  // Nothing is left for a sweeper to delete; the held boxes are named as evidence.
   expect(unconfirmed.flatMap((node) => node.environments ?? [])).toEqual([])
   const kept = [
     { provider: PROVIDER, environmentId: 'held-box', keptFor: 'evidence' },

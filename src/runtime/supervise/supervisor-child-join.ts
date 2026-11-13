@@ -1,6 +1,5 @@
 import { RuntimeRunStateError } from '../../errors'
 import { armDeadlineTimer } from './deadline'
-import { RELEASE_DESTROY_MS } from './retained-owner-release'
 import {
   hasRetriableTeardowns,
   releaseRetainedEnvironments,
@@ -57,10 +56,6 @@ export async function drainLiveChildren(
   return unconfirmedTeardowns(scope)
 }
 
-/** One release's destroy wait (90 s), counted from when the run's teardown opens: the retries
- *  run inside the first release's wait, so a cancelled run settles in about that long. */
-export const DEFAULT_TEARDOWN_CONFIRM_MS = RELEASE_DESTROY_MS
-
 /** The fields a `teardown-pending` or `teardown-unconfirmed` record carries for one node. */
 export function unconfirmedRecord(node: UnconfirmedTeardown) {
   return {
@@ -101,7 +96,7 @@ export async function confirmSettledTeardowns(
   let failure: { error: unknown } | undefined
   while (failure === undefined && hasRetriableTeardowns(scope, release)) {
     if (closesAt - Date.now() <= 0) break
-    await pause(Math.min(delayMs, closesAt - Date.now()))
+    await pausable(Math.min(delayMs, closesAt - Date.now())).elapsed
     delayMs = Math.min(delayMs * 2, maxDelayMs)
     // One release in flight at a time: each one journals its receipts.
     if (release && releasing === undefined) {
@@ -129,11 +124,6 @@ export async function confirmSettledTeardowns(
   // A journal write that failed inside a release is a real fault; it is the barrier's to report.
   if (failure !== undefined) throw failure.error
   return unconfirmedTeardowns(scope)
-}
-
-/** A wall-clock wait that keeps the process alive until it ends. */
-function pause(ms: number): Promise<void> {
-  return pausable(ms).elapsed
 }
 
 /** A wall-clock wait that can be cancelled, so a wait that lost a race holds no timer open. */

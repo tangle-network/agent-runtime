@@ -15,7 +15,6 @@ import {
 import { appendTeardownConfirmation } from './scope-settlement'
 import {
   confirmSettledTeardowns,
-  DEFAULT_TEARDOWN_CONFIRM_MS,
   drainLiveChildren,
   unconfirmedRecord,
 } from './supervisor-child-join'
@@ -57,7 +56,8 @@ export async function joinRunChildren(
   // of a 60-slot fleet for 19 to 37 hours. The caller knows whether a later process
   // resumes, so the policy decides; the unconfirmed set is re-read so released nodes drop out.
   const releasing = !persistence.failed && join.retainedAtSettlement === 'release'
-  const confirmWindowMs = join.opts.teardownConfirmMs ?? DEFAULT_TEARDOWN_CONFIRM_MS
+  // The default window is one destroy wait, so the retries fit inside the first release's.
+  const confirmWindowMs = join.opts.teardownConfirmMs ?? RELEASE_DESTROY_MS
   // The teardown opens now and has one deadline: every release in the tree, its retries
   // included, ends within one destroy wait (or the longer retry window). Releasing the tree one
   // level after another, each level waiting its own deadline, took 22 minutes on a 28-box cancel.
