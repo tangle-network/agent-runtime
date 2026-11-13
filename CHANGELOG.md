@@ -1,3 +1,25 @@
+## 9.0.16
+
+Continue a supervised retained owner whose last committed turn failed. After a restart its first drive still surfaces that failure once; the next drive, in the same process or after a later restart, dispatches a new turn instead of replaying the same committed result again. A committed successful turn is still restored, never run again, and its spend is counted once.
+
+## 9.0.15
+
+Continue retained provider leaves in their existing environment and native session after a producer-typed transport loss, preserving committed work, spend, cancellation and the original budget and deadline. Caller failures and untyped timeout diagnostics keep their existing stop policy.
+
+## 9.0.14
+
+Keep observing the original retained execution when a quiet-interval status read confirms it is still running; preserve caller cancellation and exact terminal-result authority.
+
+Record the actual scope budget on child-settlement observer events after nested lease refresh, preserving free, reserved, committed and unknown usage across durable journal reopen. The `agent.child` event timestamp is the budget observation time; `payload.settledAt` retains the canonical terminal time.
+
+## 9.0.13
+
+Recognize Chinese Coding Plan exhausted-window refusals as subscription usage limits so seat chains advance. Structured producer reset hints continue to own the hold time; plain rate limits remain distinct.
+
+Add reusable delegated local CPU accounting sessions to isolated checks, with protected workload-tree cgroup counters and explicit unavailable evidence.
+
+Compose fixed-case identity and ABBA CPU measurements through the existing checker and Eval Student-t intervals, retaining every call and reporting unavailable precision or cleanup as unknown.
+
 ## 9.0.12
 
 Run-level provider-model evidence accepts dated served snapshots such as `claude-sonnet-4-5-20250929` through the parser the bridge recorder uses, so a bridge run that served a dated model reports `known` instead of `provider-model-missing`.

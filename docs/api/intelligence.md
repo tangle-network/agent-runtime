@@ -375,7 +375,7 @@ Product-owned executor for exact baseline/candidate profile measurement.
 
 ##### measure()
 
-> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\>
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ###### Parameters
 
@@ -385,7 +385,7 @@ Product-owned executor for exact baseline/candidate profile measurement.
 
 ###### Returns
 
-`Promise`\<`AgentProfileImprovementRunReceipt`\>
+`Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ***
 
@@ -498,7 +498,7 @@ Optional identities used to prove authored/imported development work is held out
 
 ##### measurements
 
-> **measurements**: `AgentProfileImprovementMeasurement`[]
+> **measurements**: `AgentProfileImprovementMeasurement`\<`AgentCandidateFixedSpend`\>[]
 
 ##### proposal
 
@@ -1822,7 +1822,7 @@ measurement. `executionRef` must identify both operations and their closure.
 
 ##### measure()
 
-> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\>
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ###### Parameters
 
@@ -1832,7 +1832,7 @@ measurement. `executionRef` must identify both operations and their closure.
 
 ###### Returns
 
-`Promise`\<`AgentProfileImprovementRunReceipt`\>
+`Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ***
 
@@ -1941,7 +1941,7 @@ One customer-approved maximum for analysis, optimization, and measurement.
 
 ##### measurements
 
-> **measurements**: `AgentProfileImprovementMeasurement`[]
+> **measurements**: `AgentProfileImprovementMeasurement`\<`AgentCandidateFixedSpend`\>[]
 
 ##### proposal
 

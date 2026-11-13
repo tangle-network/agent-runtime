@@ -5700,8 +5700,9 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 How a supervised leaf waits out an upstream that cannot serve now.
 
 When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
-overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
-keeps its environment, pauses, and continues in the same environment and session with a
+overload, or the router's own refused credential; see `upstreamUnavailableSignal`), or ends
+with the producer's typed `TRANSPORT_LOST` infrastructure failure, the leaf keeps its
+environment, pauses, and continues in the same environment and session with a
 short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
 (15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
 the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`
@@ -26868,8 +26869,9 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 How a supervised leaf waits out an upstream that cannot serve now.
 
 When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
-overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
-keeps its environment, pauses, and continues in the same environment and session with a
+overload, or the router's own refused credential; see `upstreamUnavailableSignal`), or ends
+with the producer's typed `TRANSPORT_LOST` infrastructure failure, the leaf keeps its
+environment, pauses, and continues in the same environment and session with a
 short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
 (15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
 the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`

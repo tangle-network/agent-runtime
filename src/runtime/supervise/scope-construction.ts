@@ -1,6 +1,5 @@
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
-import { refreshBudgetLease } from './budget'
 import { checkInIdleMs } from './deadline'
 import { freeSlots } from './dispatch'
 import { errorText } from './error-message'
@@ -73,11 +72,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     isAdmissionClosed: () => admissionClosed,
     checkInAtTimeBox: workers.checkInAtTimeBox,
     releaseHeld,
-    publishSettlement: async (child, settlement): Promise<unknown> => {
-      const published = await cursor.publish(child, settlement)
-      await refreshBudgetLease(args.pool)
-      return published
-    },
+    publishSettlement: (child, settlement): Promise<unknown> => cursor.publish(child, settlement),
   })
   const cursor = new ScopeSettlementCursor<Out>(args, children, now, recordKeyedSettlement)
 
