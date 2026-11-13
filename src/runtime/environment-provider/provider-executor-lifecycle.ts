@@ -245,7 +245,7 @@ function heldEnvironments(scope: ProviderExecutorScope): ReadonlyArray<HeldEnvir
     admittedEnvironmentId(scope.retention)
   if (environmentId === undefined) return []
   // A source that workspace retention preserved is evidence, kept on purpose.
-  const preserved = state.workspacePreservationRequired
+  const preserved = state.sourcePreservationRequired
   return [
     {
       provider: scope.provider.name,

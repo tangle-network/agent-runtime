@@ -26,6 +26,14 @@ export class ProviderExecutorState {
   fileOutput: ProviderFileOutput | undefined
   /** Reconstructed from the frozen file policy too: process loss cannot erase capture debt. */
   fileOutputRequired = false
+
+  get sourcePreservationRequired(): boolean {
+    return (
+      this.workspacePreservationRequired ||
+      this.fileOutputRequired ||
+      this.fileOutput?.requiresPreservation === true
+    )
+  }
   environment: AgentEnvironment | undefined
   artifact: ExecutorResult<unknown> | undefined
   retained: RetainedRunHandle | undefined
