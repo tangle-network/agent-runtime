@@ -2,9 +2,12 @@
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
+  AgentRetainedFilePublicationSchema,
   agentCandidateWorkspaceSnapshotEvidenceSchema,
+  canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
+import { recordValue } from '../../record-value'
 import { sameControlCoordinates } from '../retained-run-binding'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { executorFailureReason } from './executor-outcome'
@@ -22,6 +25,7 @@ interface OwnerAttempt {
   readonly environmentIds: Set<string>
   readonly executionId?: string
   readonly workspaceRetention?: boolean
+  outputFilePolicyDigest?: string
   readonly admissions: RetainedRunAdmission[]
   readonly controlByEnvironment: Map<string, AgentExactRunControlRef>
   binding?: ExecutionBindingReceipt
@@ -65,6 +69,12 @@ function ownerWorkspaceAttempts(events: readonly SpawnEvent[], nodeId: NodeId): 
       )
     } else if (event.kind === 'execution-admitted') {
       current?.admissions.push(event.admission)
+      if (current && event.admission.phase === 'intent' && event.admission.outputFilePolicyDigest)
+        current.outputFilePolicyDigest =
+          current.outputFilePolicyDigest === undefined ||
+          current.outputFilePolicyDigest === event.admission.outputFilePolicyDigest
+            ? event.admission.outputFilePolicyDigest
+            : 'conflicting-file-policies'
     } else if (event.kind === 'execution-bound') {
       // A later coordinator may finalize without running another invocation. Its bookkeeping
       // binding cannot rename the provider attempt whose result was already accepted.
@@ -92,7 +102,7 @@ export async function ownerWorkspaceRetentionFailures(
   const failures = new Map<string, string>()
   for (const index of attempts.keys()) {
     const attempt = withLaterEvidence(attempts, index)
-    if (attempt.workspaceRetention !== true) continue
+    if (attempt.workspaceRetention !== true && attempt.outputFilePolicyDigest === undefined) continue
     if (attempt.environmentIds.size === 0) continue
     // One result receipt cannot prove which source belongs to which environment when a
     // recovered attempt admitted more than one. Preserve every source until a later run can
@@ -129,6 +139,26 @@ async function ownerAttemptHasCapture(
   allowPartialProcessCapture = false,
 ): Promise<string | undefined> {
   const controlRef = attempt.controlByEnvironment.get(environmentId)
+  if (attempt.outputFilePolicyDigest !== undefined) {
+    // Only the original durable result discharges file custody; positive side evidence alone
+    // cannot authorize release between physical capture and the original result commit.
+    const output = attempt.result === undefined
+      ? undefined
+      : recordValue(await storedOutput(blobs, attempt.result.outRef))
+    const publication = AgentRetainedFilePublicationSchema.safeParse(output?.publication)
+    const node = owner === undefined ? undefined : ownerCaptureIdentity(attempt, owner).node
+    if (!output || output.kind !== 'retained-file-output' || output.version !== 1 ||
+      output.invocationId !== attempt.executionId ||
+      output.policyDigest !== attempt.outputFilePolicyDigest ||
+      !Object.hasOwn(output, 'submission') || !recordValue(output.node) ||
+      output.submissionRef !== contentAddress(output.submission) ||
+      !node || contentAddress(output.node) !== contentAddress(node) ||
+      !publication.success || !controlRef ||
+      !sameControlCoordinates(publication.data.controlRef, controlRef) ||
+      canonicalCandidateDigest(publication.data.policy) !== attempt.outputFilePolicyDigest)
+      return UNVERIFIED_SOURCE
+    if (attempt.workspaceRetention !== true) return undefined
+  }
   const receipts = [
     ...(attempt.result === undefined || attempt.result.outputFormat === 'json'
       ? []
@@ -214,7 +244,8 @@ export async function reconcileOwnerWorkspaceBeforeReuse(
     reusing.add(state.priorSession.environmentId)
   for (const attempt of attempts) {
     // The obligation is what the invocation persisted, never today's backend configuration.
-    if (attempt.workspaceRetention !== true || attempt.result === undefined) continue
+    if ((attempt.workspaceRetention !== true || attempt.result === undefined) &&
+      attempt.outputFilePolicyDigest === undefined) continue
     for (const environmentId of attempt.environmentIds) {
       if (!reusing.has(environmentId) || unusable.has(environmentId)) continue
       // A verified workspace may continue when Sandbox lost only raw process I/O.
@@ -222,6 +253,8 @@ export async function reconcileOwnerWorkspaceBeforeReuse(
         (await ownerAttemptHasCapture(attempt, environmentId, args.blobs, args, true)) === undefined
       )
         continue
+      if (attempt.outputFilePolicyDigest !== undefined)
+        throw new RetainedExecutionPendingError(new Error(UNVERIFIED_SOURCE), 'unobservable')
       signal.throwIfAborted()
       const failure = capturePendingMessage(
         attempt.executionId ?? args.nodeId,
