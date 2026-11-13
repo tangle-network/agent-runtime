@@ -2,7 +2,7 @@
 
 Keep observing the original retained execution when a quiet-interval status read confirms it is still running; preserve caller cancellation and exact terminal-result authority.
 
-Record the actual scope budget on child-settlement observer events after nested lease refresh, preserving free, reserved, committed and unknown usage across durable journal reopen.
+Record the actual scope budget on child-settlement observer events after nested lease refresh, preserving free, reserved, committed and unknown usage across durable journal reopen. The `agent.child` event timestamp is the budget observation time; `payload.settledAt` retains the canonical terminal time.
 
 ## 9.0.13
 
