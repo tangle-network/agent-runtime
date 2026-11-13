@@ -98,8 +98,6 @@ it.each([
           signal: AbortSignal.timeout(30_000),
         },
       )
-      expect(deliveredKind).toBe(continues ? 'done' : 'down')
-      if (continues) expect(committedTokens).toBe(10)
       const state = await fixture.state()
       expect(state.failures).toEqual([])
       expect(state.boxes).toHaveLength(1)
@@ -113,6 +111,26 @@ it.each([
       const reopened = await createFileRunContext(join(fixture.directory, 'run')).journal.loadTree(
         `transport-${phase}-${mode}`,
       )
+      const results = reopened?.filter((row) => row.kind === 'execution-result') ?? []
+      if (mode === 'untyped') {
+        expect(results[0]).toMatchObject({
+          outcome: { success: false, error: 'SSE read timed out' },
+        })
+        expect(results[0]).not.toHaveProperty('outcome.failure')
+      } else {
+        expect(results[0]).toMatchObject({
+          outcome: {
+            success: false,
+            errorCode: 'TRANSPORT_LOST',
+            failure: { kind: mode === 'caller' ? 'caller' : 'infra', code: 'TRANSPORT_LOST' },
+          },
+        })
+      }
+      expect(
+        state.runs.every((run) => run.status === 'completed' && run.processResult?.exitCode === 0),
+      ).toBe(true)
+      expect(deliveredKind).toBe(continues ? 'done' : 'down')
+      if (continues) expect(committedTokens).toBe(10)
       const pauses = reopened?.filter((row) => row.kind === 'paused') ?? []
       expect(pauses).toHaveLength(continues ? 1 : 0)
       if (continues) expect(pauses[0]).toMatchObject({ signal: 'TRANSPORT_LOST' })
