@@ -4348,7 +4348,7 @@ Execute one exact arm, task, repetition, seed, and attempt through Runtime.
 
 #### Call Signature
 
-> **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementHeldResult`](#proposeagentprofileimprovementheldresult) \| [`ProposeAgentProfileImprovementIncompleteResult`](#proposeagentprofileimprovementincompleteresult) \| [`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
+> **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult) \| [`ProposeAgentProfileImprovementIncompleteResult`](#proposeagentprofileimprovementincompleteresult) \| [`ProposeAgentProfileImprovementHeldResult`](#proposeagentprofileimprovementheldresult)\>
 
 Search one profile, then independently measure its exact states before proposing.
 
@@ -4370,7 +4370,7 @@ Search one profile, then independently measure its exact states before proposing
 
 ##### Returns
 
-`Promise`\<[`ProposeAgentProfileImprovementHeldResult`](#proposeagentprofileimprovementheldresult) \| [`ProposeAgentProfileImprovementIncompleteResult`](#proposeagentprofileimprovementincompleteresult) \| [`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
+`Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult) \| [`ProposeAgentProfileImprovementIncompleteResult`](#proposeagentprofileimprovementincompleteresult) \| [`ProposeAgentProfileImprovementHeldResult`](#proposeagentprofileimprovementheldresult)\>
 
 #### Call Signature
 
