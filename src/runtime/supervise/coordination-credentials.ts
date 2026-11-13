@@ -12,7 +12,7 @@ export const coordinationControlToolNames = Object.freeze([
 
 type Headers = Readonly<Record<string, string>>
 export interface CoordinationCredentials {
-  rotate(): void
+  rotate(managerOnly?: boolean): void
   /** Both bearers remain valid until the trusted holder acknowledges installation. A failed install may have reached its holder, so it is offered again until it lapses. */
   replace(install: (headers: Headers) => Promise<void>): Promise<void>
   setAudience(audience: string): void
@@ -100,12 +100,14 @@ export function createCoordinationCredentials(input: {
     staged = undefined
   }
   let installing = false
-  const rotate = () => {
+  const rotate = (managerOnly = false) => {
     if (installing) throw new ConfigError('coordination credential replacement is pending')
     if (staged) revoked.set(staged.token.toString(), staged.expiresAt)
     commit(issue())
-    readerToken = randomToken()
-    controllerToken = randomToken()
+    if (!managerOnly) {
+      readerToken = randomToken()
+      controllerToken = randomToken()
+    }
   }
   const replace = async (install: (headers: Headers) => Promise<void>) => {
     if (installing) throw new ConfigError('coordination credential replacement is pending')
