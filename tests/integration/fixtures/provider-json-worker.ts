@@ -48,7 +48,10 @@ if (mode === 'json-owner-capture') {
 if (mode.startsWith('json-observation-')) {
   const coordinates = object(JSON.parse(process.argv[4] ?? '{}'))
   const file = nativeEventFile(String(coordinates.executionId))
-  while (!fs.existsSync(`${file}.exact`)) await new Promise((resolve) => setTimeout(resolve, 2))
+  // An acquisition outage delays the observer, while the already dispatched native work finishes.
+  if (mode !== 'json-observation-long-capacity-success') {
+    while (!fs.existsSync(`${file}.exact`)) await new Promise((resolve) => setTimeout(resolve, 2))
+  }
   if (mode !== 'json-observation-429') {
     for (let index = 0; index < 1030; index++)
       fs.appendFileSync(
@@ -63,7 +66,22 @@ if (mode.startsWith('json-observation-')) {
           index + 1,
         ),
       )
-    const success = mode === 'json-observation-long-success'
+    const transport = mode.includes('-transport-')
+    const firstTransportTurn =
+      transport &&
+      fs.readFileSync('json-worker-processes.jsonl', 'utf8').trim().split('\n').length === 1
+    if (firstTransportTurn)
+      fs.writeFileSync(
+        'retained-transport-work.json',
+        JSON.stringify({ sessionId: coordinates.sessionId, work: 'original-work' }),
+      )
+    else if (transport) {
+      const retained = object(JSON.parse(fs.readFileSync('retained-transport-work.json', 'utf8')))
+      if (retained.sessionId !== coordinates.sessionId)
+        throw new Error('transport continuation replaced the retained session')
+      output.retainedWork = retained
+    }
+    const success = mode.endsWith('success') && !firstTransportTurn
     const data = {
       ...coordinates,
       success,
@@ -72,12 +90,27 @@ if (mode.startsWith('json-observation-')) {
       usage: { inputTokens: 3, outputTokens: 2 },
       ...(success
         ? {}
-        : {
-            error: 'native process exited 7',
-            errorCode: 'NATIVE_PROCESS_EXIT',
-            statusCode: 502,
-            failure: { kind: 'work', code: 'native-process-exit' },
-          }),
+        : firstTransportTurn
+          ? {
+              error: mode.includes('-chunk-')
+                ? 'SSE read timed out'
+                : 'Provider response headers timed out after 250ms',
+              ...(mode.endsWith('-untyped')
+                ? {}
+                : {
+                    errorCode: 'TRANSPORT_LOST',
+                    failure: {
+                      kind: mode.endsWith('-caller') ? 'caller' : 'infra',
+                      code: 'TRANSPORT_LOST',
+                    },
+                  }),
+            }
+          : {
+              error: 'native process exited 7',
+              errorCode: 'NATIVE_PROCESS_EXIT',
+              statusCode: 502,
+              failure: { kind: 'work', code: 'native-process-exit' },
+            }),
     }
     fs.appendFileSync(
       file,

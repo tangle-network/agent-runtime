@@ -45,7 +45,6 @@ const artifacts = createPrivateCasArtifactPort(join(directory, 'workspace-cas'),
 const legacyCapture =
   config.scenario === 'json-owner-capture' || config.scenario === 'trace-owner-evidence'
 const fileBlobs = new FileResultBlobStore(join(directory, 'run', 'blobs'))
-const publications: Promise<void>[] = []
 let receiptReady: Promise<ProviderWorkspaceCaptureReceipt> | undefined
 
 /** Reproduce an old journal obligation and its stored artifacts, never a live capture port. */
@@ -71,7 +70,6 @@ class HistoricalCaptureJournal extends FileSpawnJournal {
         }
         return receipt
       })
-      publications.push(receiptReady.then(() => undefined))
     }
     if (event.kind === 'execution-result') {
       // Materialization can bind after dispatch. Only the accepted turn's prefix supplies identity.
@@ -83,51 +81,47 @@ class HistoricalCaptureJournal extends FileSpawnJournal {
       const bound = committed
         .slice(0, end)
         .find((row) => row.id === root && row.kind === 'execution-bound')
-      publications.push(
-        (async () => {
-          const receipt = await receiptReady
-          if (!receipt) throw new Error('historical fixture lost its exact admission')
-          record(join(directory, 'capture-attempts.jsonl'), {
-            environmentId: receipt.environmentId,
-            executionId: receipt.executionId,
-          })
-          const response = await fetch(
-            `${config.url}/fixture/hold-success?phase=workspace-capture`,
-            { signal: AbortSignal.timeout(15000) },
-          )
-          if (!response.ok) throw new Error('historical evidence publication refused')
-          if (config.scenario !== 'trace-owner-evidence') return
-          const original = object(await fileBlobs.get(event.outRef))
-          const output = {
-            ...original,
-            workspaceSnapshot: receipt.snapshot,
-            workspaceCapture: {
-              ...receipt,
-              ...(bound?.kind === 'execution-bound'
-                ? {
-                    node: {
-                      rootId: root,
-                      parentId: root,
-                      nodeId: root,
-                      depth: 0,
-                      attemptId: bound.binding.attemptId,
-                    },
-                  }
-                : {}),
-            },
-          }
-          const outRef = contentAddress(output)
-          await fileBlobs.put(outRef, output)
-          const rows = (await this.loadTree(root)) ?? []
-          await super.appendEvent(root, {
-            kind: 'execution-evidence',
-            id: root,
-            outRef,
-            seq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
-            at: new Date().toISOString(),
-          })
-        })(),
-      )
+      // Join historical publication under the run claim before this append returns.
+      const receipt = await receiptReady
+      if (!receipt) throw new Error('historical fixture lost its exact admission')
+      record(join(directory, 'capture-attempts.jsonl'), {
+        environmentId: receipt.environmentId,
+        executionId: receipt.executionId,
+      })
+      const response = await fetch(`${config.url}/fixture/hold-success?phase=workspace-capture`, {
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!response.ok) throw new Error('historical evidence publication refused')
+      if (config.scenario !== 'trace-owner-evidence') return
+      const original = object(await fileBlobs.get(event.outRef))
+      const output = {
+        ...original,
+        workspaceSnapshot: receipt.snapshot,
+        workspaceCapture: {
+          ...receipt,
+          ...(bound?.kind === 'execution-bound'
+            ? {
+                node: {
+                  rootId: root,
+                  parentId: root,
+                  nodeId: root,
+                  depth: 0,
+                  attemptId: bound.binding.attemptId,
+                },
+              }
+            : {}),
+        },
+      }
+      const outRef = contentAddress(output)
+      await fileBlobs.put(outRef, output)
+      const rows = (await this.loadTree(root)) ?? []
+      await super.appendEvent(root, {
+        kind: 'execution-evidence',
+        id: root,
+        outRef,
+        seq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
+        at: new Date().toISOString(),
+      })
     }
   }
 
@@ -366,9 +360,6 @@ try {
               check: (value) => JSON.stringify(value).includes('delivered'),
             },
             finalizer: async (context) => {
-              // The existing application finalizer joins this historical fixture publication
-              // while the run lock is held; Runtime has no client capture writer.
-              if (legacyCapture) await Promise.all(publications)
               record(join(directory, 'finalizer.jsonl'), {
                 kind: 'finalizer',
                 at: new Date().toISOString(),

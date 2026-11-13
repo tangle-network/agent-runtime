@@ -1,3 +1,4 @@
+import { canonicalObservedModelParts } from '../../runtime/model-identity'
 import type {
   NodeId,
   ProviderModelAttemptEvidence,
@@ -109,7 +110,7 @@ export function aggregateProviderModelEvidence(
         }
         observedInRecord.add(model)
         observedModels.add(model)
-        const identity = servedIdentityParts(model)
+        const identity = canonicalObservedModelParts(model)
         if (identity === undefined) {
           markMissing()
           continue
@@ -228,16 +229,4 @@ function isProviderAttemptEvidence(value: unknown): value is ProviderModelAttemp
     ((value as { providerDispatch?: unknown }).providerDispatch === undefined ||
       (value as { providerDispatch?: unknown }).providerDispatch === 'not_started')
   )
-}
-
-function servedIdentityParts(
-  model: string,
-): { readonly base: string; readonly snapshot?: string } | undefined {
-  const at = model.lastIndexOf('@')
-  const rawBase = at < 0 ? model : model.slice(0, at)
-  const base = rawBase.slice(rawBase.lastIndexOf('/') + 1)
-  if (base.length === 0) return undefined
-  const snapshot = at < 0 ? undefined : model.slice(at + 1)
-  if (snapshot !== undefined && snapshot.length === 0) return undefined
-  return snapshot === undefined ? { base } : { base, snapshot }
 }

@@ -245,6 +245,15 @@ export type { HttpMcpServerSpec } from './http-mcp-client'
 export * from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runAgentRounds.
 export { inlineSandboxClient } from './inline-sandbox-client'
+export {
+  createIsolatedCheckCpuSession,
+  type IsolatedCheckCpuCounters,
+  type IsolatedCheckCpuEvidence,
+  type IsolatedCheckCpuIdentity,
+  type IsolatedCheckCpuResources,
+  type IsolatedCheckCpuSession,
+  type IsolatedCheckCpuSessionResult,
+} from './isolated-check-cpu'
 export * from './isolated-checker'
 // `runAgentRounds` is the multi-agent fanout/vote/refine kernel over many sandbox sessions.
 // It is distinct from `runToolLoop`/`streamToolLoop`, which execute one chat turn and fold
@@ -276,6 +285,13 @@ export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).
 export * from './observe'
+export {
+  measurePairedCommands,
+  type PairedCommandCall,
+  type PairedCommandInput,
+  type PairedCommandMeasurement,
+  type PairedCommandOptions,
+} from './paired-commands'
 // The personify layer + the RSI wave built on the recursive keystone: the persona content seam
 // (`definePersona`/`runPersonified`), the open shape registry, the content-free generic
 // combinators, the cross-run corpus, the analyst-on-scope steer firewall, and the trajectory +

@@ -1,11 +1,6 @@
-/**
- * Which tools one coordination server serves: the options its coordination tools are built from,
- * and the granted subset of coordination verbs and node tools, fenced and single-flight.
- */
-
 import { ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
-import type { CoordinationTools, SpawnPreflight } from '../../mcp/tools/coordination-contracts'
+import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
 import type { createCoordinationToolsForManager } from '../../mcp/tools/coordination-manager'
 import type { SpawnResourceReader } from '../../mcp/tools/spawn-resource-paths'
 import type { serveCoordinationMcp } from './coordination-mcp'
@@ -32,14 +27,13 @@ export function coordinationToolOptions(
   return {
     ...rest,
     resolveProbeTool,
-    ...preflightWithNodeTools(preflightSpawn, nodeTools),
+    ...(preflightSpawn ? { preflightSpawn } : {}),
     ...(ownerReader ? { spawnResourceReader: ownerReader } : {}),
     ...(peerMail ? { peerMail: typeof peerMail === 'object' ? { ...peerMail } : {} } : {}),
   }
 }
 
-/** Every requested name `served` lacks, in one refusal. A root meets it before its first harness
- *  turn (#1219); a spawned child meets it in `spawn_worker`, before it is journaled. */
+/** Refuse absent names before a root turn or a child admission with a declared vocabulary. */
 export function unservedToolsRefusal(
   requested: ReadonlyArray<string>,
   served: ReadonlyArray<string>,
@@ -47,17 +41,6 @@ export function unservedToolsRefusal(
   const missing = requested.filter((name) => !served.includes(name))
   if (missing.length === 0) return undefined
   return `requested tools ${missing.map((n) => JSON.stringify(n)).join(', ')} are unavailable; served: ${served.join(', ')}`
-}
-
-/** The spawn pre-flight, told which node tools this manager was resolved: a Runtime-managed child
- *  resolves its own from the same `resolveSupervisorTools`. */
-export function preflightWithNodeTools(
-  preflight: SpawnPreflight | undefined,
-  nodeTools: ReadonlyArray<McpToolDescriptor> | undefined,
-): { preflightSpawn?: SpawnPreflight } {
-  if (preflight === undefined) return {}
-  const nodeToolNames = (nodeTools ?? []).map((tool) => tool.name)
-  return { preflightSpawn: (profile, context) => preflight(profile, { ...context, nodeToolNames }) }
 }
 
 /**

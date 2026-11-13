@@ -24,6 +24,7 @@ import {
 
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
+let capacitySince: number | undefined
 const ledger = join(directory, 'service-ledger.jsonl')
 const state: ServiceState = {
   scenario,
@@ -848,6 +849,35 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       note('delete', { environmentId: id })
       state.lost.push(id)
       return json(response, 200, { id, outcome: 'destroyed', removal: 'complete' })
+    }
+    if (
+      scenario.startsWith('json-observation-long-auth-') &&
+      request.method === 'GET' &&
+      state.runs.length > 0 &&
+      !state.finish
+    ) {
+      const status = Number(scenario.split('-').at(-2))
+      note('retained-read-refused', { environmentId: id, status })
+      return jsonError(response, status, {
+        code: status === 500 ? 'CONFIGURATION_ERROR' : 'UNAUTHORIZED',
+        message:
+          status === 500
+            ? 'Upstream service credential was refused'
+            : 'Invalid or missing authentication token',
+        retryable: false,
+      })
+    }
+    if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
+      capacitySince ??= Date.now()
+      if (Date.now() - capacitySince < 600_000) {
+        note('capacity-http-error', { environmentId: id, status: 503 })
+        response.setHeader('Retry-After', '30')
+        return jsonError(response, 503, {
+          code: 'CAPACITY_EXHAUSTED',
+          message: 'No host has capacity for this sandbox; retry later',
+        })
+      }
+      note('capacity-recovered', { environmentId: id, elapsedMs: Date.now() - capacitySince })
     }
     note('get', { environmentId: id, absent: state.lost.includes(id) })
     return json(

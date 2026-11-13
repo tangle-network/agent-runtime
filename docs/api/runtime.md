@@ -1250,7 +1250,7 @@ Typed terminal diagnosis, beside status and never a replacement for lifecycle re
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-22)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-23)
 
 ##### parent?
 
@@ -5751,8 +5751,9 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 How a supervised leaf waits out an upstream that cannot serve now.
 
 When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
-overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
-keeps its environment, pauses, and continues in the same environment and session with a
+overload, or the router's own refused credential; see `upstreamUnavailableSignal`), or ends
+with the producer's typed `TRANSPORT_LOST` infrastructure failure, the leaf keeps its
+environment, pauses, and continues in the same environment and session with a
 short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
 (15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
 the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`
@@ -6399,6 +6400,119 @@ tags, so set it when a demo's output reads on a meaningful sandbox id.
 
 ***
 
+### IsolatedCheckCpuCounters
+
+#### Properties
+
+##### usageUsec
+
+> **usageUsec**: `number`
+
+##### userUsec
+
+> **userUsec**: `number`
+
+##### systemUsec
+
+> **systemUsec**: `number`
+
+##### resources?
+
+> `optional` **resources?**: [`IsolatedCheckCpuResources`](#isolatedcheckcpuresources)
+
+Ancillary kernel observations; null fields are unavailable, never zero.
+
+***
+
+### IsolatedCheckCpuResources
+
+#### Properties
+
+##### runnableWaitSomeUsec
+
+> **runnableWaitSomeUsec**: `number` \| `null`
+
+Cgroup PSI some.total: time with at least one runnable task waiting, not summed task wait.
+
+##### ancestorsComplete
+
+> **ancestorsComplete**: `boolean`
+
+##### ancestors
+
+> **ancestors**: `object`[]
+
+###### cgroupPath
+
+> **cgroupPath**: `string`
+
+###### inode
+
+> **inode**: `number` \| `null`
+
+###### cpuMax
+
+> **cpuMax**: `string` \| `null`
+
+###### throttledUsec
+
+> **throttledUsec**: `number` \| `null`
+
+***
+
+### IsolatedCheckCpuIdentity
+
+#### Properties
+
+##### source
+
+> **source**: `"cgroup-v2"`
+
+##### boundary
+
+> **boundary**: `"after-membership-through-tree-exit"`
+
+##### sessionId
+
+> **sessionId**: `string`
+
+##### cgroupPath
+
+> **cgroupPath**: `string`
+
+##### inode
+
+> **inode**: `number`
+
+***
+
+### IsolatedCheckCpuSession
+
+Reusable sequential CPU accounting inside an already delegated Linux cgroup.
+Opening does not change limits or delegation. close refuses an occupied or active group.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### cgroupPath
+
+> `readonly` **cgroupPath**: `string`
+
+#### Methods
+
+##### close()
+
+> **close**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### IsolatedCheckOutputDeclaration
 
 Explicit files the caller approves for retention. Never include secrets or hidden judge inputs.
@@ -6604,6 +6718,12 @@ Environment the command receives beside PATH, HOME and LANG: a declared check's 
 
 Retain explicitly approved output files, on command success or failure, before cleanup.
 
+##### cpuSession?
+
+> `optional` **cpuSession?**: [`IsolatedCheckCpuSession`](#isolatedcheckcpusession)
+
+Sequential local workload-tree CPU accounting; requires a delegated session.
+
 ***
 
 ### IsolatedCheckBox
@@ -6733,6 +6853,42 @@ Every file the box received; each sha256 is also the digest the box computed on 
 > **inputDigest**: `` `sha256:${string}` ``
 
 Canonical digest of `input`.
+
+***
+
+### IsolatedCheckCommandEvidence
+
+Local protected-command launch through closed pipes, excluding input staging and cleanup.
+Capture contains exact bounded bytes; outputComplete is false when the capture limit omitted bytes.
+A refused launch can carry diagnostics without proving command execution. Box backends leave this absent.
+
+#### Properties
+
+##### wallMs
+
+> **wallMs**: `number`
+
+##### inputDigest?
+
+> `optional` **inputDigest?**: `` `sha256:${string}` ``
+
+Canonical manifest digest of the copied input, provided for local CPU checks.
+
+##### stdoutBase64
+
+> **stdoutBase64**: `string`
+
+##### stderrBase64
+
+> **stderrBase64**: `string`
+
+##### outputComplete
+
+> **outputComplete**: `boolean`
+
+##### cpu?
+
+> `optional` **cpu?**: [`IsolatedCheckCpuEvidence`](#isolatedcheckcpuevidence)
 
 ***
 
@@ -7386,6 +7542,261 @@ Measured model usage for this analysis turn. `known` covers the tokens; `costUsd
 ###### costUsd?
 
 > `optional` **costUsd?**: `number`
+
+***
+
+### PairedCommandOptions
+
+#### Properties
+
+##### cases
+
+> **cases**: readonly `object`[]
+
+Fixed cases, in their registered order. Omit every candidate for identity-only precision work.
+
+##### blocksPerCase
+
+> **blocksPerCase**: `number`
+
+##### minimumRatio
+
+> **minimumRatio**: `number`
+
+##### confidence
+
+> **confidence**: `number`
+
+##### maximumIdentityLogHalfWidth
+
+> **maximumIdentityLogHalfWidth**: `number`
+
+##### wallLimitMs
+
+> **wallLimitMs**: `number`
+
+##### maxEvidenceBytes
+
+> **maxEvidenceBytes**: `number`
+
+##### comparatorDigest
+
+> **comparatorDigest**: `` `sha256:${string}` ``
+
+##### identityPrefixes?
+
+> `optional` **identityPrefixes?**: readonly `number`[]
+
+Prespecified identity-only prefixes; candidate comparisons assess only the full count.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+#### Methods
+
+##### sameOutput()
+
+> **sameOutput**(`caseId`, `baseline`, `candidate`): `boolean` \| `Promise`\<`boolean`\>
+
+Trusted source-bound domain comparator; it receives output bytes, never accounting authority.
+
+###### Parameters
+
+###### caseId
+
+`string`
+
+###### baseline
+
+`Pick`\<[`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence), `"stdoutBase64"` \| `"stderrBase64"`\>
+
+###### candidate
+
+`Pick`\<[`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence), `"stdoutBase64"` \| `"stderrBase64"`\>
+
+###### Returns
+
+`boolean` \| `Promise`\<`boolean`\>
+
+##### retainCall()
+
+> **retainCall**(`call`): `Promise`\<`void`\>
+
+Persist each complete raw call before another starts. A copied record grants no accounting authority.
+Failed or interrupted retention leaves the measurement unknown; the consumer owns its existing journal.
+
+###### Parameters
+
+###### call
+
+[`PairedCommandCall`](#pairedcommandcall)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### PairedCommandCall
+
+#### Properties
+
+##### phase
+
+> **phase**: `"identity"` \| `"candidate"`
+
+##### caseId
+
+> **caseId**: `string`
+
+##### cycle
+
+> **cycle**: `number`
+
+##### abbaPosition
+
+> **abbaPosition**: `number`
+
+##### role
+
+> **role**: `"candidate"` \| `"baseline"`
+
+##### fullWallMs
+
+> **fullWallMs**: `number`
+
+##### execution
+
+> **execution**: [`IsolatedCheckResult`](#isolatedcheckresult)
+
+***
+
+### PairedCommandMeasurement
+
+#### Properties
+
+##### verdict
+
+> **verdict**: `"unknown"` \| `"qualified"` \| `"not-qualified"`
+
+##### diagnostic
+
+> **diagnostic**: `string`
+
+##### sessionId?
+
+> `optional` **sessionId?**: `string`
+
+##### design?
+
+> `optional` **design?**: `object`
+
+###### blocksPerCase
+
+> **blocksPerCase**: `number`
+
+###### minimumRatio
+
+> **minimumRatio**: `number`
+
+###### confidence
+
+> **confidence**: `number`
+
+###### maximumIdentityLogHalfWidth
+
+> **maximumIdentityLogHalfWidth**: `number`
+
+###### identityPrefixes
+
+> **identityPrefixes**: `number`[]
+
+###### comparatorDigest
+
+> **comparatorDigest**: `` `sha256:${string}` ``
+
+###### cases
+
+> **cases**: `object`[]
+
+##### calls
+
+> **calls**: [`PairedCommandCall`](#pairedcommandcall)[]
+
+All ordered calls, including unsuccessful checks and incomplete cycles. No retries.
+
+##### retainedCalls
+
+> **retainedCalls**: `number`
+
+##### cycles
+
+> **cycles**: `object`[]
+
+###### identityLogRatio
+
+> **identityLogRatio**: `number` \| `null`
+
+###### candidateLogRatio
+
+> **candidateLogRatio**: `number` \| `null`
+
+##### summaries
+
+> **summaries**: `object`[]
+
+###### cycles
+
+> **cycles**: `number`
+
+###### identityInterval
+
+> **identityInterval**: `MeanConfidenceInterval` \| `null`
+
+###### candidateInterval
+
+> **candidateInterval**: `MeanConfidenceInterval` \| `null`
+
+###### identityValid
+
+> **identityValid**: `boolean`
+
+###### verdict
+
+> **verdict**: `"unknown"` \| `"qualified"` \| `"not-qualified"`
+
+##### cost
+
+> **cost**: `object`
+
+###### knownWorkloadCpuUsec
+
+> **knownWorkloadCpuUsec**: `number`
+
+###### knownUsageCpuUsec
+
+> **knownUsageCpuUsec**: `number`
+
+###### cpuComplete
+
+> **cpuComplete**: `boolean`
+
+###### wallMs
+
+> **wallMs**: `number`
+
+###### evidenceBytes
+
+> **evidenceBytes**: `number`
+
+##### cleanupDiagnostic?
+
+> `optional` **cleanupDiagnostic?**: `string`
+
+##### recoveryCgroupPath?
+
+> `optional` **recoveryCgroupPath?**: `string`
 
 ***
 
@@ -13219,7 +13630,7 @@ Every box this pool created, with the workers it served.
 
 ### SharedBoxCloseReceipt
 
-What [SharedBoxPlacement.close](#close-2) did to each box.
+What [SharedBoxPlacement.close](#close-3) did to each box.
 
 #### Properties
 
@@ -19876,7 +20287,7 @@ Cancel the live tree. Unsupported signals from older callers throw a validation 
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle).[`signal`](#signal-27)
+[`RootHandle`](#roothandle).[`signal`](#signal-28)
 
 ##### abort()
 
@@ -22559,7 +22970,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-33)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-34)
 
 ##### execution?
 
@@ -22570,7 +22981,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`execution`](#execution-4)
+[`SuperviseOptions`](#superviseoptions).[`execution`](#execution-5)
 
 ##### selectSeat?
 
@@ -22997,6 +23408,16 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`resolveSupervisorTools`](#resolvesupervisortools-1)
+
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`servesToolNames`](#servestoolnames-1)
 
 ##### escalateQuestion?
 
@@ -25410,7 +25831,7 @@ A separate capability for the same manager's owned workers, without manager tool
 
 ###### Inherited from
 
-[`RemoteSupervisorReader`](#remotesupervisorreader).[`close`](#close-8)
+[`RemoteSupervisorReader`](#remotesupervisorreader).[`close`](#close-9)
 
 ##### steer()
 
@@ -26592,8 +27013,9 @@ Map the task while retaining the kernel's canonical prompt mapping by default.
 How a supervised leaf waits out an upstream that cannot serve now.
 
 When the model provider refuses a leaf's turn for capacity (a quota, a rate limit, an
-overload, or the router's own refused credential; see `upstreamUnavailableSignal`), the leaf
-keeps its environment, pauses, and continues in the same environment and session with a
+overload, or the router's own refused credential; see `upstreamUnavailableSignal`), or ends
+with the producer's typed `TRANSPORT_LOST` infrastructure failure, the leaf keeps its
+environment, pauses, and continues in the same environment and session with a
 short instruction to pick up where it stopped. The pause starts at `unavailablePauseMs`
 (15 s) and doubles to `maxUnavailablePauseMs` (5 min), the same rule a driver follows. Only
 the leaf's deadline, cancellation and budget end it. Each pause is journaled as a `paused`
@@ -28568,6 +28990,12 @@ own coordination verbs, callable in code so a product tool can COMPOSE its child
 chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
 the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
 queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
+
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
 
 ##### escalateQuestion?
 
@@ -34060,6 +34488,20 @@ async iterable for streaming. The callback may also write files into
 
 ***
 
+### IsolatedCheckCpuEvidence
+
+> **IsolatedCheckCpuEvidence** = [`IsolatedCheckCpuIdentity`](#isolatedcheckcpuidentity) & (\{ `available`: `true`; `before`: [`IsolatedCheckCpuCounters`](#isolatedcheckcpucounters); `after`: [`IsolatedCheckCpuCounters`](#isolatedcheckcpucounters); \} \| \{ `available`: `false`; `diagnostic`: `string`; \})
+
+Only the blocked workload tree enters this cgroup; the caller stays outside it.
+
+***
+
+### IsolatedCheckCpuSessionResult
+
+> **IsolatedCheckCpuSessionResult** = \{ `succeeded`: `true`; `value`: [`IsolatedCheckCpuSession`](#isolatedcheckcpusession); \} \| \{ `succeeded`: `false`; `reason`: `"unavailable"`; `diagnostic`: `string`; `recoveryCgroupPath?`: `string`; \}
+
+***
+
 ### IsolatedCheckOutputFailure
 
 > **IsolatedCheckOutputFailure** = `"missing"` \| `"unsafe-path"` \| `"size-limit"` \| `"capture-failed"` \| `"store-failed"` \| `"timeout"`
@@ -34070,19 +34512,19 @@ Bounded codes, never exception text, command output, or secret-bearing provider 
 
 ### IsolatedCheckResult
 
-> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
+> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
+\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \}
 
 ***
 
 ##### Type Literal
 
-\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
+\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \}
 
 ###### succeeded
 
@@ -34125,6 +34567,10 @@ Present once a check box received its complete input.
 ###### outputs?
 
 > `optional` **outputs?**: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence)
+
+###### command?
+
+> `optional` **command?**: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence)
 
 ***
 
@@ -34244,6 +34690,18 @@ Applies only to the default analyst. Custom analysis receives the complete input
 > `optional` **proposalOrigin?**: `ProposalFindingOrigin`
 
 Evidence origin for the default observer. Defaults to production for existing callers.
+
+***
+
+### PairedCommandInput
+
+> **PairedCommandInput** = `Omit`\<[`IsolatedCheckOptions`](#isolatedcheckoptions), `"box"` \| `"cpuSession"` \| `"signal"` \| `"outputs"`\> & `object`
+
+#### Type Declaration
+
+##### maxOutputBytes
+
+> **maxOutputBytes**: `number`
 
 ***
 
@@ -41012,6 +41470,18 @@ other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 ***
 
+### createIsolatedCheckCpuSession()
+
+> **createIsolatedCheckCpuSession**(): `Promise`\<[`IsolatedCheckCpuSessionResult`](#isolatedcheckcpusessionresult)\>
+
+Requires delegation from the execution placement; never creates a host-wide scope or fallback.
+
+#### Returns
+
+`Promise`\<[`IsolatedCheckCpuSessionResult`](#isolatedcheckcpusessionresult)\>
+
+***
+
 ### validateIsolatedCheckOutputs()
 
 > **validateIsolatedCheckOutputs**(`value`): [`IsolatedCheckOutputDeclaration`](#isolatedcheckoutputdeclaration)
@@ -41493,6 +41963,28 @@ readonly `AnalystFinding`[]
 #### Returns
 
 `string`
+
+***
+
+### measurePairedCommands()
+
+> **measurePairedCommands**(`options`): `Promise`\<[`PairedCommandMeasurement`](#pairedcommandmeasurement)\>
+
+One sequential cgroup, identity AAAA then candidate ABBA for each fixed case/cycle.
+CPU means user + system deltas, including post-membership launcher/namespace work.
+Infer over complete cycle means, conditional on these cases; no cases are sampled or dropped.
+Student-t bounds assume stationary independent normal cycle errors. Passing engineering
+controls does not establish those assumptions, nominal coverage, or domain correctness.
+
+#### Parameters
+
+##### options
+
+[`PairedCommandOptions`](#pairedcommandoptions)
+
+#### Returns
+
+`Promise`\<[`PairedCommandMeasurement`](#pairedcommandmeasurement)\>
 
 ***
 
@@ -46612,7 +47104,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-36), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-37), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

@@ -78,6 +78,7 @@ const superviseOptionKeys = [
   'resolveDriveHarness',
   'resolveSpawnProfile',
   'resolveSupervisorTools',
+  'servesToolNames',
   'rootDriverFromBackend',
   'rootHandle',
   'router',

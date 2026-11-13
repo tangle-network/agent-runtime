@@ -31,7 +31,7 @@ export class ProviderTurnSettlement {
   /** The body's own failure, held so a throwing teardown `finally` cannot mask it. */
   private failure: unknown
   private failed = false
-  /** Set when the turn was refused for capacity and the caller will continue in this environment. */
+  /** Set when capacity or an ended transport request permits continuation in this environment. */
   private unavailable: ProviderInvocationEnd['unavailable']
   // A deadline or cancellation stops the harness once, before any session capture reads it.
   private harnessStop: Promise<void> | undefined
@@ -134,10 +134,17 @@ export class ProviderTurnSettlement {
     }
     this.settled = settled
     if (args.mayContinue && this.retained && nativeFailure) {
-      const signal = unavailableSignalOfFailure({
-        ...nativeFailure,
-        error: nativeFailure.error ?? '',
-      })
+      const transport =
+        nativeFailure.failure === undefined
+          ? nativeFailure.errorCode
+          : nativeFailure.failure.kind === 'infra'
+            ? nativeFailure.failure.code
+            : undefined
+      const signal =
+        unavailableSignalOfFailure({
+          ...nativeFailure,
+          error: nativeFailure.error ?? '',
+        }) ?? (transport === 'TRANSPORT_LOST' ? transport : undefined)
       if (signal !== undefined)
         this.unavailable = {
           signal,

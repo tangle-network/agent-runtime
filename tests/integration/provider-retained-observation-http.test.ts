@@ -81,6 +81,7 @@ async function observeInProcess(fixture: ProcessFixture) {
 it.each<Scenario>([
   'json-observation-429',
   'json-observation-long-success',
+  'json-observation-long-capacity-success',
   'json-observation-long-failed',
 ])(
   'preserves exact retained outcome and exits after real SDK HTTP/native/File observation (%s)',
@@ -100,11 +101,26 @@ it.each<Scenario>([
       const { delivered, budget } = JSON.parse(
         await readFile(join(fixture.directory, 'observed.json'), 'utf8'),
       )
+      if (scenario === 'json-observation-long-capacity-success')
+        expect(object(delivered).kind).toBe('done')
       await fixture.wait('actual native process closed', async () =>
         (await fixture.state()).requests.some((row) => row.kind === 'json-worker-closed'),
       )
       const events = (await context.journal.loadTree('http-observation'))!
       const state = await fixture.state()
+      if (scenario === 'json-observation-long-capacity-success') {
+        const refused = state.requests.filter((row) => row.kind === 'capacity-http-error')
+        const recovered = state.requests.find((row) => row.kind === 'capacity-recovered')
+        expect(refused.length).toBeGreaterThan(3)
+        expect(recovered).toMatchObject({
+          environmentId: state.runs[0]!.environmentId,
+          elapsedMs: expect.any(Number),
+        })
+        expect(Number(recovered!.elapsedMs)).toBeGreaterThanOrEqual(600_000)
+        expect(events.filter((row) => row.kind === 'driver-attempt' && row.record.error)).toEqual(
+          [],
+        )
+      }
       expect(state.failures).toEqual([])
       expect(state.runs).toHaveLength(1)
       expect(state.requests.filter((row) => row.kind === 'cancel')).toEqual([])
@@ -186,4 +202,5 @@ it.each<Scenario>([
       else console.error('Retained observation proof artifacts:', fixture.directory)
     }
   },
+  780_000,
 )

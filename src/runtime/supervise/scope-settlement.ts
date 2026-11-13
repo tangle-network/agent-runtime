@@ -1,10 +1,11 @@
 import { contentAddress } from '../../durable/content-address'
 import { notifyRuntimeHookEvent } from '../../runtime-hooks'
 import { settlementFailureCause } from '../failure-cause'
-import { budgetLeases } from './budget'
+import { budgetLeases, refreshBudgetLease } from './budget'
 import { releaseManagerEnvironment, subtreeSummaryOf } from './scope-capabilities'
 import type { LiveChild, PreSeqSettled, ScopeArgs } from './scope-contract'
 import { frozenHandle } from './scope-observation'
+import { detachedSnapshot } from './snapshot'
 import {
   type DownSettlement,
   settledNodeEvidence,
@@ -217,6 +218,9 @@ export async function finalizeSettlement<Out>(
             : { retainedPendingCause: settlement.retainedPendingCause }),
         }
       : {}
+    await refreshBudgetLease(args.pool)
+    const budget = detachedSnapshot(args.pool.readout(), 'settlement budget')
+    const observedAt = now()
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -224,7 +228,7 @@ export async function finalizeSettlement<Out>(
         runId: args.root,
         target: 'agent.child',
         phase: 'after',
-        timestamp: settledAt,
+        timestamp: observedAt,
         stepIndex: seq,
         parentId: args.parentId,
         payload: {
@@ -235,6 +239,7 @@ export async function finalizeSettlement<Out>(
           ...(settlement.infra === undefined ? {} : { infra: settlement.infra }),
           ...retainedExecution,
           spent: child.spent,
+          budget,
           ...(subtree === undefined ? {} : { subtree }),
           ...settledNodeEvidence(child, settlement, settledAt),
         },
@@ -285,6 +290,11 @@ export async function finalizeSettlement<Out>(
   child.settledSeq = seq
   if (!child.recoveryPending && nestedScope !== undefined)
     void releaseManagerEnvironment(nestedScope).catch(() => undefined)
+  // The terminal record funds nested lease synchronization. Observe only after that
+  // synchronization, before asynchronous observers can see a later pool state.
+  await refreshBudgetLease(args.pool)
+  const budget = detachedSnapshot(args.pool.readout(), 'settlement budget')
+  const observedAt = now()
   notifyRuntimeHookEvent(
     args.hooks,
     {
@@ -292,7 +302,7 @@ export async function finalizeSettlement<Out>(
       runId: args.root,
       target: 'agent.child',
       phase: 'after',
-      timestamp: settledAt,
+      timestamp: observedAt,
       stepIndex: seq,
       parentId: args.parentId,
       payload: {
@@ -302,6 +312,7 @@ export async function finalizeSettlement<Out>(
         score: settlement.verdict?.score,
         valid: settlement.verdict?.valid,
         spent: settlement.spent,
+        budget,
         ...(subtree === undefined ? {} : { subtree }),
         ...settledNodeEvidence(child, settlement, settledAt),
       },

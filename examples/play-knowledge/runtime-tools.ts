@@ -34,7 +34,7 @@ function runtimeTool(tool: ToolDefinition): SupervisorToolDescriptor {
 /** Example consumer binding over Runtime's existing node-scoped tool resolver. */
 export async function createPlayKnowledgeResolver(
   options: PlayKnowledgeBinding,
-): Promise<ResolveSupervisorTools> {
+): Promise<ResolveSupervisorTools & { readonly servesToolNames: ReadonlyArray<string> }> {
   const { branch, onCheckpoint, recordRetrieval, qmd } = options
   const run = Object.freeze({ ...options.run })
   if (!run.runId.trim() || !run.namespace.trim()) {
@@ -51,7 +51,7 @@ export async function createPlayKnowledgeResolver(
   await qmd?.verifySnapshot()
   const qmdTools = qmd ? createQmdKnowledgeTools({ provider: qmd }).map(runtimeTool) : []
   const playToolNames = new Set(['memory_recall', 'memory_record', 'qmd_search', 'qmd_read'])
-  return (context) => {
+  const resolver: ResolveSupervisorTools = (context) => {
     if (context.runId !== run.runId || context.runNamespace !== run.namespace) {
       throw new Error('Runtime context does not match the commissioned play knowledge binding')
     }
@@ -76,4 +76,7 @@ export async function createPlayKnowledgeResolver(
     }
     return tools.filter((tool) => granted.has(tool.name))
   }
+  return Object.assign(resolver, {
+    servesToolNames: [...playToolNames].filter((name) => qmd || !name.startsWith('qmd_')),
+  })
 }

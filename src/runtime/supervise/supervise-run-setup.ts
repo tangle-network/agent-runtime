@@ -528,6 +528,7 @@ function managerDriverPlan(
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
       options.resolveSupervisorTools !== undefined,
+      options.servesToolNames,
     ),
     coordinationChannelSpawnPreflight(
       options.makeWorkerAgent === undefined,

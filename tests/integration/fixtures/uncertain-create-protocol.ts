@@ -9,6 +9,9 @@ export type Scenario =
   | `trace-tree-${number}`
   | 'json-observation-429'
   | 'json-observation-long-success'
+  | `json-observation-long-auth-${401 | 403 | 500}-success`
+  | 'json-observation-long-capacity-success'
+  | `json-observation-long-transport-${'chunk' | 'header'}-${'success' | 'caller' | 'untyped'}`
   | 'json-observation-long-failed'
   | 'json-incomplete'
   | 'json-malformed-incomplete'

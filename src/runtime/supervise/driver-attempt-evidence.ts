@@ -277,9 +277,22 @@ export function classifyDriverFailure(
   if (materializationTimedOut(error)) return 'terminal'
   if (error instanceof CheckUnavailableError || error instanceof CoordinationUnreachableError)
     return 'unavailable'
-  // A failed retained read does not settle or replace its execution. A contract violation
-  // requires a repaired reader/provider; repeating that read unchanged cannot recover it.
-  if (error instanceof RetainedExecutionPendingError && error.pendingCause === 'provider-contract')
+  // A broken or nonretryable reader needs repair; stopping it never resolves retained work.
+  if (
+    error instanceof RetainedExecutionPendingError &&
+    (error.pendingCause === 'provider-contract' ||
+      causeChain(error.cause).some((cause) => {
+        try {
+          return (
+            cause instanceof Error &&
+            (Reflect.get(cause, 'retryable') === false ||
+              [401, 403].includes(errorHttpStatus(cause) ?? 0))
+          )
+        } catch {
+          return false
+        }
+      }))
+  )
     return 'terminal'
   // Nothing was dispatched, so nothing is pending: a pause, never a reconciliation to count.
   if (undispatchedCredentialExit(error) !== undefined) return 'unavailable'

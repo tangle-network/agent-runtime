@@ -3,7 +3,7 @@ import type { McpToolDescriptor } from '../../mcp/server'
 import type { CoordinationTools } from '../../mcp/tools/coordination-contracts'
 import { createCoordinationTools } from '../../mcp/tools/coordination-manager'
 import type { ToolSpec } from '../router-request-body'
-import { preflightWithNodeTools, unservedToolsRefusal } from './coordination-mcp-tools'
+import { unservedToolsRefusal } from './coordination-mcp-tools'
 import type { DriverAgentOptions } from './driver-agent-options'
 import { scopeRetainedOwnerResourceReader } from './retained-scope-owner'
 import type { Scope } from './types'
@@ -53,7 +53,7 @@ export async function openDriverToolSurface(
     ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
     ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
     ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
-    ...preflightWithNodeTools(opts.preflightSpawn, opts.nodeTools),
+    ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.composeSpawnProfile ? { composeSpawnProfile: opts.composeSpawnProfile } : {}),
     ...(opts.profiles ? { profiles: opts.profiles } : {}),

@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
 import {
@@ -34,6 +34,11 @@ import {
   WorkspaceScanLimitError,
 } from '../candidate-execution/artifacts'
 import {
+  acquireIsolatedCheckCpu,
+  type IsolatedCheckCpuEvidence,
+  type IsolatedCheckCpuSession,
+} from './isolated-check-cpu'
+import {
   boxCheckOutputReader,
   type IsolatedCheckOutputEvidence,
   type IsolatedCheckOutputOptions,
@@ -43,6 +48,7 @@ import {
   stopCheckBoxForRecovery,
   stopCheckProcess,
 } from './isolated-checker-outputs'
+import { executeIsolatedCheckProcess } from './isolated-checker-process'
 import { runAbortable } from './supervise/abortable'
 import { armDeadlineTimer } from './supervise/deadline'
 
@@ -74,6 +80,8 @@ export interface IsolatedCheckOptions {
   env?: Readonly<Record<string, string>>
   /** Retain explicitly approved output files, on command success or failure, before cleanup. */
   outputs?: IsolatedCheckOutputOptions
+  /** Sequential local workload-tree CPU accounting; requires a delegated session. */
+  cpuSession?: IsolatedCheckCpuSession
 }
 
 /**
@@ -131,12 +139,27 @@ export interface IsolatedCheckBoxEvidence {
   inputDigest: Sha256Digest
 }
 
+/** Local protected-command launch through closed pipes, excluding input staging and cleanup.
+ * Capture contains exact bounded bytes; outputComplete is false when the capture limit omitted bytes.
+ * A refused launch can carry diagnostics without proving command execution. Box backends leave this absent.
+ */
+export interface IsolatedCheckCommandEvidence {
+  wallMs: number
+  /** Canonical manifest digest of the copied input, provided for local CPU checks. */
+  inputDigest?: Sha256Digest
+  stdoutBase64: string
+  stderrBase64: string
+  outputComplete: boolean
+  cpu?: IsolatedCheckCpuEvidence
+}
+
 export type IsolatedCheckResult =
   | {
       succeeded: true
       value: { stdout: string; stderr: string }
       box?: IsolatedCheckBoxEvidence
       outputs?: IsolatedCheckOutputEvidence
+      command?: IsolatedCheckCommandEvidence
     }
   | {
       succeeded: false
@@ -158,6 +181,7 @@ export type IsolatedCheckResult =
       /** Present once a check box received its complete input. */
       box?: IsolatedCheckBoxEvidence
       outputs?: IsolatedCheckOutputEvidence
+      command?: IsolatedCheckCommandEvidence
     }
 
 const toolchains = ['/usr', '/bin', '/lib', '/lib64']
@@ -187,6 +211,28 @@ const contains = (parent: string, child: string) => {
  */
 export async function runIsolatedCheck(
   options: IsolatedCheckOptions,
+): Promise<IsolatedCheckResult> {
+  if (!options.cpuSession) return runProtectedCheck(options)
+  if (options.box)
+    return {
+      succeeded: false,
+      reason: 'refused',
+      diagnostic: 'CPU sessions require local delegated execution',
+    }
+  let cpu: Awaited<ReturnType<typeof acquireIsolatedCheckCpu>> | undefined
+  try {
+    cpu = await acquireIsolatedCheckCpu(options.cpuSession)
+    return await runProtectedCheck(options, cpu)
+  } catch (error) {
+    return { succeeded: false, reason: 'refused', diagnostic: String(error) }
+  } finally {
+    cpu?.release()
+  }
+}
+
+async function runProtectedCheck(
+  options: IsolatedCheckOptions,
+  cpu?: Awaited<ReturnType<typeof acquireIsolatedCheckCpu>>,
 ): Promise<IsolatedCheckResult> {
   if (options.box) return runInBox(options, options.box)
   let scratch: string | undefined
@@ -228,7 +274,7 @@ export async function runIsolatedCheck(
     if (contains(tree, scratch)) throw new Error('Temporary storage must be outside the input tree')
     const copy = join(scratch, 'tree')
     await copyBoundedTree(tree, copy, maxInputBytes, maxInputEntries)
-    const input = retention ? await scanMaterializedWorkspaceManifest(copy) : undefined
+    const input = retention || cpu ? await scanMaterializedWorkspaceManifest(copy) : undefined
     if (retention && input) assertOutputPathsUnoccupied(retention.paths, input)
     const args = [
       '--unshare-all',
@@ -262,7 +308,8 @@ export async function runIsolatedCheck(
       '--',
       ...options.command,
     ]
-    result = await execute(args, timeoutMs, maxOutputBytes, options.signal)
+    result = await executeIsolatedCheckProcess(args, timeoutMs, maxOutputBytes, options.signal, cpu)
+    if (cpu && input && result.command) result.command.inputDigest = canonicalCandidateDigest(input)
     if (retention && input && (result.succeeded || result.reason !== 'refused')) {
       outputs = await retainIsolatedCheckOutputs(
         retention,
@@ -293,6 +340,7 @@ export async function runIsolatedCheck(
             stdout: result.value.stdout,
             stderr: result.value.stderr,
             exitCode: 0,
+            ...(result.command ? { command: result.command } : {}),
           }
         : { ...result, cleanupDiagnostic }
     }
@@ -329,6 +377,7 @@ function withRetainedOutputs(
     stdout: result.value.stdout,
     stderr: result.value.stderr,
     exitCode: 0,
+    ...(result.command ? { command: result.command } : {}),
     outputs,
   }
 }
@@ -639,6 +688,7 @@ async function runInBox(
             stdout: result.value.stdout,
             stderr: result.value.stderr,
             exitCode: 0,
+            ...(result.command ? { command: result.command } : {}),
           }
         : {
             ...result,
@@ -796,100 +846,6 @@ async function executeInBox(
       ...evidence,
     })
   return finish({ succeeded: true, value: { stdout: out, stderr: err } })
-}
-
-function execute(
-  args: string[],
-  timeoutMs: number,
-  limit: number,
-  signal?: AbortSignal,
-): Promise<IsolatedCheckResult> {
-  return new Promise((done) => {
-    const child = spawn('/usr/bin/bwrap', ['--json-status-fd', '3', ...args], {
-      env: {},
-      stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
-      detached: true,
-    })
-    const stdout: Buffer[] = []
-    const stderr: Buffer[] = []
-    let bytes = 0
-    let status = ''
-    let failure: 'timeout' | 'cancelled' | 'output-limit' | undefined
-    const stop = (reason: typeof failure) => {
-      failure ??= reason
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL')
-        }
-      }
-    }
-    const clearTimer = armDeadlineTimer(timeoutMs, () => stop('timeout'), true)
-    const cancel = () => stop('cancelled')
-    signal?.addEventListener('abort', cancel, { once: true })
-    if (signal?.aborted) cancel()
-    const capture = (target: Buffer[]) => (chunk: Buffer) => {
-      const remaining = Math.max(0, limit - bytes)
-      bytes += chunk.length
-      if (remaining) target.push(chunk.subarray(0, remaining))
-      if (bytes > limit) stop('output-limit')
-    }
-    child.stdio[3]?.on('data', (chunk: Buffer) => {
-      if (status.length + chunk.length > 16_384) {
-        stop('output-limit')
-        return
-      }
-      status += chunk.toString()
-    })
-    child.stdout!.on('data', capture(stdout))
-    child.stderr!.on('data', capture(stderr))
-    let spawnError: Error | undefined
-    child.on('error', (error) => {
-      spawnError = error
-    })
-    child.on('close', (code) => {
-      clearTimer()
-      signal?.removeEventListener('abort', cancel)
-      const out = Buffer.concat(stdout).toString()
-      const err = Buffer.concat(stderr).toString()
-      const evidence = { stdout: out, stderr: err, exitCode: code }
-      // Only Bubblewrap writes this private pipe; command stderr cannot forge setup status.
-      const executed = status.split('\n').some((line) => {
-        try {
-          const record: unknown = JSON.parse(line)
-          return (
-            record !== null &&
-            typeof record === 'object' &&
-            'exit-code' in record &&
-            typeof record['exit-code'] === 'number' &&
-            record['exit-code'] === code
-          )
-        } catch {
-          return false
-        }
-      })
-      if (failure)
-        done({ succeeded: false, reason: failure, diagnostic: err || failure, ...evidence })
-      else if (spawnError)
-        done({ succeeded: false, reason: 'refused', diagnostic: String(spawnError), ...evidence })
-      else if (!executed)
-        done({
-          succeeded: false,
-          reason: 'refused',
-          diagnostic: err || 'Bubblewrap did not confirm command execution',
-          ...evidence,
-        })
-      else if (code !== 0)
-        done({
-          succeeded: false,
-          reason: 'failed',
-          diagnostic: err || out || `Check exited ${code}`,
-          ...evidence,
-        })
-      else done({ succeeded: true, value: { stdout: out, stderr: err } })
-    })
-  })
 }
 
 const executeFile = promisify(execFile)

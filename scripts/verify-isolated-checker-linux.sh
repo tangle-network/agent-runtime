@@ -27,6 +27,6 @@ docker build --quiet --tag "$proof_image" "$proof_context"
 docker run --rm --memory=256m --pids-limit=64 --cpus=1 --privileged --env HOST_SECRET=hidden "$proof_image"
 docker run --rm --memory=256m --pids-limit=64 --cpus=1 --privileged "$proof_image" --cleanup-failure
 docker run --rm --memory=192m --pids-limit=64 --cpus=1 --privileged "$proof_image" --memory-exhaustion
-# Explicitly deny the namespace syscall even on engines allowing unprivileged namespaces.
-printf '%s\n' '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["unshare"],"action":"SCMP_ACT_ERRNO"}]}' > "$proof_context/deny-unshare.json"
-docker run --rm --memory=256m --pids-limit=64 --cpus=1 --security-opt "seccomp=$proof_context/deny-unshare.json" "$proof_image" --refusal
+# Deny mount namespace creation via unshare/clone/clone3 while allowing normal process creation.
+printf '%s\n' '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["unshare"],"action":"SCMP_ACT_ERRNO"},{"names":["clone3"],"action":"SCMP_ACT_ERRNO","errnoRet":38},{"names":["clone"],"action":"SCMP_ACT_ERRNO","args":[{"index":0,"value":131072,"valueTwo":131072,"op":"SCMP_CMP_MASKED_EQ"}]}]}' > "$proof_context/deny-namespaces.json"
+docker run --rm --memory=256m --pids-limit=64 --cpus=1 --security-opt "seccomp=$proof_context/deny-namespaces.json" "$proof_image" --refusal
