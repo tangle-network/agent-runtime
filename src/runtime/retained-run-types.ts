@@ -124,6 +124,8 @@ export interface RetainedRunIntentAdmission {
   readonly executionId: string
   readonly runId: string
   readonly requestedProfileDigest: Sha256Digest
+  /** File custody owed by this original invocation, retained across owner reconstruction. */
+  readonly outputFilePolicyDigest?: Sha256Digest
   readonly requestDigest: Sha256Digest
 }
 

@@ -795,6 +795,9 @@ function retainedRunIntent(
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     requestedProfileDigest,
+    ...(options.outputFile === undefined
+      ? {}
+      : { outputFilePolicyDigest: canonicalCandidateDigest(options.outputFile) }),
   }
   const requestDigest = canonicalCandidateDigest({
     kind: turnFields === undefined ? 'retained-run-intent.v2' : 'retained-run-intent.v1',
@@ -869,6 +872,8 @@ function parseRetainedRunIntent(
   }
   assertDigest(record.requestedProfileDigest, 'retained run intent profile digest')
   assertDigest(record.requestDigest, 'retained run intent request digest')
+  if (record.outputFilePolicyDigest !== undefined)
+    assertDigest(record.outputFilePolicyDigest, 'retained run intent file policy digest')
   return stable as RetainedRunIntentAdmission
 }
 
