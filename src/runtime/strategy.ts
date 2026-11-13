@@ -832,7 +832,7 @@ export interface RunAgenticOptions<Result extends StrategyResult = StrategyResul
   budget: number
   rootBudget?: Budget
   /** Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
-   *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000. */
+   *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 90000. */
   teardownConfirmMs?: number
 }
 

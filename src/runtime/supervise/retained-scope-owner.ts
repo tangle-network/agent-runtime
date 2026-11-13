@@ -15,6 +15,7 @@ export {
   scopeRetainedOwnerResult,
 } from './retained-owner-invocation'
 export {
+  boundScopeRetainedOwnerRelease,
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
 } from './retained-owner-release'

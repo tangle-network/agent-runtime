@@ -35,6 +35,11 @@ export interface OwnerState {
   releaseRetriable?: boolean
   /** Each environment's destroy in flight, joined by every later release until it succeeds. */
   destroys?: Map<string, { readonly destroy: Promise<void>; readonly since: number }>
+  /** Environments whose provider refused deletion under a retention hold, with the receipt's
+   *  detail: kept as evidence, and never reconnected to or asked again by this process. */
+  held?: Map<string, string>
+  /** The settling run's teardown deadline (epoch ms): no release waits on a destroy past it. */
+  releaseDeadlineAt?: number
   taskRef?: string
   acceptedRef?: Extract<SpawnEvent, { kind: 'execution-result' }>
   /** The checkpoint the current invocation's NEW environment starts from, if any. */

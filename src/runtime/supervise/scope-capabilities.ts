@@ -2,6 +2,7 @@ import { ValidationError } from '../../errors'
 import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import type { TeamProgress } from './progress'
 import {
+  boundScopeRetainedOwnerRelease,
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
   scopeRetainedOwnerSettled,
@@ -170,20 +171,31 @@ export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void>
  * root is live, and never on a resumable interruption, since the open slot and the live
  * environment are exactly what a resume recovers. One `environment-teardown` receipt is journaled
  * per environment, on this scope's own tree; a nested manager reaches its children through
- * `Executor.releaseRetained`, and its nested scope journals theirs.
+ * `Executor.releaseRetained`, and its nested scope journals theirs. The children, the nested
+ * managers and this scope's own owner release at once, so a tree waits one destroy wait, not one
+ * per level.
  */
 export async function releaseRetainedEnvironments(
   scope: Scope<unknown>,
 ): Promise<ReadonlyArray<UnconfirmedTeardown>> {
   releasingScopes.add(scope)
-  const release = retainedReleasers.get(scope)
-  if (release) await release()
-  // A nested manager whose own teardown confirmed is not among the children `release` reaches,
-  // and it still holds the environment it kept between its turns.
-  await releaseNestedManagerEnvironments(scope)
-  ownerUnconfirmedByScope.set(scope, await releaseScopeRetainedOwnerEnvironment(scope))
+  const [, , own] = await Promise.all([
+    retainedReleasers.get(scope)?.(),
+    // A nested manager whose own teardown confirmed is not among the children the sweep reaches,
+    // and it still holds the environment it kept between its turns.
+    releaseNestedManagerEnvironments(scope),
+    releaseScopeRetainedOwnerEnvironment(scope),
+  ])
+  ownerUnconfirmedByScope.set(scope, own)
   await scopeSeatAccountingUpdates.get(scope)?.()
   return unconfirmedTeardowns(scope)
+}
+
+/** @internal Bound every owner release in this scope's tree by the settling run's teardown
+ *  deadline (epoch ms), so no destroy wait at any level outlasts it. */
+export function boundRetainedReleases(scope: Scope<unknown>, deadlineAt: number): void {
+  boundScopeRetainedOwnerRelease(scope, deadlineAt)
+  for (const nested of nestedManagerScopes(scope)) boundRetainedReleases(nested, deadlineAt)
 }
 
 /** The manager scopes this scope's children own, read live. */

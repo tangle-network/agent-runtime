@@ -1,5 +1,6 @@
 import { RuntimeRunStateError } from '../../errors'
 import { armDeadlineTimer } from './deadline'
+import { RELEASE_DESTROY_MS } from './retained-owner-release'
 import {
   hasRetriableTeardowns,
   releaseRetainedEnvironments,
@@ -56,9 +57,9 @@ export async function drainLiveChildren(
   return unconfirmedTeardowns(scope)
 }
 
-/** Five minutes: long enough to outlast a provider's transient delete failures and a slow
- *  acknowledgement, short enough that a cancelled run still settles promptly. */
-export const DEFAULT_TEARDOWN_CONFIRM_MS = 300_000
+/** One release's destroy wait (90 s), counted from when the run's teardown opens: the retries
+ *  run inside the first release's wait, so a cancelled run settles in about that long. */
+export const DEFAULT_TEARDOWN_CONFIRM_MS = RELEASE_DESTROY_MS
 
 /** The fields a `teardown-pending` or `teardown-unconfirmed` record carries for one node. */
 export function unconfirmedRecord(node: UnconfirmedTeardown) {
@@ -76,7 +77,7 @@ export function unconfirmedRecord(node: UnconfirmedTeardown) {
 
 /**
  * Retry every unconfirmed teardown in the settled tree until each executor confirms destruction
- * or `windowMs` passes, and return what is still unconfirmed.
+ * or `windowMs` from `opensAt` passes, and return what is still unconfirmed.
  *
  * Settled children are evidence about an EXECUTOR, not a cause of run failure, so the barrier
  * never fails the run over them; it asks again and then NAMES what it could not confirm. Backoff
@@ -91,8 +92,9 @@ export async function confirmSettledTeardowns(
   scope: Scope<unknown>,
   windowMs: number,
   release: boolean,
+  opensAt: number = Date.now(),
 ): Promise<ReadonlyArray<UnconfirmedTeardown>> {
-  const closesAt = Date.now() + windowMs
+  const closesAt = opensAt + windowMs
   const maxDelayMs = windowMs / 10
   let delayMs = windowMs / 300
   let releasing: Promise<unknown> | undefined
@@ -116,8 +118,8 @@ export async function confirmSettledTeardowns(
     await Promise.race([pass, answerWindow.elapsed])
     answerWindow.cancel()
   }
-  // A release still in flight journals its receipts; let it finish (each destroy it asks for is
-  // bounded) so nothing writes to this run's journal after the run has settled.
+  // A release still in flight journals its receipts; let it finish (its destroy waits end at the
+  // run's teardown deadline) so nothing writes to this run's journal after the run has settled.
   const inFlight: Promise<unknown> | undefined = releasing
   if (inFlight !== undefined) {
     await inFlight.catch((error: unknown) => {
