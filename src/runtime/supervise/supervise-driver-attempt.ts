@@ -126,6 +126,10 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     input.rootStream?.append(event)
     input.noteDriveProgress(event)
   })
+  // A retained provider turn journals its own capture through the owner seam; the driver writes
+  // one only for an attempt that seam did not record, so each attempt has exactly one receipt.
+  let transcriptRecorded = false
+  const recordRetainedTranscript = retainedOwner?.onHarnessTranscript
   const executor = factory(spec, {
     signal: scope.signal,
     node: scopeOwnerExecutorNodeContext(scope),
@@ -137,6 +141,18 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
               ...retainedOwner,
               onResult: async (result: ExecutorResult<unknown>) =>
                 attempt.commitOwnerResult(result),
+              ...(recordRetainedTranscript === undefined
+                ? {}
+                : {
+                    onHarnessTranscript: async (
+                      task: unknown,
+                      capture: HarnessTranscriptCapture,
+                      result: ExecutorResult<unknown> | undefined,
+                    ) => {
+                      await recordRetainedTranscript(task, capture, result)
+                      transcriptRecorded = true
+                    },
+                  }),
             },
           }
         : {}),
@@ -189,23 +205,26 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
         // A continuation may start a new native session. Keep each completed attempt before the
         // next drive replaces its executor, including explicit capture failures and exact inputs.
         await settleHarnessTranscript(executor)
-        try {
-          await recordScopeOwnerHarnessTranscript(
-            scope,
-            input.originalTask,
-            readHarnessTranscript(executor),
-            attempt.terminalArtifact,
-          )
-        } catch (cause) {
-          // Evidence debt is terminal even when the original turn failed transiently: retrying
-          // could spend again while the previous attempt has no durable capture receipt.
-          attempt.failed = true
-          attempt.failure = new RuntimeRunStateError(
-            'manager transcript evidence could not be persisted',
-            {
-              cause,
-            },
-          )
+        // The retained owner seam already journaled this attempt when it recorded a capture.
+        if (!transcriptRecorded) {
+          try {
+            await recordScopeOwnerHarnessTranscript(
+              scope,
+              input.originalTask,
+              readHarnessTranscript(executor),
+              attempt.terminalArtifact,
+            )
+          } catch (cause) {
+            // Evidence debt is terminal even when the original turn failed transiently: retrying
+            // could spend again while the previous attempt has no durable capture receipt.
+            attempt.failed = true
+            attempt.failure = new RuntimeRunStateError(
+              'manager transcript evidence could not be persisted',
+              {
+                cause,
+              },
+            )
+          }
         }
       }
       input.keepTranscript(executor.harnessTranscript?.())
