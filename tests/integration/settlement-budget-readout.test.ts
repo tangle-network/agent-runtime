@@ -182,10 +182,12 @@ it.each([
       expect(budget?.tokensKnown).toBe(known)
       expect(budget?.usdKnown).toBe(known)
       expect(budget?.reservedTokens).toBe(250)
-      expect(pool.openReservations().map((entry) => entry.label).sort()).toEqual([
-        'root inference',
-        'sibling',
-      ])
+      expect(
+        pool
+          .openReservations()
+          .map((entry) => entry.label)
+          .sort(),
+      ).toEqual(['root inference', 'sibling'])
       if (known) {
         expect(budget).toMatchObject({ tokensLeft: 740, committedTokens: 10 })
         expect(budget!.tokensLeft + budget!.reservedTokens + budget!.committedTokens!).toBe(cap)
