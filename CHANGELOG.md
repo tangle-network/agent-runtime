@@ -1,3 +1,11 @@
+## 9.0.13
+
+Recognize Chinese Coding Plan exhausted-window refusals as subscription usage limits so seat chains advance. Structured producer reset hints continue to own the hold time; plain rate limits remain distinct.
+
+Add reusable delegated local CPU accounting sessions to isolated checks, with protected workload-tree cgroup counters and explicit unavailable evidence.
+
+Compose fixed-case identity and ABBA CPU measurements through the existing checker and Eval Student-t intervals, retaining every call and reporting unavailable precision or cleanup as unknown.
+
 ## 9.0.12
 
 Run-level provider-model evidence accepts dated served snapshots such as `claude-sonnet-4-5-20250929` through the parser the bridge recorder uses, so a bridge run that served a dated model reports `known` instead of `provider-model-missing`.
