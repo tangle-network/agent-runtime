@@ -48,7 +48,13 @@ it.each(['legacy', 'typed', 'rate'] as const)(
               errorCode: mode === 'typed' ? 'provider_quota_exhausted' : 'rate_limit_error',
               statusCode: 429,
               ...(mode === 'typed'
-                ? { failure: { kind: 'capacity' as const, code: 'provider_quota_exhausted', resetAt } }
+                ? {
+                    failure: {
+                      kind: 'capacity' as const,
+                      code: 'provider_quota_exhausted',
+                      resetAt,
+                    },
+                  }
                 : {}),
             })
           },
@@ -68,9 +74,9 @@ it.each(['legacy', 'typed', 'rate'] as const)(
           },
         }),
       ).rejects.toBe(paused)
-      const records: DriverAttemptRecord[] = (
-        await new FileSpawnJournal(file).loadTree('root')
-      )!.flatMap((event) => (event.kind === 'driver-attempt' ? [event.record] : []))
+      const records: DriverAttemptRecord[] = (await new FileSpawnJournal(file).loadTree('root'))!.flatMap(
+        (event) => (event.kind === 'driver-attempt' ? [event.record] : []),
+      )
       expect(calls).toBe(1)
       expect(records).toHaveLength(1)
       expect(waits).toHaveLength(1)
