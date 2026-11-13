@@ -13,6 +13,12 @@ import { zeroSpend } from '../../src/runtime/util'
 import { composeRuntimeHooks } from '../../src/runtime-hooks'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
+interface SettlementPayload {
+  childId?: string
+  budget?: BudgetReadout
+  settledAt?: number
+}
+
 it.each([
   { name: 'known completion', known: true, fail: false },
   { name: 'known failure', known: true, fail: true },
@@ -109,12 +115,12 @@ it.each([
       teardown: async () => ({ destroyed: true }),
     }
     const leaf: Agent<null, string> & { executorSpec: AgentSpec } = {
-      name: 'process leaf',
+      name: 'process-leaf',
       async act() {
         throw new Error('native executor must run')
       },
       executorSpec: {
-        profile: testAgentProfile('process leaf'),
+        profile: testAgentProfile('process-leaf'),
         harness: null,
         executor: leafExecutor,
       },
@@ -162,14 +168,16 @@ it.each([
       const reopened = await FileObserverJournal.open(observerPath)
       if (!reopened) throw new Error('observer journal did not persist')
       const rows = await reopened.read()
-      const event = rows.find(
+      const observation = rows.find(
         (row) =>
           row.event?.target === 'agent.child' &&
           row.event.parentId === root &&
-          row.event.payload?.childId === directorId,
-      )?.event
+          (row.event.payload as SettlementPayload | undefined)?.childId === directorId,
+      )
+      const event = observation?.event
       expect(event).toBeDefined()
-      const budget = event?.payload?.budget as BudgetReadout | undefined
+      const payload = event?.payload as SettlementPayload | undefined
+      const budget = payload?.budget
       expect(budget).toBeDefined()
       expect(budget?.tokensKnown).toBe(known)
       expect(budget?.usdKnown).toBe(known)
@@ -189,13 +197,12 @@ it.each([
       expect(event?.runId).toBe(root)
       expect(event?.stepIndex).toBe(terminal?.seq)
       expect(event!.timestamp).toBeGreaterThanOrEqual(Date.parse(terminal!.at))
-      expect(event?.payload?.settledAt).toBe(Date.parse(terminal!.at))
-      const frozen = JSON.stringify(budget)
+      expect(payload?.settledAt).toBe(Date.parse(terminal!.at))
       finishSibling()
       await scope.next()
       pool.reconcile(rootReservation.ticket, zeroSpend())
       const afterRefund = (await reopened.read()).find((row) => row.event?.id === event?.id)
-      expect(JSON.stringify(afterRefund?.event?.payload?.budget)).toBe(frozen)
+      expect(afterRefund?.digest).toBe(observation?.digest)
       pool.assertNoOpenTickets()
     } finally {
       finishDirector()
