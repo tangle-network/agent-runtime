@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@9.0.10` and `@tangle-network/agent-eval@1.0.25` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@9.0.11` and `@tangle-network/agent-eval@1.0.25` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -434,7 +434,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 145 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1047 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1048 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -922,6 +922,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1047 exports.
 | `Interval` | interface | A 95%-by-default confidence interval. |
 | `IsolatedCheckBox` | interface | A fresh Sandbox box for one check, owned by an account the judged run holds no key to. |
 | `IsolatedCheckBoxEvidence` | interface | The box a check ran in and the exact bytes it received. |
+| `IsolatedCheckCommandEvidence` | interface | Local protected-command launch through closed pipes, excluding input staging and cleanup. |
 | `IsolatedCheckOutputDeclaration` | interface | Explicit files the caller approves for retention. Never include secrets or hidden judge inputs. |
 | `IsolatedCheckOutputOptions` | interface | Evidence uses the caller's existing artifact store; Runtime does not choose its durability policy. |
 | `KeyProvider` | interface | Resolve named secrets. The ONE seam every secret store adapts to. |

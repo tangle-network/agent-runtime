@@ -6641,6 +6641,32 @@ Canonical digest of `input`.
 
 ***
 
+### IsolatedCheckCommandEvidence
+
+Local protected-command launch through closed pipes, excluding input staging and cleanup.
+Capture contains exact bounded bytes; outputComplete is false when the capture limit omitted bytes.
+A refused launch can carry diagnostics without proving command execution. Box backends leave this absent.
+
+#### Properties
+
+##### wallMs
+
+> **wallMs**: `number`
+
+##### stdoutBase64
+
+> **stdoutBase64**: `string`
+
+##### stderrBase64
+
+> **stderrBase64**: `string`
+
+##### outputComplete
+
+> **outputComplete**: `boolean`
+
+***
+
 ### KeyProvider
 
 Resolve named secrets. The ONE seam every secret store adapts to.
@@ -22907,6 +22933,16 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 [`SuperviseOptions`](#superviseoptions).[`resolveSupervisorTools`](#resolvesupervisortools-1)
 
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`servesToolNames`](#servestoolnames-1)
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
@@ -28425,6 +28461,12 @@ chain, join, retry) in one tool call instead of one model turn per verb. Every v
 the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
 queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
@@ -33771,19 +33813,19 @@ Bounded codes, never exception text, command output, or secret-bearing provider 
 
 ### IsolatedCheckResult
 
-> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
+> **IsolatedCheckResult** = \{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \} \| \{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
+\{ `succeeded`: `true`; `value`: \{ `stdout`: `string`; `stderr`: `string`; \}; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \}
 
 ***
 
 ##### Type Literal
 
-\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); \}
+\{ `succeeded`: `false`; `reason`: `"refused"` \| `"failed"` \| `"timeout"` \| `"cancelled"` \| `"output-limit"` \| `"input-limit"` \| `"cleanup-failed"`; `diagnostic`: `string`; `stdout?`: `string`; `stderr?`: `string`; `exitCode?`: `number` \| `null`; `cleanupDiagnostic?`: `string`; `box?`: [`IsolatedCheckBoxEvidence`](#isolatedcheckboxevidence); `outputs?`: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence); `command?`: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence); \}
 
 ###### succeeded
 
@@ -33826,6 +33868,10 @@ Present once a check box received its complete input.
 ###### outputs?
 
 > `optional` **outputs?**: [`IsolatedCheckOutputEvidence`](#isolatedcheckoutputevidence)
+
+###### command?
+
+> `optional` **command?**: [`IsolatedCheckCommandEvidence`](#isolatedcheckcommandevidence)
 
 ***
 

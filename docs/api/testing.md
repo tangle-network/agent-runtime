@@ -1382,6 +1382,16 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
 
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`servesToolNames`](runtime.md#servestoolnames-1)
+
 ##### escalateQuestion?
 
 > `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](durable.md#escalatequestion-2)
@@ -2462,6 +2472,16 @@ queue, journal, and bus the MCP verb crosses, at every depth and on both arms.
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+
+##### servesToolNames?
+
+> `readonly` `optional` **servesToolNames?**: readonly `string`[]
+
+Product tool vocabulary across nodes for spawn preflight; actual grants remain per node.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`servesToolNames`](runtime.md#servestoolnames-1)
 
 ##### escalateQuestion?
 
