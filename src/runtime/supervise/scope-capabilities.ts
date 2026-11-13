@@ -179,16 +179,23 @@ export async function releaseRetainedEnvironments(
   scope: Scope<unknown>,
 ): Promise<ReadonlyArray<UnconfirmedTeardown>> {
   releasingScopes.add(scope)
-  const [, , own] = await Promise.all([
+  await releaseScope(scope, true)
+  return unconfirmedTeardowns(scope)
+}
+
+/** Release a scope's retained children and its own owner, and with `nested` its nested managers'
+ *  trees, all at once. */
+async function releaseScope(scope: Scope<unknown>, nested: boolean): Promise<void> {
+  await Promise.all([
     retainedReleasers.get(scope)?.(),
     // A nested manager whose own teardown confirmed is not among the children the sweep reaches,
     // and it still holds the environment it kept between its turns.
-    releaseNestedManagerEnvironments(scope),
-    releaseScopeRetainedOwnerEnvironment(scope),
+    nested && releaseNestedManagerEnvironments(scope),
+    releaseScopeRetainedOwnerEnvironment(scope).then((unconfirmed) => {
+      ownerUnconfirmedByScope.set(scope, unconfirmed)
+    }),
   ])
-  ownerUnconfirmedByScope.set(scope, own)
   await scopeSeatAccountingUpdates.get(scope)?.()
-  return unconfirmedTeardowns(scope)
 }
 
 /** @internal Bound every owner release in this scope's tree by the settling run's teardown
@@ -225,18 +232,8 @@ async function releaseNestedManagerEnvironments(scope: Scope<unknown>): Promise<
  * last end-of-turn capture, so it runs beside the settlement; later calls join it.
  */
 export function releaseManagerEnvironment(scope: Scope<unknown>): Promise<void> {
-  let release = managerEnvironmentReleases.get(scope)
-  if (release === undefined) {
-    release = Promise.all([
-      retainedReleasers.get(scope)?.(),
-      releaseScopeRetainedOwnerEnvironment(scope).then((unconfirmed) => {
-        ownerUnconfirmedByScope.set(scope, unconfirmed)
-      }),
-    ]).then(async () => {
-      await scopeSeatAccountingUpdates.get(scope)?.()
-    })
-    managerEnvironmentReleases.set(scope, release)
-  }
+  const release = managerEnvironmentReleases.get(scope) ?? releaseScope(scope, false)
+  managerEnvironmentReleases.set(scope, release)
   return release
 }
 
