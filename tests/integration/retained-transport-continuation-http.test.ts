@@ -6,9 +6,9 @@ import { Sandbox } from '@tangle-network/sandbox'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 import { createExecutor, createFileRunContext, createSupervisor } from '../../src/runtime'
 import {
+  type Executables,
   ProcessFixture,
   prepareExecutables,
-  type Executables,
 } from './fixtures/uncertain-create-harness'
 import { readRecords } from './fixtures/uncertain-create-protocol'
 
