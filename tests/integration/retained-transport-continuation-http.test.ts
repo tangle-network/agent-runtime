@@ -114,7 +114,11 @@ it.each([
         expect(results[0]).toMatchObject({
           outcome: {
             success: false,
-            errorCode: 'TRANSPORT_LOST',
+            error: expect.stringContaining(
+              phase === 'chunk'
+                ? 'SSE read timed out'
+                : 'Provider response headers timed out after 250ms',
+            ),
             failure: { kind: mode === 'caller' ? 'caller' : 'infra', code: 'TRANSPORT_LOST' },
           },
         })
