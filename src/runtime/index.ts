@@ -179,6 +179,7 @@ export {
   type ProviderPromptOptions,
   providerAsExecutor,
 } from './environment-provider/provider-executor-admission'
+export type { RetainedFileOutput } from './environment-provider/provider-file-output'
 export {
   type AgentEnvironmentProviderRegistry,
   createAgentEnvironmentProviderRegistry,

@@ -64,6 +64,18 @@ New backends still implement the existing `Executor` contract.
 ### Environment-provider credential identity
 
 An environment-provider executor passes the exact profile's `model.metadata.credentialSource` to the provider unchanged.
+
+An authored profile selects file output with `AgentProfile.outputFile`, relative to the managed workspace root.
+Provider executor construction and manager harness resolution select file mode for that profile; other profiles retain the backend's JSON/text default.
+Explicit backend-wide `outputFormat: 'file'` and `outputFile` remain available for callers that want every execution to use that policy.
+Runtime binds that policy into the original retained intent and materialization, and requires provider support before dispatch.
+At submission, it reserves the original metadata, invocation and actual dispatched handle before awaiting capture.
+The provider owns stopped-source exclusion and immutable regular-file publication; Runtime writes the association through its existing evidence and result writers.
+The completion check receives the host-constructed file envelope with submitted metadata nested under `submission`.
+Submission acknowledgment waits for the durable first-wins coordination record; settlement and release await the transaction.
+The result writer's original outRef addresses the whole envelope. Its `submissionRef` addresses only metadata, never a worker's first-DONE result.
+A recovered positive submission returns that same envelope without recapturing a later file; a lost receipt or unsupported reconstructed source remains unavailable.
+Native shutdown failure, file delivery and quality acceptance remain separate facts.
 Runtime accepts only `managed` or `subscription`; the provider validates the selected credential reference before creating an environment.
 Credential values remain private executor inputs.
 Router, bridge, and legacy sandbox executors reject this field because they do not enforce this selection contract.

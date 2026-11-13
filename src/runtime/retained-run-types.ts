@@ -1,5 +1,6 @@
 import type {
   AgentExactRunControlRef,
+  AgentFileOutputPolicy,
   AgentInteractiveSessionRef,
   AgentInteractiveSessionStart,
   AgentNativeContextContinuationOptions,
@@ -90,6 +91,8 @@ export interface NativeContextContinuationHandle {
 /** Reconstructable control of one provider-retained run. @stable */
 export interface RetainedRunHandle {
   readonly controlRef: AgentExactRunControlRef
+  /** Bound to the actual dispatched environment, never a later provider.get reconstruction. */
+  readonly retainFileOutput?: AgentEnvironment['retainFileOutput']
   /** Capabilities measured from the exact environment that owns this run. */
   readonly capabilities: AgentEnvironmentCapabilities
   status(options?: { waitMs?: number; signal?: AbortSignal }): Promise<RetainedRunSnapshot>
@@ -193,6 +196,8 @@ export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Prom
 
 /** Environment, turn, and optional identity needed to replay one retained start. @stable */
 export interface RetainedRunStartMaterial {
+  /** File-mode admission requirement, bound into the original intent and checked before dispatch. */
+  readonly outputFile?: AgentFileOutputPolicy
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   /** Reuse an environment whose retained ownership key is verified instead of creating one. */
   readonly existingEnvironmentId?: string

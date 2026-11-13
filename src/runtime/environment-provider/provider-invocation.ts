@@ -14,6 +14,7 @@ import type { ExecutorNodeContext, Spend, UsageEvent } from '../supervise/types'
 import { providerExecutionSource } from './provider-execution-source'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
 import type { ProviderExecutorScope } from './provider-executor-state'
+import { ProviderFileOutput } from './provider-file-output'
 import {
   providerTurnDefaults,
   providerTurnWithDefaults,
@@ -67,6 +68,8 @@ export async function* streamProviderExecutor(
   // Adoption binds the environment identity and the applied resources it reports before the
   // turn starts streaming, so the finalized declaration is complete evidence.
   await args.onEnvironment(environment)
+  args.scope.state.fileOutput = args.options.outputFormat === 'file'
+    ? new ProviderFileOutput(args) : undefined
   const usage = new ProviderUsageAccount(args, turn.model)
   const observer = new ProviderTurnObserver(args, usage, source.retained, turn.model)
   const settlement = new ProviderTurnSettlement(

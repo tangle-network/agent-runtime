@@ -109,6 +109,24 @@ async function submitResult(
   // Copy once at intake so the value checked below is the exact value retained after
   // acceptance, even when this handler is called directly rather than through JSON-RPC.
   const result = structuredClone(a.result)
+  if (env.opts.withFileOutput) {
+    try {
+      return await env.opts.withFileOutput(result, (prepared) => checkAndCommitSubmission(env, deliverable, prepared))
+    } catch (error) {
+      if (!(error instanceof CheckUnavailableError)) throw error
+      const read = appendCheckRead(state, { source: 'submit', unavailable: error.message })
+      return { accepted: false, stop: false, unavailable: true, checkRead: read.read, reason: error.message }
+    }
+  }
+  return checkAndCommitSubmission(env, deliverable, result)
+}
+
+async function checkAndCommitSubmission(
+  env: ResultToolsEnv,
+  deliverable: Deliverable,
+  result: unknown,
+): Promise<unknown> {
+  const { state } = env
   const { verdict, fault } = await runDeliverableCheck(deliverable, result)
   const read = appendCheckRead(state, {
     source: 'submit',

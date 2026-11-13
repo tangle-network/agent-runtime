@@ -35,7 +35,7 @@ export function createProviderNativeControl(
   const cancelRetainedOnManagerStop = (handle: RetainedRunHandle): void => {
     if (managerStop === undefined) return
     const cancel = (): void => {
-      if (state.retained !== handle || !state.workspaceRunActive) return
+      if (state.retained !== handle || !state.workspaceRunActive || state.harnessStopped) return
       void handle
         .cancel({
           operationId: `manager-stop:${randomUUID()}`,
@@ -84,6 +84,7 @@ export function createProviderNativeControl(
   const withoutRunningHarness =
     (release: (signal: AbortSignal) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>) =>
     async (signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> => {
+      if (state.harnessStopped) return release(signal)
       const stop = await awaitAbortable(stopNativeExecution(), signal).catch(() => undefined)
       const stopped =
         stop === undefined

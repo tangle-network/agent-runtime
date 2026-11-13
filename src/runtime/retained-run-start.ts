@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { ContextTransferRequest, Sha256Digest } from '@tangle-network/agent-interface'
 import {
   AgentEnvironmentCapabilitiesSchema,
+  AgentFileOutputPolicySchema,
   AgentExactRunControlRefSchema,
   AgentTurnInputSchema,
   ContextTransferRequestSchema,
@@ -194,6 +195,12 @@ export async function startRetainedRun(
     )
   }
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
+  if (options.outputFile !== undefined) {
+    AgentFileOutputPolicySchema.parse(options.outputFile)
+    if (providerCapabilities.workspace.retainFileOutput !== true ||
+      !options.environment.retain?.paths.includes(options.outputFile.path))
+      throw new Error('retained file output requires declared provider support and retention of the output path')
+  }
   if (transferReceipt !== undefined) assertRetainedContextTransferCapability(providerCapabilities)
   assertRequestedInteractionCapabilities(
     options.provider.name,
@@ -248,6 +255,9 @@ export async function startRetainedRun(
       environment,
     )
     if (transferReceipt !== undefined) assertRetainedContextTransferCapability(capabilities)
+    if (options.outputFile !== undefined &&
+      (capabilities.workspace.retainFileOutput !== true || !environment.retainFileOutput))
+      throw new Error('this environment cannot publish the declared retained file output')
     assertRequestedInteractionCapabilities(
       options.provider.name,
       options.turn.interactions,
@@ -783,6 +793,7 @@ function retainedRunIntent(
   const requestDigest = canonicalCandidateDigest({
     kind: turnFields === undefined ? 'retained-run-intent.v2' : 'retained-run-intent.v1',
     ...material,
+    ...(options.outputFile === undefined ? {} : { outputFile: options.outputFile }),
     ...(options.existingEnvironmentId === undefined
       ? {}
       : { existingEnvironmentId: options.existingEnvironmentId }),
