@@ -46,6 +46,13 @@ describe('public agent candidate bundle builder', () => {
     })
     const worktree = await adapter.create({ baseRef: 'HEAD', label: 'candidate' })
     writeFileSync(join(worktree.path, 'source.ts'), 'export const value = 2\n')
+    // The fixture launches `run.js`; the finalized tree must contain the entrypoint it launches.
+    const entrypoint = fixture.bundle.execution.launch
+    if (entrypoint.kind !== 'candidate-entrypoint')
+      throw new Error('expected a candidate entrypoint')
+    writeFileSync(join(worktree.path, entrypoint.entrypoint), '#!/usr/bin/env node\n', {
+      mode: 0o755,
+    })
     const surface = await adapter.finalize(worktree, 'feat: candidate implementation')
     const code = {
       kind: 'code-surface' as const,
