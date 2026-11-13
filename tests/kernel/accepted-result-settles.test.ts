@@ -558,7 +558,18 @@ describe("a root's environment at run settlement", () => {
       (event) => event.id === 'root-deadline-mid-turn',
     )
     expect(ofKind(events, 'execution-result')).toHaveLength(0)
-    expect(ofKind(events, 'execution-evidence')).toHaveLength(0)
+    // The ended attempt's only evidence is its explicit capture failure: no output, no receipt.
+    const evidence = ofKind(events, 'execution-evidence')
+    expect(evidence).toHaveLength(1)
+    expect(evidence[0]).not.toHaveProperty('traceRoot')
+    const transcript = (await tree.blobs.get(evidence[0]!.outRef)) as Record<string, unknown>
+    expect(transcript).toMatchObject({
+      kind: 'harness-transcript',
+      schemaVersion: 1,
+      node: { nodeId: 'root-deadline-mid-turn' },
+      harnessTranscript: { status: 'unavailable', reason: 'unsupported-environment' },
+    })
+    expect(transcript).not.toHaveProperty('outRef')
     expect(ofKind(events, 'environment-teardown')).toEqual([
       expect.objectContaining({ destroyed: true }),
     ])
