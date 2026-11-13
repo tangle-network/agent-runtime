@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, rmSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import {
@@ -26,6 +26,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildAgentCandidateBundle,
   captureAgentCodeCandidateWorkspace,
+  createAgentCandidateWorkspacePort,
 } from '../src/candidate-execution'
 import {
   canonicalCandidateDigest,
@@ -125,6 +126,12 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     // Its zero inference cost does not qualify subscription model execution.
     const source = createCandidateExecutionFixture(true)
     const repoRoot = source.task.stagingRoots.taskRoot
+    // Both measured trees launch the fixture's entrypoint, so the task repository must hold it.
+    const launch = source.bundle.execution.launch
+    if (launch.kind !== 'candidate-entrypoint') throw new Error('expected a candidate entrypoint')
+    writeFileSync(join(repoRoot, launch.entrypoint), '#!/usr/bin/env node\n', { mode: 0o755 })
+    execFileSync('git', ['add', launch.entrypoint], { cwd: repoRoot })
+    execFileSync('git', ['commit', '-m', 'candidate entrypoint'], { cwd: repoRoot })
     const directory = makeTempRoot('deferred-code-lifecycle-')
     const profile = agentCandidateProfileAsAgentProfile(source.bundle.profile)
     let measured: CandidateExperimentFixture | undefined
@@ -210,13 +217,24 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
           })
           try {
             const before = await adapter.finalize(baseline, 'Unchanged outer baseline')
+            const repository = { kind: 'github' as const, owner: 'owner', repo: 'repo' }
             const compile = async (exact: typeof surface) => {
-              const code = {
-                kind: 'code-surface' as const,
+              const workspace = await captureAgentCodeCandidateWorkspace({
+                kind: 'code-surface',
                 surface: exact,
-                repository: { kind: 'github' as const, owner: 'owner', repo: 'repo' },
-              }
-              const workspace = await captureAgentCodeCandidateWorkspace(code)
+                repository,
+              })
+              // An unchanged tree is an explicit no-op over its base, never an empty git patch.
+              const code =
+                exact.candidateTree === exact.baseTree
+                  ? {
+                      kind: 'no-op' as const,
+                      reason: 'proposer-no-change' as const,
+                      repository,
+                      baseCommit: exact.baseCommit,
+                      baseTree: exact.baseTree,
+                    }
+                  : { kind: 'code-surface' as const, surface: exact, repository }
               return buildAgentCandidateBundle({
                 profile: { kind: 'candidate-profile', profile: source.bundle.profile },
                 code,
@@ -224,11 +242,20 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
                 memory: source.bundle.memory,
               })
             }
+            expect(before.candidateTree).toBe(before.baseTree)
+            expect(surface.candidateTree).not.toBe(surface.baseTree)
             measured = createCandidateExperimentFixture({
               baseline: await compile(before),
               candidate: await compile(surface),
               configureFixture: (fixture) => {
                 fixture.ports.repositories.resolve = async () => repoRoot
+                // Both measured trees are archives of exact finalized Git trees, not fixture files.
+                const fixtureWorkspaces = fixture.ports.workspaces.materialize
+                const archives = createAgentCandidateWorkspacePort()
+                fixture.ports.workspaces.materialize = (input) =>
+                  input.role === 'candidate'
+                    ? archives.materialize(input)
+                    : fixtureWorkspaces(input)
               },
               scoreForRequest: (request) => {
                 const bytes = request.inputs.candidate?.files.find(
