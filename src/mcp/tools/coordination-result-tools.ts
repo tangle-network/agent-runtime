@@ -111,8 +111,8 @@ async function submitResult(
   const result = structuredClone(a.result)
   if (env.opts.withFileOutput) {
     try {
-      return await env.opts.withFileOutput(result, (prepared) =>
-        checkAndCommitSubmission(env, deliverable, prepared),
+      return await env.opts.withFileOutput(result, (prepared, onAccepted) =>
+        checkAndCommitSubmission(env, deliverable, prepared, onAccepted),
       )
     } catch (error) {
       if (!(error instanceof CheckUnavailableError)) throw error
@@ -133,6 +133,7 @@ async function checkAndCommitSubmission(
   env: ResultToolsEnv,
   deliverable: Deliverable,
   result: unknown,
+  onAccepted?: () => void,
 ): Promise<unknown> {
   const { state } = env
   const { verdict, fault } = await runDeliverableCheck(deliverable, result)
@@ -168,6 +169,7 @@ async function checkAndCommitSubmission(
     return earlierPassingResult()
   }
   await commitSubmission(env, result)
+  onAccepted?.()
   // An accepted result is the manager's processing of everything it had received.
   await env.acknowledge(state.deliveries, 'result-accepted')
   return { accepted: true, retained: 'this-result', stop: true }

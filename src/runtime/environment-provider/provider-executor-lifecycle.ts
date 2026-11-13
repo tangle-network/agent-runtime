@@ -131,7 +131,10 @@ export function createProviderExecutor(
     runtime: options.runtime ?? (provider.name as Runtime),
     ...(options.outputFormat === 'file'
       ? {
-          withFileOutput: (submission: unknown, accept: (output: unknown) => Promise<unknown>) => {
+          withFileOutput: (
+            submission: unknown,
+            accept: (output: unknown, onAccepted: () => void) => Promise<unknown>,
+          ) => {
             const current = state.fileOutput
             if (!current)
               return Promise.reject(

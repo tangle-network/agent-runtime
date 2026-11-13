@@ -71,8 +71,10 @@ Explicit backend-wide `outputFormat: 'file'` and `outputFile` remain available f
 Runtime binds that policy into the original retained intent and materialization, and requires provider support before dispatch.
 At submission, it reserves the original metadata, invocation and actual dispatched handle before awaiting capture.
 The provider owns stopped-source exclusion and immutable regular-file publication; Runtime writes the association through its existing evidence and result writers.
-The completion check receives the host-constructed file envelope with submitted metadata nested under `submission`.
-Submission acknowledgment waits for the durable first-wins coordination record; settlement and release await the transaction.
+The independent `submit_result` check receives the host-constructed file envelope with submitted metadata nested under `submission`.
+Physical publication alone is candidate evidence. Only that check's durable passing first-winner submission authorizes the original execution-result writer and custody discharge.
+Refused or unavailable checks and natural completion without an accepted submission retain candidate evidence and custody; they cannot implicitly accept the file.
+Submission acknowledgment waits for the durable first-winner coordination record; a lost delivery acknowledgment does not undo that acceptance. Settlement and release await the transaction.
 The result writer's original outRef addresses the whole envelope. Its `submissionRef` addresses only metadata, never a worker's first-DONE result.
 A recovered positive submission returns that same envelope without recapturing a later file; a lost receipt or unsupported reconstructed source remains unavailable.
 Native shutdown failure, file delivery and quality acceptance remain separate facts.

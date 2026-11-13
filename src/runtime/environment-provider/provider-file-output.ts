@@ -32,7 +32,7 @@ export class ProviderFileOutput {
 
   constructor(private readonly args: StreamProviderExecutorArgs) {}
 
-  get published(): RetainedFileOutput | undefined {
+  get accepted(): RetainedFileOutput | undefined {
     return this.output
   }
 
@@ -54,7 +54,7 @@ export class ProviderFileOutput {
 
   withSubmission(
     candidate: unknown,
-    accept: (prepared: unknown) => Promise<unknown>,
+    accept: (prepared: unknown, onAccepted: () => void) => Promise<unknown>,
   ): Promise<unknown> {
     if (this.pending) {
       return Promise.reject(
@@ -118,11 +118,13 @@ export class ProviderFileOutput {
         policyDigest: canonicalCandidateDigest(policy),
         publication,
       })
-      // This completes before the completion check and the submission bus acknowledge delivery.
+      // Physical capture is candidate evidence. Only the original submission writer's durable
+      // passing commit grants result authority; a refused check or lost capture ACK cannot.
       await args.retention.onEvidence(output)
-      this.output = output
       args.scope.state.harnessStopped = true
-      return accept(output)
+      return accept(output, () => {
+        this.output = output
+      })
     }
     this.pending = work().catch((error: unknown) => {
       if (error instanceof CheckUnavailableError) throw error

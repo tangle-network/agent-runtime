@@ -110,15 +110,12 @@ export class ProviderTurnSettlement {
     const settledResult = result
     const jsonOutput = args.options.outputFormat === 'json'
     if (jsonOutput || file) await args.retention?.onEvidence?.(settledResult)
-    if (file && !file.published) {
-      if (outcome?.status === 'failed')
-        throw new CheckUnavailableError(
-          'native execution failed without a retained file publication',
-        )
-      await file.withSubmission(settledResult, async (prepared) => prepared)
-    }
-    const output = file?.published
-      ? { out: file.published }
+    if (file && !file.accepted)
+      throw new CheckUnavailableError(
+        'file output has no independently accepted submission; candidate custody remains held',
+      )
+    const output = file?.accepted
+      ? { out: file.accepted }
       : jsonOutput && outcome?.status !== 'failed'
         ? jsonResultFromEvents(result.events)
         : { out: settledResult }
@@ -175,12 +172,12 @@ export class ProviderTurnSettlement {
     await file?.settled()
     // A retained-stop may close the native stream while submit_result's server-side transaction
     // commits. Preserve that native failure; only the independent submission check accepts work.
-    if (file?.published && !this.commitStarted) {
+    if (file?.accepted && !this.commitStarted) {
       yield* this.usage.settleTurn()
       await this.readLiveTranscript()
       const settled: ExecutorResult<unknown> = {
-        out: file.published,
-        outRef: contentRef(`provider:${args.provider.name}`, file.published),
+        out: file.accepted,
+        outRef: contentRef(`provider:${args.provider.name}`, file.accepted),
         outcome: { success: false, error: errorText(error) },
         spent: this.usage.spend(this.started),
       }
