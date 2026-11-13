@@ -323,6 +323,8 @@ export interface SuperviseOptions {
    * the same authorizeSpawn / security / allowedModels gate, pool reservation, worker-slot
    * queue, journal, and bus the MCP verb crosses, at every depth and on both arms. */
   readonly resolveSupervisorTools?: ResolveSupervisorTools
+  /** Product tool vocabulary across nodes for spawn preflight; actual grants remain per node. */
+  readonly servesToolNames?: ReadonlyArray<string>
   /**
    * Where an `ask_parent` question goes when it leaves a manager (see {@link EscalateQuestion}).
    *
