@@ -375,7 +375,7 @@ Product-owned executor for exact baseline/candidate profile measurement.
 
 ##### measure()
 
-> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\>
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ###### Parameters
 
@@ -385,7 +385,7 @@ Product-owned executor for exact baseline/candidate profile measurement.
 
 ###### Returns
 
-`Promise`\<`AgentProfileImprovementRunReceipt`\>
+`Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ***
 
@@ -498,7 +498,7 @@ Optional identities used to prove authored/imported development work is held out
 
 ##### measurements
 
-> **measurements**: `AgentProfileImprovementMeasurement`[]
+> **measurements**: `AgentProfileImprovementMeasurement`\<`AgentCandidateFixedSpend`\>[]
 
 ##### proposal
 
@@ -2754,7 +2754,7 @@ measurement. `executionRef` must identify both operations and their closure.
 
 ##### measure()
 
-> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\>
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ###### Parameters
 
@@ -2764,7 +2764,7 @@ measurement. `executionRef` must identify both operations and their closure.
 
 ###### Returns
 
-`Promise`\<`AgentProfileImprovementRunReceipt`\>
+`Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
 
 ***
 
@@ -2821,7 +2821,7 @@ profile bytes, task executor, billing, trace capture, and persistence.
 
 ##### modelBinding?
 
-> `optional` **modelBinding?**: `any`
+> `optional` **modelBinding?**: [`AgentProfileImprovementModelBindingSource`](#agentprofileimprovementmodelbindingsource)
 
 ##### allowIncomplete?
 
@@ -2881,7 +2881,7 @@ One customer-approved maximum for analysis, optimization, and measurement.
 
 ##### measurements
 
-> **measurements**: `AgentProfileImprovementMeasurement`[]
+> **measurements**: `AgentProfileImprovementMeasurement`\<`AgentCandidateFixedSpend`\>[]
 
 ##### proposal
 
@@ -2967,7 +2967,7 @@ Opt-in measurement records may be incomplete; the proposal API remains the same.
 
 ##### modelBinding?
 
-> `optional` **modelBinding?**: `any`
+> `optional` **modelBinding?**: [`AgentProfileImprovementModelBindingSource`](#agentprofileimprovementmodelbindingsource)
 
 ###### Inherited from
 
@@ -3061,7 +3061,7 @@ One customer-approved maximum for analysis, optimization, and measurement.
 
 #### Extends
 
-- [`BoundHarnessSession`](runtime.md#boundharnesssession)
+- `AgentProfileImprovementIncompleteExperimentRun`
 
 #### Properties
 
@@ -3730,7 +3730,7 @@ The portable profile changes that the measured-profile contract permits.
 
 ### AgentProfileImprovementModelBindingSource
 
-> **AgentProfileImprovementModelBindingSource** = [`BoundHarnessSession`](runtime.md#boundharnesssession) \| ((`input`) => [`BoundHarnessSession`](runtime.md#boundharnesssession) \| `Promise`\<[`BoundHarnessSession`](runtime.md#boundharnesssession)\>)
+> **AgentProfileImprovementModelBindingSource** = `AgentProfileImprovementModelBinding` \| ((`input`) => `AgentProfileImprovementModelBinding` \| `Promise`\<`AgentProfileImprovementModelBinding`\>)
 
 Resolved once on frozen source profiles, before the final experiment is sealed.
 

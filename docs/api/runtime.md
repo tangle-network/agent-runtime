@@ -33603,12 +33603,6 @@ Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 
 ## Type Aliases
 
-### BoundHarnessSession
-
-> **BoundHarnessSession** = `any`
-
-***
-
 ### AnalystLensOutput
 
 > **AnalystLensOutput** = `ReadonlyArray`\<`AnalystFinding`\> \| \{ `summary`: `string`; \}
@@ -42763,7 +42757,7 @@ Read native metadata without archive I/O, or verify retained bytes before projec
 
 ### readBoundHarnessSessions()
 
-> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<`any`\>
+> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<\{ \}\>
 
 Compatibility entry. The shared reader owns native-family integrity; Runtime
 retains its archive path policy, abort behavior and public error identity.
@@ -42806,7 +42800,7 @@ readonly `HarnessFileBinding`[]
 
 #### Returns
 
-`Promise`\<`any`\>
+`Promise`\<\{ \}\>
 
 ***
 
@@ -47348,12 +47342,6 @@ Re-exports [SpawnJournalReadResult](durable.md#spawnjournalreadresult)
 ### createOtelExporter
 
 Re-exports [createOtelExporter](index.md#createotelexporter)
-
-***
-
-### HarnessFileBinding
-
-Renames and re-exports [BoundHarnessSession](#boundharnesssession)
 
 ***
 
