@@ -1,3 +1,7 @@
+## 9.0.15
+
+Continue retained provider leaves in their existing environment and native session after a producer-typed transport loss, preserving committed work, spend, cancellation and the original budget and deadline. Caller failures and untyped timeout diagnostics keep their existing stop policy.
+
 ## 9.0.14
 
 Keep observing the original retained execution when a quiet-interval status read confirms it is still running; preserve caller cancellation and exact terminal-result authority.
