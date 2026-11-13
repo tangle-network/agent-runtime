@@ -361,7 +361,8 @@ export function holdScopeOwnerTranscript(scope: Scope<unknown>): () => void {
   const hold = new Promise<void>((resolve) => {
     release = resolve
   })
-  const holds = (state.transcriptHolds ??= new Set())
+  state.transcriptHolds ??= new Set()
+  const holds = state.transcriptHolds
   holds.add(hold)
   return () => {
     holds.delete(hold)

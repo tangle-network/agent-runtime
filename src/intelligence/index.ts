@@ -150,17 +150,6 @@ export {
   verifyCandidateExecutionEvidence,
 } from './improvement-cycle'
 export type {
-  AgentProfileImprovementBenchmark,
-  AgentProfileImprovementExecutor,
-  AgentProfileImprovementMethodOptions,
-  AgentProfileImprovementModelBindingSource,
-  ProposeAgentProfileImprovementHeldResult,
-  ProposeAgentProfileImprovementIncompleteResult,
-  ProposeAgentProfileImprovementOptions,
-  ProposeAgentProfileImprovementResult,
-  RecordAgentProfileImprovementOptions,
-} from './profile-improvement-experiment'
-export type {
   AGENT_IMPROVEMENT_PROFILE_SURFACES,
   AGENT_PROFILE_MEASURED_SURFACES,
   AgentImprovementActivationTargetIdentity,
@@ -195,6 +184,17 @@ export type {
   AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
+export type {
+  AgentProfileImprovementBenchmark,
+  AgentProfileImprovementExecutor,
+  AgentProfileImprovementMethodOptions,
+  AgentProfileImprovementModelBindingSource,
+  ProposeAgentProfileImprovementHeldResult,
+  ProposeAgentProfileImprovementIncompleteResult,
+  ProposeAgentProfileImprovementOptions,
+  ProposeAgentProfileImprovementResult,
+  RecordAgentProfileImprovementOptions,
+} from './profile-improvement-experiment'
 export type {
   AppliedIntelligence,
   IntelligenceAgent,
