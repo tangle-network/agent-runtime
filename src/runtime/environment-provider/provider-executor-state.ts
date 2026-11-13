@@ -17,11 +17,15 @@ import type {
   ExecutorResult,
 } from '../supervise/types'
 import type { ProviderExecutorOptions } from './provider-executor-admission'
+import type { ProviderFileOutput } from './provider-file-output'
 import type { providerMaterialization } from './provider-materialization'
 import type { createProviderNativeControl } from './provider-retention-lifecycle'
 
 /** Everything one provider executor knows about its environment, capture generation and release. */
 export class ProviderExecutorState {
+  fileOutput: ProviderFileOutput | undefined
+  /** Reconstructed from the frozen file policy too: process loss cannot erase capture debt. */
+  fileOutputRequired = false
   environment: AgentEnvironment | undefined
   artifact: ExecutorResult<unknown> | undefined
   retained: RetainedRunHandle | undefined

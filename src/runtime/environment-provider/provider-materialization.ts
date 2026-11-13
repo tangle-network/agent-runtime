@@ -16,6 +16,7 @@ import type { ProviderExecutorOptions } from './provider-executor-admission'
 
 export function providerMaterialization(
   provider: AgentEnvironmentProvider,
+  authoredProfile: AgentProfile,
   createProfile: AgentProfile,
   node: ExecutorNodeContext | undefined,
   executionId: string,
@@ -36,6 +37,8 @@ export function providerMaterialization(
   // The environment identity is server-issued, so before `create` resolves this declaration is a
   // planned authority check, never a receipt.
   const plannedDeclaration: ExecutorMaterialization = {
+    // File policy is host-owned; keep its admitted identity while projecting it out of create.
+    ...(authoredProfile.outputFile === undefined ? {} : { authoredProfile }),
     effectiveProfile: createProfile,
     backend: provider.name,
     model: providerModel
@@ -49,6 +52,7 @@ export function providerMaterialization(
       destroyOnSettle: retention?.preserveEnvironment ? false : (options.destroyOnSettle ?? true),
       requireTerminalEvent: options.requireTerminalEvent ?? true,
       ...(options.outputFormat === undefined ? {} : { outputFormat: options.outputFormat }),
+      ...(options.outputFile === undefined ? {} : { outputFile: options.outputFile }),
       tokenLimits,
       ...(placement ? { placement } : {}),
     },

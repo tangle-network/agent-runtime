@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
+import { AgentFileOutputPolicySchema, type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import type { HarnessTranscriptCapture } from '../harness-transcript'
 import { bridgeStopSignalKey } from '../supervise/bridge-config'
@@ -25,7 +25,7 @@ import {
   releaseRetainedExecution,
 } from './provider-environment-teardown'
 import { runProviderExecution } from './provider-execution-loop'
-import type { ProviderExecutorOptions } from './provider-executor-admission'
+import { type ProviderExecutorOptions, providerOutputOptions } from './provider-executor-admission'
 import { type ProviderExecutorScope, ProviderExecutorState } from './provider-executor-state'
 import { providerMaterialization } from './provider-materialization'
 import { admittedControlRef, createProviderNativeControl } from './provider-retention-lifecycle'
@@ -38,17 +38,29 @@ export function createProviderExecutor(
   options: ProviderExecutorOptions,
   placement?: { id: string; digest: string },
 ): Executor<unknown> {
+  options = { ...options, ...providerOutputOptions(profile, options) }
   const node = detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
   if (
     options.outputFormat !== undefined &&
-    (options.outputFormat !== 'json' ||
+    (!['json', 'file'].includes(options.outputFormat) ||
       retention?.onEvidence === undefined ||
       options.requireTerminalEvent === false)
   ) {
     throw new ValidationError(
-      'providerAsExecutor: JSON output requires Runtime-owned durable evidence and a native terminal receipt',
+      'providerAsExecutor: structured output requires Runtime-owned durable evidence and a native terminal receipt',
     )
+  }
+  if ((options.outputFormat === 'file') !== (options.outputFile !== undefined))
+    throw new ValidationError('providerAsExecutor: file output requires both file mode and one declared outputFile')
+  if (options.outputFormat === 'file') {
+    const policy = AgentFileOutputPolicySchema.parse(options.outputFile)
+    options = { ...options, outputFile: policy, defaults: {
+      ...options.defaults,
+      retain: { paths: [...new Set([...(options.defaults?.retain?.paths ?? []), policy.path])] },
+    } }
+    if (!node || options.validator)
+      throw new ValidationError('providerAsExecutor: file output requires a Runtime node and a completion check over retained bytes, not a live-box validator')
   }
   // A manager's stop (an accepted `submit_result`, `stop`, a stop rule) ends its turn: a retained
   // run asks its backend to cancel it, an accepted one only past ACCEPTED_RESULT_GRACE_MS. A run
@@ -57,10 +69,11 @@ export function createProviderExecutor(
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
   // them, so the declaration carries the overlaid profile and exact turn execution refuses the run
   // rather than presenting the authored profile as what the provider received.
-  const createProfile = options.profileForCreate?.(profile) ?? profile
+  const { outputFile: _outputFile, ...nativeProfile } = profile
+  const createProfile = options.profileForCreate?.(nativeProfile) ?? nativeProfile
   if (
     placement &&
-    canonicalAgentProfileDigest(createProfile) !== canonicalAgentProfileDigest(profile)
+    canonicalAgentProfileDigest(createProfile) !== canonicalAgentProfileDigest(nativeProfile)
   ) {
     throw new ValidationError(
       'provider placement: profileForCreate cannot change the selected profile',
@@ -68,6 +81,7 @@ export function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
   const state = new ProviderExecutorState(ctx.signal, executionId)
+  state.fileOutputRequired = options.outputFormat === 'file'
   state.pending = admittedEnvironmentId(retention) !== undefined
   state.workspaceControlRef = admittedControlRef(retention)
   state.providerSessionId = state.workspaceControlRef?.sessionId ?? null
@@ -87,6 +101,7 @@ export function createProviderExecutor(
     trace: createPushTraceSource({ runId: executionId }),
     materialization: providerMaterialization(
       provider,
+      profile,
       createProfile,
       node,
       executionId,
@@ -102,6 +117,13 @@ export function createProviderExecutor(
     runProviderExecution(scope, task, signal, recovering)
   executor = {
     runtime: options.runtime ?? (provider.name as Runtime),
+    ...(options.outputFormat === 'file'
+      ? { withFileOutput: (submission: unknown, accept: (output: unknown) => Promise<unknown>) => {
+          const current = state.fileOutput
+          if (!current) return Promise.reject(new ValidationError('file output has no active retained invocation'))
+          return current.withSubmission(submission, accept)
+        } }
+      : {}),
     execute: run,
     recover: (task, signal) => run(task, signal, true),
     cancel: (request) => cancelExecution(scope, request),

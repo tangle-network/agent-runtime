@@ -107,6 +107,14 @@ export function driveHarnessFromBackend(
     })
   }
   drive.resultArtifact = () => state.managerArtifact
+  if (backend.backend === 'provider' && backend.outputFormat === 'file') {
+    drive.withFileOutput = (submission, accept) => {
+      const executor = state.activeExecutor
+      if (!executor?.withFileOutput)
+        return Promise.reject(new ValidationError('file submission has no active provider invocation'))
+      return executor.withFileOutput(submission, accept)
+    }
+  }
   drive.deliver = (message): boolean => {
     const deliver = state.activeExecutor?.deliver
     if (!deliver) return false
