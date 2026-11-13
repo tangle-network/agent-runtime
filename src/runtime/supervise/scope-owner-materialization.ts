@@ -7,7 +7,11 @@ import {
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import type { RuntimeHooks } from '../../runtime-hooks'
-import { type HarnessTranscriptCapture, persistHarnessTranscript } from '../harness-transcript'
+import {
+  type HarnessTranscriptCapture,
+  persistHarnessTranscript,
+  settleHarnessTranscript,
+} from '../harness-transcript'
 import {
   createExecutorObservation,
   createToolProgressObserver,
@@ -76,6 +80,8 @@ interface OwnerMaterializationState {
   }
   /** The latest owner materialization write; the next one starts after it settles. */
   writes?: Promise<unknown>
+  /** Driver attempts whose transcript record may still write; finalization waits for them. */
+  transcriptHolds?: Set<Promise<void>>
 }
 
 /**
@@ -343,6 +349,26 @@ export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNo
   })
 }
 
+/**
+ * @internal Hold this scope's settlement until a driver attempt's transcript record finishes. A
+ * cancelled run settles without waiting for its root driver; the hold keeps that record from
+ * landing after the run has returned. Call the returned release once the attempt is done.
+ */
+export function holdScopeOwnerTranscript(scope: Scope<unknown>): () => void {
+  const state = ownerMaterializationStates.get(scope)
+  if (state === undefined) return () => {}
+  let release!: () => void
+  const hold = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const holds = (state.transcriptHolds ??= new Set())
+  holds.add(hold)
+  return () => {
+    holds.delete(hold)
+    release()
+  }
+}
+
 /** Retain every manager attempt's native evidence without accepting another execution result. */
 export async function recordScopeOwnerHarnessTranscript(
   scope: Scope<unknown>,
@@ -435,6 +461,13 @@ export async function restoreScopeOwnerAcceptedExecution(scope: Scope<unknown>):
 export async function finalizeScopeOwnerMaterialization(scope: Scope<unknown>): Promise<void> {
   const state = ownerMaterializationStates.get(scope)
   if (state === undefined) return
+  // A cancelled run settles without waiting for its root driver. Its held transcript records join
+  // the serialized owner writes first, bounded like any transcript settle, so none lands after.
+  const holds = state.transcriptHolds
+  if (holds?.size)
+    await settleHarnessTranscript({
+      harnessTranscriptSettled: () => Promise.all(holds).then(() => undefined),
+    })
   await serializedOwnerWrite(state, () => finalizeOwnerMaterialization(state))
 }
 

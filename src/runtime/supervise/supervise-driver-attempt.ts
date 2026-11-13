@@ -37,6 +37,7 @@ import {
 } from './runtime'
 import { scopeOwnerExecutorNodeContext } from './scope'
 import {
+  holdScopeOwnerTranscript,
   recordScopeOwnerHarnessTranscript,
   scopeOwnerExecutionObservation,
 } from './scope-owner-materialization'
@@ -181,6 +182,10 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   )
   const pending = runtimeOwnedPendingExecutorMaterialization(executor)
   const endDrive = retainedOwner ? beginScopeRetainedOwnerDrive(scope) : () => {}
+  const releaseTranscriptHold =
+    state.boundBackend.backend === 'bridge' || state.boundBackend.backend === 'provider'
+      ? holdScopeOwnerTranscript(scope)
+      : () => {}
   try {
     await attempt.admit(pending)
     attempt.started = true
@@ -231,6 +236,7 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     } finally {
       if (state.activeExecutor === executor) state.activeExecutor = undefined
       endDrive()
+      releaseTranscriptHold()
     }
   }
   if (attempt.failed) throw attempt.failure
