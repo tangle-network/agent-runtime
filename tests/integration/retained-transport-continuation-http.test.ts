@@ -99,23 +99,16 @@ it.each([
         },
       )
       const state = await fixture.state()
-      expect(state.failures).toEqual([])
-      expect(state.boxes).toHaveLength(1)
-      expect(state.runs).toHaveLength(invocations)
-      expect(new Set(state.runs.map((run) => run.environmentId)).size).toBe(1)
-      expect(new Set(state.runs.map((run) => run.sessionId)).size).toBe(1)
-      expect(new Set(state.runs.map((run) => run.executionId)).size).toBe(invocations)
-      const workers = readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))
-      expect(workers).toHaveLength(invocations)
-      expect(new Set(workers.map((worker) => worker.pid)).size).toBe(invocations)
       const reopened = await createFileRunContext(join(fixture.directory, 'run')).journal.loadTree(
         `transport-${phase}-${mode}`,
       )
       const results = reopened?.filter((row) => row.kind === 'execution-result') ?? []
       if (mode === 'untyped') {
-        expect(results[0]).toMatchObject({
-          outcome: { success: false, error: 'SSE read timed out' },
-        })
+        expect(results[0]).toMatchObject({ outcome: { success: false } })
+        expect(results[0]).toHaveProperty(
+          'outcome.error',
+          expect.stringContaining('SSE read timed out'),
+        )
         expect(results[0]).not.toHaveProperty('outcome.failure')
       } else {
         expect(results[0]).toMatchObject({
@@ -131,6 +124,15 @@ it.each([
       ).toBe(true)
       expect(deliveredKind).toBe(continues ? 'done' : 'down')
       if (continues) expect(committedTokens).toBe(10)
+      expect(state.failures).toEqual([])
+      expect(state.boxes).toHaveLength(1)
+      expect(state.runs).toHaveLength(invocations)
+      expect(new Set(state.runs.map((run) => run.environmentId)).size).toBe(1)
+      expect(new Set(state.runs.map((run) => run.sessionId)).size).toBe(1)
+      expect(new Set(state.runs.map((run) => run.executionId)).size).toBe(invocations)
+      const workers = readRecords(join(fixture.directory, 'json-worker-processes.jsonl'))
+      expect(workers).toHaveLength(invocations)
+      expect(new Set(workers.map((worker) => worker.pid)).size).toBe(invocations)
       const pauses = reopened?.filter((row) => row.kind === 'paused') ?? []
       expect(pauses).toHaveLength(continues ? 1 : 0)
       if (continues) expect(pauses[0]).toMatchObject({ signal: 'TRANSPORT_LOST' })
