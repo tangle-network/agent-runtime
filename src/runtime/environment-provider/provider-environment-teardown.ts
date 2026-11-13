@@ -55,14 +55,10 @@ async function attemptDestroy(
   const target = state.environment
   if (target === undefined) return { destroyed: true }
   await state.fileOutput?.settled()
-  if (
-    state.workspacePreservationRequired ||
-    state.fileOutputRequired ||
-    state.fileOutput?.requiresPreservation
-  ) {
+  if (state.sourcePreservationRequired) {
     return {
       destroyed: false,
-      detail: 'provider native stop was not confirmed; source environment preserved',
+      detail: 'provider source custody is unresolved; environment preserved',
       permanent: true,
     }
   }
