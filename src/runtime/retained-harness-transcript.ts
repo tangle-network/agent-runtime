@@ -254,14 +254,13 @@ function nativeDigest(value: string | null): string | null {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? `sha256:${value}` : value
 }
 
-function retainedCapture(
+/** Every native conversation observed across this exact execution's attempts, in order. */
+function retainedNativeSessionIds(
   receipt: ProviderWorkspaceCaptureReceipt,
-  harness: string,
-): RetainedHarnessTranscriptCapture | HarnessTranscriptUnavailable {
-  const { snapshot, provenance, ...originalSource } = receipt
+): readonly string[] | undefined {
   const observedIds = [
     ...new Set(
-      (provenance.attempts ?? [])
+      (receipt.provenance.attempts ?? [])
         .filter(
           (attempt) =>
             attempt.executionId === (receipt.controlRef?.executionId ?? receipt.executionId),
@@ -281,6 +280,15 @@ function retainedCapture(
       : undefined)
   if (nativeSessionIds && observedIds.some((id) => !nativeSessionIds.includes(id)))
     throw new ValidationError('Retained transcript omits an observed native execution attempt')
+  return nativeSessionIds
+}
+
+function retainedCapture(
+  receipt: ProviderWorkspaceCaptureReceipt,
+  harness: string,
+): RetainedHarnessTranscriptCapture | HarnessTranscriptUnavailable {
+  const { snapshot, provenance, ...originalSource } = receipt
+  const nativeSessionIds = retainedNativeSessionIds(receipt)
   const source = { ...originalSource, ...(nativeSessionIds ? { nativeSessionIds } : {}) }
   const files: Array<RetainedHarnessTranscriptDescriptor['files'][number]> = []
   const skipped: Array<RetainedHarnessTranscriptDescriptor['skipped'][number]> = []
