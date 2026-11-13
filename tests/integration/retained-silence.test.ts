@@ -9,16 +9,14 @@ import type {
   AgentEnvironment,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
+  AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, expect, it } from 'vitest'
 import { appendCommittedJsonLine, readCommittedJsonLines } from '../../src/durable/jsonl-file'
 import { RetainedObservation } from '../../src/runtime/environment-provider/provider-retained-observation'
 import { exactSession } from '../../src/runtime/retained-run-binding'
 import { startRetainedRun } from '../../src/runtime/retained-run-start'
-import {
-  type DriverAttemptRecord,
-  DriverAttemptsExhaustedError,
-} from '../../src/runtime/supervise/driver-attempt-evidence'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { runDriverWithRetry } from '../../src/runtime/supervise/driver-retry'
 import {
   RetainedExecutionPendingError,
@@ -39,6 +37,7 @@ async function nativeRun(
     | 'held'
     | 'closed'
     | 'probe'
+    | 'unknown'
     | 'replay'
     | 'replay-closed'
     | 'replay-cold',
@@ -89,7 +88,10 @@ async function nativeRun(
       const session = environment.session!(id, options)
       return {
         ...session,
-        status: async () => (await command('status')) as 'running',
+        status: async () =>
+          child.exitCode !== null || child.signalCode !== null
+            ? 'failed'
+            : ((await command('status')) as AgentSessionStatus),
         async *events(options): AsyncIterable<AgentEnvironmentEvent> {
           const initial = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
             .trim()
@@ -206,47 +208,89 @@ async function observeWithRetry(
 }
 
 it.each(['duplicate', 'closed'] as const)(
-  'bounds %s observation and unchanged pending retry without destroying or redispatching the live invocation',
+  'keeps a quiet running native invocation in one driver attempt (%s)',
   async (mode) => {
     const fixture = await nativeRun(mode)
+    const original = structuredClone(fixture.handle.controlRef)
     const records: DriverAttemptRecord[] = []
-    let failure: unknown
+    const finish = setTimeout(() => {
+      void fixture.command('finish')
+    }, quietMs * 5)
     try {
       await observeWithRetry(fixture, records)
-    } catch (error) {
-      failure = error
+    } finally {
+      clearTimeout(finish)
     }
-    expect(failure).toBeInstanceOf(DriverAttemptsExhaustedError)
-    expect(records).toHaveLength(2)
-    expect(records.at(-1)).toMatchObject({
-      stop: 'pending-unresolved',
-      pendingCause: 'unobservable',
-      classification: 'transient',
-      failureKind: 'infra',
-      madeProgress: false,
-    })
-    expect(records[0]?.error).toContain('RetainedStreamError')
+    expect(records).toMatchObject([{ attempt: 1, stop: 'completed' }])
     expect(fixture.child.exitCode).toBeNull()
-    expect((await fixture.handle.status()).status).toBe('running')
     expect(fixture.dispatches()).toBe(1)
+    expect(fixture.handle.controlRef).toEqual(original)
     const stored = JSON.parse(await readFile(join(fixture.directory, 'provider.json'), 'utf8'))
     expect(
-      stored.environments[fixture.handle.controlRef.environmentId].sessions[
-        fixture.handle.controlRef.sessionId!
-      ].controlRef,
-    ).toEqual(fixture.handle.controlRef)
+      stored.environments[original.environmentId].sessions[original.sessionId!].controlRef,
+    ).toEqual(original)
     const observed = []
     for await (const row of readCommittedJsonLines<AgentEnvironmentEvent>(fixture.journal))
       observed.push(row)
-    expect(observed.filter((row) => row.type === 'result')).toEqual([])
-    expect(observed.filter((row) => row.type === 'message')).toHaveLength(2)
+    expect(observed.filter((row) => row.type === 'result')).toMatchObject([
+      { data: { success: true, finalText: 'durable result' } },
+    ])
     expect(JSON.stringify(observed)).toContain('awaitingResultSince')
     const protocol = await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8')
+    expect(protocol).toContain('"op":"status"')
     expect(protocol).not.toMatch(/cancel|destroy/)
-    await fixture.command('finish')
-    expect(await fixture.handle.result()).toMatchObject({ success: true, text: 'durable result' })
   },
 )
+
+it('cancels observation without redispatching a quiet running native invocation', async () => {
+  const fixture = await nativeRun('held')
+  const observing = (async () => {
+    for await (const row of new RetainedObservation(
+      fixture.handle,
+      fixture.stop.signal,
+      undefined,
+      quietMs,
+    ).observe(fixture.session))
+      await appendCommittedJsonLine(fixture.journal, row)
+  })()
+  const cancel = setTimeout(() => {
+    fixture.stop.abort(new Error('original observation cancelled'))
+  }, quietMs * 3)
+  try {
+    await expect(observing).rejects.toThrow('original observation cancelled')
+  } finally {
+    clearTimeout(cancel)
+  }
+  expect(fixture.child.exitCode).toBeNull()
+  expect(fixture.dispatches()).toBe(1)
+  const protocol = await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8')
+  expect(protocol).not.toMatch(/cancel|destroy/)
+})
+
+it.each(['unknown', 'dead'] as const)('keeps a quiet %s native source pending', async (state) => {
+  const fixture = await nativeRun(state === 'unknown' ? 'unknown' : 'held')
+  const original = structuredClone(fixture.handle.controlRef)
+  const observe = (async () => {
+    for await (const row of new RetainedObservation(
+      fixture.handle,
+      fixture.stop.signal,
+      undefined,
+      quietMs,
+    ).observe(fixture.session)) {
+      await appendCommittedJsonLine(fixture.journal, row)
+      if (state === 'dead' && 'awaitingResultSince' in row) {
+        const exited = new Promise<void>((resolve) => fixture.child.once('close', () => resolve()))
+        fixture.child.kill('SIGKILL')
+        await exited
+      }
+    }
+  })()
+  await expect(observe).rejects.toMatchObject({ name: 'RetainedStreamError' })
+  expect(fixture.handle.controlRef).toEqual(original)
+  expect(fixture.dispatches()).toBe(1)
+  const protocol = await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8')
+  expect(protocol).not.toMatch(/cancel|destroy/)
+})
 
 it('lets distinct native frames and an exact result outlive the quiet interval', async () => {
   const fixture = await nativeRun('progress')
