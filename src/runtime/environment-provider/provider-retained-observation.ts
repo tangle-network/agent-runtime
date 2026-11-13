@@ -84,7 +84,7 @@ export class RetainedObservation {
   private readonly resumedFrom: string | undefined
   private sawTerminal = false
   private lastObservedAt = 0
-  // The awaiting mark grants one more quiet interval, not an indefinitely renewable lease.
+  // The awaiting mark starts the next bounded liveness check, never a native deadline.
   private silenceHandledAt: number | undefined
   private exactResult: Promise<AgentTurnResult> | undefined
   private exactResultSettled = false
@@ -143,7 +143,7 @@ export class RetainedObservation {
       yield this.awaitingResult(Date.now())
       this.lastObservedAt = Date.now()
     }
-    while (!(await this.exactOrQuiet())) await this.stopQuietObservation(session)
+    while (!(await this.exactOrQuiet())) await this.stopQuietObservation()
     yield await this.resultFrame()
   }
 
@@ -161,7 +161,7 @@ export class RetainedObservation {
   }
 
   /** Status diagnoses the observation stop; it cannot substitute for a frame or exact result. */
-  private async stopQuietObservation(session: AgentSession): Promise<void> {
+  private async stopQuietObservation(): Promise<void> {
     const deadline = new AbortController()
     const clear = armDeadlineTimer(RETAINED_STATUS_READ_MS, () =>
       deadline.abort(new Error(`no status answer within ${RETAINED_STATUS_READ_MS} ms`)),
@@ -170,10 +170,14 @@ export class RetainedObservation {
     let cause: unknown
     try {
       const status = await awaitAbortable(
-        Promise.resolve().then(() => session.status({ signal })),
+        Promise.resolve().then(() => this.handle.status({ signal })),
         signal,
       )
-      cause = new Error(`provider status reads ${status}`)
+      if (status.status === 'running') {
+        this.lastObservedAt = Date.now()
+        return
+      }
+      cause = new Error(`provider status reads ${status.status}`)
     } catch (error) {
       if (this.signal.aborted) throw error
       cause = deadline.signal.aborted ? deadline.signal.reason : error
