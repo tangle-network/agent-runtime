@@ -248,9 +248,7 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
   const unconfirmed = result.teardownUnconfirmed ?? []
   const nodeOf = (box: string) =>
     unconfirmed.find((node) =>
-      [...(node.environments ?? []), ...(node.kept ?? [])].some(
-        (ref) => ref.environmentId === box,
-      ),
+      [...(node.environments ?? []), ...(node.kept ?? [])].some((ref) => ref.environmentId === box),
     )
   // Every held box is kept as evidence, named with the provider's own refusal, and never left
   // for a sweeper to delete.
