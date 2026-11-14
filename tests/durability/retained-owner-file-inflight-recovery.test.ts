@@ -150,11 +150,15 @@ it('reconnects an in-flight file-mode owner turn after a coordinator restart', a
     expect(causes.some((error) => error instanceof ProcessCrash), String(first)).toBe(true)
     expect(dispatched).toHaveLength(1)
     // The restart observes the same native run again: no file custody proof is owed for it yet.
-    await runProcess(journal, blobs, provider, false).catch((error: unknown) => {
-      const chain: string[] = []
-      for (let e = error; e instanceof Error; e = e.cause) chain.push(`${e.name}: ${e.message}`)
-      expect.fail(`restart refused the in-flight file turn: ${chain.join(' <- ')}`)
-    })
+    // That run ended without a submission, so its turn stays pending with custody held.
+    const second = await runProcess(journal, blobs, provider, false).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    const chain: string[] = []
+    for (let e = second; e instanceof Error; e = e.cause) chain.push(`${e.name}: ${e.message}`)
+    expect(chain.join(' <- ')).not.toContain('prepare refused')
+    expect(chain.join(' <- ')).toContain('no independently accepted submission')
     expect(dispatched).toHaveLength(1)
     const events = ((await journal.loadTree(ROOT)) ?? []).filter((event) => event.id === OWNER)
     expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
