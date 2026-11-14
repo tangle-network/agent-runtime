@@ -1,9 +1,13 @@
 import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/content-address'
-import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
+import {
+  describeRetainedNativeStops,
+  NATIVE_STOP_UNCONFIRMED,
+  stopRetainedNativeExecution,
+} from '../retained-native-stop'
 import { runAbortable } from './abortable'
-import { errMessage } from './error-message'
+import { causeChain, errMessage } from './error-message'
 import { cleanCheckpoints, settleCaptureForks } from './retained-owner-checkpoint-capture'
 import {
   type CheckpointEvent,
@@ -25,8 +29,9 @@ export function retainedOwnerReleaseRetriable(scope: Scope<unknown>): boolean {
 const RELEASE_CHECKPOINT_CAPTURES_MS = 15 * 60_000
 
 /** A release's wait for its destroys; a delete grows with the retained workspace it seals (Sandbox
- * 2026-11-11: 2-4 s at 1 MB, 30 s at 300 MB, 72 s at 1 GB). A later release joins the rest. */
-const RELEASE_DESTROY_MS = 5 * 60_000
+ * 2026-11-11: 2-4 s at 1 MB, 30 s at 300 MB, 72 s at 1 GB). A later release joins the rest. A
+ * settling run's whole teardown fits in one such wait, so a cancel settles in about this long. */
+export const RELEASE_DESTROY_MS = 90_000
 
 /**
  * Release the owner's environment once no turn of it will run again. A second call joins the one
@@ -132,26 +137,47 @@ async function releaseOwnerEnvironment(
   }
   const forksUnresolved = await settleCaptureForks(state, captures.signal)
   for (const { event } of checkpointFailures) pendingSources.add(event.environmentId)
-  // Every destroy starts at once under one deadline; receipts are still journaled in order.
-  const destroyDeadline = AbortSignal.timeout(destroyMs)
+  const held = (state.held ??= new Map())
+  const asking = [...environments].filter(
+    (id) =>
+      !released.has(id) && !retentionFailures.has(id) && !pendingSources.has(id) && !held.has(id),
+  )
+  // Every destroy starts at once under one deadline; receipts are still journaled in order. In a
+  // settling run, an owner's first destroys get one full wait from when they are asked, so the
+  // captures above never spend it, and a later release ends by the run's window or that wait.
+  const clock = state.releaseClock
+  if (clock !== undefined && asking.length > 0) {
+    clock.startedAt ??= Date.now()
+    state.releaseDestroysAt ??= Date.now()
+  }
+  const left =
+    clock?.startedAt === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(
+          clock.startedAt + clock.windowMs,
+          (state.releaseDestroysAt ?? Date.now()) + destroyMs,
+        ) - Date.now()
+  const waitMs = Math.max(0, Math.min(destroyMs, left))
+  const destroyDeadline = AbortSignal.timeout(waitMs)
   const destroys = new Map(
-    [...environments]
-      .filter((id) => !released.has(id) && !retentionFailures.has(id) && !pendingSources.has(id))
-      .map((id) => {
-        const wait = runAbortable(
-          () => ownerEnvironmentDestroy(state, provider, id),
-          destroyDeadline,
-          () => new Error(`destroy still running after ${destroyMs} ms`),
-        )
-        wait.catch(() => undefined)
-        return [id, wait] as const
-      }),
+    asking.map((id) => {
+      const wait = runAbortable(
+        () => ownerEnvironmentDestroy(state, provider, id),
+        destroyDeadline,
+        () => new Error(`destroy still running after ${waitMs} ms`),
+      )
+      wait.catch(() => undefined)
+      return [id, wait] as const
+    }),
   )
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue
     let destroyed = false
     let detail: string | undefined
-    const retentionReason = retentionFailures.get(environmentId)
+    const asked = destroys.get(environmentId)
+    // Refused under a retention hold before this release.
+    const heldBefore = asked === undefined ? held.get(environmentId) : undefined
+    const retentionReason = retentionFailures.get(environmentId) ?? heldBefore
     const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
     if (retentionReason !== undefined || pendingSources.has(environmentId)) {
       detail =
@@ -162,15 +188,22 @@ async function releaseOwnerEnvironment(
       lastDetail = detail
     } else {
       try {
-        await destroys.get(environmentId)
+        await asked
         destroyed = true
       } catch (error) {
-        detail = `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
-        unconfirmed.push(environmentId)
+        // The destroy itself remembers a hold refusal, so one answered after this wait still
+        // keeps the box from every later release.
+        detail =
+          held.get(environmentId) ??
+          `retained owner environment cleanup was not confirmed: ${errMessage(error).slice(0, 500)}`
         lastDetail = detail
-        // A provider that cannot reconstruct or destroy the environment answers the same way every
-        // time; only a destroy that failed or went unanswered is worth asking again.
-        if (!(error instanceof PermanentReleaseRefusal)) retriable = true
+        if (held.has(environmentId)) preserved.push(environmentId)
+        else {
+          unconfirmed.push(environmentId)
+          // A provider that cannot reconstruct or destroy the environment answers the same way
+          // every time; only a destroy that failed or went unanswered is worth asking again.
+          if (!(error instanceof PermanentReleaseRefusal)) retriable = true
+        }
       }
     }
     // A delete still running ends the harness with the box; a stop would reconnect to it.
@@ -178,7 +211,15 @@ async function releaseOwnerEnvironment(
       // A kept environment keeps its files, never its running harness: the run has settled, so
       // nothing will observe or reconcile an owner turn still executing inside it.
       const runs = unsettledOwnerRuns(events, args.nodeId, environmentId)
-      if (runs.length > 0) {
+      // A held box was stopped by its provider's refusal, and a reconnect to stop its harness
+      // would wake it; the receipt names the stop as not attempted, never as done.
+      if (runs.length > 0 && held.has(environmentId)) {
+        const stops = runs.map(
+          (run) => `native execution ${run.executionId} ${HELD_STOP}; ${NATIVE_STOP_UNCONFIRMED}`,
+        )
+        detail = `${detail}; ${stops.join('; ')}`
+        lastDetail = detail
+      } else if (runs.length > 0) {
         const stops = await Promise.all(
           runs.map((controlRef) =>
             stopRetainedNativeExecution({
@@ -269,6 +310,21 @@ async function releaseOwnerEnvironment(
 
 class PermanentReleaseRefusal extends Error {}
 
+const HELD_STOP =
+  'stop not attempted: its provider holds the environment under a retention hold and a reconnect would wake it'
+
+/**
+ * A provider that keeps an environment under a retention hold refuses its delete until the hold is
+ * released: 409 `RETENTION_HOLD`, or a refusal whose message names the hold. The holder, not this
+ * release, decides when the environment goes.
+ */
+function retentionHoldRefusal(error: unknown): boolean {
+  return (
+    causeChain(error).some((cause) => Reflect.get(cause, 'code') === 'RETENTION_HOLD') ||
+    /\bunder retention hold\b/iu.test(errMessage(error))
+  )
+}
+
 /** A destroy in flight this long is presumed lost, and the next release asks the provider again. */
 const RELEASE_DESTROY_ABANDONED_MS = 15 * 60_000
 
@@ -299,8 +355,15 @@ function ownerEnvironmentDestroy(
   })()
   const entry = { destroy, since: Date.now() }
   destroys.set(environmentId, entry)
-  destroy.catch(() => {
+  destroy.catch((error) => {
     if (destroys.get(environmentId) === entry) destroys.delete(environmentId)
+    // The provider keeps the box for its own retention: evidence, not a leak. Another ask only
+    // reconnects to it, and a refused box is stopped, so the reconnect would wake it.
+    if (retentionHoldRefusal(error))
+      (state.held ??= new Map()).set(
+        environmentId,
+        `environment kept: its provider refuses deletion under a retention hold (${errMessage(error).slice(0, 500)})`,
+      )
   })
   return destroy
 }

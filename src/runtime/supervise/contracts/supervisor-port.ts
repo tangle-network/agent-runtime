@@ -100,10 +100,12 @@ export interface SupervisorOpts {
    * teardown.
    */
   readonly childSettleGraceMs?: number | null
-  /** Teardown retry window, including after the run deadline. Pending environments are
-   * journaled before retry; unresolved teardown is named in teardownUnconfirmed.
-   * Kept environments and permanent refusals are not retried. Zero makes one attempt.
-   * supervisor-child-join.ts owns DEFAULT_TEARDOWN_CONFIRM_MS and retry backoff. */
+  /** Teardown retry window, including after the run deadline, counted from the first release.
+   * Pending environments are journaled before retry; unresolved teardown is named in
+   * teardownUnconfirmed. Kept environments, environments a provider holds for retention and
+   * permanent refusals are not retried. Zero makes one attempt.
+   * retained-owner-release.ts owns the default, RELEASE_DESTROY_MS; supervisor-child-join.ts
+   * owns the retry backoff. */
   readonly teardownConfirmMs?: number
   /**
    * Load prior journal state and expose committed settlements through `Scope.resume`.
