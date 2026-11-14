@@ -14,6 +14,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { expect, it } from 'vitest'
+import { RuntimeRunStateError } from '../../src/errors'
 import { createFileRunContext, createSupervisor } from '../../src/runtime'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
@@ -24,7 +25,7 @@ const execute = promisify(execFile)
 
 // A real native process writes the declared file; the original submission is accepted, then the
 // native stream is lost before the result commits, and the first transcript write fails.
-it('keeps an accepted file turn pending when its transcript write fails once', async () => {
+it('keeps an accepted file turn pending when its transcript write fails', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'provider-file-output-transcript-'))
   try {
     const workspace = join(directory, 'workspace')
@@ -149,7 +150,9 @@ it('keeps an accepted file turn pending when its transcript write fails once', a
     const createExecutor = providerAsExecutor(provider, {})
     let turn: Promise<unknown> | undefined
     const runId = 'native-file-output'
-    await createSupervisor().run(
+    // Any failed store write seals this controller's persistence (guardRunPersistence), so the
+    // run itself ends unavailable; the retained turn underneath must still end pending.
+    const run = createSupervisor().run(
       {
         name: 'root',
         async act(_task, scope) {
@@ -197,23 +200,16 @@ it('keeps an accepted file turn pending when its transcript write fails once', a
         budget: { maxIterations: 2, maxTokens: 200 },
       },
     )
+    await expect(run).rejects.toBeInstanceOf(RuntimeRunStateError)
     // The committed turn reports pending, as a persistence throw from settle() does.
     const failure = await turn!.then(
       () => undefined,
       (error: unknown) => error,
     )
     expect(failure).toBeInstanceOf(RetainedExecutionPendingError)
-    // The source is kept, and the retried write recorded the transcript evidence.
+    // The source is kept for repair; the sealed store refused the retry instead of a raw throw.
     expect(destroyed).toBe(0)
-    expect(transcriptWrites).toBe(2)
-    const journal = (await context.journal.loadTree(runId))!
-    const evidence = await Promise.all(
-      journal
-        .filter((event) => event.kind === 'execution-evidence')
-        .map((event) => context.blobs.get(event.outRef)),
-    )
-    expect(evidence).toContainEqual(expect.objectContaining({ kind: 'harness-transcript' }))
-    expect(evidence).toContainEqual(expect.objectContaining({ kind: 'retained-file-output' }))
+    expect(transcriptWrites).toBe(1)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
