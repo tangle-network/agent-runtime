@@ -1,3 +1,0 @@
-type: patch
----
-Mount an authenticated bridge driver's coordination MCP the way a provider driver does: the attachment carries a `secret-ref` Authorization header for `AGENT_RUNTIME_COORDINATION_TOKEN`, and the bearer travels in the request `env`, which CLI Bridge lifts into memory before it records the run. A jailed Bridge now routes the coordination call through its host relay instead of refusing the plain-string header with HTTP 501. A Bridge backend whose MCP config is not private refuses an authenticated coordination attachment instead of writing the bearer into it; an unauthenticated listener still mounts with no header.

@@ -1,3 +1,0 @@
-type: patch
----
-Record the served model a CLI Bridge provider reports. A provider-backed turn that carries no platform `effectiveBackend` now reads the stream's `provider_model` and `provider_models` with the bridge path's rule: a different model is an identity conflict, the request's own wire id and a model without a snapshot are not recorded, and a snapshot-bearing match becomes the attempt's provider evidence. Before this change such a turn settled with no observation (`provider-model-missing`), so reflection refused it. The chunk `model` field is not read, because CLI Bridge run-event replay and one-shot retained deltas set it to the literal `cli-bridge` (cli-bridge `src/routes/runs.ts`); revisit this rule once a CLI Bridge release sends the served model there.

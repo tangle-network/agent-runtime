@@ -1,3 +1,0 @@
-type: patch
----
-Forward native Bridge transcripts through root and nested managers, await final capture before settlement, and retain every Bridge manager attempt with its exact input and explicit capture failures in the execution evidence journal. A cancelled run waits, within the transcript settle bound, for its driver's transcript record before it returns. Transcript records hold content only; the `execution-evidence` row carries the optional `attemptId` that names the exact attempt, so equal evidence keeps one content address. Add `readHarnessTranscriptSessions` to verify a complete native family against the exact Runtime node and attempt before downstream learning consumes it.

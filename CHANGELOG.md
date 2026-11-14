@@ -1,3 +1,75 @@
+## 10.0.0
+
+A cancelled or settled run releases every level of its tree at once, under one deadline, so its teardown ends within about one destroy wait (90 s) instead of one wait per level and retry pass. The default `teardownConfirmMs` is now 90000 and counts from the first release. An environment whose provider refuses deletion under a retention hold (409 `RETENTION_HOLD`, or an HTTP refusal naming the hold) is asked once, stays kept as evidence, is reported in `teardownUnconfirmed[].kept` rather than in `environments` for a sweeper, and is never reconnected to again by that process.
+
+Record the served model a CLI Bridge provider reports. A provider-backed turn that carries no platform `effectiveBackend` now reads the stream's `provider_model` and `provider_models` with the bridge path's rule: a different model is an identity conflict, the request's own wire id and a model without a snapshot are not recorded, and a snapshot-bearing match becomes the attempt's provider evidence. Before this change such a turn settled with no observation (`provider-model-missing`), so reflection refused it. The chunk `model` field is not read, because CLI Bridge run-event replay and one-shot retained deltas set it to the literal `cli-bridge` (cli-bridge `src/routes/runs.ts`); revisit this rule once a CLI Bridge release sends the served model there.
+
+Graph-consumer cohort: 16 public type changes since 9.0.16. Code that only calls these APIs mostly compiles unchanged; code that reads the widened results, switches on `kind`, wraps the overloaded function or constructs the changed objects must adapt as listed.
+
+`@tangle-network/agent-runtime`:
+- `ImproveSearchOptions` no longer omits `finalEvidence`: it now accepts `finalEvidence?: FinalEvidencePolicy` (Eval's shared final-evidence policy). Existing options compile; pass a policy to bind the final test split to the search identity.
+- `ImproveSearchResult` adds `finalEvidence?: FinalEvidenceUse`, the final-data reservation and exposure, present when a policy was supplied. Nothing to change unless you pass a policy.
+- `RunKnowledgeImprovementJobOptions.runSupervised` is now `SupervisedKnowledgeUpdateOptions['runSupervised']`: Runtime passes a fourth argument, `context?: { root, goal }`, the exact isolated update workspace. A custom runner should use that root instead of inferring it from the task text. `onMeasurement` measurements add `supervisedSpent.tokensKnown?: boolean`; absent means token completeness is unknown.
+
+`@tangle-network/agent-runtime/durable`:
+- `runEvidence(runDir)`: each `nodes[]` entry's `node`, `settled` and `tokens` were always present (possibly `undefined`); they are now optional and absent when unknown. Read them as optional; `'node' in entry` is false for an unlabelled node.
+
+`@tangle-network/agent-runtime/intelligence`:
+- `AgentProfileImprovementMethodOptions` was `ImproveMethodOptions` without `agent`, `executionRef`, `findings` and `surface`; it is now that or the same cut of `ImproveSearchOptions`, so `improvement` can name a native search method. Code that reads its fields must first check whether `method` is a native search (`kind: 'search'`, built with `searchMethod`).
+- `ProposeAgentProfileImprovementResult.improvement` was `ImproveMethodResult`; it is now `ImproveMethodResult | ImproveSearchResult`. Narrow on `improvement.mode` (`'method'` or `'search'`) before reading method-only fields.
+- `proposeAgentProfileImprovement` options add `modelBinding?` (a static binding or a function resolved once on the frozen baseline and candidate profiles) and `allowIncomplete?: false`. A second overload takes `RecordAgentProfileImprovementOptions` (`allowIncomplete: true`, whose `executor.measure` returns a recorded run receipt) and resolves to the result, `ProposeAgentProfileImprovementIncompleteResult` or `ProposeAgentProfileImprovementHeldResult`. Existing calls select the first overload; a wrapper or mock typed as `typeof proposeAgentProfileImprovement` must provide both.
+
+`@tangle-network/agent-runtime/kernel`:
+- `BoundHarnessSession` and `HarnessFileBinding` keep the same members but are now re-exported from `@tangle-network/harness-sessions` (a new `^1.0.13` dependency) instead of being declared by Runtime. Structural use is unchanged.
+- `HarnessTranscriptBinding.kind` was `'bridge'`; it is now `'bridge' | 'provider'`, and the binding adds optional `controlRef` (required for provider captures) and `nativeSessionIds` (the ordered retry roots). An exhaustive switch on `kind` needs a `provider` arm.
+- `ProviderWorkspaceCaptureProvenance`: `sessions[].nativeStore.entries[]` adds `contentOmitted?: 'harness-install' | 'harness-cache'`. Such an entry's bytes were deliberately not retained; do not count it as missing evidence.
+- `readBoundHarnessSessions` input adds optional `nativeSessionIds`: several root sessions, at most 1,000, distinct, and including `nativeSessionId`. Its file and session types are the harness-sessions types above, and the family walk now runs in harness-sessions under Runtime's archive path policy.
+- `captureBoundHarnessTranscript` takes the same new `nativeSessionIds` and the new binding, and throws `Native capture binding is incomplete` when `binding.nativeSessionIds` (default `[binding.nativeSessionId]`) differs from `nativeSessionIds` (default `[nativeSessionId]`). Pass the same root list in both.
+
+`@tangle-network/agent-runtime/kernel` and `@tangle-network/agent-runtime/mcp`:
+- `CoordinationEvent`: the `route` event's union is unchanged in source, but it is now the exported `RouteFlowEvent` (from `/kernel`), so the type is referenced by name. No code change; import `RouteFlowEvent` instead of re-deriving it.
+
+`@tangle-network/agent-runtime/tui`:
+- `SupervisorView.lastRoute` is still `Extract<RouteFlowEvent, { kind: 'stopped' | 'unrouted' }>` in source; it now references the exported `RouteFlowEvent`. No code change.
+
+Mount an authenticated bridge driver's coordination MCP the way a provider driver does: the attachment carries a `secret-ref` Authorization header for `AGENT_RUNTIME_COORDINATION_TOKEN`, and the bearer travels in the request `env`, which CLI Bridge lifts into memory before it records the run. A jailed Bridge now routes the coordination call through its host relay instead of refusing the plain-string header with HTTP 501. A Bridge backend whose MCP config is not private refuses an authenticated coordination attachment instead of writing the bearer into it; an unauthenticated listener still mounts with no header.
+
+Raise the `@tangle-network/agent-eval` peer floor to ^1.0.32: 1.0.31 is the first Eval release with the shared final-evidence policy (`captureFinalEvidencePolicy`, `prepareSearchFinalEvidence`) that native search now binds to its search identity, and 1.0.32 is the first whose run reader takes a native capture's attempt from its `execution-evidence` row, where Runtime now writes it. The development pin, the workspace catalog and the release cohort move to Eval 1.0.32.
+
+Raise the `@tangle-network/agent-interface` peer floor to ^5.10.24 and declare `@tangle-network/harness-sessions` ^1.0.13 as a direct dependency: 5.10.24 is the first Interface release with the profile-improvement model binding and recorded-receipt contracts this release uses, and harness-sessions 1.0.13 is the first with the bounded native-family reader Runtime now delegates to. Development pins and the release cohort move to Interface 5.10.24.
+
+Verify the requested graph digest and its actual canonical content on registry read. Missing files remain unavailable; corruption and read errors refuse instead of returning an unrelated compiled graph or silently starting fresh work. Reuse this same identity check when retaining an existing immutable revision, including observed graphs.
+
+Read and materialize an exact node-owned inline graph profile through the kernel, preserving unrelated graph data and refusing shared or unresolved profile sources.
+
+Expose existing measured Knowledge pair and finalized code-tree capture for candidate staging, and allow explicitly deferred code search to reach the independent canonical proposal experiment without claiming a search promotion.
+
+Pass the exact isolated Knowledge update root and goal to custom supervised execution hosts without requiring them to parse task text; preserve existing callback compatibility and readiness checks. Preserve token completeness alongside the observed supervised usage subtotals.
+
+Forward native Bridge transcripts through root and nested managers, await final capture before settlement, and retain every Bridge manager attempt with its exact input and explicit capture failures in the execution evidence journal. A cancelled run waits, within the transcript settle bound, for its driver's transcript record before it returns. Transcript records hold content only; the `execution-evidence` row carries the optional `attemptId` that names the exact attempt, so equal evidence keeps one content address. Add `readHarnessTranscriptSessions` to verify a complete native family against the exact Runtime node and attempt before downstream learning consumes it.
+
+Refuse reserved `.agent-home` paths in candidate workspace snapshots and archive restoration, including tracked and force-added Git files that bypass ignore rules. Unselected ignored native homes remain excluded. This does not redact existing Git history or caller-configured homes with other names.
+
+Accept the shared final-evidence policy on native profile search. Reserve final data before development, bind the policy to the durable search identity, record exact sealed-candidate exposure before test dispatch, and return its receipt. Only the identical recorded claim plan may resume already-exposed final evidence; a new adaptive search must use fresh data. Route native search through the canonical profile-improvement hold and proposal lifecycle, applying the same final-test partition and scenario freshness checks as external methods.
+
+Export the existing observed-model normalization, snapshot and declared-model matching helpers from the kernel entrypoint so retained-run consumers can interpret authoritative served identity without copying model policy. No provider observation is inferred from an authored model. Existing snapshot and alias rules are unchanged.
+
+Opt-in incomplete profile proposals retain a normal search/preparation hold with the exact owner search result and CostLedger summary when no final comparison can be measured. Complete legacy callers retain early refusal. The measured proposal entrypoint keeps analyst diagnostics out of machine-readable stdout.
+
+Expose the existing flow spawn profile derivation for retained delivered route traversals, including edge directives and entry-session continuity. Execution and inspection share the same transform; arbitrary product authorization callbacks remain outside the derivation contract.
+
+Extend the existing profile proposal lifecycle with exact per-arm model binding and opt-in incomplete measurement holds, preserving the complete result contract and refusing proposal or activation when accounting evidence is unavailable.
+
+Add an exact provider-native transcript capture seam that runs after admitted execution termination and before source teardown. Retain each provider invocation's actual input, output, capture receipt and execution identity before continuing, preserve source custody after incomplete capture or persistence failure (a capture refused because the provider offers no retained run for the execution owes no custody: it records `capture-failed` and teardown proceeds), and keep failed latest manager captures explicit. Child settlements now retain the same attempt-bound evidence used by the native rollout reader. Retain every observed native retry family and original file attribution, and journal a successful capture repair at release without re-running the agent. Record provider-declared credential, harness-install, and harness-cache omissions without confusing them with missing transcript files. Providers without an exact native export remain explicitly incomplete.
+
+Allow provider executors to retain attested native transcripts through the existing trusted host capture callback after exact terminal identity checks, including retained recovery; preserve the environment-reader default when absent.
+
+Retain exact provider dispatch and supervisor node provenance on environment transcript captures, including failed turns and final release reads. Native session identity and full coverage remain unknown when the provider has not attested them.
+
+Omit unavailable node labels, settled output, and token usage from runEvidence instead of returning undefined-valued properties. Failed and interrupted run summaries now remain canonical JSON inputs for immutable dataset admission without inventing output or zero usage.
+
+Reuse the harness-sessions bounded native-family verifier through the existing Runtime entrypoint, preserving archive path policy, cancellation and validation error identity.
+
 ## 9.0.16
 
 Continue a supervised retained owner whose last committed turn failed. After a restart its first drive still surfaces that failure once; the next drive, in the same process or after a later restart, dispatches a new turn instead of replaying the same committed result again. A committed successful turn is still restored, never run again, and its spend is counted once.

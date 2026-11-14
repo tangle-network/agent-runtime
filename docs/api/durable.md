@@ -3038,7 +3038,9 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 How long settlement keeps retrying a child teardown the executor has not confirmed, with
 exponential backoff, before naming the child in `teardownUnconfirmed` with the provider
-environment ids a sweeper deletes. `0` makes one attempt only. Default: 300000 (5 minutes).
+environment ids a sweeper deletes. The window opens with the first release, which counts
+against it, and no destroy wait outlasts the later of the window and one release wait
+(90 s). `0` makes one attempt only. Default: 90000 (90 seconds).
 See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
@@ -4339,7 +4341,9 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 How long settlement keeps retrying a child teardown the executor has not confirmed, with
 exponential backoff, before naming the child in `teardownUnconfirmed` with the provider
-environment ids a sweeper deletes. `0` makes one attempt only. Default: 300000 (5 minutes).
+environment ids a sweeper deletes. The window opens with the first release, which counts
+against it, and no destroy wait outlasts the later of the window and one release wait
+(90 s). `0` makes one attempt only. Default: 90000 (90 seconds).
 See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
