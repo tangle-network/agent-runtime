@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import {
   type AgentExactRunControlRef,
   type AgentRetainedFileOutputRequest,
+  type AgentRunCancellationRequest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
@@ -18,6 +19,7 @@ import { RuntimeRunStateError } from '../../src/errors'
 import { createFileRunContext, createSupervisor } from '../../src/runtime'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { RetainedExecutionPendingError } from '../../src/runtime/supervise/retained-executor'
+import { RELEASE_DESTROY_MS } from '../../src/runtime/supervise/retained-owner-release'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
@@ -227,3 +229,162 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+// #2610 releases a settling run's whole tree under one destroy deadline. A file-mode turn that
+// failed before any file was accepted still owes its declared file, so that release keeps its box;
+// the same turn without a declared file is destroyed inside the same deadline.
+it.each([true, false])(
+  'keeps a box with open file-output debt under the run release (file mode: %s)',
+  async (fileMode) => {
+    const directory = await mkdtemp(join(tmpdir(), 'provider-file-output-release-'))
+    try {
+      const base = durableRetainedProvider(join(directory, 'unused.json'))
+      let controlRef: AgentExactRunControlRef | undefined
+      let destroyed = 0
+      const provider: AgentEnvironmentProvider = {
+        name: 'native-file',
+        async capabilities() {
+          const capabilities = await base.capabilities()
+          return {
+            ...capabilities,
+            workspace: { ...capabilities.workspace, retainFileOutput: true },
+          }
+        },
+        async create() {
+          return environment
+        },
+        async get(id) {
+          return id === environment.id ? environment : null
+        },
+      }
+      const environment: AgentEnvironment = {
+        id: 'native-release-environment',
+        provider: provider.name,
+        status: async () => 'running',
+        async *stream() {
+          yield* []
+          throw new Error('retained dispatch must own execution')
+        },
+        async dispatch(input) {
+          if (!input.sessionId || !input.executionId || !input.turnId)
+            throw new Error('Runtime omitted retained coordinates')
+          controlRef = {
+            provider: provider.name,
+            environmentId: environment.id,
+            sessionId: input.sessionId,
+            executionId: input.executionId,
+            runId: input.turnId,
+            requestDigest: canonicalCandidateDigest({ prompt: input.prompt, turnId: input.turnId }),
+          }
+          // A real native process runs and exits non-zero without writing the declared file.
+          await execute(process.execPath, ['-e', 'process.exitCode = 7']).catch(() => undefined)
+          return { id: controlRef.sessionId, provider: provider.name, controlRef }
+        },
+        session(id) {
+          if (!controlRef || id !== controlRef.sessionId) throw new Error('unknown native session')
+          const ref = controlRef
+          const failed = {
+            id: 'native-result',
+            type: 'result' as const,
+            data: {
+              ...ref,
+              sequence: 1,
+              occurredAt: new Date().toISOString(),
+              success: false,
+              finalText: '',
+              error: 'native exit 7',
+              errorCode: 'NATIVE_EXIT',
+            },
+          }
+          const result = async () => ({
+            text: '',
+            success: false,
+            sessionId: id,
+            metadata: { ...ref },
+          })
+          return {
+            id,
+            controlRef: ref,
+            status: async () => 'completed',
+            async *events() {
+              yield failed
+            },
+            result,
+            prompt: result,
+            async cancelRun(request: AgentRunCancellationRequest) {
+              return {
+                operationId: request.operationId,
+                requestDigest: request.requestDigest,
+                run: ref,
+                status: 'accepted',
+                effect: 'not_live',
+              }
+            },
+            async cancel() {
+              throw new Error('a finished native execution needs no cancellation')
+            },
+          }
+        },
+        async retainFileOutput() {
+          throw new Error('no submission asked for the file')
+        },
+        async read(path) {
+          return readFile(path, 'utf8')
+        },
+        async exec() {
+          return { stdout: '', stderr: '', exitCode: 0 }
+        },
+        async destroy() {
+          destroyed += 1
+        },
+      }
+      const context = createFileRunContext(join(directory, 'run'))
+      const createExecutor = providerAsExecutor(provider, {})
+      const started = Date.now()
+      await createSupervisor().run(
+        {
+          name: 'root',
+          async act(_task, scope) {
+            const spawn = scope.spawn(
+              {
+                name: 'native-release',
+                async act() {
+                  throw new Error('the provider owns execution')
+                },
+                executorSpec: {
+                  profile: testAgentProfile(
+                    'native-release',
+                    fileMode ? { outputFile: { name: 'report', path: 'report.txt' } } : {},
+                  ),
+                  harness: null,
+                  executorFactory: (spec, ctx) => createExecutor(spec, ctx),
+                },
+              },
+              'write the report',
+              { budget: { maxIterations: 1, maxTokens: 100 } },
+            )
+            expect(spawn.ok).toBe(true)
+            await scope.next()
+            return 'observed'
+          },
+        },
+        null,
+        {
+          ...context,
+          runId: `native-release-${fileMode}`,
+          rootIdentity: {
+            profileDigest: canonicalCandidateDigest({ name: 'root' }),
+            taskDigest: canonicalCandidateDigest(null),
+          },
+          workerSlots: 1,
+          retainedAtSettlement: 'release',
+          budget: { maxIterations: 2, maxTokens: 200 },
+        },
+      )
+      expect(destroyed).toBe(fileMode ? 0 : 1)
+      expect(Date.now() - started).toBeLessThan(RELEASE_DESTROY_MS)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
