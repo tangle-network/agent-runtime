@@ -239,7 +239,7 @@ export interface RunPersonifiedOptions<Task, D> {
   readonly maxRestarts?: number
   readonly withinMs?: number
   /** Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
-   *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000. */
+   *  teardown the executor has not confirmed. `0` makes one attempt only. Default: 90000. */
   readonly teardownConfirmMs?: number
   /** Forwarded to `SupervisorOpts.workerSlots`: the tree-wide bound on simultaneously working
    *  agents; spawns past it queue. Omit to bound concurrency by the budget alone. */
