@@ -1,5 +1,9 @@
 ## 10.0.0
 
+A cancelled or settled run releases every level of its tree at once, under one deadline, so its teardown ends within about one destroy wait (90 s) instead of one wait per level and retry pass. The default `teardownConfirmMs` is now 90000 and counts from the first release. An environment whose provider refuses deletion under a retention hold (409 `RETENTION_HOLD`, or an HTTP refusal naming the hold) is asked once, stays kept as evidence, is reported in `teardownUnconfirmed[].kept` rather than in `environments` for a sweeper, and is never reconnected to again by that process.
+
+Record the served model a CLI Bridge provider reports. A provider-backed turn that carries no platform `effectiveBackend` now reads the stream's `provider_model` and `provider_models` with the bridge path's rule: a different model is an identity conflict, the request's own wire id and a model without a snapshot are not recorded, and a snapshot-bearing match becomes the attempt's provider evidence. Before this change such a turn settled with no observation (`provider-model-missing`), so reflection refused it. The chunk `model` field is not read, because CLI Bridge run-event replay and one-shot retained deltas set it to the literal `cli-bridge` (cli-bridge `src/routes/runs.ts`); revisit this rule once a CLI Bridge release sends the served model there.
+
 Graph-consumer cohort: 16 public type changes since 9.0.16. Code that only calls these APIs mostly compiles unchanged; code that reads the widened results, switches on `kind`, wraps the overloaded function or constructs the changed objects must adapt as listed.
 
 `@tangle-network/agent-runtime`:
