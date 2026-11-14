@@ -110,7 +110,9 @@ if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   // adding them (it is gated by check:version-bump instead).
   const ownNotes = git(['diff', '--name-only', '--diff-filter=AM', `${base}...HEAD`, '--', '.release-notes/'])
     .trim().split('\n').filter((path) => path.endsWith('.md') && path !== '.release-notes/README.md')
-  if (consumerChange && ownNotes.length === 0) {
+  const releasePr = changed.includes('CHANGELOG.md') &&
+    git(['diff', '--name-only', '--diff-filter=D', `${base}...HEAD`, '--', '.release-notes/']).trim() !== ''
+  if (consumerChange && ownNotes.length === 0 && !releasePr) {
     throw new Error('consumer-visible changes need one .release-notes/*.md entry; version and CHANGELOG move only in the release PR')
   }
   process.stdout.write(`release notes: ${notes.length} pending\n`)
