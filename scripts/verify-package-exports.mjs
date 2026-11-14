@@ -30,6 +30,9 @@ import {
 import { peerCompatibility } from './lib/dependency-contract.mjs'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
+// Each run owns its npm cache under tempRoot: the host's shared ~/.npm/_cacache races between
+// concurrent gates (EEXIST on rename), and tempRoot's removal deletes this cache with it.
+const npmCache = join(tempRoot, 'npm-cache')
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
 const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
 const suppliedSandboxTarball = process.argv[4] ? resolve(process.argv[4]) : undefined
@@ -794,6 +797,7 @@ function sandboxBoundaryResult(stdout) {
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
+    env: { ...process.env, npm_config_cache: npmCache },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   })
