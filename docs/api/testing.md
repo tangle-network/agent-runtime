@@ -83,9 +83,51 @@ Validate a graph a manager wrote, or load a stored one by digest, and compose th
 
 `string`
 
+###### deliverable?
+
+`string`
+
+###### taskShape?
+
+`unknown`
+
+###### checkRef?
+
+`unknown`
+
 ###### Returns
 
 `Promise`\<[`GraphSubtaskPreparation`](#graphsubtaskpreparation)\>
+
+##### lookup?
+
+> `readonly` `optional` **lookup?**: (`taskShape`) => `Promise`\<`unknown`\>
+
+Registry reads are present only when the run supplied its persistent graph registry.
+
+###### Parameters
+
+###### taskShape
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### history?
+
+> `readonly` `optional` **history?**: (`taskShape?`) => `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### taskShape?
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
 
 ***
 
@@ -1203,8 +1245,11 @@ OPT-IN standing guidance from the profile knowledge base
 
 > `readonly` `optional` **graphRegistry?**: `string`
 
-The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
- may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+Persistent graph registry for native `lookup_graph`, `graph_history`, and `run_graph` reuse.
+A run_graph taskShape records its exact admitted topology, budget, terminal evidence and
+measured costs. Only a named environment check (`registry.deliverables`, selected by
+checkRef) can establish a reusable success. Each tool still needs its profile grant.
+Omit and run_graph takes graphs as data only, without registry reads or recording.
 
 ###### Inherited from
 
@@ -2283,8 +2328,11 @@ Whether a spawned profile that declares no Runtime coordination tool receives it
 
 > `readonly` `optional` **graphRegistry?**: `string`
 
-The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
- may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+Persistent graph registry for native `lookup_graph`, `graph_history`, and `run_graph` reuse.
+A run_graph taskShape records its exact admitted topology, budget, terminal evidence and
+measured costs. Only a named environment check (`registry.deliverables`, selected by
+checkRef) can establish a reusable success. Each tool still needs its profile grant.
+Omit and run_graph takes graphs as data only, without registry reads or recording.
 
 ###### Inherited from
 

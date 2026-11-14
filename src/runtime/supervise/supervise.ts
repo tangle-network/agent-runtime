@@ -8,12 +8,13 @@ import type { SuperviseOptions, SuperviseTestOptions } from './supervise-options
 import { superviseInternal } from './supervise-run-lifecycle'
 import type { SupervisorProfile } from './supervisor-agent'
 
-/** Capabilities a data-only consumer may require before building an opted-in run. `graphTools`:
- *  a manager whose profile grants `run_graph` can start an agent graph as one subtask. */
+/** Capabilities a data-only consumer may require before building an opted-in run. `graphTools`
+ * starts a graph subtask; `graphRegistry` adds native lookup/history and evidence-bound recording. */
 export const superviseFleetCapabilities = Object.freeze({
   peerAudit: true,
   traceTools: true,
   graphTools: true,
+  graphRegistry: true,
 })
 
 /** One-call supervisor: build + run a supervisor from its exact profile. @stable */

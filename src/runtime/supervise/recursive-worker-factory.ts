@@ -8,7 +8,8 @@ import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordi
 import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import { runtimeFlowBrain } from './flow-brain'
 import { createFlowRun, flowOfSubtask, routeFlowOf } from './graph-flow'
-import { graphSubtaskOf } from './graph-topology'
+import { graphSubtaskDeliverable } from './graph-subtask-registry'
+import { graphSubtaskOf, graphSubtaskRegistrationOf } from './graph-topology'
 import { buildNestedManagerDeps, type ManagedChild, type OwnFlow } from './nested-manager-deps'
 import { registerRetainedExecutorPreparation } from './retained-executor'
 import { createExecutor, type ExecutorConfig } from './runtime'
@@ -176,7 +177,11 @@ function managedWorker(
       () => child.acceptedSubmission,
       env.recoveryFactories.get(child.childFactory),
       () => child.unassessedOutput,
-      admitted.seatManagedLeaf ? child.managerDeliverable : undefined,
+      ownGraph
+        ? graphSubtaskDeliverable(graphSubtaskRegistrationOf(authorized), options.registry)
+        : admitted.seatManagedLeaf
+          ? child.managerDeliverable
+          : undefined,
       ownGraph ? (out) => graphSubtaskOutput(ownGraph, out, ownFlow?.run.failure) : undefined,
     ),
     admitted.modelSubstitution,

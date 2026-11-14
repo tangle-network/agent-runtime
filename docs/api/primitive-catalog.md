@@ -756,7 +756,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
 | `searchPresets` | const | The five configurations Runtime ships, as specs. Each is an ordinary spec: its digest is its |
 | `strategyAuthorContract` | const | The compressed consumable a skill carries: everything an author needs to emit a loop. |
 | `strategyAuthorSystemPrompt` | const | Standing behavior callers put in the strategy-author AgentProfile. |
-| `superviseFleetCapabilities` | const | Capabilities a data-only consumer may require before building an opted-in run. `graphTools`: |
+| `superviseFleetCapabilities` | const | Capabilities a data-only consumer may require before building an opted-in run. `graphTools` |
 | `TERMINAL_DECISIONS` | const | Decision values the kernel treats as terminal. Every other value returned by |
 | `TRACE_ROOT_SCHEMA` | const | Schema identifier of a stored {@link TraceRootArtifact}. |
 | `TRACE_SUMMARY_SCHEMA` | const | Schema identifier of the {@link TraceSummary} carried by a trace root's last leaf. |

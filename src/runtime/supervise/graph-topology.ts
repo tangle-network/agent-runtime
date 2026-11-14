@@ -509,6 +509,14 @@ type RoutesEdge = Extract<GraphEdge, { kind: 'routes' }>
  *  root node's task). */
 export type GraphSubtaskTopology = GraphTopology
 
+/** Runtime-owned reuse provenance, retained inside the admitted graph root's profile. */
+export interface GraphSubtaskRegistration {
+  readonly deliverable: string
+  readonly taskShape?: Record<string, unknown>
+  readonly checkRef?: string
+  readonly sourceGraphDigest?: string
+}
+
 /** A validated `run_graph` graph, ready to spawn. */
 interface PreparedGraphSubtask {
   /** The root node's pinned profile with the graph brief, carrying the topology as Runtime-only
@@ -621,6 +629,7 @@ export function prepareGraphSubtask(
     readonly registry: PromptRegistry
     readonly analysts?: AnalystRegistry
     readonly guidance?: (profile: AgentProfile) => AgentProfile
+    readonly registration?: GraphSubtaskRegistration
   },
 ): PreparedGraphSubtask {
   const validated = validateGraphSubtask(topology, opts.registry, opts.analysts)
@@ -636,6 +645,7 @@ export function prepareGraphSubtask(
         nodes: topology.nodes,
         edges: topology.edges,
         ...(topology.entry === undefined ? {} : { entry: topology.entry }),
+        ...(opts.registration === undefined ? {} : { registration: opts.registration }),
       },
     },
   }
@@ -655,5 +665,29 @@ export function prepareGraphSubtask(
 /** The topology a `run_graph` root profile carries, or `undefined` for any other profile. */
 export function graphSubtaskOf(profile: AgentProfile): GraphSubtaskTopology | undefined {
   const raw = profile.metadata?.[runtimeGraphMetadataKey]
-  return raw === undefined ? undefined : parseGraphSubtaskTopology(raw)
+  if (raw === undefined) return undefined
+  if (!isRecord(raw)) return parseGraphSubtaskTopology(raw)
+  const { registration: _registration, ...topology } = raw
+  return parseGraphSubtaskTopology(topology)
+}
+
+/** A registered graph remains the same authored topology; bookkeeping is not another node. */
+export function graphSubtaskRegistrationOf(
+  profile: AgentProfile,
+): GraphSubtaskRegistration | undefined {
+  const raw = profile.metadata?.[runtimeGraphMetadataKey]
+  if (!isRecord(raw) || raw.registration === undefined) return undefined
+  const registration = raw.registration
+  if (
+    !isRecord(registration) ||
+    typeof registration.deliverable !== 'string' ||
+    registration.deliverable.trim().length === 0 ||
+    (registration.taskShape !== undefined && !isRecord(registration.taskShape)) ||
+    (registration.checkRef !== undefined && typeof registration.checkRef !== 'string') ||
+    (registration.sourceGraphDigest !== undefined &&
+      typeof registration.sourceGraphDigest !== 'string')
+  ) {
+    throw new ValidationError('run_graph: invalid retained graph registration')
+  }
+  return registration as unknown as GraphSubtaskRegistration
 }

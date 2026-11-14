@@ -77,12 +77,19 @@ Scenario coverage lives in `tests/runtime/reservation-wait.test.ts` (`a manager'
   back; a deliverable `resolveDeliverable` chose for the spawn still applies.
 - Every edge traversal of a subtask is an `edge` event in the run's root journal tree, naming the
   graph's root node in `graph`. The subtask settles with `{ deliverable, edges }`.
+- A subtask's optional `checkRef` resolves an environment-owned final completion check outside its
+  nodes. `taskShape` opts it into the configured graph registry; only a passing bound check makes
+  that completion a reusable success. Self-submission remains unassessed evidence.
+- Registry settlement records derive from admitted profile bytes and the committed graph tree.
+  Their source is the retained admission attempt ID, so replay restores one row without executing
+  again. Missing accounting remains unknown; the registry adds no execution or recovery loop.
 - Only `run_graph` starts a graph: `spawn_worker` refuses a profile carrying
   `metadata.agentRuntimeGraph`, and a node of a graph cannot start another graph.
 - `superviseGraphPursuit` owns its run directory exactly as `supervisePursuit` does: one live
   holder, `result.json` once, refusal of a settled directory, and resume from the spawn journal.
 
 Scenario coverage lives in `tests/kernel/graph.test.ts` (`run_graph`),
+`tests/integration/native-graph-registry.test.ts` (HTTP MCP, real processes, final checks and file replay),
 `tests/durability/graph-rundir-journal.test.ts` and `tests/durability/graph-kill-resume.test.ts`.
 
 # Flow graphs

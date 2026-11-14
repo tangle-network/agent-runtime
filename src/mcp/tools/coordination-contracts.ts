@@ -223,7 +223,13 @@ export interface GraphSubtasks {
   readonly prepare: (input: {
     readonly graph?: unknown
     readonly graphDigest?: string
+    readonly deliverable?: string
+    readonly taskShape?: unknown
+    readonly checkRef?: unknown
   }) => Promise<GraphSubtaskPreparation>
+  /** Registry reads are present only when the run supplied its persistent graph registry. */
+  readonly lookup?: (taskShape: unknown) => Promise<unknown>
+  readonly history?: (taskShape?: unknown) => Promise<unknown>
 }
 
 export interface CoordinationToolsOptions {

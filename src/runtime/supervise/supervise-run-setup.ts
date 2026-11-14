@@ -21,6 +21,7 @@ import type {
 import type { ToolLoopChat } from '../tool-loop'
 import type { BusRecord } from './event-bus'
 import { isRuntimeFlowBrain } from './flow-brain'
+import { graphSubtaskRegistryObserver } from './graph-subtask-registry'
 import { runtimeOwnedScopeOwnerRuntime } from './materialization'
 import {
   assertExecutableAgentProfile,
@@ -175,7 +176,12 @@ export function prepareSuperviseRun(
   // share this harness and are left unretained (a per-owner file is a later step).
   const rootStreamSink =
     options.runDir === undefined ? undefined : createRootStreamSink(options.runDir, now)
-  const observeNodeEvent = coordinationEventObserver(options)
+  const observeNodeEvent = coordinationEventObserver(
+    options,
+    options.graphRegistry === undefined
+      ? undefined
+      : graphSubtaskRegistryObserver(options.graphRegistry, journal, blobs, runId),
+  )
   const externalRoot = isExternalSupervisor(canonicalProfile)
   const driver = managerDriverPlan(options, canonicalProfile, externalRoot)
   const composeSpawnProfileFor = spawnProfileComposer(
@@ -260,13 +266,17 @@ export function prepareSuperviseRun(
 }
 
 /** The caller's coordination-event observer, keyed by each event's stable id. */
-function coordinationEventObserver(options: SuperviseOptions) {
-  return options.onCoordinationEvent
+function coordinationEventObserver(
+  options: SuperviseOptions,
+  recordGraph?: ReturnType<typeof graphSubtaskRegistryObserver>,
+) {
+  return options.onCoordinationEvent || recordGraph
     ? async (
         context: SupervisorNodeContext,
         event: CoordinationEvent,
         record: BusRecord<CoordinationEvent>,
       ) => {
+        await recordGraph?.(context, event, record)
         await options.onCoordinationEvent?.(context, coordinationEventId(context, event), record)
       }
     : undefined

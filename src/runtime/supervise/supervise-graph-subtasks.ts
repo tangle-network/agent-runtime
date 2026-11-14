@@ -4,10 +4,10 @@ import { graphRegistry, loadGraph } from './graph-registry'
 import { type GraphSubtaskTopology, parseGraphSubtaskTopology } from './graph-topology'
 
 /** A stored graph's topology, from the registry `SuperviseOptions.graphRegistry` names. */
-export async function storedGraphTopology(
+export async function storedGraphSubtask(
   dir: string | undefined,
   digest: string,
-): Promise<GraphSubtaskTopology> {
+): Promise<{ readonly topology: GraphSubtaskTopology; readonly checkRef?: string }> {
   if (dir === undefined) {
     throw new ValidationError(
       'run_graph: this run names no graph registry (SuperviseOptions.graphRegistry), so a ' +
@@ -20,12 +20,18 @@ export async function storedGraphTopology(
   }
   // The stored graph's topology keys exactly as the inline form passes them, so a flow graph keeps
   // its entry and a gated graph is refused as it is inline.
-  return parseGraphSubtaskTopology({
-    nodes: stored.nodes,
-    edges: stored.edges,
-    ...(stored.entry === undefined ? {} : { entry: stored.entry }),
-    ...(stored.gates === undefined ? {} : { gates: stored.gates }),
-  })
+  if (stored.observed) {
+    throw new ValidationError('run_graph: an observed graph is evidence, not executable topology')
+  }
+  return {
+    topology: parseGraphSubtaskTopology({
+      nodes: stored.nodes,
+      edges: stored.edges,
+      ...(stored.entry === undefined ? {} : { entry: stored.entry }),
+      ...(stored.gates === undefined ? {} : { gates: stored.gates }),
+    }),
+    ...(stored.deliverable.checkRef === undefined ? {} : { checkRef: stored.deliverable.checkRef }),
+  }
 }
 
 /**

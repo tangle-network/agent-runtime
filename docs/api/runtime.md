@@ -23342,8 +23342,11 @@ OPT-IN standing guidance from the profile knowledge base
 
 > `readonly` `optional` **graphRegistry?**: `string`
 
-The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
- may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+Persistent graph registry for native `lookup_graph`, `graph_history`, and `run_graph` reuse.
+A run_graph taskShape records its exact admitted topology, budget, terminal evidence and
+measured costs. Only a named environment check (`registry.deliverables`, selected by
+checkRef) can establish a reusable success. Each tool still needs its profile grant.
+Omit and run_graph takes graphs as data only, without registry reads or recording.
 
 ###### Inherited from
 
@@ -28972,8 +28975,11 @@ Whether a spawned profile that declares no Runtime coordination tool receives it
 
 > `readonly` `optional` **graphRegistry?**: `string`
 
-The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
- may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+Persistent graph registry for native `lookup_graph`, `graph_history`, and `run_graph` reuse.
+A run_graph taskShape records its exact admitted topology, budget, terminal evidence and
+measured costs. Only a named environment check (`registry.deliverables`, selected by
+checkRef) can establish a reusable success. Each tool still needs its profile grant.
+Omit and run_graph takes graphs as data only, without registry reads or recording.
 
 ##### promptRegistry?
 
@@ -40338,10 +40344,10 @@ value's, and a consumer that changes any axis passes an inline spec with its own
 
 ### superviseFleetCapabilities
 
-> `const` **superviseFleetCapabilities**: `Readonly`\<\{ `peerAudit`: `true`; `traceTools`: `true`; `graphTools`: `true`; \}\>
+> `const` **superviseFleetCapabilities**: `Readonly`\<\{ `peerAudit`: `true`; `traceTools`: `true`; `graphTools`: `true`; `graphRegistry`: `true`; \}\>
 
-Capabilities a data-only consumer may require before building an opted-in run. `graphTools`:
- a manager whose profile grants `run_graph` can start an agent graph as one subtask.
+Capabilities a data-only consumer may require before building an opted-in run. `graphTools`
+starts a graph subtask; `graphRegistry` adds native lookup/history and evidence-bound recording.
 
 ***
 

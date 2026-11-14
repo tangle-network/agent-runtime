@@ -353,6 +353,8 @@ export const coordinationVerbNames = [
   'run_analyst',
   'define_analyst',
   'run_graph',
+  'lookup_graph',
+  'graph_history',
 ] as const
 
 /**

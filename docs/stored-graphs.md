@@ -4,6 +4,38 @@
 
 A loaded file is `StoredGraph` data whose `check` became a `route` deliverable reference; `graphFromStored(loaded.graph)` (from `/kernel`) binds that check and returns the `AgentGraph` to run (`examples/graphs/debate-rounds.ts` runs both forms). The host starts or attaches CLI Bridge and supplies `{ backend: 'bridge', bridgeUrl, bridgeBearer, cwd }` to `runGraph` or the existing durable `superviseGraphPursuit` entry. Every node uses a Bridge session in that environment. A cloud placement runs the same graph and Bridge inside one Sandbox. The host owns the server lifecycle and credentials.
 
+## Reuse inside an existing supervisor
+
+Set `SuperviseOptions.graphRegistry` to an operator-owned persistent registry directory, then explicitly grant `agent_runtime_coordination_lookup_graph`, `agent_runtime_coordination_graph_history` and `agent_runtime_coordination_run_graph` to the manager profile. `superviseFleetCapabilities.graphRegistry === true` identifies support for this complete native path. The existing backend-derived worker path must own graph execution; a caller-owned `makeWorkerAgent` does not mount these tools. Loading an authoring skill supplies guidance, while the configuration and grants supply authority.
+
+The manager calls `lookup_graph({ taskShape })`, then executes the returned digest with `run_graph({ graphDigest, deliverable, budget, taskShape })`, or authors an inline `graph` when lookup returns `decision: 'author'`. Execution still passes ordinary admission and reserves one subtask from the manager's conserved pool. `graph_history({ taskShape? })` reads the registry's recorded outcomes and measured cost; it starts no work. Do not call the standalone `runGraph` API inside a manager tool to implement this path: that would create a separate pool.
+
+`taskShape` is caller-authored JSON describing a comparable class of work. Include the input/output contract, check revision and relevant tool/resource context. An equal digest proves equal labels, not equivalent tasks or transferable performance. Supplying `taskShape` opts that graph subtask into settlement recording; omitting it preserves execution without a reuse row.
+
+For a reusable success, bind `checkRef` to an environment-owned `DeliverableSpec` in `SuperviseOptions.registry.deliverables`. The resolver's `resolve(name)` returns the check or `undefined`; a missing binding refuses graph admission. The final check receives the graph's raw deliverable: a manager's submitted value, or a flow's terminal output map. It runs through the existing completion gate after graph execution, outside the authored nodes. A node's self-submission or successful process exit does not establish independent graph acceptance. The operator owns check implementation and versioning; Runtime does not certify the quality of a registered check.
+
+```ts
+// The check implementation and persistent directory belong to the environment.
+const options = {
+  graphRegistry: '/workspace/graph-history',
+  registry: {
+    deliverables: {
+      resolve: (name: string) => name === 'artifact/v3' ? artifactCheck : undefined,
+    },
+  },
+}
+// Manager tool call (using its explicitly granted native run_graph):
+// { graph, deliverable: 'produce the artifact', budget,
+//   taskShape: { contract: 'artifact-json/v2', check: 'artifact/v3', resources: 'dataset-r4' },
+//   checkRef: 'artifact/v3', key: 'artifact' }
+```
+
+Replay by digest carries the stored `checkRef` unless the caller explicitly selects another binding. The current environment must resolve it before execution; replacing it produces a new stored graph digest. Registration retains the admitted topology, budget and check reference, the admitted profile and result blob references, edge count, committed outcome and measured subtree cost. Missing accounting remains absent with named unknowns. A completion without an independent check remains `unknown` and cannot win lookup; failed or unavailable checks cannot win either. The current completion gate does not distinguish rejection from an unavailable checker, so that ambiguity is recorded explicitly.
+
+Registry records are derived from the existing spawn journal and result store. The kernel's retained admission attempt ID deduplicates settlement replay, and reconstructing a committed graph restores its row without rerunning the graph or its check. The registry is not a recovery store. Lookup ranks past delivered runs using the existing registry policy; it does not promote a profile, prove an improvement or replace evaluation on new tasks. Historical records without a serializable check reference return `requiresCheckBinding: true` and need an environment binding for independently assessed native replay.
+
+## File execution and environment bindings
+
 A harness-driven root states its `continuation` in the authored graph. It uses `PortableContinuationPolicy` and `portableContinuationPolicySchema` from `/kernel`, whose policy values are admitted by the canonical `admitContinuationPolicy`. The record owns its note, switches, bounds and optional absolute deadline; Runtime supplies no policy default. The policy contributes to the content digest and survives registry storage and replay. A host may instead supply the existing `opts.continuation` for a programmatic graph, but supplying both owners is refused.
 
 Portable policies carry JSON and `panel: 'off'`; callbacks, panel execution fields, the host/version loop’s `best` verdict and unknown controls are refused. An `entry` graph has no root manager and refuses a continuation policy. These restrictions preserve the existing outside check and conserved execution budget.

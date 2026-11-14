@@ -2908,8 +2908,11 @@ Whether a spawned profile that declares no Runtime coordination tool receives it
 
 > `readonly` `optional` **graphRegistry?**: `string`
 
-The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
- may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+Persistent graph registry for native `lookup_graph`, `graph_history`, and `run_graph` reuse.
+A run_graph taskShape records its exact admitted topology, budget, terminal evidence and
+measured costs. Only a named environment check (`registry.deliverables`, selected by
+checkRef) can establish a reusable success. Each tool still needs its profile grant.
+Omit and run_graph takes graphs as data only, without registry reads or recording.
 
 ###### Inherited from
 
@@ -4224,8 +4227,11 @@ OPT-IN standing guidance from the profile knowledge base
 
 > `readonly` `optional` **graphRegistry?**: `string`
 
-The graph registry directory (`graph-registry`) whose stored graphs a manager's `run_graph`
- may start by `graphDigest`. Omit and `run_graph` takes graphs as data only.
+Persistent graph registry for native `lookup_graph`, `graph_history`, and `run_graph` reuse.
+A run_graph taskShape records its exact admitted topology, budget, terminal evidence and
+measured costs. Only a named environment check (`registry.deliverables`, selected by
+checkRef) can establish a reusable success. Each tool still needs its profile grant.
+Omit and run_graph takes graphs as data only, without registry reads or recording.
 
 ###### Inherited from
 

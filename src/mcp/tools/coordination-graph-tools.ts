@@ -47,6 +47,20 @@ export function mountGraphsTools({
             type: 'string',
             description: "A stored graph's digest in this run's graph registry, instead of graph.",
           },
+          taskShape: {
+            type: 'object',
+            description:
+              'Stable class of work for registry lookup and automatic recording. Requires this ' +
+              "run's graph registry. Omit to execute without adding a reuse record.",
+            additionalProperties: true,
+          },
+          checkRef: {
+            type: 'string',
+            description:
+              "Environment-owned completion check in this run's registry.deliverables. It judges " +
+              'the final graph deliverable. A stored graph keeps its checkRef unless replaced. ' +
+              'Without this check, a completion is unassessed evidence, not a reusable success.',
+          },
           deliverable: {
             type: 'string',
             description: "What the graph must deliver. It becomes the root node's task.",
@@ -81,9 +95,14 @@ export function mountGraphsTools({
           return { error: 'invalid-graph' as const, reason: 'graphDigest must be a string' }
         }
         const key = a.key === undefined ? undefined : str(a.key, 'key')
-        const prepared = await graphs.prepare(
-          typeof a.graphDigest === 'string' ? { graphDigest: a.graphDigest } : { graph: a.graph },
-        )
+        const prepared = await graphs.prepare({
+          ...(typeof a.graphDigest === 'string'
+            ? { graphDigest: a.graphDigest }
+            : { graph: a.graph }),
+          deliverable,
+          ...(a.taskShape === undefined ? {} : { taskShape: a.taskShape }),
+          ...(a.checkRef === undefined ? {} : { checkRef: a.checkRef }),
+        })
         if (!prepared.ok) return { error: 'invalid-graph' as const, reason: prepared.reason }
         const profile = detachedFrozen(prepared.profile)
         return admitSpawn({
@@ -100,5 +119,35 @@ export function mountGraphsTools({
         })
       },
     })
+    if (graphs.lookup) {
+      tools.push({
+        name: 'lookup_graph',
+        description:
+          'Look up a graph that previously passed its environment-owned completion check for ' +
+          'this task shape. Returns its digest for run_graph, or an author decision and reason. ' +
+          'Past acceptance is evidence about that run, not proof on the next task.',
+        inputSchema: {
+          type: 'object',
+          properties: { taskShape: { type: 'object', additionalProperties: true } },
+          required: ['taskShape'],
+          additionalProperties: false,
+        },
+        handler: (raw) => graphs.lookup!(obj(raw).taskShape),
+      })
+    }
+    if (graphs.history) {
+      tools.push({
+        name: 'graph_history',
+        description:
+          'Read graph registry outcomes, exact graph digests, measured cost and missing evidence. ' +
+          'Optionally filter by taskShape. This tool does not execute or promote a graph.',
+        inputSchema: {
+          type: 'object',
+          properties: { taskShape: { type: 'object', additionalProperties: true } },
+          additionalProperties: false,
+        },
+        handler: (raw) => graphs.history!(obj(raw).taskShape),
+      })
+    }
   }
 }

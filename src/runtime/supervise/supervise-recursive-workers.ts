@@ -2,6 +2,7 @@ import { ValidationError } from '../../errors'
 import type { GraphSubtasks, MakeWorkerAgent } from '../../mcp/tools/coordination-contracts'
 import { errMessage } from './error-message'
 import { createGraphOverlay, type GraphOverlay, productSpawnAuthority } from './graph-overlay'
+import { graphSubtaskRegistration, graphSubtaskRegistryReads } from './graph-subtask-registry'
 import {
   type GraphSubtaskTopology,
   parseGraphSubtaskTopology,
@@ -13,7 +14,7 @@ import { kernelPromptRegistry } from './prompt-registry'
 import { recursiveWorkerFactoryFor } from './recursive-worker-factory'
 import type { RunCancelRequest } from './run-cancellation'
 import type { ExecutorConfig } from './runtime'
-import { storedGraphTopology } from './supervise-graph-subtasks'
+import { storedGraphSubtask } from './supervise-graph-subtasks'
 import { DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY } from './supervise-profile-admission'
 import type { prepareSuperviseRun } from './supervise-run-setup'
 import { workerFromBackend } from './supervise-worker-backend'
@@ -46,16 +47,22 @@ export function createSuperviseWorkers(
   const graphSubtasks: GraphSubtasks | undefined =
     options.makeWorkerAgent === undefined
       ? {
+          ...(options.graphRegistry === undefined
+            ? {}
+            : graphSubtaskRegistryReads(options.graphRegistry)),
           prepare: async (input) => {
             try {
-              const topology =
+              const stored =
                 input.graphDigest === undefined
-                  ? parseGraphSubtaskTopology(input.graph)
-                  : await storedGraphTopology(options.graphRegistry, input.graphDigest)
+                  ? undefined
+                  : await storedGraphSubtask(options.graphRegistry, input.graphDigest)
+              const topology = stored?.topology ?? parseGraphSubtaskTopology(input.graph)
+              const registration = graphSubtaskRegistration(input, options, stored?.checkRef)
               const prepared = prepareGraphSubtask(topology, {
                 registry: subtaskDirectives,
                 ...(analysts ? { analysts } : {}),
                 ...(guidanceComposer ? { guidance: guidanceComposer } : {}),
+                ...(registration === undefined ? {} : { registration }),
               })
               // Every node is pinned, so a node the run would refuse at its spawn cannot be fixed
               // by the graph's driver. The run's model policy and pre-flight resolver judge every

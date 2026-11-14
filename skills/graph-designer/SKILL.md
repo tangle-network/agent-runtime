@@ -1,14 +1,16 @@
 ---
 name: graph-designer
-description: Design, replay, and improve agent graphs — an agent whose job is the graph, not the work.
+description: Choose, design, replay, and improve agent workflows from task outcomes and execution evidence.
 ---
 
 # Graph Designer
 
-When an input arrives, your job is NOT to do the work. It is to pick or design the GRAPH
-that does the work, run it under your granted permissions, and record what happened.
-Every execution is fully traced like any graph run — the registry plus the run's journal
-is the knowledge.
+Choose the smallest adequate execution for the user's task. Direct execution can be the
+baseline or the whole solution when coordination adds no value. Use dynamic supervision
+when the useful roles must be discovered; use a graph when its explicit dependencies,
+branches, checks or replayable structure help. Respect the role you were commissioned to
+perform: a request for a graph file calls for that file, while a request for a finished task
+does not require inventing a graph. Run only within granted authority and retain what happened.
 
 Apply `be-ambitious` to sharpen the methods and outside check while keeping the user's goal and acceptance fixed.
 Apply `agent-graphs` for the executable graph contract; keep these capabilities as separate profile skill resources.
@@ -19,7 +21,7 @@ Read the current API and CLI help for supported behavior; explicitly retain an u
 
 Production designs: search [Factory’s design catalog](https://github.com/tangle-network/factory/blob/main/README.md) before authoring; record a delivered Factory run through `recordGraphRun` like any graph.
 
-## The loop (every input)
+## The loop (when a graph is useful)
 
 1. Compute the task shape: the durable description you will look this kind of work up by
    (kind, source, constraints — stable fields, not the payload itself). Hash it.
@@ -42,26 +44,36 @@ ever run. Do not store the deliverable's check function — the environment re-b
 
 ## Improving, honestly
 
-Replay is the default; improvement is the exception with a reason. Read the prior records:
-delivered-and-cheapest wins (`pickBestGraph`); a no-winner with budget exhaustion wants
-budget or scope changes, not a new topology; repeated near-misses want a directive rewrite
-(a new prompt-registry version — directives are data, old versions stay). Prefer mutating
-one axis at a time so the next record attributes the difference. When an optimizer run
-(agent-eval) is available, feed it the losing graph's journal; otherwise your reasoned
-mutation IS the search step.
+Use a known delivered graph when its task and execution conditions still fit.
+Treat `pickBestGraph` as an observational lookup: delivered first, then cheaper, then recent.
+Read the failure and accounting evidence before choosing a change; exhaustion alone does not
+identify whether scope, allocation, instructions or topology caused the failure.
+Retain each deliberate mutation as a new graph revision with its reason and predecessor.
+Change one axis when that isolates the question, or test necessary combinations together.
+A reasoned mutation is an exploratory candidate; a later independent comparison establishes benefit.
 
-When the registry promotes a winning topology for a task type, retain a case under
-`skills/agent-graphs/cases/` citing the run and its measured outcome. The cited record
-provides the evidence; a descriptive ranking alone does not establish a win.
+To improve graph-authoring guidance, use Runtime's existing `improve` API with the exact
+inline skill and a complete Eval method such as `officialSkillOpt`; follow
+[the measurement contract](../agent-graphs/references/measurement.md).
+Select `skills.resourceName: 'graph-designer'` to improve this design procedure, or
+`'agent-graphs'` to improve the executable authoring guidance; keep the other skill fixed.
+The measured output is a graph executed on its task, with its actual outcome and resource use.
+Optimizing a graph's authoring skill, changing a particular graph, and improving the procedure
+that chooses experiments are separate interventions with separate evidence requirements.
+Keep final assessment independent at the level whose improvement is claimed.
+
+Retain useful cases with the run's identity, measured outcome and limitations in the consuming
+lab's research records. A descriptive registry ranking is not a promotion decision.
 
 ## Profiles improve the same way graphs do
 
 A worker profile is named and content-addressed; when a mutation rewrites a node's
-prompt, record the run in the profile registry too (`recordProfileRun`) — same shape
-as the graph registry, one level down. The winning revision per name is then an
-answered question (`bestProfileFor`), not an argument: delivered beats failed, then
-cheaper, then recent, and revisions never overwrite so old-vs-new is always a
-controlled diff.
+prompt, record the run in the profile registry too (`recordProfileRun`).
+`bestProfileFor` retrieves an observed delivered revision using the same cost and recency
+heuristic. Immutable versions preserve the exact diff; they do not make different runs a
+controlled experiment. Use the measured improvement and explicit activation paths when
+claiming a better default. A new revision affects a later execution that selects it;
+it does not replace a running graph's admitted profiles.
 
 ## Then consider
 

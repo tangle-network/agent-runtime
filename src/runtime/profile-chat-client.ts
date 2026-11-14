@@ -152,9 +152,11 @@ function bindProfileChat(args: {
   const model = concreteModelId(profile.model?.default)
   if (!model) throw new Error(`${args.context}: AgentProfile.model.default must be concrete`)
   const headers = callerRequestHeaders(args.headers, args.context)
+  const executor = captureReusableExecutorConfig(args.executor, args.context)
+  assertProfileChatResponseEvidence(executor, args.context)
   return {
     profile,
-    executor: captureReusableExecutorConfig(args.executor, args.context),
+    executor,
     context: args.context,
     model,
     settings: profileModelExecutionSettings(
@@ -164,6 +166,34 @@ function bindProfileChat(args: {
     ),
     ...(headers ? { headers } : {}),
   }
+}
+
+/** Refuse output contracts that cannot supply observed response identity before paid dispatch.
+ * Native process/worktree results remain valid execution artifacts; they are not chat envelopes.
+ * In particular, Codex JSONL token usage does not report which model answered. */
+function assertProfileChatResponseEvidence(executor: ExecutorConfig, context: string): void {
+  let reason: string
+  switch (executor.backend) {
+    case 'cli':
+      reason = 'raw subprocess output has no observed response model'
+      break
+    case 'cli-worktree':
+      reason = 'worktree artifacts, including Bridge worktrees, have no response model envelope'
+      break
+    case 'cli-in-place':
+      reason = 'in-place harness artifacts have no response model envelope'
+      break
+    case 'bridge':
+      if (executor.outputFormat !== 'json') return
+      reason = 'Bridge outputFormat:"json" returns the final JSON value without its model envelope'
+      break
+    default:
+      return
+  }
+  throw new Error(
+    `${context}: ${executor.backend} cannot provide the response model evidence required by exact profile chat: ${reason}. ` +
+      'Use a response-envelope route such as Router or plain Bridge without outputFormat:"json"; native execution remains available through createExecutor.',
+  )
 }
 
 async function runBoundProfileChat(
