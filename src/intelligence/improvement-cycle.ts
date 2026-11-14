@@ -1,16 +1,13 @@
 import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
 import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
-import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
+import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
-  type AgentProfileImprovementExperimentExecutionInput,
   type CandidateExperimentExecutionInput,
   type CompareCandidateExperimentOptions,
   measuredComparisonFromAgentProfileImprovementExperiment,
   measuredComparisonFromCandidateExperiment,
-  runAgentProfileImprovementExperiment,
   runCandidateExperiment,
   type Scenario,
-  sealAgentProfileImprovementExperiment,
   sealCandidateExperiment,
   verifyAgentProfileImprovementExperimentComparison,
   verifyCandidateExperiment,
@@ -19,7 +16,6 @@ import {
 import type {
   AgentCandidateBenchmarkCellRef,
   AgentCandidateBundle,
-  AgentCandidateEvaluationPolicy,
   AgentCandidateExperiment,
   AgentCandidateExperimentMaterial,
   AgentCandidateExperimentMeasurement,
@@ -27,15 +23,8 @@ import type {
   AgentCandidateRunCell,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
-  AgentImprovementSource,
   AgentProfile,
-  AgentProfileImprovementExecutionRef,
-  AgentProfileImprovementExperiment,
-  AgentProfileImprovementMeasuredComparison,
-  AgentProfileImprovementMeasurement,
-  AgentProfileImprovementRunReceipt,
   AgentProfileImprovementSuiteInputs,
-  AgentProfileImprovementTaskMaterial,
   CandidateExecutionEvidence,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -83,33 +72,36 @@ import {
 import { assertProfileTrainingIsHeldOut } from '../improvement/candidate-validation'
 import { rethrowAfterCleanup } from '../improvement/cleanup'
 import {
-  type ImproveMethodOptions,
   type ImproveMethodResult,
   type ImproveOptions,
   type ImproveResult,
+  type ImproveSearchResult,
   improve,
 } from '../improvement/improve'
 import { createAgentImprovementProposal } from './activation'
-import {
-  type AgentProfileMeasuredSurface,
-  agentImprovementProfileDiffs,
-  isAgentProfileMeasuredSurface,
-} from './improvement-surfaces'
+import { assertReleaseScenariosAreFresh } from './improvement-experiment-lineage'
+import { isAgentProfileMeasuredSurface } from './improvement-surfaces'
 import {
   assertNoCallerOptimizationReceipt,
   attachOptimizationActivationReceipt,
   createOptimizationActivationReceipt,
 } from './optimization-receipt'
-import type { AgentImprovementProfileStateDigest } from './profile-activation'
 import {
   completeImprovementSearchAccounting,
   createProfileImprovementCostLedger,
   type ImprovementSearchAccounting,
+  measureProfileImprovementCandidate,
+  type ProposeAgentProfileImprovementHeldResult,
+  type ProposeAgentProfileImprovementIncompleteResult,
+  type ProposeAgentProfileImprovementOptions,
+  type ProposeAgentProfileImprovementResult,
+  profileImprovementHold,
   profileImprovementMetadata,
+  profileImprovementModelBinding,
   profilePolicyWithBudget,
-  profilePreparationAccounting,
   profileStateDigest,
   profileTaskScenarioIdentity,
+  type RecordAgentProfileImprovementOptions,
   sealProfileImprovementBenchmark,
 } from './profile-improvement-experiment'
 
@@ -219,67 +211,6 @@ export interface ProposeAgentImprovementResult<TScenario extends Scenario, TArti
   improvement: ImproveResult<TScenario, TArtifact>
   experiment: AgentCandidateExperiment
   measurements: AgentCandidateExperimentMeasurement[]
-  proposal: AgentImprovementProposal
-}
-
-/** Product-owned task material that Runtime freezes before either profile state runs. */
-export interface AgentProfileImprovementBenchmark {
-  tasks: [AgentProfileImprovementTaskMaterial, ...AgentProfileImprovementTaskMaterial[]]
-  reps: number
-  seeds: [number, ...number[]]
-  policy: AgentCandidateEvaluationPolicy
-}
-
-/**
- * One product execution adapter shared by optimizer search and exact profile
- * measurement. `executionRef` must identify both operations and their closure.
- */
-export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact> {
-  executionRef: AgentProfileImprovementExecutionRef
-  optimize: ImproveMethodOptions<TScenario, TArtifact>['agent']
-  measure(
-    input: AgentProfileImprovementExperimentExecutionInput & { profile: AgentProfile },
-  ): Promise<AgentProfileImprovementRunReceipt>
-}
-
-/** The portable profile changes that the measured-profile contract permits. */
-export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = Omit<
-  ImproveMethodOptions<TScenario, TArtifact>,
-  'agent' | 'executionRef' | 'findings' | 'surface'
-> & {
-  surface?: AgentProfileMeasuredSurface
-  findings?: readonly ProposalFinding[]
-}
-
-/**
- * Complete profile-improvement path for a product-owned source.
- * Runtime owns analysis, search ancestry, profile diffs, experiment sealing,
- * paired evaluation, and the reviewable proposal. The product keeps its
- * profile bytes, task executor, billing, trace capture, and persistence.
- */
-export interface ProposeAgentProfileImprovementOptions<TScenario extends Scenario, TArtifact> {
-  runId: string
-  source: AgentImprovementSource
-  profile: AgentProfile
-  stateDigest: AgentImprovementProfileStateDigest
-  analysis: AgentImprovementAnalysisOptions
-  improvement: AgentProfileImprovementMethodOptions<TScenario, TArtifact>
-  benchmark: AgentProfileImprovementBenchmark
-  executor: AgentProfileImprovementExecutor<TScenario, TArtifact>
-  /** One customer-approved maximum for analysis, optimization, and measurement. */
-  budgetUsd: number
-  maxConcurrency?: number
-  signal?: AbortSignal
-  candidate?: AgentProfileImprovementMeasuredComparison['candidate']
-  metadata?: AgentProfileImprovementMeasuredComparison['metadata']
-  now?: () => Date
-}
-
-export interface ProposeAgentProfileImprovementResult {
-  analysis: RunAnalystLoopResult
-  improvement: ImproveMethodResult
-  experiment: AgentProfileImprovementExperiment
-  measurements: AgentProfileImprovementMeasurement[]
   proposal: AgentImprovementProposal
 }
 
@@ -426,6 +357,9 @@ async function analyzeAgentImprovement(
   const analysis = await runAnalystLoop({
     ...options,
     runId,
+    // The library proposal entrypoint must not write diagnostics into a caller's JSON stdout.
+    // Caller-supplied analysis callbacks remain prohibited by measured admission.
+    log: () => {},
     ...(costLedger ? { costLedger, costPhase: 'profile-improvement-analysis' } : {}),
     ...(signal ? { signal } : {}),
   })
@@ -515,40 +449,15 @@ function assertReleaseSplitIsFresh<TScenario extends Scenario, TArtifact>(
   improvement: ImproveResult<TScenario, TArtifact>,
 ): void {
   const consumedSplits = [improvement.lineage.developmentSplitDigest]
-  if (improvement.mode === 'method') {
+  if (improvement.mode !== 'code') {
     const finalTestSplitDigest = improvement.lineage.finalTestSplitDigest
     if (!finalTestSplitDigest) {
-      throw new Error('method improvement does not retain its final-test split digest')
+      throw new Error('profile improvement does not retain its final-test split digest')
     }
     consumedSplits.push(finalTestSplitDigest)
   }
   if (consumedSplits.includes(heldOutSplitDigest)) {
     throw new Error('release benchmark reuses an optimizer development or final-test split')
-  }
-}
-
-function assertReleaseScenariosAreFresh(
-  improvement: ImproveMethodResult,
-  heldOutScenarios: readonly CampaignScenarioIdentity[],
-): void {
-  const optimizerScenarios = new Map<string, string>()
-  for (const [partition, scenarios] of [
-    ['train', improvement.lineage.scenarioPartitions.train],
-    ['selection', improvement.lineage.scenarioPartitions.selection],
-    ['final-test', improvement.lineage.scenarioPartitions.finalTest],
-  ] as const) {
-    for (const scenario of scenarios) {
-      optimizerScenarios.set(canonicalCandidateDigest(scenario), partition)
-    }
-  }
-  const reused = heldOutScenarios
-    .filter((scenario) => optimizerScenarios.has(canonicalCandidateDigest(scenario)))
-    .map(
-      (scenario) =>
-        `${scenario.id} (${optimizerScenarios.get(canonicalCandidateDigest(scenario))})`,
-    )
-  if (reused.length > 0) {
-    throw new Error(`release benchmark reuses optimizer scenario(s): [${reused.join(', ')}]`)
   }
 }
 
@@ -561,28 +470,45 @@ function assertCandidateReleaseWorkIsFresh<TScenario extends Scenario, TArtifact
   )) {
     assertReleaseSplitIsFresh(splitDigest, improvement)
   }
-  if (improvement.mode !== 'method') return
+  if (improvement.mode === 'code') return
   assertReleaseScenariosAreFresh(
-    improvement,
+    improvement.lineage.scenarioPartitions,
     experiment.benchmark.tasks.map((task) => task.scenario),
   )
 }
 
 function assertProfileReleaseWorkIsFresh(
   benchmark: AgentProfileImprovementSuiteInputs,
-  improvement: ImproveMethodResult,
+  improvement: ImproveMethodResult | ImproveSearchResult,
 ): void {
   assertReleaseSplitIsFresh(benchmark.suite.splitDigest, improvement)
-  assertReleaseScenariosAreFresh(improvement, benchmark.tasks.map(profileTaskScenarioIdentity))
+  assertReleaseScenariosAreFresh(
+    improvement.lineage.scenarioPartitions,
+    benchmark.tasks.map(profileTaskScenarioIdentity),
+  )
 }
 
-/**
- * Analyze a product-owned profile, search one profile surface, then run the
- * exact baseline and candidate through the product executor before proposing.
- */
-export async function proposeAgentProfileImprovement<TScenario extends Scenario, TArtifact>(
+/** Search one profile, then independently measure its exact states before proposing. */
+export function proposeAgentProfileImprovement<TScenario extends Scenario, TArtifact>(
+  options: RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
+): Promise<
+  | ProposeAgentProfileImprovementResult
+  | ProposeAgentProfileImprovementIncompleteResult
+  | ProposeAgentProfileImprovementHeldResult
+>
+export function proposeAgentProfileImprovement<TScenario extends Scenario, TArtifact>(
   options: ProposeAgentProfileImprovementOptions<TScenario, TArtifact>,
-): Promise<ProposeAgentProfileImprovementResult> {
+): Promise<ProposeAgentProfileImprovementResult>
+export async function proposeAgentProfileImprovement<TScenario extends Scenario, TArtifact>(
+  options:
+    | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
+    | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
+): Promise<
+  | ProposeAgentProfileImprovementResult
+  | ProposeAgentProfileImprovementIncompleteResult
+  | ProposeAgentProfileImprovementHeldResult
+> {
+  const resolveModelBinding = profileImprovementModelBinding(options.modelBinding)
   const source = agentImprovementSourceSchema.parse(options.source)
   const surface = options.improvement.surface ?? 'prompt'
   if (!isAgentProfileMeasuredSurface(surface)) {
@@ -632,71 +558,39 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     findings: proposalFindings,
   })
   try {
+    const held = profileImprovementHold(
+      options.allowIncomplete,
+      source,
+      analysis,
+      improvement,
+      costLedger,
+    )
+    if (held) return held
     if (improvement.decision !== 'ship') {
       throw new Error('agent profile improvement search did not produce a promotable candidate')
     }
-    const candidateProfile = parseExactAgentProfile(
-      improvement.candidate.profile,
-      'profile improvement candidate',
-    )
-    const candidateStateDigest = profileStateDigest(
-      options.stateDigest,
-      source.sourceIdentity,
-      candidateProfile,
-    )
-    if (candidateStateDigest === baselineStateDigest) {
-      throw new Error('profile improvement candidate state digest matches the baseline')
-    }
-    const change = agentImprovementProfileDiffs(profile, candidateProfile, {
-      id: `profile-improvement:${candidateStateDigest}`,
-      metadata: {
-        sourceIdentity: source.sourceIdentity,
-        sourceRevision: source.sourceRevision,
-      },
-    })
-    const profileDiffIds = change.map((step) => {
-      if (!step.id) throw new Error('profile improvement change requires an exact diff id')
-      return step.id
-    })
-    assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
-    assertProfileReleaseWorkIsFresh(benchmark, improvement)
-    const experiment = sealAgentProfileImprovementExperiment({
-      kind: 'agent-profile-improvement-experiment',
-      digestAlgorithm: 'rfc8785-sha256',
+    const { experiment, preparation, run } = await measureProfileImprovementCandidate(options, {
       source,
-      executionRef: options.executor.executionRef,
-      baseline: { stateDigest: baselineStateDigest },
-      candidate: { stateDigest: candidateStateDigest },
-      change,
-      candidateLineage: {
-        source: 'optimizer',
-        parentDigests: [source.sourceDigest],
-        runIds: [improvement.lineage.runId],
-        profileDiffIds,
-        developmentSplitDigest: improvement.lineage.developmentSplitDigest,
-      },
+      baseline: { profile, stateDigest: baselineStateDigest },
+      candidate: improvement.candidate.profile,
+      lineage: improvement.lineage,
       benchmark,
       policy,
-    })
-    const profilesByStateDigest = new Map<Sha256Digest, AgentProfile>([
-      [baselineStateDigest, profile],
-      [candidateStateDigest, candidateProfile],
-    ])
-    const preparation = profilePreparationAccounting(costLedger, preparationStartedAt)
-    const run = await runAgentProfileImprovementExperiment({
-      experiment,
-      ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
-      costLedger,
-      ...(options.signal ? { signal: options.signal } : {}),
-      execute: async (input) => {
-        const measuredProfile = profilesByStateDigest.get(input.stateDigest)
-        if (!measuredProfile) {
-          throw new Error('profile improvement execution requested an unknown profile state')
-        }
-        return options.executor.measure({ ...input, profile: measuredProfile })
+      resolveModelBinding,
+      assertCandidate: (candidateProfile) => {
+        assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
+        assertProfileReleaseWorkIsFresh(benchmark, improvement)
       },
+      costLedger,
+      preparationStartedAt,
     })
-    const optimizationReceipt = createOptimizationActivationReceipt(improvement)
+    if ('status' in run) {
+      if (options.allowIncomplete !== true)
+        throw new Error('profile improvement measurement accounting is incomplete')
+      return { ...run, analysis, improvement, experiment }
+    }
+    const optimizationReceipt =
+      improvement.mode === 'method' ? createOptimizationActivationReceipt(improvement) : undefined
     const evaluation = verifyAgentProfileImprovementExperimentComparison(
       measuredComparisonFromAgentProfileImprovementExperiment({
         experiment,
@@ -747,7 +641,12 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       ? await improve(improvementInput)
       : await improve(options.profile, improvementInput)
   try {
-    if (improvement.decision !== 'ship') {
+    const deferredCode =
+      options.improvement.surface === 'code' &&
+      options.improvement.budget?.holdout === 'deferred' &&
+      improvement.mode === 'code' &&
+      improvement.raw.raw.holdout === 'deferred'
+    if (improvement.decision !== 'ship' && !deferredCode) {
       throw new Error('agent improvement search did not produce a promotable candidate')
     }
     const searchAccounting = completeImprovementSearchAccounting(analysisAccounting, improvement)
@@ -764,6 +663,12 @@ export async function proposeAgentImprovement<TScenario extends Scenario, TArtif
       await options.buildExperiment({ analysis, improvement }),
       improvement,
     )
+    if (deferredCode && options.improvement.surface === 'code') {
+      assertReleaseScenariosAreFresh(
+        { train: options.improvement.scenarios.map(campaignScenarioIdentity) },
+        experiment.benchmark.tasks.map((task) => task.scenario),
+      )
+    }
     assertCandidateProfileBinding(options.profile, experiment.baseline.profile)
     assertImprovementCandidateBinding(improvement, experiment)
     const measured = await runAgentCandidateExperiment({

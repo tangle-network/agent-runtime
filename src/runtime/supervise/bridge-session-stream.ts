@@ -41,6 +41,8 @@ interface StreamBridgeArgs {
   stopSignal?: AbortSignal
   /** Runtime-owned MCP servers mounted for the run, outside the bound AgentProfile. */
   runtimeAttachments?: Readonly<Record<string, AgentProfileMcpServer>>
+  /** Secrets those attachments reference; the bridge keeps them in memory, out of its run record. */
+  runtimeEnv?: Readonly<Record<string, string>>
   profile: AgentProfile
   seam: ResolvedBridgeSeam
   sessionId: string
@@ -273,6 +275,7 @@ async function* streamBridgeTurn(
     ...(args.runtimeAttachments === undefined
       ? {}
       : { runtime_attachments: { mcp: args.runtimeAttachments } }),
+    ...(args.runtimeEnv === undefined ? {} : { env: args.runtimeEnv }),
     messages: turn.messages,
   }
   ledger.beginTurn()

@@ -112,9 +112,13 @@ export class SpawnEventIndex {
         throw new Error(`spawn journal corrupted: admission deadline changed for '${event.id}'`)
     }
     if (event.kind === 'execution-evidence') {
-      if (!node?.spawned || !/^sha256:[0-9a-f]{64}$/.test(event.outRef)) {
+      if (
+        !node?.spawned ||
+        !/^sha256:[0-9a-f]{64}$/.test(event.outRef) ||
+        (event.attemptId !== undefined && (typeof event.attemptId !== 'string' || !event.attemptId))
+      ) {
         throw new Error(
-          'spawn journal corrupted: executor evidence has no spawned node or valid content reference',
+          'spawn journal corrupted: executor evidence has no spawned node, valid content reference or attempt',
         )
       }
     }

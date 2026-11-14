@@ -2,7 +2,11 @@
 
 export type { SandboxLeafOut, SandboxOutputMarker } from '../sandbox-executor-output'
 export type { BridgeHarnessStore, BridgeModelCredential, BridgeSeam } from './bridge-config'
-export { bridgeRuntimeAttachmentsKey, bridgeStopSignalKey } from './bridge-config'
+export {
+  bridgeRuntimeAttachmentsKey,
+  bridgeRuntimeEnvKey,
+  bridgeStopSignalKey,
+} from './bridge-config'
 export { bridgeExecutor } from './bridge-executor'
 export { bridgeAdmissionRefusal, bridgeModelRouteRefusal } from './bridge-transport'
 export { cliInPlaceExecutor, cliWorktreeExecutor } from './cli-executor-factories'

@@ -1,17 +1,33 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { join } from 'node:path'
 import {
   type CostLedgerHandle,
   minimumPairsForPairedDeltaTest,
   type ProposalFinding,
 } from '@tangle-network/agent-eval'
-import { campaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
+import {
+  campaignScenarioIdentity,
+  gitWorktreeAdapter,
+  incumbent,
+  uniform,
+} from '@tangle-network/agent-eval/campaign'
 import {
   sealAgentProfileImprovementTask,
   sealCandidateBenchmarkSuite,
   sealCandidateBenchmarkTask,
 } from '@tangle-network/agent-eval/contract'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  agentProfileImprovementExpectedModel,
+} from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
-
+import {
+  buildAgentCandidateBundle,
+  captureAgentCodeCandidateWorkspace,
+  createAgentCandidateWorkspacePort,
+} from '../src/candidate-execution'
 import {
   canonicalCandidateDigest,
   embeddedCandidateArtifact,
@@ -20,6 +36,9 @@ import {
   agentCandidateProfileAsAgentProfile,
   freezeGenericAgentCandidateProfile,
 } from '../src/candidate-execution/profile'
+import type { ReadonlyAgentProfile } from '../src/improvement'
+import { routerLane, searchMethod } from '../src/improvement/improve'
+import { proposeAgentProfileImprovement as proposeProfile } from '../src/intelligence'
 import {
   createAgentImprovementActivation,
   createAgentImprovementActivationResult,
@@ -43,11 +62,17 @@ import {
   agentImprovementTargetInput,
   deriveChangedSurfaces,
 } from '../src/intelligence/improvement-surfaces'
+import {
+  canonicalObservedModelParts,
+  observedModelHasSnapshot,
+  observedModelMatchesDeclared,
+} from '../src/runtime'
 
 import {
   candidateBundle,
   candidateSha,
   cleanupCandidateFixtures,
+  createCandidateExecutionFixture,
   emptyCandidateSnapshot,
   redigestCandidateBundle,
 } from './helpers/candidate-execution-fixture'
@@ -66,7 +91,7 @@ import {
   createProfileImprovementFixture,
   createProfileImprovementRunReceipt,
 } from './helpers/profile-improvement-fixture'
-
+import { makeTempRoot } from './helpers/temp-root'
 import { trainedProfile } from './helpers/trained-profile'
 
 afterEach(() => {
@@ -96,6 +121,643 @@ const searchFinding: ProposalFinding = {
 // file one scheduling hiccup from red regardless of what changed. Size the timeout to the work
 // these tests actually do rather than leaving them at the edge of the default.
 describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
+  it('defers code-search final cases and measures the exact finalized trees only through the outer experiment', async () => {
+    // This producer is an actual deterministic child process, not an LLM.
+    // Its zero inference cost does not qualify subscription model execution.
+    const source = createCandidateExecutionFixture(true)
+    const repoRoot = source.task.stagingRoots.taskRoot
+    // Both measured trees launch the fixture's entrypoint, so the task repository must hold it.
+    const launch = source.bundle.execution.launch
+    if (launch.kind !== 'candidate-entrypoint') throw new Error('expected a candidate entrypoint')
+    writeFileSync(join(repoRoot, launch.entrypoint), '#!/usr/bin/env node\n', { mode: 0o755 })
+    execFileSync('git', ['add', launch.entrypoint], { cwd: repoRoot })
+    execFileSync('git', ['commit', '-m', 'candidate entrypoint'], { cwd: repoRoot })
+    const directory = makeTempRoot('deferred-code-lifecycle-')
+    const profile = agentCandidateProfileAsAgentProfile(source.bundle.profile)
+    let measured: CandidateExperimentFixture | undefined
+    const scored: string[] = []
+    const cells: string[] = []
+    try {
+      const result = await proposeAgentImprovement<{ id: string; kind: string }, string>({
+        runId: 'deferred-code-lifecycle',
+        profile,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => ({
+              run_id: 'deferred-code-lifecycle',
+              correlation_id: 'deferred-code-lifecycle',
+              started_at: '2026-07-10T00:00:00.000Z',
+              ended_at: '2026-07-10T00:00:00.000Z',
+              findings: [],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed', usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: {
+          surface: 'code',
+          runDir: join(directory, 'search'),
+          scenarios: [{ id: 'code-train', kind: 'deterministic-code' }],
+          model: 'deterministic-child@2026-11-12',
+          expectUsage: 'off',
+          budget: { generations: 1, populationSize: 1, reps: 1, holdout: 'deferred' },
+          analyzeGeneration: null,
+          agent: async (surface, scenario) => {
+            scored.push(scenario.id)
+            if (typeof surface !== 'object' || surface.kind !== 'code')
+              throw new Error('expected code')
+            return readFileSync(join(surface.worktreeRef, 'source.ts'), 'utf8')
+          },
+          judge: {
+            name: 'deterministic-code-read',
+            dimensions: [{ key: 'quality', description: 'Exact code bytes' }],
+            score: ({ artifact }) => {
+              const score = artifact === 'export const value = 2\n' ? 1 : 0
+              return { dimensions: { quality: score }, composite: score, notes: '' }
+            },
+          },
+          code: {
+            repoRoot,
+            baseRef: 'HEAD',
+            worktreeDir: join(directory, 'worktrees'),
+            profile: { ...profile, model: { ...profile.model, provider: 'offline' } },
+            generator: {
+              kind: 'deterministic-child',
+              proposesWithoutFindings: true,
+              async generate({ worktreePath }) {
+                execFileSync(
+                  process.execPath,
+                  [
+                    '-e',
+                    "require('node:fs').writeFileSync('source.ts','export const value = 2\\n')",
+                  ],
+                  { cwd: worktreePath },
+                )
+                return { applied: true, summary: 'Correct exact code value' }
+              },
+            },
+          },
+        },
+        buildExperiment: async ({ improvement }) => {
+          if (improvement.mode !== 'code') throw new Error('expected code result')
+          expect(improvement.decision).toBe('hold')
+          expect(improvement.lift).toBeUndefined()
+          expect(improvement.raw.raw.holdout).toBe('deferred')
+          const surface = improvement.candidate.value
+          if (typeof surface !== 'object' || surface.kind !== 'code')
+            throw new Error('expected code winner')
+          const adapter = gitWorktreeAdapter({ repoRoot, worktreeDir: join(directory, 'baseline') })
+          const baseline = await adapter.create({
+            baseRef: surface.baseCommit,
+            label: 'outer-baseline',
+          })
+          try {
+            const before = await adapter.finalize(baseline, 'Unchanged outer baseline')
+            const repository = { kind: 'github' as const, owner: 'owner', repo: 'repo' }
+            const compile = async (exact: typeof surface) => {
+              const workspace = await captureAgentCodeCandidateWorkspace({
+                kind: 'code-surface',
+                surface: exact,
+                repository,
+              })
+              // An unchanged tree is an explicit no-op over its base, never an empty git patch.
+              const code =
+                exact.candidateTree === exact.baseTree
+                  ? {
+                      kind: 'no-op' as const,
+                      reason: 'proposer-no-change' as const,
+                      repository,
+                      baseCommit: exact.baseCommit,
+                      baseTree: exact.baseTree,
+                    }
+                  : { kind: 'code-surface' as const, surface: exact, repository }
+              return buildAgentCandidateBundle({
+                profile: { kind: 'candidate-profile', profile: source.bundle.profile },
+                code,
+                execution: { ...source.bundle.execution, workspace: workspace.snapshot },
+                memory: source.bundle.memory,
+              })
+            }
+            expect(before.candidateTree).toBe(before.baseTree)
+            expect(surface.candidateTree).not.toBe(surface.baseTree)
+            measured = createCandidateExperimentFixture({
+              baseline: await compile(before),
+              candidate: await compile(surface),
+              configureFixture: (fixture) => {
+                fixture.ports.repositories.resolve = async () => repoRoot
+                // Both measured trees are archives of exact finalized Git trees, not fixture files.
+                const fixtureWorkspaces = fixture.ports.workspaces.materialize
+                const archives = createAgentCandidateWorkspacePort()
+                fixture.ports.workspaces.materialize = (input) =>
+                  input.role === 'candidate'
+                    ? archives.materialize(input)
+                    : fixtureWorkspaces(input)
+              },
+              scoreForRequest: (request) => {
+                const bytes = request.inputs.candidate?.files.find(
+                  (file) => file.path === 'source.ts',
+                )?.bytes
+                return bytes && Buffer.from(bytes).toString('utf8') === 'export const value = 2\n'
+                  ? 1
+                  : 0
+              },
+            })
+            return candidateExperimentMaterial(measured.experiment)
+          } finally {
+            await adapter.discard(baseline)
+          }
+        },
+        placeCell: (input) => {
+          if (!measured) throw new Error('expected sealed code experiment')
+          const placement = measured.placeCell(input)
+          const candidateRoot = makeTempRoot('deferred-code-cell-')
+          cells.push(candidateRoot)
+          return {
+            ...placement,
+            executionRoots: { ...placement.executionRoots, candidateRoot: '/workspace/candidate' },
+            stagingRoots: { ...placement.stagingRoots, candidateRoot },
+          }
+        },
+      })
+      try {
+        expect(scored.length).toBeGreaterThan(0)
+        expect(new Set(scored)).toEqual(new Set(['code-train']))
+        expect(result.improvement.decision).toBe('hold')
+        expect(result.experiment.candidateLineage.runIds).toContain(
+          result.improvement.lineage.runId,
+        )
+        expect(result.measurements.length).toBeGreaterThan(0)
+        expect(result.proposal.evaluation).toBeDefined()
+        expect(readFileSync(join(repoRoot, 'source.ts'), 'utf8')).not.toContain('value = 2')
+      } finally {
+        await result.improvement.dispose()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+      for (const root of cells) rmSync(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
+  it('seals one resolved model treatment and preserves incomplete HTTP measurements without a proposal', async () => {
+    // The HTTP peer is a deterministic process boundary, not a model service.
+    const template = createProfileImprovementFixture()
+    const { digest: _taskDigest, ...task } = template.evaluation.experiment.benchmark.tasks[0]!
+    const baselineModel = task.model
+    const baseline: AgentProfile = {
+      name: 'support-agent',
+      harness: 'cli-base',
+      model: {
+        default: baselineModel.requested,
+        provider: baselineModel.provider,
+        reasoningEffort: baselineModel.reasoningEffort,
+      },
+      prompt: { systemPrompt: 'BASELINE' },
+    }
+    const candidate: AgentProfile = {
+      ...baseline,
+      model: {
+        ...baseline.model,
+        default: 'anthropic/candidate-model-2026-11-12',
+        reasoningEffort: 'high',
+      },
+      prompt: { systemPrompt: 'PROMOTED' },
+    }
+    const candidateModel = {
+      ...baselineModel,
+      requested: candidate.model!.default!,
+      model: 'candidate-model-2026-11-12',
+      snapshot: '2026-11-12',
+      reasoningEffort: 'high' as const,
+    }
+    let missingIdentity = false
+    let wrongObservedModel = false
+    let incomplete = false
+    let unchanged = false
+    let resolverCalls = 0
+    const measured: string[] = []
+    const server = createServer(async (request, response) => {
+      let bytes = ''
+      for await (const chunk of request) bytes += chunk
+      const body = bytes ? JSON.parse(bytes) : {}
+      const value =
+        request.url === '/observed'
+          ? `${baselineModel.model}@${baselineModel.snapshot}`
+          : request.url === '/candidate'
+            ? unchanged
+              ? baseline
+              : candidate
+            : request.url === '/resolve'
+              ? {
+                  kind: 'profile-default',
+                  baseline: { authored: body.baseline.model, resolved: baselineModel },
+                  candidate: {
+                    authored: body.candidate.model,
+                    resolved: { ...candidateModel, ...(missingIdentity ? { snapshot: null } : {}) },
+                  },
+                }
+              : wrongObservedModel
+                ? baselineModel
+                : body.profile.model.default === baselineModel.requested
+                  ? baselineModel
+                  : candidateModel
+      response.setHeader('content-type', 'application/json')
+      response.end(JSON.stringify(value))
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as { port: number }).port
+    const call = async (path: string, body: unknown) => {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) throw new Error(`HTTP identity peer refused ${response.status}`)
+      return response.json()
+    }
+    const stateDigest = ({ profile }: { identity: string; profile: AgentProfile }) =>
+      canonicalCandidateDigest(profile)
+    const observed = await call('/observed', {})
+    expect(canonicalObservedModelParts(observed)).toMatchObject({
+      base: baselineModel.model,
+      snapshot: baselineModel.snapshot,
+    })
+    expect(observedModelHasSnapshot(observed)).toBe(true)
+    expect(observedModelMatchesDeclared(observed, baselineModel.requested)).toBe(true)
+    expect(observedModelMatchesDeclared(observed, candidate.model!.default!)).toBe(false)
+    expect(observedModelHasSnapshot(baselineModel.requested)).toBe(false)
+    const options = () => {
+      const { agent: optimize, executionRef, ...improvement } = improvementOptions()
+      return {
+        runId: 'profile-http-model-lifecycle',
+        source: {
+          kind: 'platform-agent-profile',
+          sourceIdentity: 'profile-support',
+          sourceDigest: stateDigest({ identity: 'profile-support', profile: baseline }),
+          sourceRevision: 1,
+        },
+        profile: baseline,
+        stateDigest,
+        budgetUsd: minimumPairedRuns * 2 + 1,
+        analysis: {
+          registry: {
+            list: () => [{ id: 'improvement' }],
+            run: async () => ({
+              run_id: 'profile-http-model-lifecycle',
+              correlation_id: 'profile-http-model-lifecycle',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:01.000Z',
+              findings: [finding],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed' as const, usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: {
+          ...improvement,
+          surface: 'agent-profile' as const,
+          method: {
+            name: 'http-complete-profile',
+            optimize: async () => ({
+              winnerSurface: JSON.stringify(await call('/candidate', {})),
+              cost: {
+                totalCostUsd: 0,
+                costProvenance: { kind: 'observed' as const, usd: 0 },
+                accountingComplete: true,
+                incompleteReasons: [],
+              },
+            }),
+          },
+        },
+        benchmark: {
+          tasks: [task] as [typeof task],
+          reps: minimumPairedRuns,
+          seeds: Array.from({ length: minimumPairedRuns }, (_, index) => index + 41) as [
+            number,
+            ...number[],
+          ],
+          policy: template.evaluation.experiment.policy,
+        },
+        modelBinding: async (profiles: {
+          baseline: ReadonlyAgentProfile
+          candidate: ReadonlyAgentProfile
+        }) => {
+          resolverCalls++
+          expect(Object.isFrozen(profiles.baseline)).toBe(true)
+          expect(Object.isFrozen(profiles.candidate.model)).toBe(true)
+          expect(Reflect.set(profiles.candidate.model!, 'default', 'unmeasured')).toBe(false)
+          return call('/resolve', profiles)
+        },
+        executor: {
+          executionRef: {
+            kind: 'agent-profile-improvement-execution-ref' as const,
+            identity: 'http-profile-executor',
+            digest: executionRef,
+          },
+          optimize,
+          measure: async (
+            input: Parameters<typeof createProfileImprovementRunReceipt>[0] & {
+              profile: AgentProfile
+            },
+          ) => {
+            expect(Object.isFrozen(input.profile)).toBe(true)
+            expect(Object.isFrozen(input.experiment)).toBe(true)
+            const expected = agentProfileImprovementExpectedModel(
+              input.experiment,
+              input.task,
+              input.arm,
+              input.profile,
+            )
+            const observed = await call('/execute', { profile: input.profile })
+            measured.push(input.arm)
+            expect(expected.requested).toBe(input.profile.model!.default)
+            const { digest: _digest, ...material } = createProfileImprovementRunReceipt(
+              input,
+              input.arm === 'candidate' ? 1 : 0,
+            )
+            const record = {
+              ...material,
+              resolvedModel: observed,
+              ...(incomplete
+                ? {
+                    usage: {
+                      availability: 'unavailable' as const,
+                      reason: 'Native cache, reasoning and billing unavailable',
+                      facts: {
+                        inputTokens: material.usage.inputTokens,
+                        outputTokens: material.usage.outputTokens,
+                        cachedInputTokens: null,
+                        reasoningTokens: null,
+                        modelCalls: material.usage.modelCalls,
+                        costUsdNanos: null,
+                        costProvenance: null,
+                      },
+                    },
+                  }
+                : {}),
+            }
+            return { ...record, digest: canonicalCandidateDigest(record) }
+          },
+        },
+      }
+    }
+    try {
+      const complete = await proposeProfile({ ...options(), allowIncomplete: true })
+      if ('status' in complete) throw new Error('Unexpected incomplete HTTP identity proof')
+      expect(resolverCalls).toBe(1)
+      expect(complete.proposal.evaluation.decision.outcome).toBe('ship')
+      expect(
+        complete.measurements.every(
+          (pair) => pair.baseline.resolvedModel.model !== pair.candidate.resolvedModel.model,
+        ),
+      ).toBe(true)
+      await complete.improvement.dispose()
+      const sealedBinding = complete.experiment.modelBinding
+      if (!sealedBinding) throw new Error('Missing sealed model treatment')
+      incomplete = true
+      const retained = await proposeProfile({
+        ...options(),
+        modelBinding: sealedBinding,
+        allowIncomplete: true,
+      })
+      if (!('status' in retained) || retained.status !== 'incomplete')
+        throw new Error('Expected explicit incomplete outcome')
+      expect(resolverCalls).toBe(1)
+      expect(retained.status).toBe('incomplete')
+      expect(retained.decision).toBe('hold')
+      expect('proposal' in retained).toBe(false)
+      expect(retained.measurements).toHaveLength(minimumPairedRuns)
+      expect(retained.measurement.cost).toBeNull()
+      const accounting = retained.measurements[0]!.candidate.usage
+      if (!('availability' in accounting)) throw new Error('Missing native accounting gaps')
+      expect(accounting.facts.inputTokens).toBe(10)
+      expect(accounting.facts.cachedInputTokens).toBeNull()
+      expect(accounting.facts.costUsdNanos).toBeNull()
+      expect(() => verifyAgentImprovementProposal(retained)).toThrow()
+      await retained.improvement.dispose()
+      incomplete = false
+      unchanged = true
+      const beforeHold = measured.length
+      const noChange = await proposeProfile({ ...options(), allowIncomplete: true })
+      if (!('status' in noChange) || noChange.status !== 'held')
+        throw new Error('Expected normal unchanged search hold')
+      expect(noChange.phase).toBe('search')
+      expect(noChange.decision).toBe('hold')
+      expect(noChange.improvement.decision).toBe('hold')
+      expect('proposal' in noChange).toBe(false)
+      expect('measurements' in noChange).toBe(false)
+      expect(measured).toHaveLength(beforeHold)
+      await noChange.improvement.dispose()
+      unchanged = false
+      const unknownSearch = options()
+      unknownSearch.executor.optimize = async (candidateProfile, _scenario, context) => {
+        const paid = await context.cost.runPaidCall({
+          actor: 'http-native-profile',
+          model: candidateProfile.model!.default!,
+          maximumCharge: { externallyEnforcedMaximumUsd: 0 },
+          execute: async () => {
+            await call('/execute', { profile: candidateProfile })
+            return candidateProfile.prompt?.systemPrompt ?? ''
+          },
+          receipt: () => ({
+            model: candidateProfile.model!.default!,
+            inputTokens: 1,
+            outputTokens: 1,
+            costUnknown: true,
+          }),
+        })
+        if (!paid.succeeded) throw paid.error
+        return paid.value
+      }
+      const unavailableSearch = await proposeProfile({ ...unknownSearch, allowIncomplete: true })
+      if (!('status' in unavailableSearch) || unavailableSearch.status !== 'held')
+        throw new Error('Expected retained unknown search accounting hold')
+      expect(unavailableSearch.accounting.accountingComplete).toBe(false)
+      expect(unavailableSearch.accounting.incompleteReasons.length).toBeGreaterThan(0)
+      expect(measured).toHaveLength(beforeHold)
+      expect('proposal' in unavailableSearch).toBe(false)
+      await unavailableSearch.improvement.dispose()
+      incomplete = true
+      // Complete mode refuses the first unavailable receipt before admitting another cell.
+      const legacy = options()
+      const beforeLegacy = measured.length
+      await expect(
+        proposeProfile({
+          ...legacy,
+          maxConcurrency: 1,
+          executor: {
+            ...legacy.executor,
+            measure: async (
+              input: Parameters<typeof createProfileImprovementRunReceipt>[0] & {
+                profile: AgentProfile
+              },
+            ) => JSON.parse(JSON.stringify(await legacy.executor.measure(input))),
+          },
+        }),
+      ).rejects.toThrow()
+      expect(measured.length - beforeLegacy).toBe(1)
+      const beforeMissing = measured.length
+      missingIdentity = true
+      await expect(proposeProfile({ ...options(), allowIncomplete: true })).rejects.toThrow()
+      expect(measured).toHaveLength(beforeMissing)
+      missingIdentity = false
+      incomplete = false
+      wrongObservedModel = true
+      await expect(proposeProfile({ ...options(), allowIncomplete: true })).rejects.toThrow(
+        /task contract/,
+      )
+      wrongObservedModel = false
+      const reused = options()
+      const identity = campaignScenarioIdentity(reused.improvement.trainScenarios![0]!)
+      const beforeReuse = measured.length
+      const beforeResolve = resolverCalls
+      await expect(
+        proposeProfile({
+          ...reused,
+          allowIncomplete: true,
+          benchmark: {
+            ...reused.benchmark,
+            tasks: [
+              {
+                ...task,
+                scenario: { id: identity.id, kind: identity.kind, digest: identity.scenarioDigest },
+              },
+            ],
+          },
+        }),
+      ).rejects.toThrow(/reuses/)
+      expect(resolverCalls).toBe(beforeResolve)
+      expect(measured).toHaveLength(beforeReuse)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      )
+    }
+  }, 60_000)
+
+  it.each([0, 1])(
+    'routes native profile search through the canonical lifecycle with %i expansions',
+    async (maxExpansions) => {
+      const template = createProfileImprovementFixture()
+      const { digest: _taskDigest, ...task } = template.evaluation.experiment.benchmark.tasks[0]!
+      const {
+        agent: optimize,
+        executionRef,
+        method: _method,
+        resamples: _resamples,
+        confidence: _confidence,
+        ...improvement
+      } = improvementOptions()
+      const profile: AgentProfile = { name: 'native-profile', prompt: { systemPrompt: 'BASELINE' } }
+      const stateDigest = ({ profile: value }: { identity: string; profile: AgentProfile }) =>
+        canonicalCandidateDigest(value)
+      let measured = 0
+      const result = await proposeAgentProfileImprovement({
+        runId: `native-profile-${maxExpansions}`,
+        source: {
+          kind: 'platform-agent-profile',
+          sourceIdentity: 'native-profile',
+          sourceDigest: stateDigest({ identity: 'native-profile', profile }),
+          sourceRevision: 1,
+        },
+        profile,
+        stateDigest,
+        budgetUsd: minimumPairedRuns * 2 + 1,
+        allowIncomplete: true,
+        analysis: {
+          registry: {
+            list: () => [],
+            run: async () => ({
+              run_id: 'native-profile',
+              correlation_id: 'native-profile',
+              started_at: '2026-07-27T00:00:00.000Z',
+              ended_at: '2026-07-27T00:00:00.000Z',
+              findings: [],
+              per_analyst: [],
+              total_cost_usd: 0,
+              total_cost_provenance: { kind: 'observed' as const, usd: 0 },
+            }),
+          },
+          inputs: {},
+          findingsStore: null,
+        },
+        improvement: {
+          ...improvement,
+          method: searchMethod({
+            proposer: { kind: 'native-profile-fixture', propose: async () => ['PROMOTED'] },
+            maxExpansions,
+            policy: incumbent(),
+            allocation: uniform(),
+            lanes: [routerLane({ capacity: 4, cellUsd: 0.0001 })],
+          }),
+          claim: {
+            use: 'comparison',
+            population: { id: 'native-profile-tasks', description: 'Deterministic profile tasks' },
+            samplingFrame: 'Fixture task inventory',
+            independentUnit: 'id',
+            generalization: 'new-units',
+            // The fixture changes every binary outcome from zero to one.
+            minimumEffect: 1,
+          },
+          selectionScenarios: Array.from({ length: 6 }, (_, i) => ({
+            id: `native-selection-${i}`,
+            kind: 'improvement-test' as const,
+          })),
+          testScenarios: Array.from({ length: 20 }, (_, i) => ({
+            id: `native-test-${i}`,
+            kind: 'improvement-test' as const,
+          })),
+        },
+        benchmark: {
+          tasks: [task],
+          reps: minimumPairedRuns,
+          seeds: Array.from({ length: minimumPairedRuns }, (_, i) => i + 41) as [
+            number,
+            ...number[],
+          ],
+          policy: template.evaluation.experiment.policy,
+        },
+        executor: {
+          executionRef: {
+            kind: 'agent-profile-improvement-execution-ref',
+            identity: 'native-profile-executor',
+            digest: executionRef,
+          },
+          optimize,
+          measure: async (input) => {
+            measured += 1
+            return createProfileImprovementRunReceipt(input, input.arm === 'candidate' ? 1 : 0)
+          },
+        },
+      })
+      expect(result.improvement.mode).toBe('search')
+      if (result.improvement.mode !== 'search') throw new Error('Expected native search result')
+      expect(result.improvement.claimVerification.status).toBe('verified')
+      if (maxExpansions === 0) {
+        expect(result).toMatchObject({ status: 'held', phase: 'search', decision: 'hold' })
+        expect(measured).toBe(0)
+        expect('proposal' in result).toBe(false)
+      } else {
+        if ('status' in result)
+          throw new Error(`Expected measured native profile proposal: ${result.improvement.reason}`)
+        expect(measured).toBe(minimumPairedRuns * 2)
+        expect(result.proposal.evaluation.decision.outcome).toBe('ship')
+        expect(result.experiment.candidateLineage.runIds).toEqual([
+          result.improvement.lineage.runId,
+        ])
+        expect(result.improvement.lineage.finalTestSplitDigest).toBeTruthy()
+      }
+      await result.improvement.dispose()
+    },
+  )
+
   it('builds a source-bound profile proposal without product experiment wiring', async () => {
     const template = createProfileImprovementFixture()
     const task = template.evaluation.experiment.benchmark.tasks[0]

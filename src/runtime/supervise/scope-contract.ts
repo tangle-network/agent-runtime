@@ -173,6 +173,10 @@ export interface LiveChild {
   readonly events: WorkerEvents
   cancellationReason?: RunCancellationReason
   readonly id: NodeId
+  /** Actual input of the current invocation; continuations replace it after durable admission. */
+  executionTask?: unknown
+  /** The current invocation already persisted its transcript before provider teardown. */
+  transcriptEvidenceRecorded?: boolean
   status: NodeStatus
   failure?: RuntimeFailureCause
   runtime: NodeSnapshot['runtime']
@@ -264,6 +268,11 @@ export interface LiveChild {
   /** Persist the executor's harness transcript as it stands now. A retained release may read a
    *  session the failure path could not, and the record that closes the slot carries it. */
   readonly readTranscriptAtRelease?: () => Promise<HarnessTranscriptEvidence>
+  /** Bind a leaf's capture to its exact execution input, including unavailable captures. */
+  readonly recordTranscriptEvidence?: (
+    evidence: HarnessTranscriptEvidence,
+    outRef?: string,
+  ) => Promise<void>
   /** The bounded account of the team this child led, read from its own scope at settlement. */
   subtree?: SubtreeSummary
   /** How many teardown requests this child's executor was sent. */

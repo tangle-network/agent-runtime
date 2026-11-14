@@ -4152,6 +4152,31 @@ readonly `object`[]
 
 ***
 
+### captureAgentCodeCandidateWorkspace()
+
+> **captureAgentCodeCandidateWorkspace**(`source`, `options?`): `Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
+
+**`Experimental`**
+
+Capture executable files from the exact finalized Git tree, without Git
+metadata or mutable/ignored worktree files in a candidate-role archive.
+
+#### Parameters
+
+##### source
+
+`Pick`\<[`AgentCandidateCodeSurfaceSource`](#agentcandidatecodesurfacesource), `"surface"` \| `"worktreeDir"`\>
+
+##### options?
+
+`Omit`\<[`CaptureAgentCandidateWorkspaceOptions`](#captureagentcandidateworkspaceoptions), `"includeRepository"` \| `"repositoryContents"`\> = `{}`
+
+#### Returns
+
+`Promise`\<[`CapturedAgentCandidateWorkspace`](#capturedagentcandidateworkspace)\>
+
+***
+
 ### buildAgentCandidateBundle()
 
 > **buildAgentCandidateBundle**(`input`): `AgentCandidateBundle`

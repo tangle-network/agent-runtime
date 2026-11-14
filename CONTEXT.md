@@ -4,6 +4,8 @@
 
 **Observed graph.** A topology imported from normalized execution evidence into the graph registry. Unknown directives and budgets stay absent, and an observed graph cannot authorize executable replay.
 
+**Node-owned profile.** One unshared inline authored `AgentProfile` whose complete executable identity is static. Exact materialization changes only that node's profile and verifies canonical readback; host-resolved and shared profiles require their existing owner instead.
+
 **Topology digest.** The content digest of canonical ordered node adjacency, independent of source session identities, timestamps, token counts, and profile choices. It groups exact ordered shapes and does not claim graph-isomorphism canonicalization.
 
 **Workspace references.** `AgentCandidateWorkspaceSnapshotReferences` is the existing canonical candidate workspace evidence projected to manifest and archive references, without manifest material or embedded bytes. The manifest identifies file bytes and modes; the archive also identifies Git HEAD and staged state.

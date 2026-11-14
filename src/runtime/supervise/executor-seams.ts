@@ -71,3 +71,22 @@ export function readOptionalMcpAttachments(
   }
   return value as Record<string, AgentProfileMcpServer>
 }
+
+/** Narrow the Runtime-owned request env seam: absent sends none; present is a non-empty name map. */
+export function readOptionalRuntimeEnv(
+  ctx: ExecutorContext,
+  key: string,
+  who: string,
+): Readonly<Record<string, string>> | undefined {
+  const value = ctx.seams[key]
+  if (value === undefined) return undefined
+  const entries =
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.values(value as Record<string, unknown>)
+      : []
+  if (entries.length === 0 || entries.some((secret) => typeof secret !== 'string' || !secret))
+    throw new ValidationError(
+      `${who} executor: seam ${JSON.stringify(key)} must map names to values`,
+    )
+  return value as Record<string, string>
+}

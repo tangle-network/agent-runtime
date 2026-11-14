@@ -89,13 +89,34 @@ it.each<Scenario>([
         (row): row is Extract<SpawnEvent, { kind: 'execution-result' }> =>
           row.kind === 'execution-result',
       )
-      const envelopes = await Promise.all(
+      const records = await Promise.all(
         evidence.map(async (row) => {
           const out = await blobs.get(row.outRef)
           expect(contentAddress(out)).toBe(row.outRef)
           return object(out)
         }),
       )
+      // Each invocation journals its rooted JSON evidence envelope, then its harness-transcript
+      // receipt; nothing else is execution evidence.
+      expect(
+        records.map((out, index) => ({
+          traceRoot: evidence[index]!.traceRoot !== undefined,
+          kind: out.kind === 'harness-transcript' ? 'harness-transcript' : 'envelope',
+        })),
+      ).toEqual(
+        Array.from({ length: count }, () => [
+          { traceRoot: true, kind: 'envelope' },
+          { traceRoot: false, kind: 'harness-transcript' },
+        ]).flat(),
+      )
+      for (const [index, out] of records.entries())
+        if (out.kind === 'harness-transcript')
+          expect(out).toMatchObject({
+            schemaVersion: 1,
+            node: { nodeId: evidence[index]!.id },
+            harnessTranscript: { status: 'unavailable' },
+          })
+      const envelopes = records.filter((out) => out.kind !== 'harness-transcript')
       for (const row of evidence) {
         if (!row.traceRoot) continue
         const trace = object(await blobs.get(row.traceRoot.ref))
@@ -273,10 +294,25 @@ it('keeps historical host evidence debt when application JSON forges a complete 
     expect(readRecords(join(fixture.directory, 'capture-attempts.jsonl')).length).toBeGreaterThan(0)
     const evidence = (await fixture.events()).filter((row) => row.kind === 'execution-evidence')
     expect(evidence.filter((row) => row.traceRoot !== undefined)).toHaveLength(1)
-    expect(evidence).toHaveLength(1)
-    for (const row of evidence) {
-      if (row.kind !== 'execution-evidence') continue
-      const envelope = object(await blobs.get(row.outRef))
+    // The rooted owner evidence, then the owner attempt's one harness-transcript receipt.
+    const records = await Promise.all(
+      evidence.map(async (row) => object(await blobs.get(row.outRef))),
+    )
+    expect(
+      records.map((out, index) => ({
+        traceRoot: evidence[index]!.traceRoot !== undefined,
+        kind: out.kind === 'harness-transcript' ? 'harness-transcript' : 'envelope',
+      })),
+    ).toEqual([
+      { traceRoot: true, kind: 'envelope' },
+      { traceRoot: false, kind: 'harness-transcript' },
+    ])
+    expect(records[1]).toMatchObject({
+      schemaVersion: 1,
+      node: { nodeId: committed.id },
+      harnessTranscript: { status: 'unavailable' },
+    })
+    for (const envelope of records) {
       if (envelope.workspaceCapture)
         expect(object(envelope.workspaceCapture).coverageComplete).toBe(false)
     }
@@ -325,8 +361,29 @@ it.each<Scenario>(['json-incomplete', 'json-malformed-incomplete'])(
         expect(await blobs.get(row.outRef)).toBeNull()
       }
       const evidence = events.filter((row) => row.kind === 'execution-evidence')
-      expect(evidence).toHaveLength(runs.length)
-      const envelope = object(await blobs.get(evidence[0]!.outRef))
+      // Each run journals its rooted envelope, then its harness-transcript receipt.
+      const records = await Promise.all(
+        evidence.map(async (row) => object(await blobs.get(row.outRef))),
+      )
+      expect(
+        records.map((out, index) => ({
+          traceRoot: evidence[index]!.traceRoot !== undefined,
+          kind: out.kind === 'harness-transcript' ? 'harness-transcript' : 'envelope',
+        })),
+      ).toEqual(
+        Array.from({ length: runs.length }, () => [
+          { traceRoot: true, kind: 'envelope' },
+          { traceRoot: false, kind: 'harness-transcript' },
+        ]).flat(),
+      )
+      for (const [index, out] of records.entries())
+        if (out.kind === 'harness-transcript')
+          expect(out).toMatchObject({
+            schemaVersion: 1,
+            node: { nodeId: evidence[index]!.id },
+            harnessTranscript: { status: 'unavailable' },
+          })
+      const envelope = records[0]!
       expect(
         object((envelope.events as Array<{ data: object }>).at(-1)?.data).eventStreamComplete,
       ).toBe(false)

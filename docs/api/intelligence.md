@@ -1769,186 +1769,6 @@ Shared account when preparation and held-out work have one customer budget.
 
 ***
 
-### AgentProfileImprovementBenchmark
-
-Product-owned task material that Runtime freezes before either profile state runs.
-
-#### Properties
-
-##### tasks
-
-> **tasks**: \[`AgentProfileImprovementTaskMaterial`, `...AgentProfileImprovementTaskMaterial[]`\]
-
-##### reps
-
-> **reps**: `number`
-
-##### seeds
-
-> **seeds**: \[`number`, `...number[]`\]
-
-##### policy
-
-> **policy**: `AgentCandidateEvaluationPolicy`
-
-***
-
-### AgentProfileImprovementExecutor
-
-One product execution adapter shared by optimizer search and exact profile
-measurement. `executionRef` must identify both operations and their closure.
-
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
-#### Properties
-
-##### executionRef
-
-> **executionRef**: `AgentProfileImprovementExecutionRef`
-
-##### optimize
-
-> **optimize**: [`ImproveProfileAgent`](index.md#improveprofileagent)\<`TScenario`, `TArtifact`\>
-
-#### Methods
-
-##### measure()
-
-> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
-
-###### Parameters
-
-###### input
-
-`AgentProfileImprovementExperimentExecutionInput` & `object`
-
-###### Returns
-
-`Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
-
-***
-
-### ProposeAgentProfileImprovementOptions
-
-Complete profile-improvement path for a product-owned source.
-Runtime owns analysis, search ancestry, profile diffs, experiment sealing,
-paired evaluation, and the reviewable proposal. The product keeps its
-profile bytes, task executor, billing, trace capture, and persistence.
-
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
-#### Properties
-
-##### runId
-
-> **runId**: `string`
-
-##### source
-
-> **source**: `object`
-
-##### profile
-
-> **profile**: `AgentProfile`
-
-##### stateDigest
-
-> **stateDigest**: [`AgentImprovementProfileStateDigest`](#agentimprovementprofilestatedigest)
-
-##### analysis
-
-> **analysis**: [`AgentImprovementAnalysisOptions`](#agentimprovementanalysisoptions)
-
-##### improvement
-
-> **improvement**: [`AgentProfileImprovementMethodOptions`](#agentprofileimprovementmethodoptions)\<`TScenario`, `TArtifact`\>
-
-##### benchmark
-
-> **benchmark**: [`AgentProfileImprovementBenchmark`](#agentprofileimprovementbenchmark)
-
-##### executor
-
-> **executor**: [`AgentProfileImprovementExecutor`](#agentprofileimprovementexecutor)\<`TScenario`, `TArtifact`\>
-
-##### budgetUsd
-
-> **budgetUsd**: `number`
-
-One customer-approved maximum for analysis, optimization, and measurement.
-
-##### maxConcurrency?
-
-> `optional` **maxConcurrency?**: `number`
-
-##### signal?
-
-> `optional` **signal?**: `AbortSignal`
-
-##### candidate?
-
-> `optional` **candidate?**: `object`
-
-##### metadata?
-
-> `optional` **metadata?**: `object`
-
-###### Index Signature
-
-\[`key`: `string`\]: `AgentCandidateJsonValue`
-
-##### now?
-
-> `optional` **now?**: () => `Date`
-
-###### Returns
-
-`Date`
-
-***
-
-### ProposeAgentProfileImprovementResult
-
-#### Properties
-
-##### analysis
-
-> **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
-
-##### improvement
-
-> **improvement**: [`ImproveMethodResult`](index.md#improvemethodresult)
-
-##### experiment
-
-> **experiment**: `AgentProfileImprovementExperiment`
-
-##### measurements
-
-> **measurements**: `AgentProfileImprovementMeasurement`\<`AgentCandidateFixedSpend`\>[]
-
-##### proposal
-
-> **proposal**: `AgentImprovementProposal`
-
-***
-
 ### AgentImprovementTargetProfileDiffOptions
 
 #### Properties
@@ -2881,6 +2701,424 @@ True when an OTLP endpoint is configured (export will actually ship).
 
 ***
 
+### AgentProfileImprovementBenchmark
+
+Product-owned task material that Runtime freezes before either profile state runs.
+
+#### Properties
+
+##### tasks
+
+> **tasks**: \[`AgentProfileImprovementTaskMaterial`, `...AgentProfileImprovementTaskMaterial[]`\]
+
+##### reps
+
+> **reps**: `number`
+
+##### seeds
+
+> **seeds**: \[`number`, `...number[]`\]
+
+##### policy
+
+> **policy**: `AgentCandidateEvaluationPolicy`
+
+***
+
+### AgentProfileImprovementExecutor
+
+One product execution adapter shared by optimizer search and exact profile
+measurement. `executionRef` must identify both operations and their closure.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### executionRef
+
+> **executionRef**: `AgentProfileImprovementExecutionRef`
+
+##### optimize
+
+> **optimize**: [`ImproveProfileAgent`](index.md#improveprofileagent)\<`TScenario`, `TArtifact`\>
+
+#### Methods
+
+##### measure()
+
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
+
+###### Parameters
+
+###### input
+
+`AgentProfileImprovementExperimentExecutionInput` & `object`
+
+###### Returns
+
+`Promise`\<`AgentProfileImprovementRunReceipt`\<`AgentCandidateFixedSpend`\>\>
+
+***
+
+### ProposeAgentProfileImprovementOptions
+
+Complete profile-improvement path for a product-owned source.
+Runtime owns analysis, search ancestry, profile diffs, experiment sealing,
+paired evaluation, and the reviewable proposal. The product keeps its
+profile bytes, task executor, billing, trace capture, and persistence.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### runId
+
+> **runId**: `string`
+
+##### source
+
+> **source**: `object`
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+##### stateDigest
+
+> **stateDigest**: [`AgentImprovementProfileStateDigest`](#agentimprovementprofilestatedigest)
+
+##### analysis
+
+> **analysis**: [`AgentImprovementAnalysisOptions`](#agentimprovementanalysisoptions)
+
+##### improvement
+
+> **improvement**: [`AgentProfileImprovementMethodOptions`](#agentprofileimprovementmethodoptions)\<`TScenario`, `TArtifact`\>
+
+##### benchmark
+
+> **benchmark**: [`AgentProfileImprovementBenchmark`](#agentprofileimprovementbenchmark)
+
+##### executor
+
+> **executor**: [`AgentProfileImprovementExecutor`](#agentprofileimprovementexecutor)\<`TScenario`, `TArtifact`\>
+
+##### modelBinding?
+
+> `optional` **modelBinding?**: [`AgentProfileImprovementModelBindingSource`](#agentprofileimprovementmodelbindingsource)
+
+##### allowIncomplete?
+
+> `optional` **allowIncomplete?**: `false`
+
+##### budgetUsd
+
+> **budgetUsd**: `number`
+
+One customer-approved maximum for analysis, optimization, and measurement.
+
+##### maxConcurrency?
+
+> `optional` **maxConcurrency?**: `number`
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+##### candidate?
+
+> `optional` **candidate?**: `object`
+
+##### metadata?
+
+> `optional` **metadata?**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: `AgentCandidateJsonValue`
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+***
+
+### ProposeAgentProfileImprovementResult
+
+#### Properties
+
+##### analysis
+
+> **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
+
+##### improvement
+
+> **improvement**: [`ImproveMethodResult`](index.md#improvemethodresult) \| [`ImproveSearchResult`](index.md#improvesearchresult)
+
+##### experiment
+
+> **experiment**: `AgentProfileImprovementExperiment`
+
+##### measurements
+
+> **measurements**: `AgentProfileImprovementMeasurement`\<`AgentCandidateFixedSpend`\>[]
+
+##### proposal
+
+> **proposal**: `AgentImprovementProposal`
+
+***
+
+### RecordAgentProfileImprovementOptions
+
+Opt-in measurement records may be incomplete; the proposal API remains the same.
+
+#### Extends
+
+- `Omit`\<[`ProposeAgentProfileImprovementOptions`](#proposeagentprofileimprovementoptions)\<`TScenario`, `TArtifact`\>, `"executor"` \| `"allowIncomplete"`\>
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### runId
+
+> **runId**: `string`
+
+###### Inherited from
+
+`Omit.runId`
+
+##### source
+
+> **source**: `object`
+
+###### Inherited from
+
+`Omit.source`
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+###### Inherited from
+
+`Omit.profile`
+
+##### stateDigest
+
+> **stateDigest**: [`AgentImprovementProfileStateDigest`](#agentimprovementprofilestatedigest)
+
+###### Inherited from
+
+`Omit.stateDigest`
+
+##### analysis
+
+> **analysis**: [`AgentImprovementAnalysisOptions`](#agentimprovementanalysisoptions)
+
+###### Inherited from
+
+`Omit.analysis`
+
+##### improvement
+
+> **improvement**: [`AgentProfileImprovementMethodOptions`](#agentprofileimprovementmethodoptions)\<`TScenario`, `TArtifact`\>
+
+###### Inherited from
+
+`Omit.improvement`
+
+##### benchmark
+
+> **benchmark**: [`AgentProfileImprovementBenchmark`](#agentprofileimprovementbenchmark)
+
+###### Inherited from
+
+`Omit.benchmark`
+
+##### modelBinding?
+
+> `optional` **modelBinding?**: [`AgentProfileImprovementModelBindingSource`](#agentprofileimprovementmodelbindingsource)
+
+###### Inherited from
+
+`Omit.modelBinding`
+
+##### budgetUsd
+
+> **budgetUsd**: `number`
+
+One customer-approved maximum for analysis, optimization, and measurement.
+
+###### Inherited from
+
+`Omit.budgetUsd`
+
+##### maxConcurrency?
+
+> `optional` **maxConcurrency?**: `number`
+
+###### Inherited from
+
+`Omit.maxConcurrency`
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+###### Inherited from
+
+`Omit.signal`
+
+##### candidate?
+
+> `optional` **candidate?**: `object`
+
+###### Inherited from
+
+`Omit.candidate`
+
+##### metadata?
+
+> `optional` **metadata?**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: `AgentCandidateJsonValue`
+
+###### Inherited from
+
+`Omit.metadata`
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+###### Inherited from
+
+`Omit.now`
+
+##### allowIncomplete
+
+> **allowIncomplete**: `true`
+
+##### executor
+
+> **executor**: `Omit`\<[`AgentProfileImprovementExecutor`](#agentprofileimprovementexecutor)\<`TScenario`, `TArtifact`\>, `"measure"`\> & `object`
+
+###### Type Declaration
+
+###### measure()
+
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRecordedRunReceipt`\>
+
+###### Parameters
+
+###### input
+
+`AgentProfileImprovementExperimentExecutionInput` & `object`
+
+###### Returns
+
+`Promise`\<`AgentProfileImprovementRecordedRunReceipt`\>
+
+***
+
+### ProposeAgentProfileImprovementIncompleteResult
+
+#### Extends
+
+- `AgentProfileImprovementIncompleteExperimentRun`
+
+#### Properties
+
+##### analysis
+
+> **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
+
+##### improvement
+
+> **improvement**: [`ImproveMethodResult`](index.md#improvemethodresult) \| [`ImproveSearchResult`](index.md#improvesearchresult)
+
+##### experiment
+
+> **experiment**: `AgentProfileImprovementExperiment`
+
+***
+
+### ProposeAgentProfileImprovementHeldResult
+
+Opt-in normal hold before a paired experiment can be measured. No proposal is constructed.
+
+#### Properties
+
+##### status
+
+> **status**: `"held"`
+
+##### decision
+
+> **decision**: `"hold"`
+
+##### phase
+
+> **phase**: `"search"` \| `"preparation"`
+
+##### source
+
+> **source**: `object`
+
+##### analysis
+
+> **analysis**: [`RunAnalystLoopResult`](analyst-loop.md#runanalystloopresult)
+
+##### improvement
+
+> **improvement**: [`ImproveMethodResult`](index.md#improvemethodresult) \| [`ImproveSearchResult`](index.md#improvesearchresult)
+
+##### accounting
+
+> **accounting**: `CostLedgerSummary`
+
+##### reasons
+
+> **reasons**: `string`[]
+
+***
+
 ### AppliedIntelligence
 
 What the hook hands the agent each run. Additive over the prompt-only
@@ -3077,7 +3315,7 @@ Full canonical profile used for this agent. Exported redacted with a stable hash
 
 ###### Inherited from
 
-[`IntelligenceConfig`](#intelligenceconfig).[`profile`](#profile-5)
+[`IntelligenceConfig`](#intelligenceconfig).[`profile`](#profile-4)
 
 ##### commitSha?
 
@@ -3342,34 +3580,6 @@ Product-supplied experiment material. Runtime supplies optimizer ancestry and th
 
 ***
 
-### AgentProfileImprovementMethodOptions
-
-> **AgentProfileImprovementMethodOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"agent"` \| `"executionRef"` \| `"findings"` \| `"surface"`\> & `object`
-
-The portable profile changes that the measured-profile contract permits.
-
-#### Type Parameters
-
-##### TScenario
-
-`TScenario` *extends* `Scenario`
-
-##### TArtifact
-
-`TArtifact`
-
-#### Type Declaration
-
-##### surface?
-
-> `optional` **surface?**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
-
-##### findings?
-
-> `optional` **findings?**: readonly `ProposalFinding`[]
-
-***
-
 ### AGENT\_IMPROVEMENT\_PROFILE\_SURFACES
 
 > **AGENT\_IMPROVEMENT\_PROFILE\_SURFACES** = readonly \[`"prompt"`, `"skills"`, `"tools"`, `"mcp"`, `"hooks"`, `"subagents"`\]
@@ -3487,6 +3697,42 @@ Product-owned retained-state lookup used only for an explicit restore.
 ### AgentImprovementProfileActivationPreparation
 
 > **AgentImprovementProfileActivationPreparation** = \{ `status`: `"missing"`; `identities`: readonly `string`[]; \} \| \{ `status`: `"unavailable"`; `code`: `"PROFILE_STATE_UNAVAILABLE"`; `identities`: readonly `string`[]; `requiredStateDigest`: `Sha256Digest`; \} \| \{ `status`: `"already-applied"` \| `"conflict"`; `targets`: \[[`AgentImprovementProfileTargetState`](#agentimprovementprofiletargetstate), `...AgentImprovementProfileTargetState[]`\]; \} \| \{ `status`: `"apply"`; `replacements`: \[[`AgentImprovementProfileReplacement`](#agentimprovementprofilereplacement), `...AgentImprovementProfileReplacement[]`\]; `targets`: \[[`AgentImprovementProfileTargetTransition`](#agentimprovementprofiletargettransition), `...AgentImprovementProfileTargetTransition[]`\]; \}
+
+***
+
+### AgentProfileImprovementMethodOptions
+
+> **AgentProfileImprovementMethodOptions**\<`TScenario`, `TArtifact`\> = (`Omit`\<[`ImproveMethodOptions`](index.md#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"agent"` \| `"executionRef"` \| `"findings"` \| `"surface"`\> \| `Omit`\<[`ImproveSearchOptions`](index.md#improvesearchoptions)\<`TScenario`, `TArtifact`\>, `"agent"` \| `"executionRef"` \| `"findings"` \| `"surface"`\>) & `object`
+
+The portable profile changes that the measured-profile contract permits.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Type Declaration
+
+##### surface?
+
+> `optional` **surface?**: [`AgentProfileMeasuredSurface`](#agentprofilemeasuredsurface)
+
+##### findings?
+
+> `optional` **findings?**: readonly `ProposalFinding`[]
+
+***
+
+### AgentProfileImprovementModelBindingSource
+
+> **AgentProfileImprovementModelBindingSource** = `AgentProfileImprovementModelBinding` \| ((`input`) => `AgentProfileImprovementModelBinding` \| `Promise`\<`AgentProfileImprovementModelBinding`\>)
+
+Resolved once on frozen source profiles, before the final experiment is sealed.
 
 ***
 
@@ -4100,28 +4346,55 @@ Execute one exact arm, task, repetition, seed, and attempt through Runtime.
 
 ### proposeAgentProfileImprovement()
 
-> **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
+#### Call Signature
 
-Analyze a product-owned profile, search one profile surface, then run the
-exact baseline and candidate through the product executor before proposing.
+> **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult) \| [`ProposeAgentProfileImprovementIncompleteResult`](#proposeagentprofileimprovementincompleteresult) \| [`ProposeAgentProfileImprovementHeldResult`](#proposeagentprofileimprovementheldresult)\>
 
-#### Type Parameters
+Search one profile, then independently measure its exact states before proposing.
 
-##### TScenario
+##### Type Parameters
+
+###### TScenario
 
 `TScenario` *extends* `Scenario`
 
-##### TArtifact
+###### TArtifact
 
 `TArtifact`
 
-#### Parameters
+##### Parameters
 
-##### options
+###### options
+
+[`RecordAgentProfileImprovementOptions`](#recordagentprofileimprovementoptions)\<`TScenario`, `TArtifact`\>
+
+##### Returns
+
+`Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult) \| [`ProposeAgentProfileImprovementIncompleteResult`](#proposeagentprofileimprovementincompleteresult) \| [`ProposeAgentProfileImprovementHeldResult`](#proposeagentprofileimprovementheldresult)\>
+
+#### Call Signature
+
+> **proposeAgentProfileImprovement**\<`TScenario`, `TArtifact`\>(`options`): `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
+
+Search one profile, then independently measure its exact states before proposing.
+
+##### Type Parameters
+
+###### TScenario
+
+`TScenario` *extends* `Scenario`
+
+###### TArtifact
+
+`TArtifact`
+
+##### Parameters
+
+###### options
 
 [`ProposeAgentProfileImprovementOptions`](#proposeagentprofileimprovementoptions)\<`TScenario`, `TArtifact`\>
 
-#### Returns
+##### Returns
 
 `Promise`\<[`ProposeAgentProfileImprovementResult`](#proposeagentprofileimprovementresult)\>
 

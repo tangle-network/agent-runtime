@@ -399,21 +399,10 @@ export async function recordStoredGraphRun(
 }
 
 async function persistGraph(reg: GraphRegistryDir, stored: StoredGraph): Promise<void> {
+  if (await loadGraph(reg, stored.digest)) return
+  // Content-addressed revisions are immutable; the same reader verifies existing bytes.
   const revisionPath = join(reg.root, GRAPHS_DIR, `${stored.digest}.json`)
-  try {
-    const { digest: existingDigest, ...existing } = JSON.parse(
-      await readFile(revisionPath, 'utf8'),
-    ) as StoredGraph
-    if (existingDigest !== stored.digest || graphDigest(existing) !== stored.digest)
-      throw new ValidationError(
-        'graph-registry: stored graph revision is immutable but its content differs',
-      )
-  } catch (error) {
-    if (!isNoEntError(error)) throw error
-    // Content-addressed revisions are immutable. Rewriting one on every run adds
-    // an unnecessary durable publication to the record lock's critical section.
-    writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
-  }
+  writeAtomicDurableFile(revisionPath, JSON.stringify(stored), { preserveMode: true })
 }
 
 /** All records, newest last. */
@@ -585,17 +574,24 @@ export function pickBestGraph(
   return delivered.reduce((best, row) => (better(best, row) === best ? best : row))
 }
 
-/** Load a stored graph by digest. */
+/** Read the exact content-addressed graph, including non-executable observations. */
 export async function loadGraph(
   reg: GraphRegistryDir,
   digest: string,
 ): Promise<StoredGraph | undefined> {
   try {
-    return JSON.parse(
+    const stored = JSON.parse(
       await readFile(join(reg.root, GRAPHS_DIR, `${digest}.json`), 'utf8'),
     ) as StoredGraph
-  } catch {
-    return undefined
+    const { digest: actual, ...content } = stored
+    if (actual !== digest || graphDigest(content) !== digest)
+      throw new ValidationError(
+        'graph-registry: stored graph revision is immutable but its content differs',
+      )
+    return stored
+  } catch (error) {
+    if (isNoEntError(error)) return undefined
+    throw error
   }
 }
 

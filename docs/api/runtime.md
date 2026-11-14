@@ -5618,6 +5618,57 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
 
+##### harnessTranscript?
+
+> `optional` **harnessTranscript?**: (`request`) => `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+**`Experimental`**
+
+Trusted host capture after exact retained terminal proof. Reuses the Bridge capture
+contract and Scope/CAS retention; absent keeps the environment-reader behavior.
+
+###### Parameters
+
+###### request
+
+###### sessionId
+
+`string`
+
+###### harness
+
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"nanocode"` \| `"exo"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
+
+###### profileDigest
+
+`` `sha256:${string}` ``
+
+###### cwd?
+
+`string`
+
+###### node?
+
+[`ExecutorNodeContext`](#executornodecontext)
+
+###### runs
+
+readonly `object`[]
+
+###### controlRef?
+
+`AgentExactRunControlRef`
+
+Present on the retained provider path; verified against its terminal status.
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
 ##### promptOptions?
 
 > `optional` **promptOptions?**: [`ProviderPromptOptions`](#providerpromptoptions)
@@ -5894,15 +5945,45 @@ Translate unsupported Sandbox controls while preserving requested custody.
 
 > `readonly` **content**: `string`
 
+##### attribution?
+
+> `readonly` `optional` **attribution?**: `object`
+
+Original provider-native path and source, independent of the archive's storage layout.
+
+###### providerSessionId
+
+> `readonly` **providerSessionId**: `string`
+
+###### sourceId?
+
+> `readonly` `optional` **sourceId?**: `string`
+
+###### rootScope
+
+> `readonly` **rootScope**: `"session-home"` \| `"workspace-session"`
+
+###### nativePath
+
+> `readonly` **nativePath**: `string`
+
 ***
 
 ### HarnessTranscriptBinding
+
+Exact execution coordinates supplied by the trusted Bridge or provider capture owner.
 
 #### Properties
 
 ##### kind
 
-> `readonly` **kind**: `"bridge"`
+> `readonly` **kind**: `"provider"` \| `"bridge"`
+
+##### controlRef?
+
+> `readonly` `optional` **controlRef?**: `AgentExactRunControlRef`
+
+Required for provider captures; identifies the exact admitted native run.
 
 ##### node?
 
@@ -5915,6 +5996,12 @@ Translate unsupported Sandbox controls while preserving requested custody.
 ##### nativeSessionId
 
 > `readonly` **nativeSessionId**: `string`
+
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+Ordered native sessions observed across retries of this exact execution.
 
 ##### profileDigest
 
@@ -5974,6 +6061,10 @@ Translate unsupported Sandbox controls while preserving requested custody.
 
 > `readonly` **nativeSessionId**: `string` \| `null`
 
+###### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
 ###### coverageComplete
 
 > `readonly` **coverageComplete**: `boolean`
@@ -5991,6 +6082,10 @@ Translate unsupported Sandbox controls while preserving requested custody.
 > `readonly` **skipped**: readonly `object`[]
 
 Paths found but not read, with why — a gap named is a gap an operator can act on.
+
+##### omitted?
+
+> `readonly` `optional` **omitted?**: readonly `object`[]
 
 ***
 
@@ -7330,6 +7425,28 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 ###### Returns
 
 [`AgenticTool`](#agentictool)[]
+
+***
+
+### CanonicalObservedModelParts
+
+#### Properties
+
+##### base
+
+> `readonly` **base**: `string`
+
+##### snapshot?
+
+> `readonly` `optional` **snapshot?**: `string`
+
+##### snapshotKind?
+
+> `readonly` `optional` **snapshotKind?**: [`SnapshotKind`](#snapshotkind)
+
+##### canonical
+
+> `readonly` **canonical**: `string`
 
 ***
 
@@ -10316,6 +10433,12 @@ Exact provider-create profile identity; materialization receipts bind it to the 
 
 > `readonly` **nativeSessionId**: `string` \| `null`
 
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+Ordered native conversation identities observed for this exact provider execution.
+
 ##### snapshot
 
 > `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`
@@ -10445,6 +10568,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 
 > `readonly` **nativeSessionId**: `string` \| `null`
 
+###### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
 ###### coverageComplete
 
 > `readonly` **coverageComplete**: `boolean`
@@ -10488,6 +10615,12 @@ Inventory and source identity only; native bytes remain in the original workspac
 ##### skipped
 
 > `readonly` **skipped**: readonly `object`[]
+
+##### omitted?
+
+> `readonly` `optional` **omitted?**: readonly `object`[]
+
+Producer-declared non-session material intentionally excluded from native byte retention.
 
 ##### missing
 
@@ -10545,6 +10678,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 
 > `readonly` **skipped**: readonly `object`[]
 
+##### omitted?
+
+> `readonly` `optional` **omitted?**: readonly `object`[]
+
 ##### source?
 
 > `readonly` `optional` **source?**: `object`
@@ -10576,6 +10713,10 @@ Inventory and source identity only; native bytes remain in the original workspac
 ###### nativeSessionId
 
 > `readonly` **nativeSessionId**: `string` \| `null`
+
+###### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
 
 ###### coverageComplete
 
@@ -10646,62 +10787,6 @@ Projection limits do not change what the original archive retained.
 ##### signal?
 
 > `readonly` `optional` **signal?**: `AbortSignal`
-
-***
-
-### BoundHarnessSession
-
-#### Properties
-
-##### nativeSessionId
-
-> `readonly` **nativeSessionId**: `string`
-
-##### parentNativeSessionId?
-
-> `readonly` `optional` **parentNativeSessionId?**: `string` \| `null`
-
-##### children
-
-> `readonly` **children**: readonly `object`[]
-
-##### integrity
-
-> `readonly` **integrity**: `object`
-
-###### truncated
-
-> `readonly` **truncated**: `boolean`
-
-###### unparsedRecords
-
-> `readonly` **unparsedRecords**: `number`
-
-###### gaps
-
-> `readonly` **gaps**: readonly `unknown`[]
-
-***
-
-### HarnessFileBinding
-
-#### Properties
-
-##### path
-
-> `readonly` **path**: `string`
-
-##### nativeSessionId
-
-> `readonly` **nativeSessionId**: `string`
-
-##### sha256?
-
-> `readonly` `optional` **sha256?**: `string`
-
-##### byteLength?
-
-> `readonly` `optional` **byteLength?**: `number`
 
 ***
 
@@ -15907,6 +15992,12 @@ Local native capture, after the admitted jobs are proven terminal. Retained live
 ###### runs
 
 readonly `object`[]
+
+###### controlRef?
+
+`AgentExactRunControlRef`
+
+Present on the retained provider path; verified against its terminal status.
 
 ###### signal
 
@@ -26781,6 +26872,59 @@ Exact final-message JSON for graph output; requires Runtime-owned durable eviden
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`outputFormat`](#outputformat)
 
+##### harnessTranscript?
+
+> `optional` **harnessTranscript?**: (`request`) => `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+Trusted host capture after exact retained terminal proof. Reuses the Bridge capture
+contract and Scope/CAS retention; absent keeps the environment-reader behavior.
+
+###### Parameters
+
+###### request
+
+###### sessionId
+
+`string`
+
+###### harness
+
+`"opencode"` \| `"claude-code"` \| `"kimi-code"` \| `"codex"` \| `"amp"` \| `"factory-droids"` \| `"pi"` \| `"prime"` \| `"hermes"` \| `"openclaw"` \| `"nanoclaw"` \| `"nanocode"` \| `"exo"` \| `"acp"` \| `"cursor"` \| `"grok"` \| `"cli-base"` \| `"gemini"` \| `"forge"`
+
+###### profileDigest
+
+`` `sha256:${string}` ``
+
+###### cwd?
+
+`string`
+
+###### node?
+
+[`ExecutorNodeContext`](#executornodecontext)
+
+###### runs
+
+readonly `object`[]
+
+###### controlRef?
+
+`AgentExactRunControlRef`
+
+Present on the retained provider path; verified against its terminal status.
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`harnessTranscript`](#harnesstranscript)
+
 ##### promptOptions?
 
 > `optional` **promptOptions?**: [`ProviderPromptOptions`](#providerpromptoptions)
@@ -30029,7 +30173,7 @@ Optional capture of the manager's own harness session from its newest attempt.
 
 > `optional` **harnessTranscriptSettled**(): `Promise`\<`void`\>
 
-Resolves once [harnessTranscript](#harnesstranscript-3) is final (`Executor.harnessTranscriptSettled`).
+Resolves once [harnessTranscript](#harnesstranscript-5) is final (`Executor.harnessTranscriptSettled`).
 
 ###### Returns
 
@@ -33495,7 +33639,7 @@ unvalidated shape (#630) while the authored lens keeps working.
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"tool-timing"`; `call`: \{ `tool`: `string`; `receivedAt`: `number`; `elapsedMs`: `number`; `responseBytes`: `number`; `ok`: `boolean`; \}; \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \} \| \{ `type`: `"route"`; `route`: [`RouteFlowEvent`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](#analystfindingevent); \} \| \{ `type`: `"submission"`; `result`: `unknown`; \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](#definedanalystrecord); \} \| \{ `type`: `"analyst-assignment"`; `assignment`: [`AnalystAssignmentRecord`](#analystassignmentrecord); \} \| \{ `type`: `"acknowledgement"`; `acknowledgement`: [`EventAcknowledgement`](#eventacknowledgement); \} \| \{ `type`: `"tool-outcome"`; `outcome`: [`ToolOutcomeEvent`](#tooloutcomeevent); \} \| \{ `type`: `"tool-timing"`; `call`: \{ `tool`: `string`; `receivedAt`: `number`; `elapsedMs`: `number`; `responseBytes`: `number`; `ok`: `boolean`; \}; \} \| \{ `type`: `"lead-message"`; `message`: [`LeadMessage`](#leadmessage); \} \| \{ `type`: `"map"`; `map`: [`MapTraversalEvent`](#maptraversalevent); \} \| \{ `type`: `"route"`; `route`: [`RouteFlowEvent`](#routeflowevent); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -33658,7 +33802,7 @@ One step of a map route. Record-only, except an expansion that was refused and a
 
 ##### Type Literal
 
-\{ `type`: `"route"`; `route`: [`RouteFlowEvent`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts); \}
+\{ `type`: `"route"`; `route`: [`RouteFlowEvent`](#routeflowevent); \}
 
 One flow step (see [RouteFlowEvent](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts)). Record-only: the settle that caused it already
  woke the manager, and a flow manager makes no decision of its own.
@@ -33751,6 +33895,155 @@ A route condition: one match, or every match of `all`.
 
 The caller's answer to one gate visit: route on a choice, or end the run. `by` names who
  decided and rides the decision's ledger row.
+
+***
+
+### RouteFlowEvent
+
+> **RouteFlowEvent** = \{ `kind`: `"traversal"`; `edge`: `string`; `from`: `string`; `to`: `string`; `outcome`: `"delivered"` \| `"unpropagated"`; `continuity`: [`ContinuityMode`](durable.md#continuitymode); `bytes`: `number`; `reason?`: `string`; `workerId?`: `string`; `sourceWorker?`: `string`; `gate?`: [`GateDecisionRecord`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts) & `object`; \} \| \{ `kind`: `"output"`; `node`: `string`; `workerId`: `string`; `result`: `unknown`; `edge?`: `string`; \} \| \{ `kind`: `"stopped"`; `code?`: `string`; `at`: `string`; `workerId`: `string`; `reason`: `string`; `edge?`: `string`; \} \| \{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
+
+One flow step, published as a record-only `route` event (the settle that caused it already woke
+the manager):
+
+- `traversal`: an entry or a routes edge fired, or was skipped at its cap, or its spawn was
+  refused, or a gate was decided (`gate` set; its edge is `gate:<id>`);
+- `output`: a terminal node or a `finish` edge made this settle part of the run's output;
+- `stopped`: a `stop` edge fired, a gate decided `stop`, or a flow node settled down or without a
+  usable result where a route was needed, or a gate was undecided at the deadline, and the flow
+  spawns nothing more;
+- `unrouted`: a flow node's usable settle matched no edge (`unrouted`), or a fired edge named a
+  node that still has a running worker (`target-live`); converging branches use a join.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"traversal"`; `edge`: `string`; `from`: `string`; `to`: `string`; `outcome`: `"delivered"` \| `"unpropagated"`; `continuity`: [`ContinuityMode`](durable.md#continuitymode); `bytes`: `number`; `reason?`: `string`; `workerId?`: `string`; `sourceWorker?`: `string`; `gate?`: [`GateDecisionRecord`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts) & `object`; \}
+
+###### kind
+
+> `readonly` **kind**: `"traversal"`
+
+###### edge
+
+> `readonly` **edge**: `string`
+
+###### from
+
+> `readonly` **from**: `string`
+
+###### to
+
+> `readonly` **to**: `string`
+
+###### outcome
+
+> `readonly` **outcome**: `"delivered"` \| `"unpropagated"`
+
+###### continuity
+
+> `readonly` **continuity**: [`ContinuityMode`](durable.md#continuitymode)
+
+###### bytes
+
+> `readonly` **bytes**: `number`
+
+Bytes of the task that crossed, or of the result a stop or finish took.
+
+###### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+###### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+The spawned worker, when a node target started.
+
+###### sourceWorker?
+
+> `readonly` `optional` **sourceWorker?**: `string`
+
+The settled worker whose result fired the edge. Absent on an entry.
+
+###### gate?
+
+> `readonly` `optional` **gate?**: [`GateDecisionRecord`](https://github.com/tangle-network/agent-runtime/blob/main/src/mcp/tools/coordination-route-contracts.ts) & `object`
+
+A gate decision: who decided and what. `replayed` decisions are already journaled.
+
+###### Type Declaration
+
+###### replayed?
+
+> `readonly` `optional` **replayed?**: `boolean`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"output"`; `node`: `string`; `workerId`: `string`; `result`: `unknown`; `edge?`: `string`; \}
+
+###### kind
+
+> `readonly` **kind**: `"output"`
+
+###### node
+
+> `readonly` **node**: `string`
+
+###### workerId
+
+> `readonly` **workerId**: `string`
+
+###### result
+
+> `readonly` **result**: `unknown`
+
+###### edge?
+
+> `readonly` `optional` **edge?**: `string`
+
+The finish edge, or absent for a terminal node.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"stopped"`; `code?`: `string`; `at`: `string`; `workerId`: `string`; `reason`: `string`; `edge?`: `string`; \}
+
+###### kind
+
+> `readonly` **kind**: `"stopped"`
+
+###### code?
+
+> `readonly` `optional` **code?**: `string`
+
+###### at
+
+> `readonly` **at**: `string`
+
+###### workerId
+
+> `readonly` **workerId**: `string`
+
+###### reason
+
+> `readonly` **reason**: `string`
+
+###### edge?
+
+> `readonly` `optional` **edge?**: `string`
+
+The stop edge or `gate:<id>`, or absent when a down or unusable settle or the deadline
+ ended the flow.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"unrouted"`; `reason`: `"unrouted"` \| `"target-live"`; `node`: `string`; `workerId`: `string`; `detail`: `string`; `result?`: `unknown`; \}
 
 ***
 
@@ -34312,6 +34605,12 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 > **SuperviseOptionsForDispatch** = `Omit`\<[`SuperviseOptions`](#superviseoptions), `"signal"`\>
 
 `supervise` options minus Eval-owned cancellation.
+
+***
+
+### SnapshotKind
+
+> **SnapshotKind** = `"date"` \| `"opaque"`
 
 ***
 
@@ -35892,7 +36191,7 @@ settles on the ordinary path and the recorded-result path writes no marker.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `attemptId?`: `string`; `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"admission-queued"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `gate`: `"budget"` \| `"slot"` \| `"seat"`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"admission-granted"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `deadlineArmedAt`: `string`; `deadlineAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| `object` & `Omit`\<[`ExecutorResult`](#executorresult)\<`unknown`\>, `"out"` \| `"teardown"`\> \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `reservation?`: [`Budget`](#budget-10); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-refused"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `idempotencyKey`: `string`; `message`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `attemptId?`: `string`; `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `successorOf?`: [`NodeId`](#nodeid-5); `continues?`: \{ `ofWorker`: [`NodeId`](#nodeid-5); `environmentId`: `string`; \}; `budget`: [`Budget`](#budget-10); `runtime`: [`Runtime`](#runtime-7); `recursiveAdmission?`: \{ `policy`: [`RecursiveReservationPolicy`](#recursivereservationpolicy); \}; `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `modelSubstitution?`: [`SpawnModelSubstitution`](#spawnmodelsubstitution); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"admission-queued"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `gate`: `"budget"` \| `"slot"` \| `"seat"`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"admission-granted"`; `id`: [`NodeId`](#nodeid-5); `attemptId`: `string`; `deadlineArmedAt`: `string`; `deadlineAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-5); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-5); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| `object` & `Omit`\<[`ExecutorResult`](#executorresult)\<`unknown`\>, `"out"` \| `"teardown"`\> \| \{ `kind`: `"execution-abandoned"`; `id`: [`NodeId`](#nodeid-5); `inputSeq`: `number`; `pendingCause`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `failures`: `number`; `detail`: `string`; `outcome`: `"stopped"` \| `"uncertain"`; `stop?`: \{ `executionId`: `string`; `effect`: [`RetainedRunEffect`](#retainedruneffect); `error?`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `attemptId?`: `string`; `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \} \| [`EvidencePendingEvent`](#evidencependingevent) \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `spent?`: [`Spend`](#spend-1); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `retainedExecution?`: `Exclude`\<[`RetainedExecutionState`](#retainedexecutionstate), `"pending"`\>; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `subtree?`: [`SubtreeSummary`](#subtreesummary); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](#spend-1); `awaitingResult?`: \{ `since`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-5); `spent`: [`Spend`](#spend-1); `reservation?`: [`Budget`](#budget-10); `harnessTranscript?`: [`HarnessTranscriptEvidence`](#harnesstranscriptevidence); `settledSeq?`: `number`; `reason?`: `string`; `retainedPendingCause?`: [`RetainedPendingCause`](durable.md#retainedpendingcause-1); `infra?`: `boolean`; `failure?`: [`RuntimeFailureCause`](index.md#runtimefailurecause); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `budgetViolation?`: [`BudgetViolation`](#budgetviolation-2); `cancellation?`: \{ `source`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-pending"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `environments?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `kept?`: `ReadonlyArray`\<[`HeldEnvironment`](#heldenvironment)\>; `attempts?`: `number`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-confirmed"`; `id`: [`NodeId`](#nodeid-5); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-terminal"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `status`: `"failed"` \| `"expired"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `heldRelease?`: [`HeldRelease`](#heldrelease); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `request`: `WorkspaceCheckpointRequest`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-refused"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `idempotencyKey`: `string`; `message`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpoint`: `WorkspaceCheckpointRef`; `marker?`: [`WorkspaceCheckpointMarker`](#workspacecheckpointmarker); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-requested"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `idempotencyKey`: `string`; `requestDigest`: `Sha256Digest`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-ready"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-fork-teardown"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `destroyed`: `boolean`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-capture"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `fork`: \{ `idempotencyKey`: `string`; `environmentId`: `string`; \}; `tree`: \{ `digest`: `Sha256Digest`; `manifest`: `AgentCandidateArtifactRef`; `files`: `number`; `bytes`: `number`; `storedBytes`: `number`; \}; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-checkpoint-cleanup"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `confirmed`: `boolean`; `capturedDigest?`: `Sha256Digest`; `refused?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-restored"`; `id`: [`NodeId`](#nodeid-5); `provider`: `string`; `environmentId`: `string`; `checkpointId`: `string`; `sourceEnvironmentId`: `string`; `verified`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture-started"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"workspace-capture"`; `id`: [`NodeId`](#nodeid-5); `executionId`: `string`; `environmentId`: `string`; `ahead`: `number`; `queuedMs`: `number`; `captureMs?`: `number`; `archiveBytes?`: `number`; `outcome`: `"captured"` \| `"failed"`; `error?`: `string`; `stages?`: `Readonly`\<`Record`\<`string`, `number`\>\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `graph?`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"maps"` \| `"routes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"` \| `"failed"`; `map?`: \{ `phase`: `"expand"` \| `"item"` \| `"join"`; `index?`: `number`; \}; `gate?`: `object` & (\{ `choice`: `string`; \} \| \{ `stop`: `string`; \}); `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-segment"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `stageIndex`: `number`; `phase`: `"started"` \| `"ended"`; `seat`: `string`; `harness`: `string`; `provider`: `string`; `model`: `string`; `reason?`: `"usage-limit"` \| `"completed"` \| `"failed"` \| `"cancelled"` \| `"paused"`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-materialized"`; `id`: [`NodeId`](#nodeid-5); `segmentIndex`: `number`; `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"driver-attempt"`; `id`: [`NodeId`](#nodeid-5); `record`: [`DriverAttemptRecord`](#driverattemptrecord); `attemptId?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"seat-paused"`; `id`: [`NodeId`](#nodeid-5); `resumeAt`: `string`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| `object` & [`RunParkingRecord`](durable.md#runparkingrecord) \| \{ `kind`: `"root-segment"`; `id`: [`NodeId`](#nodeid-5); `from?`: [`RootSegment`](#rootsegment); `to`: [`RootSegment`](#rootsegment); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"root-reentered"`; `id`: [`NodeId`](#nodeid-5); `live`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `replaced`: `ReadonlyArray`\<[`NodeId`](#nodeid-5)\>; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reopened"`; `id`: [`NodeId`](#nodeid-5); `operator`: `string`; `reason`: `string`; `operationId`: `string`; `prior`: \{ `kind`: `string`; `reason?`: `string`; `digest`: `string`; `archivedAs`: `string`; \}; `budget?`: [`Budget`](#budget-10); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"paused"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `signal`: `string`; `cause`: `string`; `attemptMs`: `number`; `pauseMs`: `number`; `madeProgress`: `boolean`; `replacesStop?`: [`DriverAttemptStop`](#driverattemptstop); `streak?`: `number`; `resumeAt?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"barren-pause"`; `id`: [`NodeId`](#nodeid-5); `attempt`: `number`; `streak`: `number`; `pauseMs`: `number`; `resumeAt`: `string`; `lastProgressAt`: `string`; `seq`: `number`; `at`: `string`; \}
 
 #### Union Members
 
@@ -36226,7 +36525,7 @@ The provider's answer to the stop Runtime requested, when the invocation had dis
 
 ##### Type Literal
 
-\{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"execution-evidence"`; `id`: [`NodeId`](#nodeid-5); `attemptId?`: `string`; `outRef`: `string`; `traceRoot?`: [`TraceRootReceipt`](#tracerootreceipt); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -36237,6 +36536,13 @@ Capture output retained independently of terminal outcome, spend, and recovery s
 ###### id
 
 > **id**: [`NodeId`](#nodeid-5)
+
+###### attemptId?
+
+> `optional` **attemptId?**: `string`
+
+The exact attempt this evidence belongs to. Identity stays on the row so the cited blob
+ holds content only and equal evidence keeps one content address.
 
 ###### outRef
 
@@ -40860,6 +41166,40 @@ Expose a neutral provider through the existing Sandbox client port.
 
 ***
 
+### readHarnessTranscriptSessions()
+
+> **readHarnessTranscriptSessions**\<`S`\>(`receipt`, `blobs`, `options`): `Promise`\<\{ `succeeded`: `true`; `value`: \{ `sessions`: readonly `S`[]; \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
+
+Resolve complete native sessions for one exact Runtime execution. The existing capture reader
+verifies retained bytes; the caller supplies its native parser. Missing coverage, a different
+attempt, and incomplete native families return explicit failures rather than training examples.
+
+#### Type Parameters
+
+##### S
+
+`S` *extends* `BoundHarnessSession`
+
+#### Parameters
+
+##### receipt
+
+`unknown`
+
+##### blobs
+
+`Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
+
+##### options
+
+`Omit`\<[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions), `"content"`\> & `object` & `object`
+
+#### Returns
+
+`Promise`\<\{ `succeeded`: `true`; `value`: \{ `sessions`: readonly `S`[]; \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
+
+***
+
 ### captureHarnessTranscript()
 
 > **captureHarnessTranscript**(`environment`, `harness`, `signal?`): `Promise`\<[`HarnessTranscriptCapture`](#harnesstranscriptcapture)\>
@@ -40983,7 +41323,7 @@ Local native bytes enter the same artifact/settlement path as every other transc
 
 ##### S
 
-`S` *extends* [`BoundHarnessSession`](#boundharnesssession)
+`S` *extends* `BoundHarnessSession`
 
 #### Parameters
 
@@ -41457,6 +41797,64 @@ Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` wi
 #### Returns
 
 [`AgenticSurface`](#agenticsurface)
+
+***
+
+### observedModelMatchesDeclared()
+
+> **observedModelMatchesDeclared**(`observed`, `declared`): `boolean`
+
+Match equivalent bare and provider-qualified spellings without discarding observed identity.
+
+#### Parameters
+
+##### observed
+
+`string`
+
+##### declared
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
+### canonicalObservedModelParts()
+
+> **canonicalObservedModelParts**(`model`): [`CanonicalObservedModelParts`](#canonicalobservedmodelparts) \| `undefined`
+
+Return the canonical model and its validated snapshot kind for runtime evidence reduction.
+
+#### Parameters
+
+##### model
+
+`string`
+
+#### Returns
+
+[`CanonicalObservedModelParts`](#canonicalobservedmodelparts) \| `undefined`
+
+***
+
+### observedModelHasSnapshot()
+
+> **observedModelHasSnapshot**(`model`): `boolean`
+
+Return whether an observed identity includes a provider snapshot.
+
+#### Parameters
+
+##### model
+
+`string`
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -42338,15 +42736,16 @@ Read native metadata without archive I/O, or verify retained bytes before projec
 
 ### readBoundHarnessSessions()
 
-> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<\{ `files`: `object`[]; `sessions`: `S`[]; \}\>
+> **readBoundHarnessSessions**\<`S`\>(`input`): `Promise`\<\{ \}\>
 
-Verify a bound native family without owning a store, filesystem layout or native parser.
+Compatibility entry. The shared reader owns native-family integrity; Runtime
+retains its archive path policy, abort behavior and public error identity.
 
 #### Type Parameters
 
 ##### S
 
-`S` *extends* [`BoundHarnessSession`](#boundharnesssession)
+`S` *extends* `BoundHarnessSession`
 
 #### Parameters
 
@@ -42356,9 +42755,15 @@ Verify a bound native family without owning a store, filesystem layout or native
 
 `string`
 
+###### nativeSessionIds?
+
+readonly `string`[]
+
+Every native conversation observed for this execution, in execution order.
+
 ###### files
 
-readonly [`HarnessFileBinding`](#harnessfilebinding)[]
+readonly `HarnessFileBinding`[]
 
 ###### read
 
@@ -42374,7 +42779,7 @@ readonly [`HarnessFileBinding`](#harnessfilebinding)[]
 
 #### Returns
 
-`Promise`\<\{ `files`: `object`[]; `sessions`: `S`[]; \}\>
+`Promise`\<\{ \}\>
 
 ***
 
@@ -44291,6 +44696,89 @@ the backend's working directory, where agent and check nodes both run.
 
 ***
 
+### graphFlowSpawnProfile()
+
+> **graphFlowSpawnProfile**(`graph`, `traversal`, `options?`): `AgentProfile`
+
+Derive the exact flow-node profile named by an actual retained route traversal.
+Uses the execution transform; arbitrary authorization callbacks are outside this contract.
+
+#### Parameters
+
+##### graph
+
+[`GraphTopology`](#graphtopology)
+
+##### traversal
+
+###### kind
+
+`"traversal"`
+
+###### edge
+
+`string`
+
+###### from
+
+`string`
+
+###### to
+
+`string`
+
+###### outcome
+
+`"delivered"` \| `"unpropagated"`
+
+###### continuity
+
+[`ContinuityMode`](durable.md#continuitymode)
+
+###### bytes
+
+`number`
+
+Bytes of the task that crossed, or of the result a stop or finish took.
+
+###### reason?
+
+`string`
+
+###### workerId?
+
+`string`
+
+The spawned worker, when a node target started.
+
+###### sourceWorker?
+
+`string`
+
+The settled worker whose result fired the edge. Absent on an entry.
+
+###### gate?
+
+GateDecisionRecord & \{ readonly replayed?: boolean \| undefined; \}
+
+A gate decision: who decided and what. `replayed` decisions are already journaled.
+
+##### options?
+
+###### registry?
+
+[`PromptRegistry`](#promptregistry)
+
+###### profileGuidance?
+
+`"profile-kb"`
+
+#### Returns
+
+`AgentProfile`
+
+***
+
 ### graphDigest()
 
 > **graphDigest**(`graph`): `string`
@@ -44523,7 +45011,7 @@ readonly [`GraphRunRecord`](#graphrunrecord)[]
 
 > **loadGraph**(`reg`, `digest`): `Promise`\<[`StoredGraph`](#storedgraph) \| `undefined`\>
 
-Load a stored graph by digest.
+Read the exact content-addressed graph, including non-executable observations.
 
 #### Parameters
 
@@ -44673,6 +45161,56 @@ prompt of its own, and when the masked graph changed or the strings do not read 
 ##### map
 
 `Readonly`\<`Record`\<`string`, `string`\>\>
+
+#### Returns
+
+`string`
+
+***
+
+### readGraphProfile()
+
+> **readGraphProfile**(`graphText`, `nodeId`): `AgentProfile`
+
+Read the exact executable profile owned by one inline graph node. Refuses shared YAML,
+host overlays, dynamic bindings, incomplete identities and private literals; never resolves them.
+
+#### Parameters
+
+##### graphText
+
+`string`
+
+##### nodeId
+
+`string`
+
+#### Returns
+
+`AgentProfile`
+
+***
+
+### setGraphProfile()
+
+> **setGraphProfile**(`graphText`, `nodeId`, `profile`): `string`
+
+Materialize a measured profile in its owning node. Other source bytes and graph semantics
+remain unchanged. Load without seat/need overrides to execute this exact candidate.
+
+#### Parameters
+
+##### graphText
+
+`string`
+
+##### nodeId
+
+`string`
+
+##### profile
+
+\{ \}
 
 #### Returns
 

@@ -1,11 +1,14 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
-import { captureHarnessTranscript } from '../harness-transcript'
 import { environmentGone } from '../retained-interactive-lifecycle'
 import { awaitAbortable } from '../retained-run-binding'
 import type { TeardownAnswer } from '../supervise/deadline'
 import type { RetainedExecutorContext } from '../supervise/retained-executor'
 import type { EnvironmentTeardownReceipt } from '../supervise/types'
 import type { ProviderExecutorScope } from './provider-executor-state'
+import {
+  captureProviderHarnessTranscript,
+  persistProviderHarnessTranscript,
+} from './provider-harness-transcript'
 
 /** The environment id the latest durable admission names, when creation got that far. */
 export function admittedEnvironmentId(
@@ -37,7 +40,7 @@ export async function destroyExecutorEnvironment(
     if (
       !result.destroyed &&
       state.workspaceCleanupPromise === cleanupReference &&
-      !state.workspacePreservationRequired
+      !state.sourcePreservationRequired
     ) {
       state.workspaceCleanupPromise = undefined
     }
@@ -58,6 +61,13 @@ async function attemptDestroy(
     return {
       destroyed: false,
       detail: 'provider native stop was not confirmed; source environment preserved',
+      permanent: true,
+    }
+  }
+  if (state.sourcePreservationRequired) {
+    return {
+      destroyed: false,
+      detail: 'provider native transcript retention is incomplete; source environment preserved',
       permanent: true,
     }
   }
@@ -86,7 +96,8 @@ export async function releaseRetainedExecution(
   scope.controller.abort()
   // `teardown` keeps a pending retained execution alive so a resumed process can reconcile the
   // paid work inside it. The supervisor calls this once no process will: the root has settled.
-  if (!state.pending) return []
+  if (!state.pending && !state.transcriptPreservationRequired && !state.transcriptPersistenceFailed)
+    return []
   const environmentId =
     state.retained?.controlRef.environmentId ??
     state.environment?.id ??
@@ -112,7 +123,7 @@ export async function releaseRetainedExecution(
     if (
       state.retainedReleasePromise === releaseReference &&
       !receipts.every((entry) => entry.destroyed) &&
-      !state.workspacePreservationRequired
+      !state.sourcePreservationRequired
     ) {
       state.retainedReleasePromise = undefined
     }
@@ -189,13 +200,17 @@ async function captureBeforeDestroy(
   // Only a capture replaces the earlier receipt; a second failure keeps the reason the first one
   // named. One try per executor: the read shares the release's bound, and a retry of a refused
   // destroy must not wait on a box that already failed to answer.
-  if (state.harnessTranscript.status !== 'captured' && !state.releaseReadTried) {
+  if (
+    (state.harnessTranscript.status === 'unavailable' ||
+      state.transcriptPreservationRequired ||
+      state.transcriptPersistenceFailed) &&
+    !state.releaseReadTried
+  ) {
     state.releaseReadTried = true
-    const capture = await captureHarnessTranscript(
-      target as Parameters<typeof captureHarnessTranscript>[0],
-      scope.profile.harness,
-      signal,
-    )
-    if (capture.status === 'captured') state.harnessTranscript = capture
+    const capture = await captureProviderHarnessTranscript(scope, target, signal)
+    if (capture.status !== 'unavailable') {
+      state.harnessTranscript = capture
+      await persistProviderHarnessTranscript(scope, state.transcriptTask, state.transcriptResult)
+    }
   }
 }

@@ -5,6 +5,7 @@
  * fallback below. Neither path embeds transcript content in settlement events.
  * Readers request metadata without archive I/O, or explicitly resolve bounded text content.
  */
+import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
 import { deepFreezeCandidate } from '../candidate-execution/digest'
 import { contentAddress } from '../durable/content-address'
 import { ValidationError } from '../errors'
@@ -68,13 +69,20 @@ export interface HarnessTranscriptFile {
   readonly path: string
   readonly bytes: number
   readonly content: string
+  /** Original provider-native path and source, independent of the archive's storage layout. */
+  readonly attribution?: HarnessTranscriptMetadata['files'][number]['attribution']
 }
 
+/** Exact execution coordinates supplied by the trusted Bridge or provider capture owner. */
 export interface HarnessTranscriptBinding {
-  readonly kind: 'bridge'
+  readonly kind: 'bridge' | 'provider'
+  /** Required for provider captures; identifies the exact admitted native run. */
+  readonly controlRef?: AgentExactRunControlRef
   readonly node?: ExecutorNodeContext
   readonly sessionId: string
   readonly nativeSessionId: string
+  /** Ordered native sessions observed across retries of this exact execution. */
+  readonly nativeSessionIds?: readonly string[]
   readonly profileDigest: string
   readonly runs: readonly { readonly runId: string; readonly requestDigest: string }[]
 }
@@ -87,6 +95,7 @@ export interface HarnessTranscriptArtifact {
   readonly files: readonly HarnessTranscriptFile[]
   /** Paths found but not read, with why — a gap named is a gap an operator can act on. */
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
+  readonly omitted?: HarnessTranscriptMetadata['omitted']
 }
 
 /** Why no transcript reached a record, from either the capture or the settle path. */
@@ -704,6 +713,8 @@ export async function captureBoundHarnessTranscript<S extends BoundHarnessSessio
 ): Promise<HarnessTranscriptCapture> {
   if (
     input.binding.nativeSessionId !== input.nativeSessionId ||
+    JSON.stringify(input.binding.nativeSessionIds ?? [input.binding.nativeSessionId]) !==
+      JSON.stringify(input.nativeSessionIds ?? [input.nativeSessionId]) ||
     !input.binding.sessionId ||
     !/^sha256:[a-f0-9]{64}$/.test(input.binding.profileDigest) ||
     !input.binding.runs.length ||

@@ -20,7 +20,10 @@ import {
 } from './retained-owner-evidence'
 import { type OwnerRegistration, type OwnerState, owners } from './retained-owner-state'
 import { preemptRotationCaptures } from './retained-owner-turn-lifecycle'
-import { ownerMaterializationStates } from './scope-owner-materialization'
+import {
+  ownerMaterializationStates,
+  recordScopeOwnerHarnessTranscript,
+} from './scope-owner-materialization'
 import { detachedSnapshot } from './snapshot'
 import { assertValidSpend } from './spend-validation'
 import { traceRootWriter } from './trace-root'
@@ -128,6 +131,12 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
         now: args.now,
         traceRoots,
       }),
+      // Only a deferred runtime-owned owner has a kernel-minted attempt to bind its capture to.
+      // An owner registered without one keeps its turn rather than failing on the missing channel.
+      onHarnessTranscript: async (task, capture, result) => {
+        if (!ownerMaterializationStates.has(scope)) return
+        await recordScopeOwnerHarnessTranscript(scope, task, capture, result)
+      },
       onEndOfTurnWork: (work) => {
         // The rotation yields when the turn ends, not when its capture starts.
         preemptRotationCaptures(state)

@@ -154,29 +154,16 @@ export class ManagerDriveSession {
     }
   }
 
-  // The newest attempt's executor keeps capturing after its attempt returns (a retained owner's
-  // session copy and workspace capture run after the turn commits), so its transcript is read when
-  // a receipt is taken, never copied at attempt end: that recorded the `capture-did-not-run`
-  // placeholder for 7 of 8 such nodes on Runtime 0.319.8+ (#1360). The newest capture wins; a
-  // capture never gives way to an attempt that captured nothing.
+  // Read the newest executor live until its independent capture settles. Earlier attempts keep
+  // their own receipts, so a successful capture cannot substitute for a missing later turn.
   readonly keepTranscript = (capture: HarnessTranscriptCapture | undefined): void => {
-    const kept = this.managerTranscript
-    if (
-      capture !== undefined &&
-      (capture.status !== 'unavailable' || kept?.status === 'unavailable' || kept === undefined)
-    ) {
-      this.managerTranscript = capture
-    }
+    if (capture !== undefined) this.managerTranscript = capture
   }
 
-  /** The same rule as `keepTranscript`, with the newest attempt read live: its capture wins, an
-   *  earlier capture outranks its absence, and its absence names the newest reason. */
+  /** The newest attempt's capture, including its explicit failure. */
   harnessTranscript(): HarnessTranscriptCapture | undefined {
     const latest = this.state.lastExecutor?.harnessTranscript?.()
-    const kept = this.managerTranscript
-    if (latest === undefined) return kept
-    if (latest.status !== 'unavailable') return latest
-    return kept !== undefined && kept.status !== 'unavailable' ? kept : latest
+    return latest ?? this.managerTranscript
   }
 
   progress(): ExecutorProgress {

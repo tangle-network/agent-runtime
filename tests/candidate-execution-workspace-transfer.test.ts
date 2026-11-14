@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as workspaceArtifacts from '../src/candidate-execution/artifacts'
 import type { AgentCandidateArtifactPort } from '../src/candidate-execution/types'
@@ -28,7 +28,7 @@ async function fixture() {
       env: { ...process.env, GIT_ALLOW_TEST_IDENTITY: '1' },
     }).toString('utf8')
   git(['init', '--initial-branch=main'])
-  writeFileSync(join(source, '.gitignore'), 'ignored-cache\n')
+  writeFileSync(join(source, '.gitignore'), 'ignored-cache\n.agent-home/\n')
   writeFileSync(join(source, 'tracked.txt'), 'original\n')
   writeFileSync(join(source, 'deleted.txt'), 'original deletion\n')
   writeFileSync(join(source, 'executable'), 'original executable\n')
@@ -52,6 +52,8 @@ async function fixture() {
   git(['rm', 'deleted.txt'])
   writeFileSync(join(source, 'untracked.bin'), Buffer.from([255, 0, 128, 1]))
   writeFileSync(join(source, 'ignored-cache'), 'excluded by source policy\n')
+  await mkdir(join(source, '.agent-home', '.codex'), { recursive: true })
+  writeFileSync(join(source, '.agent-home', '.codex', 'auth.json'), 'ignored native canary')
   chmodSync(join(source, 'executable'), 0o711)
   const artifacts = createPrivateCasArtifactPort(join(root, 'artifacts'), 'transfer-owner')
   const snapshot = await captureAgentWorkspaceSnapshot(source, {
@@ -84,6 +86,7 @@ describe('portable workspace composition', () => {
     expect(existsSync(join(destination, 'deleted.txt'))).toBe(false)
     expect(existsSync(join(destination, 'index-only.bin'))).toBe(false)
     expect(existsSync(join(destination, 'ignored-cache'))).toBe(false)
+    expect(existsSync(join(destination, '.agent-home'))).toBe(false)
 
     writeFileSync(join(destination, 'tracked.txt'), 'staged return\n')
     remoteGit(['add', 'tracked.txt'])
@@ -116,6 +119,49 @@ describe('portable workspace composition', () => {
     expect(git(['status', '--porcelain=v1', '--untracked-files=all'])).toBe(sourceStatus)
     expect(readFileSync(join(source, 'tracked.txt'), 'utf8')).toBe('dirty source\n')
   })
+
+  it.each(['tracked', 'force-added', 'nested'] as const)(
+    'refuses %s native home files before retaining workspace artifacts',
+    async (kind) => {
+      const { root, source, git } = await fixture()
+      const path = `${kind === 'nested' ? 'packages/app/' : ''}.agent-home/.codex/auth.json`
+      await mkdir(dirname(join(source, path)), { recursive: true })
+      if (kind === 'tracked') {
+        writeFileSync(join(source, '.gitignore'), 'ignored-cache\n')
+        writeFileSync(join(source, path), 'harmless repository placeholder')
+        git(['add', '--', path])
+        git([
+          '-c',
+          'user.name=Workspace Fixture',
+          '-c',
+          'user.email=workspace-fixture@example.invalid',
+          'commit',
+          '--only',
+          '-m',
+          'native home placeholder',
+          '--',
+          path,
+        ])
+      }
+      writeFileSync(join(source, '.gitignore'), 'ignored-cache\n.agent-home/\n')
+      writeFileSync(join(source, path), 'native credential canary must not persist')
+      if (kind !== 'tracked') git(['add', '--force', '--', path])
+      expect(git(['ls-files', '--', path])).toBe(`${path}\n`)
+      const refusedRoot = join(root, 'refused-artifacts')
+      const artifacts = createPrivateCasArtifactPort(refusedRoot, 'refused-owner')
+      await expect(
+        captureAgentWorkspaceSnapshot(source, {
+          includeRepository: true,
+          repositoryContents: 'working-tree',
+          artifactPersistence: { executionId: 'refused-capture', outputArtifacts: artifacts },
+        }),
+      ).rejects.toThrow('unsafe path')
+      expect(existsSync(refusedRoot)).toBe(false)
+      expect(readFileSync(join(source, path), 'utf8')).toBe(
+        'native credential canary must not persist',
+      )
+    },
+  )
 
   it.each([false, true])(
     'refuses a pre-existing destination, populated=%s, before artifact reads',

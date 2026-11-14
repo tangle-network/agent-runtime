@@ -1,18 +1,35 @@
-import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
+import {
+  CostLedger,
+  type CostLedgerHandle,
+  type CostLedgerSummary,
+} from '@tangle-network/agent-eval'
+import type { ProposalFinding } from '@tangle-network/agent-eval/analyst'
 import {
   type CampaignScenarioIdentity,
   campaignSplitDigestFromIdentities,
 } from '@tangle-network/agent-eval/campaign'
 import {
+  type AgentProfileImprovementExperimentExecutionInput,
+  type AgentProfileImprovementIncompleteExperimentRun,
+  runAgentProfileImprovementExperiment,
+  type Scenario,
+  sealAgentProfileImprovementExperiment,
   sealAgentProfileImprovementSuite,
   sealAgentProfileImprovementTask,
 } from '@tangle-network/agent-eval/contract'
 import type {
   AgentCandidateEvaluationPolicy,
   AgentImprovementCost,
+  AgentImprovementProposal,
   AgentImprovementSource,
   AgentProfile,
+  AgentProfileImprovementExecutionRef,
+  AgentProfileImprovementExperiment,
   AgentProfileImprovementMeasuredComparison,
+  AgentProfileImprovementMeasurement,
+  AgentProfileImprovementModelBinding,
+  AgentProfileImprovementRecordedRunReceipt,
+  AgentProfileImprovementRunReceipt,
   AgentProfileImprovementSuiteInputs,
   AgentProfileImprovementTask,
   AgentProfileImprovementTaskMaterial,
@@ -22,9 +39,26 @@ import {
   AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
   agentImprovementSourceMetadata,
   agentProfileImprovementArmSchema,
+  agentProfileImprovementExpectedModel,
+  agentProfileImprovementModelBindingSchema,
+  agentProfileImprovementRunReceiptSchema,
   numbersApproximatelyEqual,
 } from '@tangle-network/agent-interface'
+import type { RunAnalystLoopResult } from '../analyst-loop/types'
 import { immutableCandidateValue } from '../candidate-execution/digest'
+import { parseExactAgentProfile } from '../candidate-execution/profile'
+import type {
+  ImproveMethodOptions,
+  ImproveMethodResult,
+  ImproveSearchOptions,
+  ImproveSearchResult,
+} from '../improvement/improve'
+import type { ReadonlyAgentProfile } from '../improvement/profile-types'
+import type { AgentImprovementAnalysisOptions } from './improvement-cycle'
+import {
+  type AgentProfileMeasuredSurface,
+  agentImprovementProfileDiffs,
+} from './improvement-surfaces'
 import {
   assertNoCallerOptimizationReceipt,
   attachOptimizationActivationReceipt,
@@ -32,11 +66,147 @@ import {
 } from './optimization-receipt'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
 
-interface ProfileImprovementBenchmarkInput {
+/** Product-owned task material that Runtime freezes before either profile state runs. */
+export interface AgentProfileImprovementBenchmark {
   tasks: [AgentProfileImprovementTaskMaterial, ...AgentProfileImprovementTaskMaterial[]]
   reps: number
   seeds: [number, ...number[]]
   policy: AgentCandidateEvaluationPolicy
+}
+
+/**
+ * One product execution adapter shared by optimizer search and exact profile
+ * measurement. `executionRef` must identify both operations and their closure.
+ */
+export interface AgentProfileImprovementExecutor<TScenario extends Scenario, TArtifact> {
+  executionRef: AgentProfileImprovementExecutionRef
+  optimize: ImproveMethodOptions<TScenario, TArtifact>['agent']
+  measure(
+    input: AgentProfileImprovementExperimentExecutionInput & { profile: AgentProfile },
+  ): Promise<AgentProfileImprovementRunReceipt>
+}
+
+/** The portable profile changes that the measured-profile contract permits. */
+export type AgentProfileImprovementMethodOptions<TScenario extends Scenario, TArtifact> = (
+  | Omit<
+      ImproveMethodOptions<TScenario, TArtifact>,
+      'agent' | 'executionRef' | 'findings' | 'surface'
+    >
+  | Omit<
+      ImproveSearchOptions<TScenario, TArtifact>,
+      'agent' | 'executionRef' | 'findings' | 'surface'
+    >
+) & {
+  surface?: AgentProfileMeasuredSurface
+  findings?: readonly ProposalFinding[]
+}
+
+/** Resolved once on frozen source profiles, before the final experiment is sealed. */
+export type AgentProfileImprovementModelBindingSource =
+  | AgentProfileImprovementModelBinding
+  | ((input: {
+      baseline: ReadonlyAgentProfile
+      candidate: ReadonlyAgentProfile
+    }) => AgentProfileImprovementModelBinding | Promise<AgentProfileImprovementModelBinding>)
+
+/**
+ * Complete profile-improvement path for a product-owned source.
+ * Runtime owns analysis, search ancestry, profile diffs, experiment sealing,
+ * paired evaluation, and the reviewable proposal. The product keeps its
+ * profile bytes, task executor, billing, trace capture, and persistence.
+ */
+export interface ProposeAgentProfileImprovementOptions<TScenario extends Scenario, TArtifact> {
+  runId: string
+  source: AgentImprovementSource
+  profile: AgentProfile
+  stateDigest: AgentImprovementProfileStateDigest
+  analysis: AgentImprovementAnalysisOptions
+  improvement: AgentProfileImprovementMethodOptions<TScenario, TArtifact>
+  benchmark: AgentProfileImprovementBenchmark
+  executor: AgentProfileImprovementExecutor<TScenario, TArtifact>
+  modelBinding?: AgentProfileImprovementModelBindingSource
+  allowIncomplete?: false
+  /** One customer-approved maximum for analysis, optimization, and measurement. */
+  budgetUsd: number
+  maxConcurrency?: number
+  signal?: AbortSignal
+  candidate?: AgentProfileImprovementMeasuredComparison['candidate']
+  metadata?: AgentProfileImprovementMeasuredComparison['metadata']
+  now?: () => Date
+}
+
+export interface ProposeAgentProfileImprovementResult {
+  analysis: RunAnalystLoopResult
+  improvement: ImproveMethodResult | ImproveSearchResult
+  experiment: AgentProfileImprovementExperiment
+  measurements: AgentProfileImprovementMeasurement[]
+  proposal: AgentImprovementProposal
+}
+
+/** Opt-in measurement records may be incomplete; the proposal API remains the same. */
+export interface RecordAgentProfileImprovementOptions<TScenario extends Scenario, TArtifact>
+  extends Omit<
+    ProposeAgentProfileImprovementOptions<TScenario, TArtifact>,
+    'executor' | 'allowIncomplete'
+  > {
+  allowIncomplete: true
+  executor: Omit<AgentProfileImprovementExecutor<TScenario, TArtifact>, 'measure'> & {
+    measure(
+      input: AgentProfileImprovementExperimentExecutionInput & { profile: AgentProfile },
+    ): Promise<AgentProfileImprovementRecordedRunReceipt>
+  }
+}
+export interface ProposeAgentProfileImprovementIncompleteResult
+  extends AgentProfileImprovementIncompleteExperimentRun {
+  analysis: RunAnalystLoopResult
+  improvement: ImproveMethodResult | ImproveSearchResult
+  experiment: AgentProfileImprovementExperiment
+}
+
+/** Opt-in normal hold before a paired experiment can be measured. No proposal is constructed. */
+export interface ProposeAgentProfileImprovementHeldResult {
+  status: 'held'
+  decision: 'hold'
+  phase: 'search' | 'preparation'
+  source: AgentImprovementSource
+  analysis: RunAnalystLoopResult
+  improvement: ImproveMethodResult | ImproveSearchResult
+  accounting: CostLedgerSummary
+  reasons: string[]
+}
+
+export function profileImprovementHold(
+  allowIncomplete: boolean | undefined,
+  source: AgentImprovementSource,
+  analysis: RunAnalystLoopResult,
+  improvement: ImproveMethodResult | ImproveSearchResult,
+  ledger: CostLedgerHandle,
+): ProposeAgentProfileImprovementHeldResult | undefined {
+  if (allowIncomplete !== true) return undefined
+  const accounting = ledger.summary()
+  const phase =
+    improvement.decision !== 'ship'
+      ? 'search'
+      : !accounting.accountingComplete || accounting.costProvenance.kind === 'uncaptured'
+        ? 'preparation'
+        : undefined
+  if (!phase) return undefined
+  return {
+    status: 'held',
+    decision: 'hold',
+    phase,
+    source,
+    analysis,
+    improvement,
+    accounting,
+    reasons: [
+      ...(phase === 'search' ? ['Search did not establish a promotable profile change'] : []),
+      ...accounting.incompleteReasons,
+      ...(accounting.costProvenance.kind === 'uncaptured'
+        ? ['Preparation cost provenance is uncaptured']
+        : []),
+    ],
+  }
 }
 
 export function createProfileImprovementCostLedger(
@@ -87,8 +257,152 @@ export function profileStateDigest(
   }).stateDigest
 }
 
+/** Parse a static binding before any spend. The returned step resolves a function binding once on
+ *  frozen states, refuses a state that changed meanwhile, and checks each task's expected model. */
+export function profileImprovementModelBinding(
+  binding: AgentProfileImprovementModelBindingSource | undefined,
+): (input: {
+  change: AgentProfileImprovementExperiment['change']
+  tasks: readonly AgentProfileImprovementTask[]
+  profiles: { baseline: AgentProfile; candidate: AgentProfile }
+  unchanged: () => boolean
+}) => Promise<AgentProfileImprovementModelBinding | undefined> {
+  const source =
+    typeof binding === 'function' || binding === undefined
+      ? binding
+      : immutableCandidateValue(agentProfileImprovementModelBindingSchema.parse(binding))
+  return async ({ change, tasks, profiles, unchanged }) => {
+    const modelBinding =
+      source === undefined
+        ? undefined
+        : agentProfileImprovementModelBindingSchema.parse(
+            typeof source === 'function' ? await source(immutableCandidateValue(profiles)) : source,
+          )
+    if (!unchanged())
+      throw new Error('profile state changed before the measured experiment was sealed')
+    for (const task of tasks)
+      for (const arm of ['baseline', 'candidate'] as const)
+        agentProfileImprovementExpectedModel({ change, modelBinding }, task, arm, profiles[arm])
+    return modelBinding
+  }
+}
+
+/** Measure only the sealed profile states, re-checking each state and its model before the cell. */
+function profileImprovementMeasure<TScenario extends Scenario, TArtifact>(
+  options:
+    | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
+    | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
+  sourceIdentity: string,
+  experiment: AgentProfileImprovementExperiment,
+  profiles: ReadonlyMap<Sha256Digest, AgentProfile>,
+) {
+  return async (
+    input: AgentProfileImprovementExperimentExecutionInput,
+  ): Promise<AgentProfileImprovementRecordedRunReceipt> => {
+    const measuredProfile = profiles.get(input.stateDigest)
+    if (!measuredProfile) {
+      throw new Error('profile improvement execution requested an unknown profile state')
+    }
+    if (
+      profileStateDigest(options.stateDigest, sourceIdentity, measuredProfile) !== input.stateDigest
+    )
+      throw new Error('profile state changed before measurement')
+    agentProfileImprovementExpectedModel(experiment, input.task, input.arm, measuredProfile)
+    const { signal, ...cell } = input
+    const receipt = await options.executor.measure({
+      ...immutableCandidateValue({ ...cell, profile: measuredProfile }),
+      ...(signal ? { signal } : {}),
+    })
+    return options.allowIncomplete === true
+      ? receipt
+      : agentProfileImprovementRunReceiptSchema.parse(receipt)
+  }
+}
+
+/** Seal the optimizer's exact candidate state, resolve its model binding on the frozen states, and
+ *  measure both states. `assertCandidate` runs on the parsed candidate before the binding resolves. */
+export async function measureProfileImprovementCandidate<TScenario extends Scenario, TArtifact>(
+  options:
+    | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
+    | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
+  input: {
+    readonly source: AgentImprovementSource
+    readonly baseline: { readonly profile: AgentProfile; readonly stateDigest: Sha256Digest }
+    readonly candidate: unknown
+    readonly lineage: { readonly runId: string; readonly developmentSplitDigest: Sha256Digest }
+    readonly benchmark: AgentProfileImprovementSuiteInputs
+    readonly policy: AgentCandidateEvaluationPolicy
+    readonly resolveModelBinding: ReturnType<typeof profileImprovementModelBinding>
+    readonly assertCandidate: (profile: AgentProfile) => void
+    readonly costLedger: CostLedger
+    readonly preparationStartedAt: number
+  },
+) {
+  const { source, baseline, benchmark, costLedger } = input
+  const profile = parseExactAgentProfile(input.candidate, 'profile improvement candidate')
+  const stateDigest = profileStateDigest(options.stateDigest, source.sourceIdentity, profile)
+  if (stateDigest === baseline.stateDigest) {
+    throw new Error('profile improvement candidate state digest matches the baseline')
+  }
+  const change = agentImprovementProfileDiffs(baseline.profile, profile, {
+    id: `profile-improvement:${stateDigest}`,
+    metadata: { sourceIdentity: source.sourceIdentity, sourceRevision: source.sourceRevision },
+  })
+  const profileDiffIds = change.map((step) => {
+    if (!step.id) throw new Error('profile improvement change requires an exact diff id')
+    return step.id
+  })
+  input.assertCandidate(profile)
+  const modelBinding = await input.resolveModelBinding({
+    change,
+    tasks: benchmark.tasks,
+    profiles: { baseline: baseline.profile, candidate: profile },
+    unchanged: () =>
+      profileStateDigest(options.stateDigest, source.sourceIdentity, baseline.profile) ===
+        baseline.stateDigest &&
+      profileStateDigest(options.stateDigest, source.sourceIdentity, profile) === stateDigest,
+  })
+  const experiment = sealAgentProfileImprovementExperiment({
+    kind: 'agent-profile-improvement-experiment',
+    digestAlgorithm: 'rfc8785-sha256',
+    source,
+    executionRef: options.executor.executionRef,
+    baseline: { stateDigest: baseline.stateDigest },
+    candidate: { stateDigest },
+    change,
+    ...(modelBinding && { modelBinding }),
+    candidateLineage: {
+      source: 'optimizer',
+      parentDigests: [source.sourceDigest],
+      runIds: [input.lineage.runId],
+      profileDiffIds,
+      developmentSplitDigest: input.lineage.developmentSplitDigest,
+    },
+    benchmark,
+    policy: input.policy,
+  })
+  const preparation = profilePreparationAccounting(costLedger, input.preparationStartedAt)
+  const run = await runAgentProfileImprovementExperiment({
+    allowIncomplete: true,
+    experiment,
+    ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
+    costLedger,
+    ...(options.signal ? { signal: options.signal } : {}),
+    execute: profileImprovementMeasure(
+      options,
+      source.sourceIdentity,
+      experiment,
+      new Map<Sha256Digest, AgentProfile>([
+        [baseline.stateDigest, baseline.profile],
+        [stateDigest, profile],
+      ]),
+    ),
+  })
+  return { experiment, preparation, run }
+}
+
 export function sealProfileImprovementBenchmark(
-  input: ProfileImprovementBenchmarkInput,
+  input: AgentProfileImprovementBenchmark,
 ): AgentProfileImprovementSuiteInputs {
   const tasks = input.tasks.map((task) => sealAgentProfileImprovementTask(task)) as [
     AgentProfileImprovementTask,

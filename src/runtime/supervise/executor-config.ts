@@ -124,6 +124,10 @@ export function snapshotExecutorConfig(
         throw new ValidationError(
           'createExecutor(provider): JSON output is not supported with steering',
         )
+      if (config.harnessTranscript !== undefined && config.steering !== undefined)
+        throw new ValidationError(
+          'createExecutor(provider): native capture is not supported with steering',
+        )
       // `validator` is an executable port like `provider`: retained live by reference, never
       // cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
       const {
@@ -132,9 +136,14 @@ export function snapshotExecutorConfig(
         profileForCreate,
         taskToTurn,
         validator,
+        harnessTranscript,
         shared,
         ...decisionData
       } = config
+      if (harnessTranscript !== undefined && typeof harnessTranscript !== 'function')
+        throw new ValidationError(
+          'createExecutor provider: harnessTranscript must be a capture function',
+        )
       if (
         shared !== undefined &&
         (decisionData.steering !== undefined || decisionData.placements !== undefined)
@@ -156,6 +165,7 @@ export function snapshotExecutorConfig(
         ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
         ...(validator === undefined ? {} : { validator }),
+        ...(harnessTranscript === undefined ? {} : { harnessTranscript }),
         // A live pool: every worker of the run must lease from the same boxes.
         ...(shared === undefined ? {} : { shared }),
       })

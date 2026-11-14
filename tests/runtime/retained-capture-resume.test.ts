@@ -289,9 +289,29 @@ describe('native continuation and read-only legacy capture receipts after a real
       expect(continued.native[1].control.environmentId).toBe(
         continued.native[0].control.environmentId,
       )
-      expect(continued.events.filter((event) => event.kind === 'execution-evidence')).toHaveLength(
-        1,
+      // The stored legacy receipt, then the resumed invocation's harness-transcript receipt. The
+      // killed invocation died before its receipt (killedRun) and is reused, not run again.
+      const evidence = continued.events.filter((event) => event.kind === 'execution-evidence')
+      const blobs = contextFor(directory).blobs
+      const records = await Promise.all(
+        evidence.map(async (event) => (await blobs.get(event.outRef)) as Record<string, unknown>),
       )
+      expect(
+        records.map((out) =>
+          out.kind === 'harness-transcript'
+            ? `harness-transcript:${String((out.harnessTranscript as { status?: unknown }).status)}`
+            : out.workspaceCapture === undefined
+              ? 'other'
+              : 'legacy-workspace-receipt',
+        ),
+      ).toEqual(['legacy-workspace-receipt', 'harness-transcript:unavailable'])
+      expect(records[1]).toMatchObject({
+        schemaVersion: 1,
+        node: { nodeId: runId },
+        outRef: (
+          resultsIn(continued.events).at(-1) as Extract<SpawnEvent, { kind: 'execution-result' }>
+        ).outRef,
+      })
       expect(continued.events.filter((event) => event.kind === 'evidence-pending')).toEqual([])
       expect(continued.result.teardownUnconfirmed).toBeUndefined()
     },

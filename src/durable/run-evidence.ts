@@ -53,16 +53,16 @@ export async function runEvidence(runDir: string, bounds: RunEvidenceBounds = {}
         const out = node.outRef === undefined ? undefined : await blobs.get(node.outRef)
         return {
           id: node.id,
-          node: node.label,
+          ...(node.label === undefined ? {} : { node: node.label }),
           outcome: node.failure ? `${node.status}: ${node.failure.code}` : node.status,
-          settled: out === undefined ? undefined : json(out),
+          ...(out === undefined ? {} : { settled: json(out) }),
           calls: spans.flatMap((span) =>
             span.name === ASSISTANT_TEXT_SPAN
               ? []
               : [{ name: strip(span.name), args: json(span.args) }],
           ),
           message: final === undefined ? '' : (JSON.parse(json(final)) as string),
-          tokens: node.spent?.tokens,
+          ...(node.spent?.tokens === undefined ? {} : { tokens: node.spent.tokens }),
         }
       }),
   )
@@ -76,7 +76,9 @@ export async function runEvidence(runDir: string, bounds: RunEvidenceBounds = {}
   const shape = (scale: number) =>
     full.map(({ calls, settled, message, ...node }) => ({
       ...node,
-      settled: clip(settled, (bounds.settledChars ?? 600) * scale),
+      ...(settled === undefined
+        ? {}
+        : { settled: clip(settled, (bounds.settledChars ?? 600) * scale) }),
       toolCalls: calls.slice(-(bounds.toolCalls ?? 3)).map(({ name, args }) => ({
         name,
         args: clip(args, (bounds.toolCallChars ?? 150) * scale),

@@ -2133,6 +2133,12 @@ Paired final-test confidence interval for method-based profile runs.
 
 The search ledger, closed and verified from its bytes.
 
+##### finalEvidence?
+
+> `optional` **finalEvidence?**: `FinalEvidenceUse`
+
+Shared final-data reservation and exposure, when a final-evidence policy was supplied.
+
 ##### promotion?
 
 > `optional` **promotion?**: [`SearchPromotion`](#searchpromotion)
@@ -3607,7 +3613,7 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 
 ##### runSupervised?
 
-> `optional` **runSupervised?**: (`profile`, `task`, `opts`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
+> `optional` **runSupervised?**: (`profile`, `task`, `opts`, `context?`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
 
 ###### Parameters
 
@@ -3622,6 +3628,12 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 ###### opts
 
 [`SuperviseOptions`](runtime.md#superviseoptions)
+
+###### context?
+
+`Readonly`\<`Pick`\<[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions), `"root"` \| `"goal"`\>\>
+
+Exact isolated update workspace; never infer this authority from task text.
 
 ###### Returns
 
@@ -3686,6 +3698,12 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 ###### outputTokens
 
 > **outputTokens**: `number`
+
+###### tokensKnown?
+
+> `optional` **tokensKnown?**: `boolean`
+
+Missing on older owners means unavailable completeness, not proven-known usage.
 
 ###### usdKnown
 
@@ -3786,6 +3804,98 @@ Total stdout + stderr byte budget. Output is drained, not retained in memory.
 ##### readiness?
 
 > `optional` **readiness?**: `unknown`
+
+***
+
+### SupervisedKnowledgeUpdateOptions
+
+#### Properties
+
+##### root
+
+> **root**: `string`
+
+##### goal
+
+> **goal**: `string`
+
+##### readiness
+
+> **readiness**: [`KnowledgeReadinessCheck`](#knowledgereadinesscheck)
+
+##### readinessSpecs?
+
+> `optional` **readinessSpecs?**: readonly `unknown`[]
+
+##### readinessTaskId?
+
+> `optional` **readinessTaskId?**: `string`
+
+##### readinessOptions?
+
+> `optional` **readinessOptions?**: `unknown`
+
+##### findings?
+
+> `optional` **findings?**: readonly `unknown`[]
+
+##### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+##### budget
+
+> **budget**: [`Budget`](runtime.md#budget-10)
+
+##### backend?
+
+> `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
+
+##### makeWorkerAgent?
+
+> `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
+
+##### supervisorProfile
+
+> **supervisorProfile**: `AgentProfile`
+
+Caller-owned exact supervisor harness/provider/model identity.
+
+##### superviseOptions?
+
+> `optional` **superviseOptions?**: `Partial`\<`Omit`\<[`SuperviseOptions`](runtime.md#superviseoptions), `"budget"` \| `"backend"` \| `"deliverable"` \| `"allowedModels"` \| `"makeWorkerAgent"`\>\>
+
+##### allowedModels?
+
+> `optional` **allowedModels?**: readonly `string`[]
+
+##### runSupervised?
+
+> `optional` **runSupervised?**: (`profile`, `task`, `opts`, `context?`) => `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### task
+
+`unknown`
+
+###### opts
+
+[`SuperviseOptions`](runtime.md#superviseoptions)
+
+###### context?
+
+`Readonly`\<`Pick`\<[`SupervisedKnowledgeUpdateOptions`](#supervisedknowledgeupdateoptions), `"root"` \| `"goal"`\>\>
+
+Exact isolated update workspace; never infer this authority from task text.
+
+###### Returns
+
+`Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>\>
 
 ***
 
@@ -6337,7 +6447,7 @@ What the search improves, recorded as the ledger's subject, for example
 
 ### ImproveSearchOptions
 
-> **ImproveSearchOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"method"` \| `"claim"` \| `"confidence"` \| `"evidence"` \| `"finalEvidence"` \| `"resamples"` \| `"reps"` \| `"maxConcurrency"` \| `"optimizationRunOptions"` \| `"agent"`\> & `object`
+> **ImproveSearchOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"method"` \| `"claim"` \| `"confidence"` \| `"evidence"` \| `"resamples"` \| `"reps"` \| `"maxConcurrency"` \| `"optimizationRunOptions"` \| `"agent"`\> & `object`
 
 Improve a profile with `searchMethod`. The search runs on all three splits:
 it expands and ranks on train and selection, then claims once on the sealed
@@ -8216,6 +8326,41 @@ Attach both frozen knowledge inputs to one otherwise-identical bundle pair.
 #### Returns
 
 [`KnowledgeImprovementExperimentBundles`](#knowledgeimprovementexperimentbundles)
+
+***
+
+### captureKnowledgeImprovementCandidatePair()
+
+> **captureKnowledgeImprovementCandidatePair**(`options`): `Promise`\<[`KnowledgeImprovementCandidatePair`](#knowledgeimprovementcandidatepair)\>
+
+Capture an already measured Knowledge candidate and its original baseline.
+The Knowledge owner revalidates the exact reference, evidence and isolated
+bytes before Runtime freezes the existing execution snapshot contracts.
+This does not update, evaluate or promote the curated Knowledge store.
+
+#### Parameters
+
+##### options
+
+###### root
+
+`string`
+
+###### candidate
+
+\{ \}
+
+###### artifacts?
+
+[`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<[`KnowledgeImprovementCandidatePair`](#knowledgeimprovementcandidatepair)\>
 
 ***
 

@@ -276,3 +276,34 @@ Errors remain bounded and redacted through Runtime's shared error formatter.
 The per-node event ordinal continues across coordinator restarts.
 Cancellation keeps its terminal outcome and does not remove earlier attempt evidence.
 Replay and cost readers treat these events as observations, without settling nodes or charging work again.
+
+### Native transcript evidence
+
+An opted-in Bridge manager forwards its executor's native capture and waits for the independent final read before settlement.
+Bridge and provider manager drives and leaf executions retain an `execution-evidence` blob with `kind: 'harness-transcript'`, the exact Runtime node and attempt, the actual input's `taskRef`, an output reference when available, and its transcript receipt.
+This includes fresh native sessions, continued sessions, and failed captures; the latest receipt never replaces earlier attempt evidence.
+The final root or child receipt describes the latest attempt, so consumers use the journal to account for the whole episode.
+
+Use `readHarnessTranscriptSessions` from the kernel with the journal's exact node and attempt, the run's blob store, and the native parser already owned by the consumer.
+It verifies the capture's content address, inventory, retained bytes, exact execution identity, and complete native session family before returning sessions.
+An incomplete, unbound, or unavailable capture returns an explicit failure and remains audit evidence.
+Runtime does not infer completeness from a projected tool event or a readable transcript file.
+
+The provider backend accepts `harnessTranscript` as a live capture callback.
+Runtime reuses the Bridge capture request with the admitted `AgentExactRunControlRef`, host working directory, session and run, profile digest, and node, only after the exact run reports a terminal status.
+Use the existing native export and `captureBoundHarnessTranscript`; the callback may keep the Bridge binding or return a provider binding with that exact control reference. Runtime stamps the verified provider control onto accepted evidence. Keep the native parser in its owning library.
+Runtime checks the returned control reference, profile, node, session and run bindings before accepting its capture.
+The callback has an independent bounded capture signal, so cancellation does not discard an already produced transcript.
+Every retained provider invocation writes its receipt before the environment can be reused or deleted, including invocations that ended with a capacity refusal.
+Provider-internal retries can produce more than one native conversation; `nativeSessionIds` retains their observed order and the reader verifies every family.
+Retained files preserve their original `attribution.nativePath`, separate from the archive's storage layout, so native parsers retain the correct parent and child identities.
+Producer-declared install/cache content omissions and credential exclusions stay visible as `omitted` metadata; they are not counted as retained bytes or confused with missing conversation data.
+The original archive can also retain binary or configuration files that have no text projection.
+Learning readers still require every attested native conversation and its recorded child family, with no parser integrity gaps.
+
+An incomplete configured capture preserves its source environment for recovery; an explicit retained release makes one final capture attempt before deciding whether source custody can end.
+That repair writes a new receipt for the same exact invocation, without running the agent again.
+A failed durable write also prevents deletion and fails through the existing durable-state guard.
+An in-memory capture alone cannot repay a failed durable write.
+The normal bounded filesystem fallback remains available when no capture callback is configured, but its unbound scan does not establish complete native coverage.
+The legacy steerable provider session does not expose an exact retained execution binding and refuses this capture option instead of silently dropping it.

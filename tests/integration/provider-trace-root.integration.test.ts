@@ -246,11 +246,26 @@ it.each([3, 4, 5, 7, 8, 9, 16, 17, 31, 32, 33, 255, 256, 257, 513])(
       )
       const blobs = new FileResultBlobStore(join(fixture.directory, 'run', 'blobs'))
       const evidence = (await fixture.events()).filter((row) => row.kind === 'execution-evidence')
-      expect(evidence).toHaveLength(1)
-      for (const row of evidence) {
-        const verified = await verifyStoredTrace(blobs, row)
-        expect(verified.artifact.leafCount).toBe(leaves)
-      }
+      // The invocation's rooted failure evidence, then its harness-transcript receipt.
+      expect(
+        await Promise.all(
+          evidence.map(async (row) => ({
+            traceRoot: row.traceRoot !== undefined,
+            kind: object(await blobs.get(row.outRef)).kind,
+          })),
+        ),
+      ).toEqual([
+        { traceRoot: true, kind: undefined },
+        { traceRoot: false, kind: 'harness-transcript' },
+      ])
+      const verified = await verifyStoredTrace(blobs, evidence[0]!)
+      expect(verified.artifact.leafCount).toBe(leaves)
+      expect(await blobs.get(evidence[1]!.outRef)).toMatchObject({
+        kind: 'harness-transcript',
+        schemaVersion: 1,
+        node: { nodeId: evidence[1]!.id },
+        harnessTranscript: { status: 'unavailable' },
+      })
       expect((await fixture.state()).runs).toHaveLength(1)
       const result = (await fixture.events()).find((row) => row.kind === 'execution-result')
       expect(result?.kind === 'execution-result' && result.outcome?.errorCode).toBe(

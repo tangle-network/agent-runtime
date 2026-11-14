@@ -1,9 +1,11 @@
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
+import { persistHarnessTranscript } from '../harness-transcript'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { chargedTokens } from '../util'
 import { notifyExecutionAdmitted } from './executor-observation'
 import { executorFailureReason } from './executor-outcome'
+import { recordHarnessTranscriptEvidence } from './harness-transcript-evidence'
 import {
   executorEvidenceWriter,
   leafContinuationExecutionId,
@@ -11,6 +13,7 @@ import {
   type RetainedExecutorContext,
 } from './retained-executor'
 import { DEFAULT_BUDGET_STOP_HOLD_MS } from './scope-capabilities'
+import { childNode } from './scope-child-start'
 import type { ChildAdmission, LiveChild, ScopeArgs } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
 import { assertValidSpend } from './spend-validation'
@@ -176,6 +179,24 @@ export function createChildRetention({
       now,
       traceRoots,
     }),
+    onHarnessTranscript: async (task, capture, result) => {
+      // A settled invocation has already committed its result; a failed one may have none.
+      // Capture remains legal after abort and finishes before a continuation journals its input.
+      const harnessTranscript = await persistHarnessTranscript(capture, args.blobs)
+      await recordHarnessTranscriptEvidence({
+        node: childNode(args, { id, attemptId, identity }),
+        task,
+        ...(result?.out === undefined ? {} : { outRef: contentAddress(result.out) }),
+        harnessTranscript,
+        journal: args.journal,
+        roots: [args.root],
+        blobs: args.blobs,
+        now,
+      })
+      if (harnessTranscript.status === 'unavailable' && capture.status !== 'unavailable')
+        throw new ValidationError('provider transcript capture could not be persisted')
+      readLive().transcriptEvidenceRecorded = true
+    },
     onPause,
     continueInvocation: async (nextTask) => {
       controller.signal.throwIfAborted()
@@ -208,6 +229,8 @@ export function createChildRetention({
         })
       })
       inputSeq = nextSeq
+      live.executionTask = snapshot
+      live.transcriptEvidenceRecorded = false
       admissions = []
       // The committed result belongs to the invocation this one continues. A cancellation
       // from here on leaves this invocation pending, not that result accepted.

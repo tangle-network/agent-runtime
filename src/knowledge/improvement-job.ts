@@ -8,16 +8,23 @@ import {
 import {
   type BuildEvalKnowledgeBundleOptions,
   evaluateKnowledgeBaseReadiness,
+  hashKnowledgeBase,
   improveKnowledgeBase,
+  KB_CLAIM_LEDGER_DIR,
+  KB_EVENTS_PATH,
+  KB_STORE_DIR,
   type KnowledgeBaseQualityOptions,
+  type KnowledgeImprovementCandidateRef,
   type KnowledgeImprovementOptions,
   type KnowledgeImprovementResult,
   type KnowledgeReadinessSpec,
   knowledgeImprovementCandidateRef,
+  loadKnowledgeImprovementState,
   normalizeKnowledgeStateScope,
   toAgentCandidateKnowledgeRef,
   withKnowledgeImprovementComparison,
 } from '@tangle-network/agent-knowledge'
+import { captureMaterializedWorkspace } from '../candidate-execution/artifacts'
 import { sealAgentCandidateBundle } from '../candidate-execution/bundle'
 import {
   canonicalCandidateBytes,
@@ -26,7 +33,7 @@ import {
 } from '../candidate-execution/digest'
 import { persistCandidateOutputArtifact } from '../candidate-execution/output-artifacts'
 import type { AgentCandidateOutputArtifactPort } from '../candidate-execution/types'
-import { captureAgentCandidateWorkspace } from '../candidate-execution/workspace-archive-local'
+import { captureAgentCandidateWorkspaceFiles } from '../candidate-execution/workspace-archive'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { SuperviseOptions } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
@@ -52,11 +59,7 @@ export interface RunKnowledgeImprovementJobOptions
     >
   >
   allowedModels?: readonly string[]
-  runSupervised?: (
-    profile: SupervisorProfile,
-    task: unknown,
-    opts: SuperviseOptions,
-  ) => Promise<SupervisedResult<unknown>>
+  runSupervised?: SupervisedKnowledgeUpdateOptions['runSupervised']
   candidateArtifacts?: AgentCandidateOutputArtifactPort
   onMeasurement?: (measurement: KnowledgeImprovementJobMeasurement) => Promise<void> | void
 }
@@ -71,6 +74,8 @@ export interface KnowledgeImprovementJobMeasurement {
     iterations: number
     inputTokens: number
     outputTokens: number
+    /** Missing on older owners means unavailable completeness, not proven-known usage. */
+    tokensKnown?: boolean
     usdKnown: boolean
     usd: number
     ms: number
@@ -196,12 +201,12 @@ export async function runKnowledgeImprovementJob(
     resolvedImprovement.candidate?.status === 'candidate-ready' ||
     resolvedImprovement.candidate?.status === 'promoted'
   ) {
-    knowledge = await freezeKnowledgeCandidatePair(
-      options.root,
-      resolvedImprovement,
-      candidateArtifacts,
-      knowledgeOptions.signal,
-    )
+    knowledge = await captureKnowledgeImprovementCandidatePair({
+      root: options.root,
+      candidate: knowledgeImprovementCandidateRef(resolvedImprovement),
+      artifacts: candidateArtifacts,
+      signal: knowledgeOptions.signal,
+    })
   }
   const finishedAtMs = Date.now()
   const measurement: KnowledgeImprovementJobMeasurement = {
@@ -240,21 +245,41 @@ export function buildKnowledgeImprovementExperimentBundles(
   })
 }
 
-async function freezeKnowledgeCandidatePair(
-  root: string,
-  improvement: KnowledgeImprovementResult,
-  artifacts: AgentCandidateOutputArtifactPort | undefined,
-  signal: AbortSignal | undefined,
-): Promise<KnowledgeImprovementCandidatePair> {
-  const candidate = knowledgeImprovementCandidateRef(improvement)
+/** Capture an already measured Knowledge candidate and its original baseline.
+ * The Knowledge owner revalidates the exact reference, evidence and isolated
+ * bytes before Runtime freezes the existing execution snapshot contracts.
+ * This does not update, evaluate or promote the curated Knowledge store. */
+export async function captureKnowledgeImprovementCandidatePair(options: {
+  root: string
+  candidate: KnowledgeImprovementCandidateRef
+  artifacts?: AgentCandidateOutputArtifactPort
+  signal?: AbortSignal
+}): Promise<KnowledgeImprovementCandidatePair> {
+  const { root, candidate, artifacts, signal } = options
+  signal?.throwIfAborted()
+  const state = await loadKnowledgeImprovementState(root, candidate.runId)
+  if (!state) throw new Error('Knowledge candidate has no persisted owner state')
+  const expectedHash =
+    state.status === 'promoted' && state.promotedCandidateId === candidate.candidateId
+      ? candidate.candidateHash
+      : candidate.baseHash
+  const assertCurrent = async () => {
+    signal?.throwIfAborted()
+    if ((await hashKnowledgeBase(root, state.stateScope)) !== expectedHash)
+      throw new Error('Knowledge candidate no longer matches the current curated state')
+  }
+  await assertCurrent()
   const candidateRef = toAgentCandidateKnowledgeRef(candidate)
   return withKnowledgeImprovementComparison({ root, candidate }, async (comparison) => {
+    if (!comparison.evaluation.passed)
+      throw new Error('Knowledge candidate has no passing measured evaluation')
     const freeze = async (
       target: 'baseline' | 'candidate',
     ): Promise<AgentCandidateKnowledge['snapshot']> => {
       const executionId = `knowledge-${candidate.candidateId}-${target}`
-      const captured = await captureAgentCandidateWorkspace(
-        await realpath(comparison[target].root),
+      const { files } = await captureMaterializedWorkspace(await realpath(comparison[target].root))
+      const captured = await captureAgentCandidateWorkspaceFiles(
+        files.filter((file) => isMeasuredKnowledgePath(file.path, comparison.stateScope)),
         {
           ...(artifacts
             ? {
@@ -289,6 +314,7 @@ async function freezeKnowledgeCandidatePair(
         : Object.freeze(normalizedScope)
     const baseline = await freeze('baseline')
     const proposed = await freeze('candidate')
+    await assertCurrent()
     return Object.freeze({
       reference: candidateRef,
       ...(stateScope ? { stateScope } : {}),
@@ -297,6 +323,26 @@ async function freezeKnowledgeCandidatePair(
       candidate: proposed,
     })
   })
+}
+
+/**
+ * The Knowledge state a candidate hash measures: pages, raw sources and the source registry, plus
+ * claim ledgers and the event log for a research scope. Each comparison view also rewrites
+ * agent-knowledge's own index, mutation epoch and lock owner with its root, clock and holder, so
+ * freezing those would make two captures of one measured candidate differ.
+ */
+function isMeasuredKnowledgePath(
+  path: string,
+  scope: Parameters<typeof normalizeKnowledgeStateScope>[0],
+): boolean {
+  const normalized = normalizeKnowledgeStateScope(scope)
+  const within = (prefix: string) => path === prefix || path.startsWith(`${prefix}/`)
+  if (within(normalized.pagesDirectory) || within('raw')) return true
+  if (path === `${KB_STORE_DIR}/sources.json`) return true
+  return (
+    normalized.researchState === true &&
+    (within(KB_CLAIM_LEDGER_DIR) || path === KB_EVENTS_PATH || within(`${KB_STORE_DIR}/event-log`))
+  )
 }
 
 async function captureKnowledgeEvidence(
@@ -319,7 +365,15 @@ async function captureKnowledgeEvidence(
  *  nothing ran, so a zero dollar total IS the measured amount; `addSpent` lowers `usdKnown` as
  *  soon as it folds a run whose own dollars were not proven. */
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {
-  return { iterations: 0, inputTokens: 0, outputTokens: 0, usdKnown: true, usd: 0, ms: 0 }
+  return {
+    iterations: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    tokensKnown: true,
+    usdKnown: true,
+    usd: 0,
+    ms: 0,
+  }
 }
 
 function addSpent(
@@ -330,6 +384,7 @@ function addSpent(
   target.iterations += spent.iterations
   target.inputTokens += spent.tokens.input
   target.outputTokens += spent.tokens.output
+  target.tokensKnown = target.tokensKnown === true && spent.tokensKnown !== false
   target.usdKnown = target.usdKnown && spent.usdKnown !== false
   target.usd += spent.usd
   target.ms += spent.ms

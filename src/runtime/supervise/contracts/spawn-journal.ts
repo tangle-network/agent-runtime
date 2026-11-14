@@ -171,6 +171,9 @@ export type SpawnEvent =
       /** Capture output retained independently of terminal outcome, spend, and recovery state. */
       kind: 'execution-evidence'
       id: NodeId
+      /** The exact attempt this evidence belongs to. Identity stays on the row so the cited blob
+       *  holds content only and equal evidence keeps one content address. */
+      attemptId?: string
       outRef: string
       traceRoot?: TraceRootReceipt
       seq: number

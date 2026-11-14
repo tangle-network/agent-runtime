@@ -101,6 +101,10 @@ export class ChildExecutionAttempt<C> {
       readHarnessTranscript(this.executor),
       this.blobs,
     )
+    if (!this.live.transcriptEvidenceRecorded) {
+      await this.live.recordTranscriptEvidence?.(this.transcriptEvidence, this.retainedOutputRef)
+      this.live.transcriptEvidenceRecorded = true
+    }
     return this.transcriptEvidence
   }
 
