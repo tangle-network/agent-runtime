@@ -81,7 +81,10 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
       session(id) {
         if (!controlRef || id !== controlRef.sessionId) throw new Error('unknown native session')
         const ref = controlRef
-        const result = async () => ({ text: '', success: false, sessionId: id, metadata: { ...ref } })
+        // The native stream and its result are lost after the submission was accepted.
+        const result = async (): Promise<never> => {
+          throw new Error('native result lost before the result committed')
+        }
         return {
           id,
           controlRef: ref,
