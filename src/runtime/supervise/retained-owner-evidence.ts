@@ -240,6 +240,8 @@ function ownerCaptureIdentity(attempt: OwnerAttempt, owner: OwnerRegistration) {
 export async function reconcileOwnerWorkspaceBeforeReuse(
   state: OwnerState,
   signal: AbortSignal,
+  /** The pending input reconnects to its own exact native run; custody gates only new work. */
+  reconnecting = false,
 ): Promise<ReadonlySet<string>> {
   const { args } = state
   const indebted = new Set<string>()
@@ -258,6 +260,9 @@ export async function reconcileOwnerWorkspaceBeforeReuse(
       attempt.outputFilePolicyDigest === undefined
     )
       continue
+    // The same unfinished file invocation is observed again, never reused: its file custody
+    // stays open, and only its own durable result can discharge it.
+    if (reconnecting && attempt === latest && attempt.result === undefined) continue
     for (const environmentId of attempt.environmentIds) {
       if (!reusing.has(environmentId) || unusable.has(environmentId)) continue
       // A verified workspace may continue when Sandbox lost only raw process I/O.

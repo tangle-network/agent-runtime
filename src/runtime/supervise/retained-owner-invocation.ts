@@ -331,7 +331,15 @@ export async function prepareScopeRetainedOwnerTask(
   }
   // Do not dispatch a pending input over an uncertified historical workspace.
   if (state.taskRef !== undefined && state.acceptedRef === undefined) {
-    const indebted = await reconcileOwnerWorkspaceBeforeReuse(state, scope.signal)
+    // An abandoned input is not recovered, so its workspace takes the custody gate below.
+    const abandoned =
+      latestInput?.kind === 'execution-input' &&
+      owned.slice(owned.indexOf(latestInput)).some((event) => event.kind === 'execution-abandoned')
+    const indebted = await reconcileOwnerWorkspaceBeforeReuse(
+      state,
+      scope.signal,
+      session === 'native' && !abandoned,
+    )
     await abandonInputAdmittedIntoDebt(state, indebted)
   }
   const unusable = unusableEnvironmentIds(owned)
