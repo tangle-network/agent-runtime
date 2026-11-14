@@ -102,7 +102,11 @@ async function runProcess(
   const task = await prepareScopeRetainedOwnerTask(scope, 'write the report')
   const executor = providerAsExecutor(provider, { destroyOnSettle: false })(
     { profile, harness: 'opencode' },
-    { signal: controller.signal, seams: { [retainedExecutorSeamKey]: context } },
+    {
+      signal: controller.signal,
+      node: { rootId: ROOT, parentId: OWNER, nodeId: OWNER },
+      seams: { [retainedExecutorSeamKey]: context },
+    },
   )
   const run =
     context.admissions.length > 0 && executor.recover
