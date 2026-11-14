@@ -27,13 +27,6 @@ export class ProviderExecutorState {
   /** Reconstructed from the frozen file policy too: process loss cannot erase capture debt. */
   fileOutputRequired = false
 
-  get sourcePreservationRequired(): boolean {
-    return (
-      this.workspacePreservationRequired ||
-      this.fileOutputRequired ||
-      this.fileOutput?.requiresPreservation === true
-    )
-  }
   environment: AgentEnvironment | undefined
   artifact: ExecutorResult<unknown> | undefined
   retained: RetainedRunHandle | undefined
@@ -64,10 +57,12 @@ export class ProviderExecutorState {
   transcriptPreservationRequired = false
   /** A capture existed but its durable writer failed. A later read alone cannot repay this debt. */
   transcriptPersistenceFailed = false
-  /** Any open workspace or transcript custody debt keeps the source environment. */
+  /** Any open workspace, file-output or transcript custody debt keeps the source environment. */
   get sourcePreservationRequired(): boolean {
     return (
       this.workspacePreservationRequired ||
+      this.fileOutputRequired ||
+      this.fileOutput?.requiresPreservation === true ||
       this.transcriptPreservationRequired ||
       this.transcriptPersistenceFailed
     )
