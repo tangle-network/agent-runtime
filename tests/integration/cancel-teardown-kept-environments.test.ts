@@ -117,8 +117,8 @@ function recordedProvider(recorded: typeof RECORDED) {
   const wakes = new Map<string, number>()
   const stopped = new Set<string>()
   const removed = new Set<string>()
-  // A native-run reconnect starts by reading the provider's capabilities; no delete does.
-  let reconnects = 0
+  // Every connect to a box: a delete makes one, and a native-run stop would make another.
+  const connects = new Map<string, number>()
   const environment = (id: string): AgentEnvironment => ({
     id,
     provider: PROVIDER,
@@ -140,21 +140,19 @@ function recordedProvider(recorded: typeof RECORDED) {
   })
   const provider: AgentEnvironmentProvider = {
     name: PROVIDER,
-    capabilities: async () => {
-      reconnects += 1
-      return {}
-    },
+    capabilities: async () => ({}),
     create: async () => {
       throw new Error('a release never creates an environment')
     },
     async get(id) {
+      connects.set(id, (connects.get(id) ?? 0) + 1)
       if (removed.has(id) || !answers.has(id)) return null
       // A reconnect to a stopped box resumes it and waits for it to run.
       if (stopped.has(id)) wakes.set(id, (wakes.get(id) ?? 0) + 1)
       return environment(id)
     },
   }
-  return { provider, destroys, wakes, reconnects: () => reconnects }
+  return { provider, destroys, wakes, connects }
 }
 
 /** The owner's turn as a retained run journals it: its input, its intent, its box, and, for a
@@ -310,8 +308,10 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
   expect(Object.fromEntries(run.destroys)).toEqual(
     Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
   )
+  expect(Object.fromEntries(run.connects)).toEqual(
+    Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
+  )
   expect(Object.fromEntries(run.wakes)).toEqual({})
-  expect(run.reconnects()).toBe(0)
 
   const unconfirmed = run.result.teardownUnconfirmed ?? []
   const nodeOf = (box: string) =>
