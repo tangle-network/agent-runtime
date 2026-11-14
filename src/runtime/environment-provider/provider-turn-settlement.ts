@@ -160,12 +160,19 @@ export class ProviderTurnSettlement {
           ...(nativeFailure.failure ? { failure: nativeFailure.failure } : {}),
         }
     }
+    await this.commit(settled)
+  }
+
+  /** Commit the result durably once; its transcript persists after it. A persistence throw
+   *  reaches `fail`, which reports the committed turn as pending and keeps the source. */
+  private async commit(settled: ExecutorResult<unknown>): Promise<void> {
+    const { args } = this
     this.commitStarted = true
     if (this.retained) {
       await args.retention?.onResult(settled)
       args.scope.state.artifact = settled
     }
-    file?.resultCommitted()
+    args.scope.state.fileOutput?.resultCommitted()
     this.settled = settled
     if (this.retained)
       await persistProviderHarnessTranscript(args.scope, args.task, settled, args.retention)
@@ -174,7 +181,8 @@ export class ProviderTurnSettlement {
   }
 
   /** Record the turn's failure, then capture what evidence its environment still holds. */
-  async *fail(error: unknown): AsyncGenerator<UsageEvent> {
+  async *fail(cause: unknown): AsyncGenerator<UsageEvent> {
+    let error = cause
     const { args } = this
     const file = args.scope.state.fileOutput
     await file?.settled()
@@ -193,15 +201,13 @@ export class ProviderTurnSettlement {
         nativeFailure: errorText(error),
         invocationId: args.executionId,
       })
-      this.commitStarted = true
-      await args.retention?.onResult(settled)
-      file.resultCommitted()
-      this.settled = settled
-      if (this.retained)
-        await persistProviderHarnessTranscript(args.scope, args.task, settled, args.retention)
-      args.scope.state.pending = false
-      args.scope.state.artifact = settled
-      return
+      try {
+        await this.commit(settled)
+        return
+      } catch (persistence) {
+        // As from settle(): the committed turn stays pending and its source is kept.
+        error = persistence
+      }
     }
     // A limit or transport stop may omit the terminal aggregate: credit completed native receipts.
     yield* this.usage.settleTurn()
