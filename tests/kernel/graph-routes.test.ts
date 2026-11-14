@@ -773,7 +773,10 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
     const item: GraphTopology = {
       nodes: [node('critic'), node('verify')],
       entry: [{ node: 'critic', task: { item: true } }],
-      edges: [routes('critic', 'verify', { evidence: ['critic'] }), routes('verify', { finish: 'verified' })],
+      edges: [
+        routes('critic', 'verify', { evidence: ['critic'] }),
+        routes('verify', { finish: 'verified' }),
+      ],
     }
     const graph = flow(
       ['plan', 'collect'],
@@ -806,7 +809,10 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
       expect(spawn.context?.budget.maxTokens).toBe(30 - LEAF_TOKENS.input - LEAF_TOKENS.output)
       expect(spawn.context?.budget.maxIterations).toBe(2)
     }
-    const join = spawns.find((s) => s.node === 'collect')?.task as { items: number; failures: unknown[] }
+    const join = spawns.find((s) => s.node === 'collect')?.task as {
+      items: number
+      failures: unknown[]
+    }
     expect(join.items).toBe(2)
     expect(join.failures).toEqual([])
   })
