@@ -1,3 +1,17 @@
+## 10.0.1
+
+Provider executors select file output from `outputFile` alone; `ProviderExecutorOptions.outputFormat` stays `'json'` as in 10.0.0.
+
+A restarted coordinator reconnects an in-flight file-mode owner turn to its original native run instead of refusing it before any result; file custody still holds the source until that turn's own durable result.
+
+A provider's subscription refusal keeps the producer's structured remedy (`cause`, `fix`, `harness`, `provider`) on the settled child's `failure.remediation`, as Runtime's own Bridge transport already did; the remedy is never read from message text.
+
+Add opt-in provider file output that retains the original invocation's immutable regular-file publication with its submitted metadata through the existing evidence and result writers. The `@tangle-network/agent-interface` peer floor rises to 5.10.25, the first release with the file-output policy and retained-file publication schemas.
+
+A retained execution whose exact result settles before the provider's terminal frame now waits the 100 ms tail window from the later of the last frame and the result. The native run's own time before its finish frame no longer uses up the window, so a terminal frame that arrives one provider read after the result is read instead of failing the run with "retained provider stream remained open after its exact result".
+
+Hold a driver to the quota reset a Sandbox turn reports. When the opencode adapter types an exhausted plan window (`provider_quota_exhausted` with `resetAt`, as Z.ai's GLM plan prints it), Sandbox's `AgentRunOutcome.resetAt` now reaches the retry: the driver waits once until the reset instead of re-entering every five minutes (34 attempts per node on a recorded 5-hour cap). A reset more than six hours away keeps the hourly probe.
+
 ## 10.0.0
 
 A cancelled or settled run releases every level of its tree at once, under one deadline, so its teardown ends within about one destroy wait (90 s) instead of one wait per level and retry pass. The default `teardownConfirmMs` is now 90000 and counts from the first release. An environment whose provider refuses deletion under a retention hold (409 `RETENTION_HOLD`, or an HTTP refusal naming the hold) is asked once, stays kept as evidence, is reported in `teardownUnconfirmed[].kept` rather than in `environments` for a sweeper, and is never reconnected to again by that process.

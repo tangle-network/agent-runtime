@@ -9,7 +9,7 @@ import type { ExecutorResult, UsageEvent } from '../supervise/types'
 import { unavailableSignalOfFailure } from '../supervise/upstream-unavailable'
 import { destroyExecutorEnvironment } from './provider-environment-teardown'
 import {
-  failureStatusCode,
+  failedTurnOutcome,
   jsonResultFromEvents,
   resultFromEvents,
 } from './provider-event-projection'
@@ -122,18 +122,7 @@ export class ProviderTurnSettlement {
       : jsonOutput && outcome?.status !== 'failed'
         ? jsonResultFromEvents(result.events)
         : { out: settledResult }
-    const statusCode = failureStatusCode(outcome)
-    const nativeFailure =
-      outcome?.status === 'failed'
-        ? {
-            success: false,
-            ...(outcome.failure === undefined ? {} : { failure: outcome.failure }),
-            ...(outcome.error ? { error: outcome.error } : {}),
-            ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
-            ...(statusCode === undefined ? {} : { statusCode }),
-            ...(outcome.remediation === undefined ? {} : { remediation: outcome.remediation }),
-          }
-        : undefined
+    const nativeFailure = failedTurnOutcome(outcome)
     const settled: ExecutorResult<unknown> = {
       ...(jsonOutput ? { outputFormat: 'json' } : {}),
       ...(nativeFailure ? { outcome: nativeFailure } : {}),
