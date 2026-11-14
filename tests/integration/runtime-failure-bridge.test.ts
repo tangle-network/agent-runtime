@@ -941,7 +941,7 @@ describe.skipIf(!bridgeEntry)(
   'provider served-model evidence through an installed real Bridge server',
   () => {
     it('records the snapshot model the native stream served, never the Bridge transport name', async () => {
-      const served = 'protocol-fixture-model-20261028'
+      const served = 'fixture-model-20261028'
       const fixture = await paired('served', { model: served })
       const servedProfile = { ...profile, model: { provider: 'anthropic', default: served } }
       // Tap the provider's own HTTP reads to prove the stream also carried a `cli-bridge` frame.
