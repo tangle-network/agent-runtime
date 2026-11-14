@@ -117,11 +117,26 @@ it('reconnects an in-flight file-mode owner turn after a coordinator restart', a
   const directory = await mkdtemp(join(tmpdir(), 'retained-owner-file-recovery-'))
   try {
     const journal = new InMemorySpawnJournal()
-    await journal.beginTree(ROOT, new Date(0).toISOString())
+    const at = new Date(0).toISOString()
+    await journal.beginTree(ROOT, at)
+    await journal.appendEvent(ROOT, {
+      kind: 'spawned',
+      id: OWNER,
+      parent: ROOT,
+      label: OWNER,
+      runtime: 'cli',
+      budget: { maxIterations: 1_000, maxTokens: 1_000_000 },
+      seq: 0,
+      at,
+    })
     const blobs = new InMemoryResultBlobStore()
     const dispatched: string[] = []
     const provider = fileProvider(join(directory, 'provider.json'), dispatched)
-    await expect(runProcess(journal, blobs, provider, true)).rejects.toBeInstanceOf(ProcessCrash)
+    const first = await runProcess(journal, blobs, provider, true).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(first, String(first)).toBeInstanceOf(ProcessCrash)
     expect(dispatched).toHaveLength(1)
     // The restart observes the same native run again: no file custody proof is owed for it yet.
     await runProcess(journal, blobs, provider, false).catch((error: unknown) => {
