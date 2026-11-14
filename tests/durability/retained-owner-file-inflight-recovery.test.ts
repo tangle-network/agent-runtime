@@ -99,7 +99,11 @@ async function runProcess(
   bindScopeRetainedOwnerProvider(scope, provider)
   const context = scopeRetainedOwnerContext(scope)!
   // A restarted coordinator re-enters through the same preparation the driver uses.
-  const task = await prepareScopeRetainedOwnerTask(scope, 'write the report')
+  const task = await prepareScopeRetainedOwnerTask(scope, 'write the report').catch(
+    (error: unknown) => {
+      throw new Error('prepare refused', { cause: error })
+    },
+  )
   const executor = providerAsExecutor(provider, { destroyOnSettle: false })(
     { profile, harness: 'opencode' },
     {
@@ -147,7 +151,9 @@ it('reconnects an in-flight file-mode owner turn after a coordinator restart', a
     expect(dispatched).toHaveLength(1)
     // The restart observes the same native run again: no file custody proof is owed for it yet.
     await runProcess(journal, blobs, provider, false).catch((error: unknown) => {
-      expect.fail(`restart refused the in-flight file turn: ${String(error)}`)
+      const chain: string[] = []
+      for (let e = error; e instanceof Error; e = e.cause) chain.push(`${e.name}: ${e.message}`)
+      expect.fail(`restart refused the in-flight file turn: ${chain.join(' <- ')}`)
     })
     expect(dispatched).toHaveLength(1)
     const events = ((await journal.loadTree(ROOT)) ?? []).filter((event) => event.id === OWNER)
