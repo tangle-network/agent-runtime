@@ -46,8 +46,8 @@ export function createProviderExecutor(
   const node = detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
   if (
-    options.outputFormat !== undefined &&
-    (!['json', 'file'].includes(options.outputFormat) ||
+    (options.outputFormat !== undefined || options.outputFile !== undefined) &&
+    ((options.outputFormat !== undefined && options.outputFormat !== 'json') ||
       retention?.onEvidence === undefined ||
       options.requireTerminalEvent === false)
   ) {
@@ -55,11 +55,11 @@ export function createProviderExecutor(
       'providerAsExecutor: structured output requires Runtime-owned durable evidence and a native terminal receipt',
     )
   }
-  if ((options.outputFormat === 'file') !== (options.outputFile !== undefined))
+  if (options.outputFormat !== undefined && options.outputFile !== undefined)
     throw new ValidationError(
-      'providerAsExecutor: file output requires both file mode and one declared outputFile',
+      'providerAsExecutor: file output is selected by outputFile alone and excludes JSON output',
     )
-  if (options.outputFormat === 'file') {
+  if (options.outputFile !== undefined) {
     const policy = AgentFileOutputPolicySchema.parse(options.outputFile)
     options = {
       ...options,
@@ -93,7 +93,7 @@ export function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? node?.nodeId ?? `provider-run-${randomUUID()}`
   const state = new ProviderExecutorState(ctx.signal, executionId)
-  state.fileOutputRequired = options.outputFormat === 'file'
+  state.fileOutputRequired = options.outputFile !== undefined
   state.pending = admittedEnvironmentId(retention) !== undefined
   state.workspaceControlRef = admittedControlRef(retention)
   state.providerSessionId = state.workspaceControlRef?.sessionId ?? null
@@ -129,7 +129,7 @@ export function createProviderExecutor(
     runProviderExecution(scope, task, signal, recovering)
   executor = {
     runtime: options.runtime ?? (provider.name as Runtime),
-    ...(options.outputFormat === 'file'
+    ...(options.outputFile !== undefined
       ? {
           withFileOutput: (
             submission: unknown,

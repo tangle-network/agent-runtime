@@ -121,11 +121,11 @@ export function snapshotExecutorConfig(
       })
     }
     case 'provider': {
-      if (config.outputFormat === 'file' && config.shared !== undefined)
+      if (config.outputFile !== undefined && config.shared !== undefined)
         throw new ValidationError(
           'createExecutor(provider): file output requires a dedicated retained environment',
         )
-      if (config.outputFormat !== undefined && config.steering !== undefined)
+      if ((config.outputFormat ?? config.outputFile) !== undefined && config.steering !== undefined)
         throw new ValidationError(
           'createExecutor(provider): JSON output is not supported with steering',
         )
@@ -360,7 +360,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         const declared = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
         const originalSeam = { ...declared, ...providerOutputOptions(spec.profile, declared) }
         if (
-          originalSeam.outputFormat === 'file' &&
+          originalSeam.outputFile !== undefined &&
           (originalSeam.steering !== undefined || originalSeam.shared !== undefined)
         )
           throw new ValidationError(
