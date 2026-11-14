@@ -27,7 +27,9 @@ const RETAINED_STATUS_READ_MS = 60_000
 // Bound post-result work; later reconciliation resumes after the last position read.
 const RETAINED_OBSERVATION_BATCH_EVENTS = 1_024
 
-// The result and terminal frame may arrive on separate connections.
+// The result and terminal frame may arrive on separate connections. The window opens when both
+// the last frame and the exact result are in, so the native time before a finish frame never
+// spends it and a terminal frame one read behind the result is still read.
 const RETAINED_TAIL_FLOW_MS = 100
 
 /** Runtime progress while awaiting the exact result; never a provider frame. */
@@ -88,6 +90,7 @@ export class RetainedObservation {
   private silenceHandledAt: number | undefined
   private exactResult: Promise<AgentTurnResult> | undefined
   private exactResultSettled = false
+  private exactResultSettledAt = 0
   private observedFrames = 0
   private framesAfterResult = 0
   // One reaction on the run-long exact result; a reaction per read kept every drained event alive.
@@ -244,7 +247,10 @@ export class RetainedObservation {
         // One failed read is not the exact result: observation reads on while one more read runs.
         const retry = !retried && failed.length > 0 && !exactQuotaRefusal(failed[0])
         if (retry) this.exactResult = undefined
-        else this.exactResultSettled = true
+        else {
+          this.exactResultSettled = true
+          this.exactResultSettledAt = Date.now()
+        }
         for (const wake of [...this.exactWakers]) wake()
         if (retry) this.readExactResult(true)
       }
@@ -278,7 +284,8 @@ export class RetainedObservation {
             if (!this.exactResultSettled) return
             const flowing = this.sawTerminal
               ? 0
-              : RETAINED_TAIL_FLOW_MS - (Date.now() - this.lastObservedAt)
+              : RETAINED_TAIL_FLOW_MS -
+                (Date.now() - Math.max(this.lastObservedAt, this.exactResultSettledAt))
             if (flowing <= 0) {
               wake = setImmediate(() => resolve({ kind: 'exact-result' }))
               return
