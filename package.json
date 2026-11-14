@@ -157,7 +157,7 @@
     "@arethetypeswrong/cli": "catalog:",
     "@biomejs/biome": "^2.6.4",
     "@modelcontextprotocol/sdk": "catalog:",
-    "@tangle-network/agent-eval": "1.0.31",
+    "@tangle-network/agent-eval": "1.0.32",
     "@tangle-network/agent-interface": "5.10.24",
     "@tangle-network/agent-provider-cli-bridge": "2.0.10",
     "@tangle-network/agent-provider-daytona": "0.8.0",
@@ -185,7 +185,7 @@
   "license": "MIT",
   "packageManager": "pnpm@12.15.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": "^1.0.31",
+    "@tangle-network/agent-eval": "^1.0.32",
     "@tangle-network/agent-interface": "^5.10.24",
     "@tangle-network/sandbox": "^1.0.265"
   },
