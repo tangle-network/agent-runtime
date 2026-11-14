@@ -5612,11 +5612,20 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 ##### outputFormat?
 
-> `optional` **outputFormat?**: `"json"`
+> `optional` **outputFormat?**: `"json"` \| `"file"`
 
 **`Experimental`**
 
 Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
+
+##### outputFile?
+
+> `optional` **outputFile?**: `AgentFileOutputPolicy`
+
+**`Experimental`**
+
+One immutable regular file relative to the managed workspace root. Requires file mode;
+submission JSON remains metadata and cannot select a different source or path.
 
 ##### harnessTranscript?
 
@@ -5762,6 +5771,47 @@ spawn event, and each continuation as the node's next `execution-input`.
 Applies to a retained execution under a Scope, the path a supervised leaf takes on a provider
 that declares `retainedControl`.
 `false` ends the execution on the refused turn.
+
+***
+
+### RetainedFileOutput
+
+The existing result writer content-addresses this entire value as the original outRef.
+submissionRef identifies the submitted metadata, not a worker's first-DONE result.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"retained-file-output"`
+
+##### version
+
+> `readonly` **version**: `1`
+
+##### invocationId
+
+> `readonly` **invocationId**: `string`
+
+##### node
+
+> `readonly` **node**: [`ExecutorNodeContext`](#executornodecontext)
+
+##### submissionRef
+
+> `readonly` **submissionRef**: `string`
+
+##### submission
+
+> `readonly` **submission**: `unknown`
+
+##### policyDigest
+
+> `readonly` **policyDigest**: `string`
+
+##### publication
+
+> `readonly` **publication**: `AgentRetainedFilePublication`
 
 ***
 
@@ -11223,6 +11273,12 @@ Reconstructable control of one provider-retained run.
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
 
+##### retainFileOutput?
+
+> `readonly` `optional` **retainFileOutput?**: `AgentRetainedFileOutputOperation`
+
+Bound to the actual dispatched environment, never a later provider.get reconstruction.
+
 ##### capabilities
 
 > `readonly` **capabilities**: `AgentEnvironmentCapabilities`
@@ -11400,6 +11456,12 @@ Intent durable before create. The digest omits secrets; replay needs the origina
 ##### requestedProfileDigest
 
 > `readonly` **requestedProfileDigest**: `` `sha256:${string}` ``
+
+##### outputFilePolicyDigest?
+
+> `readonly` `optional` **outputFilePolicyDigest?**: `` `sha256:${string}` ``
+
+File custody owed by this original invocation, retained across owner reconstruction.
 
 ##### requestDigest
 
@@ -11593,6 +11655,12 @@ Environment, turn, and optional identity needed to replay one retained start.
 
 #### Properties
 
+##### outputFile?
+
+> `readonly` `optional` **outputFile?**: `AgentFileOutputPolicy`
+
+File-mode admission requirement, bound into the original intent and checked before dispatch.
+
 ##### environment
 
 > `readonly` **environment**: `CreateAgentEnvironmentInput` & `object`
@@ -11652,6 +11720,16 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 - [`RetainedRunStartMaterial`](#retainedrunstartmaterial)
 
 #### Properties
+
+##### outputFile?
+
+> `readonly` `optional` **outputFile?**: `AgentFileOutputPolicy`
+
+File-mode admission requirement, bound into the original intent and checked before dispatch.
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`outputFile`](#outputfile-1)
 
 ##### environment
 
@@ -18666,6 +18744,27 @@ Local executors keep the short default; remote executors may need bounded networ
 
 #### Methods
 
+##### withFileOutput()?
+
+> `optional` **withFileOutput**(`submission`, `accept`): `Promise`\<`unknown`\>
+
+Trusted intake for file-mode submissions. Captures the current invocation before checking.
+The submission writer calls onAccepted after its durable first-winner commit, before ACK.
+
+###### Parameters
+
+###### submission
+
+`unknown`
+
+###### accept
+
+(`output`, `onAccepted`) => `Promise`\<`unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
 ##### execute()
 
 > **execute**(`task`, `signal`): `Promise`\<[`ExecutorResult`](#executorresult)\<`Out`\>\> \| `AsyncIterable`\<[`UsageEvent`](#usageevent), `any`, `any`\>
@@ -20656,6 +20755,17 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 ###### Returns
 
 `void`
+
+##### rotateManagerCredential()?
+
+> `optional` **rotateManagerCredential**(): `Promise`\<`void`\>
+
+Revoke the preceding file producer's manager bearer and await its trusted holder's install.
+Independent read/operator capabilities survive this invocation boundary.
+
+###### Returns
+
+`Promise`\<`void`\>
 
 ##### bindCredential()?
 
@@ -26868,13 +26978,24 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 ##### outputFormat?
 
-> `optional` **outputFormat?**: `"json"`
+> `optional` **outputFormat?**: `"json"` \| `"file"`
 
 Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
 
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`outputFormat`](#outputformat)
+
+##### outputFile?
+
+> `optional` **outputFile?**: `AgentFileOutputPolicy`
+
+One immutable regular file relative to the managed workspace root. Requires file mode;
+submission JSON remains metadata and cannot select a different source or path.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`outputFile`](#outputfile)
 
 ##### harnessTranscript?
 
@@ -30097,6 +30218,27 @@ Call once per model event the harness streams: text, reasoning, or a tool call o
 `Promise`\<`void`\>
 
 #### Properties
+
+##### withFileOutput?
+
+> `optional` **withFileOutput?**: (`submission`, `accept`) => `Promise`\<`unknown`\>
+
+Trusted intake for file-mode submissions. Captures the current invocation before checking.
+The submission writer calls onAccepted after its durable first-winner commit, before ACK.
+
+###### Parameters
+
+###### submission
+
+`unknown`
+
+###### accept
+
+(`output`, `onAccepted`) => `Promise`\<`unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
 
 ##### seatChain?
 

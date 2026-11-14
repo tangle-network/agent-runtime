@@ -2565,6 +2565,30 @@ The same independent completion check used for workers. When present, the driver
 first passing submission is retained; a false or throwing check fails closed. A manager with a
 check is not served `stop`: it ends through `submit_result`, or when a bound ends the run.
 
+##### withFileOutput?
+
+> `readonly` `optional` **withFileOutput?**: (`submission`, `accept`) => `Promise`\<`unknown`\>
+
+Runtime-owned file intake. Reserves the active source and holds its lifecycle through
+checking and the existing durable first-wins submission writer.
+
+Trusted intake for file-mode submissions. Captures the current invocation before checking.
+The submission writer calls onAccepted after its durable first-winner commit, before ACK.
+
+###### Parameters
+
+###### submission
+
+`unknown`
+
+###### accept
+
+(`output`, `onAccepted`) => `Promise`\<`unknown`\>
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
 ##### readContinuation?
 
 > `readonly` `optional` **readContinuation?**: (`continuation`) => `unknown`
