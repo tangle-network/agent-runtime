@@ -10,6 +10,7 @@ import {
   type HarnessTranscriptMetadata,
   type HarnessTranscriptReadOptions,
   harnessTranscriptArtifact,
+  readBoundHarnessSessions,
 } from './harness-transcript'
 import type { ExecutorNodeContext, ResultBlobStore } from './supervise/types'
 
@@ -74,15 +75,6 @@ export async function readVerifiedHarnessTranscript(
       throw new Error('Native transcript has conflicting source bindings')
     const source = metadata.binding ?? metadata.source
     if (!source?.nativeSessionId) throw new Error('Native transcript has no bound native session')
-    const ids = source.nativeSessionIds ?? [source.nativeSessionId]
-    if (
-      !ids.length ||
-      ids.length > 1_000 ||
-      ids.some((id) => !id) ||
-      new Set(ids).size !== ids.length ||
-      !ids.includes(source.nativeSessionId)
-    )
-      throw new Error('Native transcript has ambiguous bound session identities')
     for (const key of ['rootId', 'nodeId', 'attemptId'] as const) {
       if (!node[key] || source.node?.[key] !== node[key])
         throw new Error(`Native transcript ${key} does not match the requested execution`)
@@ -137,54 +129,18 @@ export async function readHarnessTranscriptSessions<S extends BoundHarnessSessio
     // every exact bound family from the available text projection before it qualifies for learning.
     options.signal?.throwIfAborted()
     const sessions = await readSessions(artifact, options.signal)
-    const byId = new Map<string, S>()
-    for (const session of sessions) {
-      if (
-        !session.nativeSessionId ||
-        byId.has(session.nativeSessionId) ||
-        session.integrity.truncated !== false ||
-        session.integrity.unparsedRecords !== 0 ||
-        session.integrity.gaps.length
-      )
-        throw new Error('Native session identity or integrity is incomplete')
-      byId.set(session.nativeSessionId, session)
-    }
-    const family: S[] = []
-    const roots = source.nativeSessionIds ?? [source.nativeSessionId!]
-    if (
-      !roots.length ||
-      roots.length > 1_000 ||
-      roots.some((id) => !id) ||
-      new Set(roots).size !== roots.length ||
-      !roots.includes(source.nativeSessionId!)
-    )
-      throw new Error('Native transcript has ambiguous bound session identities')
-    const pending = [...roots]
-    const visited = new Set<string>()
-    const parents = new Map<string, string>()
-    while (pending.length) {
-      const id = pending.shift()!
-      if (visited.has(id)) continue
-      visited.add(id)
-      const session = byId.get(id)
-      if (!session) throw new Error('The exact native session or a recorded child was not retained')
-      family.push(session)
-      for (const child of session.children) {
-        if (parents.has(child.nativeSessionId) && parents.get(child.nativeSessionId) !== id)
-          throw new Error('Native child has cyclic or ambiguous recorded parents')
-        let ancestor: string | undefined = id
-        while (ancestor !== undefined) {
-          if (ancestor === child.nativeSessionId)
-            throw new Error('Native child has cyclic or ambiguous recorded parents')
-          ancestor = parents.get(ancestor)
-        }
-        const found = byId.get(child.nativeSessionId)
-        if (found?.parentNativeSessionId && found.parentNativeSessionId !== id)
-          throw new Error('Native child has a different recorded parent')
-        parents.set(child.nativeSessionId, id)
-        pending.push(child.nativeSessionId)
-      }
-    }
+    // The shared reader walks the exact bound family; each parsed session stands in for its file.
+    const { sessions: family } = await readBoundHarnessSessions({
+      nativeSessionId: source.nativeSessionId!,
+      ...(source.nativeSessionIds ? { nativeSessionIds: source.nativeSessionIds } : {}),
+      files: sessions.map((session, index) => ({
+        path: `session-${index}`,
+        nativeSessionId: session.nativeSessionId,
+      })),
+      read: async (file) => new TextEncoder().encode(file.path),
+      parse: (_text, file) => sessions[Number(file.path.slice('session-'.length))]!,
+      signal: options.signal,
+    })
     if (family.length !== sessions.length)
       throw new Error('Native transcript includes a session outside the bound family')
     return { succeeded: true, value: { sessions: family } }

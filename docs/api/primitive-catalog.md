@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1070 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -627,7 +627,6 @@ Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
 | `readRunParking` | function | Read the journal's bounded parking projection. Undefined means no current parking handoff. |
 | `readRunState` | function | Compose maintained record readers. Terminal settlement outranks cancellation and parking; |
 | `readSpawnJournal` | function | Read a fixed journal prefix, with historical envelopes and framing owned by Runtime. |
-| `readVerifiedHarnessTranscript` | function | Verify complete native evidence and its exact execution before ending source custody. Original |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
 | `readWorkerInteractiveBinding` | function | Read and validate one exact durable worker binding. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |

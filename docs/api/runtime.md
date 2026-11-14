@@ -41166,34 +41166,6 @@ Expose a neutral provider through the existing Sandbox client port.
 
 ***
 
-### readVerifiedHarnessTranscript()
-
-> **readVerifiedHarnessTranscript**(`receipt`, `blobs`, `options`): `Promise`\<\{ `succeeded`: `true`; `value`: \{ `metadata`: [`HarnessTranscriptMetadata`](#harnesstranscriptmetadata); `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
-
-Verify complete native evidence and its exact execution before ending source custody. Original
-retained archive bytes are checked even when binary or bounded files have no text projection.
-Parsed conversation completeness is a separate check owned by `readHarnessTranscriptSessions`.
-
-#### Parameters
-
-##### receipt
-
-`unknown`
-
-##### blobs
-
-`Pick`\<[`ResultBlobStore`](#resultblobstore), `"get"`\>
-
-##### options
-
-`Omit`\<[`HarnessTranscriptReadOptions`](#harnesstranscriptreadoptions), `"content"`\> & `object`
-
-#### Returns
-
-`Promise`\<\{ `succeeded`: `true`; `value`: \{ `metadata`: [`HarnessTranscriptMetadata`](#harnesstranscriptmetadata); `artifact`: [`HarnessTranscriptArtifact`](#harnesstranscriptartifact); \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
-
-***
-
 ### readHarnessTranscriptSessions()
 
 > **readHarnessTranscriptSessions**\<`S`\>(`receipt`, `blobs`, `options`): `Promise`\<\{ `succeeded`: `true`; `value`: \{ `sessions`: readonly `S`[]; \}; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>

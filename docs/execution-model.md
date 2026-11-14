@@ -289,10 +289,6 @@ It verifies the capture's content address, inventory, retained bytes, exact exec
 An incomplete, unbound, or unavailable capture returns an explicit failure and remains audit evidence.
 Runtime does not infer completeness from a projected tool event or a readable transcript file.
 
-Custody consumers can use `readVerifiedHarnessTranscript` with the exact node and, when available, expected control reference, profile digest and Runtime invocation.
-It verifies the complete receipt and original retained archive bytes before permitting source retirement, without requiring a native conversation parser.
-Binary files and bounded text projections do not weaken this archive check; the learning reader separately proves complete parsed conversation families.
-
 The provider backend accepts `harnessTranscript` as a live capture callback.
 Runtime reuses the Bridge capture request with the admitted `AgentExactRunControlRef`, host working directory, session and run, profile digest, and node, only after the exact run reports a terminal status.
 Use the existing native export and `captureBoundHarnessTranscript`; the callback may keep the Bridge binding or return a provider binding with that exact control reference. Runtime stamps the verified provider control onto accepted evidence. Keep the native parser in its owning library.

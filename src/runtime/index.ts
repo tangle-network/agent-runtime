@@ -229,10 +229,7 @@ export {
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
 } from './harness-transcript'
-export {
-  readHarnessTranscriptSessions,
-  readVerifiedHarnessTranscript,
-} from './harness-transcript-sessions'
+export { readHarnessTranscriptSessions } from './harness-transcript-sessions'
 // Per-harness usage decoders: the ONE registry of harnesses that report token usage only inside
 // their own event, read alongside the canonical usage events by `createSandboxUsageLedger`. Only
 // the composite is public, as with `decodeToolPart` — the registry and its entries stay internal
