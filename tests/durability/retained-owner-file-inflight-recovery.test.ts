@@ -147,7 +147,10 @@ it('reconnects an in-flight file-mode owner turn after a coordinator restart', a
     // The executor reports the lost process as pending work; its cause is the crash.
     const causes: unknown[] = []
     for (let error = first; error instanceof Error; error = error.cause) causes.push(error)
-    expect(causes.some((error) => error instanceof ProcessCrash), String(first)).toBe(true)
+    expect(
+      causes.some((error) => error instanceof ProcessCrash),
+      String(first),
+    ).toBe(true)
     expect(dispatched).toHaveLength(1)
     // The restart observes the same native run again: no file custody proof is owed for it yet.
     // That run ended without a submission, so its turn stays pending with custody held.
