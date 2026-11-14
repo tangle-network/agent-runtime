@@ -5,6 +5,7 @@ import { ValidationError } from '../../errors'
 import {
   placedProviderExecutor,
   providerAsExecutor,
+  providerOutputOptions,
 } from '../environment-provider/provider-executor-admission'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
 import { providerAsSandboxClient } from '../environment-provider/provider-sandbox-adapter'
@@ -120,6 +121,10 @@ export function snapshotExecutorConfig(
       })
     }
     case 'provider': {
+      if (config.outputFormat === 'file' && config.shared !== undefined)
+        throw new ValidationError(
+          'createExecutor(provider): file output requires a dedicated retained environment',
+        )
       if (config.outputFormat !== undefined && config.steering !== undefined)
         throw new ValidationError(
           'createExecutor(provider): JSON output is not supported with steering',
@@ -333,6 +338,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
   const captured = snapshotExecutorConfig(config)
   return (rawSpec, ctx) => {
     const spec = executableAgentSpecSnapshot(rawSpec, `createExecutor(${captured.backend})`)
+    if (spec.profile.outputFile !== undefined && captured.backend !== 'provider')
+      throw new ValidationError('profile outputFile requires a retained provider backend')
     const { backend, ...seamData } = captured as ExecutorConfig & Record<string, unknown>
     const seam = Object.freeze(seamData)
     const seamed: ExecutorContext = { ...ctx, seams: { ...ctx.seams, [backend]: seam } }
@@ -350,7 +357,15 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
       case 'cli-in-place':
         return cliInPlaceExecutor(spec, seamed)
       case 'provider': {
-        const originalSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
+        const declared = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
+        const originalSeam = { ...declared, ...providerOutputOptions(spec.profile, declared) }
+        if (
+          originalSeam.outputFormat === 'file' &&
+          (originalSeam.steering !== undefined || originalSeam.shared !== undefined)
+        )
+          throw new ValidationError(
+            'profile outputFile requires a dedicated retained provider without steering',
+          )
         const selected = originalSeam.steering
           ? selectProviderPlacement(spec.profile, originalSeam)
           : undefined

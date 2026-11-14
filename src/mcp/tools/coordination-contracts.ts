@@ -247,6 +247,9 @@ export interface CoordinationToolsOptions {
    * check is not served `stop`: it ends through `submit_result`, or when a bound ends the run.
    */
   readonly deliverable?: DeliverableSpec<unknown>
+  /** Runtime-owned file intake. Reserves the active source and holds its lifecycle through
+   * checking and the existing durable first-wins submission writer. */
+  readonly withFileOutput?: import('../../runtime/supervise/types').Executor<unknown>['withFileOutput']
   /** Serve `read_continuation`: the full continuation files the note refers to. Supplied by the
    *  manager's continuation policy; the director's box cannot read the driver's run directory. */
   readonly readContinuation?: (continuation: number | undefined) => unknown

@@ -3,6 +3,7 @@ import type { ContextTransferRequest, Sha256Digest } from '@tangle-network/agent
 import {
   AgentEnvironmentCapabilitiesSchema,
   AgentExactRunControlRefSchema,
+  AgentFileOutputPolicySchema,
   AgentTurnInputSchema,
   ContextTransferRequestSchema,
   canonicalAgentProfileDigest,
@@ -194,6 +195,16 @@ export async function startRetainedRun(
     )
   }
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
+  if (options.outputFile !== undefined) {
+    AgentFileOutputPolicySchema.parse(options.outputFile)
+    if (
+      providerCapabilities.workspace.retainFileOutput !== true ||
+      !options.environment.retain?.paths.includes(options.outputFile.path)
+    )
+      throw new Error(
+        'retained file output requires declared provider support and retention of the output path',
+      )
+  }
   if (transferReceipt !== undefined) assertRetainedContextTransferCapability(providerCapabilities)
   assertRequestedInteractionCapabilities(
     options.provider.name,
@@ -248,6 +259,11 @@ export async function startRetainedRun(
       environment,
     )
     if (transferReceipt !== undefined) assertRetainedContextTransferCapability(capabilities)
+    if (
+      options.outputFile !== undefined &&
+      (capabilities.workspace.retainFileOutput !== true || !environment.retainFileOutput)
+    )
+      throw new Error('this environment cannot publish the declared retained file output')
     assertRequestedInteractionCapabilities(
       options.provider.name,
       options.turn.interactions,
@@ -779,10 +795,14 @@ function retainedRunIntent(
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     requestedProfileDigest,
+    ...(options.outputFile === undefined
+      ? {}
+      : { outputFilePolicyDigest: canonicalCandidateDigest(options.outputFile) }),
   }
   const requestDigest = canonicalCandidateDigest({
     kind: turnFields === undefined ? 'retained-run-intent.v2' : 'retained-run-intent.v1',
     ...material,
+    ...(options.outputFile === undefined ? {} : { outputFile: options.outputFile }),
     ...(options.existingEnvironmentId === undefined
       ? {}
       : { existingEnvironmentId: options.existingEnvironmentId }),
@@ -852,6 +872,8 @@ function parseRetainedRunIntent(
   }
   assertDigest(record.requestedProfileDigest, 'retained run intent profile digest')
   assertDigest(record.requestDigest, 'retained run intent request digest')
+  if (record.outputFilePolicyDigest !== undefined)
+    assertDigest(record.outputFilePolicyDigest, 'retained run intent file policy digest')
   return stable as RetainedRunIntentAdmission
 }
 

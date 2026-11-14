@@ -199,6 +199,9 @@ function serveManagerCoordination(
       // Forward the policy so direct server construction and manager preflight enforce the same
       // authentication and request limits.
       ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+      ...(config.driveHarness.withFileOutput
+        ? { withFileOutput: config.driveHarness.withFileOutput }
+        : {}),
       ...(deps.continuation
         ? {
             readContinuation: (n: number | undefined) =>

@@ -109,6 +109,33 @@ async function submitResult(
   // Copy once at intake so the value checked below is the exact value retained after
   // acceptance, even when this handler is called directly rather than through JSON-RPC.
   const result = structuredClone(a.result)
+  if (env.opts.withFileOutput) {
+    try {
+      return await env.opts.withFileOutput(result, (prepared, onAccepted) =>
+        checkAndCommitSubmission(env, deliverable, prepared, onAccepted),
+      )
+    } catch (error) {
+      if (!(error instanceof CheckUnavailableError)) throw error
+      const read = appendCheckRead(state, { source: 'submit', unavailable: error.message })
+      return {
+        accepted: false,
+        stop: false,
+        unavailable: true,
+        checkRead: read.read,
+        reason: error.message,
+      }
+    }
+  }
+  return checkAndCommitSubmission(env, deliverable, result)
+}
+
+async function checkAndCommitSubmission(
+  env: ResultToolsEnv,
+  deliverable: Deliverable,
+  result: unknown,
+  onAccepted?: () => void,
+): Promise<unknown> {
+  const { state } = env
   const { verdict, fault } = await runDeliverableCheck(deliverable, result)
   const read = appendCheckRead(state, {
     source: 'submit',
@@ -142,6 +169,7 @@ async function submitResult(
     return earlierPassingResult()
   }
   await commitSubmission(env, result)
+  onAccepted?.()
   // An accepted result is the manager's processing of everything it had received.
   await env.acknowledge(state.deliveries, 'result-accepted')
   return { accepted: true, retained: 'this-result', stop: true }

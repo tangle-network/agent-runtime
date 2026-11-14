@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1070 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1037,6 +1037,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1070 exports.
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
 | `ResumedKeyState` | interface | What the journal proves about one keyed assignment at resume time. |
 | `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
+| `RetainedFileOutput` | interface | The existing result writer content-addresses this entire value as the original outRef. |
 | `RetainedHarnessTranscriptDescriptor` | interface | Inventory and source identity only; native bytes remain in the original workspace archive. |
 | `RetainedInteractiveEnvironmentAdmission` | interface | Exact interactive start request durable after environment creation. |
 | `RetainedInteractiveIntentAdmission` | interface | Interactive intent durable before create. The digest omits secrets, env, and provider options. |

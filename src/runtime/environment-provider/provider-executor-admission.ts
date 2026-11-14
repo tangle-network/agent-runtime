@@ -1,7 +1,9 @@
 import type {
   AgentCandidateWorkspaceSnapshotEvidence,
+  AgentFileOutputPolicy,
   AgentProfile,
 } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
@@ -19,6 +21,24 @@ import type { Validator } from '../types'
 import { createProviderExecutor } from './provider-executor-lifecycle'
 import { ValidationError } from './provider-validation-error'
 
+/** Resolve the authored per-profile output policy before a provider executor is constructed.
+ * Backend-wide output remains the default for profiles that do not select a file. */
+export function providerOutputOptions(
+  profile: AgentProfile,
+  defaults: ProviderExecutorOptions,
+): Pick<ProviderExecutorOptions, 'outputFormat' | 'outputFile'> {
+  if (profile.outputFile === undefined) return {}
+  if (
+    defaults.outputFile !== undefined &&
+    canonicalCandidateDigest(defaults.outputFile) !== canonicalCandidateDigest(profile.outputFile)
+  )
+    throw new ValidationError('profile outputFile conflicts with the provider output policy')
+  return {
+    outputFormat: 'file',
+    outputFile: detachedSnapshot(profile.outputFile, 'profile outputFile'),
+  }
+}
+
 /** Adapt an environment provider into an `ExecutorFactory` for `createExecutor`.
  *
  * `createExecutor({ backend: 'provider', provider })` is the composition most callers want; it
@@ -33,6 +53,9 @@ export function providerAsExecutor(
   provider: AgentEnvironmentProvider,
   options: ProviderExecutorOptions = {},
 ): ExecutorFactory<unknown> {
+  if (options.outputFile !== undefined) {
+    options = { ...options, outputFile: detachedSnapshot(options.outputFile, 'file output policy') }
+  }
   const captured =
     options.placements === undefined
       ? options
@@ -128,7 +151,10 @@ export interface ProviderExecutorOptions {
   destroyOnSettle?: boolean
   requireTerminalEvent?: boolean
   /** Exact final-message JSON for graph output; requires Runtime-owned durable evidence. */
-  outputFormat?: 'json'
+  outputFormat?: 'json' | 'file'
+  /** One immutable regular file relative to the managed workspace root. Requires file mode;
+   * submission JSON remains metadata and cannot select a different source or path. */
+  outputFile?: AgentFileOutputPolicy
   /** Trusted host capture after exact retained terminal proof. Reuses the Bridge capture
    * contract and Scope/CAS retention; absent keeps the environment-reader behavior. */
   harnessTranscript?: BridgeSeam['harnessTranscript']

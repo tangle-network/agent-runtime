@@ -1,6 +1,7 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import { retainedSessionReplaced } from '../retained-run-binding'
 import type { SandboxOutcomeCarrier } from '../sandbox-outcome'
+import { CheckUnavailableError } from '../supervise/completion-gate'
 import { errorText } from '../supervise/error-message'
 import { contentRef } from '../supervise/executor-outcome'
 import { RetainedExecutionPendingError } from '../supervise/retained-executor'
@@ -28,6 +29,7 @@ export class ProviderTurnSettlement {
   /** The artifact this turn settled with. Its presence separates "the work finished and the
    *  resource would not release" from "the work never finished". */
   private settled: ExecutorResult<unknown> | undefined
+  private commitStarted = false
   /** The body's own failure, held so a throwing teardown `finally` cannot mask it. */
   private failure: unknown
   private failed = false
@@ -76,6 +78,8 @@ export class ProviderTurnSettlement {
   /** Commit the consumed turn, validator verdict and measured spend. */
   async *settle(): AsyncGenerator<UsageEvent> {
     const { args, usage } = this
+    const file = args.scope.state.fileOutput
+    await file?.settled()
     yield* usage.settleTurn()
     yield* usage.settleUnpricedWork()
     if ((args.options.requireTerminalEvent ?? true) && !this.observer.terminal) {
@@ -108,9 +112,14 @@ export class ProviderTurnSettlement {
     })
     const settledResult = result
     const jsonOutput = args.options.outputFormat === 'json'
-    if (jsonOutput) await args.retention?.onEvidence?.(settledResult)
-    const output =
-      jsonOutput && outcome?.status !== 'failed'
+    if (jsonOutput || file) await args.retention?.onEvidence?.(settledResult)
+    if (file && !file.accepted)
+      throw new CheckUnavailableError(
+        'file output has no independently accepted submission; candidate custody remains held',
+      )
+    const output = file?.accepted
+      ? { out: file.accepted }
+      : jsonOutput && outcome?.status !== 'failed'
         ? jsonResultFromEvents(result.events)
         : { out: settledResult }
     const statusCode = failureStatusCode(outcome)
@@ -132,7 +141,6 @@ export class ProviderTurnSettlement {
       ...(verdict ? { verdict } : {}),
       spent: executionSpent,
     }
-    this.settled = settled
     if (args.mayContinue && this.retained && nativeFailure) {
       const transport =
         nativeFailure.failure === undefined
@@ -152,17 +160,55 @@ export class ProviderTurnSettlement {
           ...(nativeFailure.failure ? { failure: nativeFailure.failure } : {}),
         }
     }
+    await this.commit(settled)
+  }
+
+  /** Commit the result durably once; its transcript persists after it. A persistence throw
+   *  reaches `fail`, which reports the committed turn as pending and keeps the source. */
+  private async commit(settled: ExecutorResult<unknown>): Promise<void> {
+    const { args } = this
+    this.commitStarted = true
     if (this.retained) {
       await args.retention?.onResult(settled)
       args.scope.state.artifact = settled
-      await persistProviderHarnessTranscript(args.scope, args.task, settled, args.retention)
     }
+    args.scope.state.fileOutput?.resultCommitted()
+    this.settled = settled
+    if (this.retained)
+      await persistProviderHarnessTranscript(args.scope, args.task, settled, args.retention)
     args.scope.state.pending = false
     args.scope.state.artifact = settled
   }
 
   /** Record the turn's failure, then capture what evidence its environment still holds. */
-  async *fail(error: unknown): AsyncGenerator<UsageEvent> {
+  async *fail(cause: unknown): AsyncGenerator<UsageEvent> {
+    let error = cause
+    const { args } = this
+    const file = args.scope.state.fileOutput
+    await file?.settled()
+    // A retained-stop may close the native stream while submit_result's server-side transaction
+    // commits. Preserve that native failure; only the independent submission check accepts work.
+    if (file?.accepted && !this.commitStarted) {
+      yield* this.usage.settleTurn()
+      await this.readLiveTranscript()
+      const settled: ExecutorResult<unknown> = {
+        out: file.accepted,
+        outRef: contentRef(`provider:${args.provider.name}`, file.accepted),
+        outcome: { success: false, error: errorText(error) },
+        spent: this.usage.spend(this.started),
+      }
+      await args.retention?.onEvidence?.({
+        nativeFailure: errorText(error),
+        invocationId: args.executionId,
+      })
+      try {
+        await this.commit(settled)
+        return
+      } catch (persistence) {
+        // As from settle(): the committed turn stays pending and its source is kept.
+        error = persistence
+      }
+    }
     // A limit or transport stop may omit the terminal aggregate: credit completed native receipts.
     yield* this.usage.settleTurn()
     this.failure =
@@ -191,6 +237,7 @@ export class ProviderTurnSettlement {
   /** Stop the harness when required, then settle its environment's custody. */
   async release(): Promise<void> {
     const { args } = this
+    await args.scope.state.fileOutput?.settled()
     await this.stopEndedHarness()
     // A keyed turn that ended over budget keeps its environment for a re-spawn with more budget.
     const held =

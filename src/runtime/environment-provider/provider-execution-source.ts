@@ -60,6 +60,7 @@ function retainedDispatchMaterial(
     backend: { ...backend, runtimeAttachments: { mcp } },
   }
   const material = {
+    ...(args.options.outputFile === undefined ? {} : { outputFile: args.options.outputFile }),
     environment: {
       ...args.options.defaults,
       ...(restore === undefined
@@ -242,10 +243,19 @@ export async function providerExecutionSource(
   events: AsyncIterable<AgentEnvironmentEvent | RetainedAwaitingResult>
   retained: boolean
 }> {
-  const selectedTurn = subscriptionTurnProfile(turn, args.profile)
+  const selectedTurn = subscriptionTurnProfile(
+    turn,
+    args.options.outputFormat === 'file' ? args.createProfile : args.profile,
+  )
   AgentTurnInputSchema.parse(selectedTurn)
   const needsMcp = hasRuntimeMcpAttachments(args.options.defaults)
   const capabilities = args.retention || needsMcp ? await args.provider.capabilities() : undefined
+  if (
+    args.options.outputFormat === 'file' &&
+    (capabilities?.retainedControl === undefined ||
+      capabilities.workspace.retainFileOutput !== true)
+  )
+    throw new Error('file output requires a provider with exact retained-file publication support')
   assertRuntimeMcpAttachments(args.provider.name, args.options.defaults, capabilities)
   if (args.retention !== undefined && capabilities?.retainedControl !== undefined) {
     return retainedExecution(args, args.retention, turn, selectedTurn, signal)
