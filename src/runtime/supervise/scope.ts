@@ -1,4 +1,5 @@
 export {
+  boundRetainedReleases,
   closeRetainedSlots,
   closeScopeAdmission,
   DEFAULT_BUDGET_STOP_HOLD_MS,

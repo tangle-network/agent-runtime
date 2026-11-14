@@ -1,8 +1,11 @@
 import { loadSpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import { RunCancellationReason } from './abortable'
 import type { ScopeResumeState } from './recover-executors'
+import { RELEASE_DESTROY_MS } from './retained-owner-release'
+import type { ReleaseClock } from './retained-owner-state'
 import type { guardRunPersistence } from './run-persistence'
 import {
+  boundRetainedReleases,
   closeRetainedSlots,
   hasRetriableTeardowns,
   releaseHeldEnvironments,
@@ -13,7 +16,6 @@ import {
 import { appendTeardownConfirmation } from './scope-settlement'
 import {
   confirmSettledTeardowns,
-  DEFAULT_TEARDOWN_CONFIRM_MS,
   drainLiveChildren,
   unconfirmedRecord,
 } from './supervisor-child-join'
@@ -50,19 +52,30 @@ export async function joinRunChildren(
   // No later spawn can continue a budget-stopped worker, so what it held is released now.
   await releaseHeldEnvironments(scope)
   join.teardownUnconfirmed = unconfirmedTeardowns(scope)
-  // A settled manager may still be capturing its last turn's workspace and releasing its
-  // environment; both finish before the run settles.
-  await settleManagerWork(scope)
-  join.teardownUnconfirmed = unconfirmedTeardowns(scope)
   // A retained-pending child kept its environment so a resuming process could reconcile the paid
   // execution. When the run will not be resumed nothing would: four settled `no-winner` runs held 18
   // of a 60-slot fleet for 19 to 37 hours. The caller knows whether a later process
   // resumes, so the policy decides; the unconfirmed set is re-read so released nodes drop out.
-  if (!persistence.failed && join.retainedAtSettlement === 'release') {
-    join.teardownUnconfirmed = await releaseRetainedEnvironments(scope)
-  }
   const releasing = !persistence.failed && join.retainedAtSettlement === 'release'
-  await confirmRetriableTeardowns(join, releasing)
+  // Every level of the tree releases at once under one clock, started by the tree's first destroy
+  // request: each owner's destroys get one destroy wait from when it asks, after its captures, and
+  // retries end with the clock's window. Releasing the tree one level after another, each level
+  // waiting its own deadline, took 22 minutes on a 28-box cancel.
+  const clock: ReleaseClock = {
+    windowMs: Math.max(join.opts.teardownConfirmMs ?? 0, RELEASE_DESTROY_MS),
+  }
+  if (releasing) boundRetainedReleases(scope, clock)
+  // A settled manager may still be capturing its last turn's workspace and releasing its
+  // environment; both finish before the run settles. The run's release joins that work instead of
+  // waiting for it, since each release waits for its own manager's capture before any destroy.
+  await Promise.all([
+    settleManagerWork(scope),
+    releasing ? releaseRetainedEnvironments(scope) : undefined,
+  ])
+  join.teardownUnconfirmed = unconfirmedTeardowns(scope)
+  // The retries share the release's clock; with no destroy asked, they open once settlement is done.
+  const opensAt = clock.startedAt ?? Date.now()
+  await confirmRetriableTeardowns(join, releasing, opensAt)
   // An expired or cancelled resume can stop before adopting retained children.
   // Preserve those nodes and name their source environments instead of implying
   // that the empty live scope confirmed their cleanup.
@@ -243,13 +256,19 @@ async function unrecoveredRetainedChildren(join: RunJoin): Promise<UnconfirmedTe
  * settles over it leaves the sandbox running: cancelling 20 Discovery lanes
  * left 2 workers running. Ask again until confirmed or out of time.
  */
-async function confirmRetriableTeardowns(join: RunJoin, releasing: boolean): Promise<void> {
+async function confirmRetriableTeardowns(
+  join: RunJoin,
+  releasing: boolean,
+  opensAt: number,
+): Promise<void> {
   const { opts, scope } = join
-  const confirmWindowMs = opts.teardownConfirmMs ?? DEFAULT_TEARDOWN_CONFIRM_MS
+  // The default window is one destroy wait, so the retries fit inside the first release's. The
+  // first release counts against the window; one that used it all leaves no retry.
+  const confirmWindowMs = opts.teardownConfirmMs ?? RELEASE_DESTROY_MS
   if (
     !(
       join.teardownUnconfirmed.length > 0 &&
-      confirmWindowMs > 0 &&
+      opensAt + confirmWindowMs > Date.now() &&
       hasRetriableTeardowns(scope, releasing)
     )
   ) {
@@ -265,7 +284,12 @@ async function confirmRetriableTeardowns(join: RunJoin, releasing: boolean): Pro
       at: new Date(join.now()).toISOString(),
     })
   }
-  join.teardownUnconfirmed = await confirmSettledTeardowns(scope, confirmWindowMs, releasing)
+  join.teardownUnconfirmed = await confirmSettledTeardowns(
+    scope,
+    confirmWindowMs,
+    releasing,
+    opensAt,
+  )
   const still = new Set(join.teardownUnconfirmed.map((node) => node.id))
   for (const node of pending) {
     if (still.has(node.id)) continue

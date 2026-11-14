@@ -157,7 +157,16 @@ export function bindChildTeardown<Out>(
       }),
     )
   })
-  retainedReleasers.set(scope, async () => {
+  // One sweep at a time: the run's release and a nested manager's own release reach the same
+  // children, and a second sweep beside the first would close their slots twice.
+  let sweeping: Promise<void> | undefined
+  retainedReleasers.set(scope, () => {
+    sweeping ??= sweepRetained().finally(() => {
+      sweeping = undefined
+    })
+    return sweeping
+  })
+  async function sweepRetained(): Promise<void> {
     // Any other unconfirmed child (a destroy that failed on the ordinary path) is retried by
     // `teardownRetriers`, not here.
     const held = retainedHeld()
@@ -228,7 +237,7 @@ export function bindChildTeardown<Out>(
       // The durable floor retains the original settlement and cursor seq for crash healing.
       if (child.cleanupConfirmed) await closeRetainedSlot(child, 'released', prior)
     }
-  })
+  }
   // One writer for the record that closes a retained child's slot, in either state, so the
   // released record and the unconfirmed one can never disagree on a field.
   const closeRetainedSlot = async (
