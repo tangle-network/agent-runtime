@@ -8320,7 +8320,7 @@ OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 > `readonly` `optional` **teardownConfirmMs?**: `number`
 
 Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
- teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000.
+ teardown the executor has not confirmed. `0` makes one attempt only. Default: 90000.
 
 ##### workerSlots?
 
@@ -15198,7 +15198,7 @@ budget: refine→max shots; sample→rollout width.
 > `optional` **teardownConfirmMs?**: `number`
 
 Forwarded to `SupervisorOpts.teardownConfirmMs`: how long settlement keeps retrying a child
- teardown the executor has not confirmed. `0` makes one attempt only. Default: 300000.
+ teardown the executor has not confirmed. `0` makes one attempt only. Default: 90000.
 
 ***
 
@@ -20054,10 +20054,12 @@ teardown.
 
 > `readonly` `optional` **teardownConfirmMs?**: `number`
 
-Teardown retry window, including after the run deadline. Pending environments are
-journaled before retry; unresolved teardown is named in teardownUnconfirmed.
-Kept environments and permanent refusals are not retried. Zero makes one attempt.
-supervisor-child-join.ts owns DEFAULT_TEARDOWN_CONFIRM_MS and retry backoff.
+Teardown retry window, including after the run deadline, counted from the first release.
+Pending environments are journaled before retry; unresolved teardown is named in
+teardownUnconfirmed. Kept environments, environments a provider holds for retention and
+permanent refusals are not retried. Zero makes one attempt.
+retained-owner-release.ts owns the default, RELEASE_DESTROY_MS; supervisor-child-join.ts
+owns the retry backoff.
 
 ##### resume?
 
@@ -23347,7 +23349,9 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 How long settlement keeps retrying a child teardown the executor has not confirmed, with
 exponential backoff, before naming the child in `teardownUnconfirmed` with the provider
-environment ids a sweeper deletes. `0` makes one attempt only. Default: 300000 (5 minutes).
+environment ids a sweeper deletes. The window opens with the first release, which counts
+against it, and no destroy wait outlasts the later of the window and one release wait
+(90 s). `0` makes one attempt only. Default: 90000 (90 seconds).
 See `SupervisorOpts.teardownConfirmMs`.
 
 ###### Inherited from
@@ -28949,7 +28953,9 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 How long settlement keeps retrying a child teardown the executor has not confirmed, with
 exponential backoff, before naming the child in `teardownUnconfirmed` with the provider
-environment ids a sweeper deletes. `0` makes one attempt only. Default: 300000 (5 minutes).
+environment ids a sweeper deletes. The window opens with the first release, which counts
+against it, and no destroy wait outlasts the later of the window and one release wait
+(90 s). `0` makes one attempt only. Default: 90000 (90 seconds).
 See `SupervisorOpts.teardownConfirmMs`.
 
 ##### retainedAtSettlement?
