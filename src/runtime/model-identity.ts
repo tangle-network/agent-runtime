@@ -80,6 +80,21 @@ export function observedModelHasSnapshot(model: string): boolean {
   return modelIdentityParts(model)?.snapshot !== undefined
 }
 
+/**
+ * Judge one model a provider reported it served against the declared model. A different model is
+ * a conflict. The request's own wire id is transport metadata, and a model without a snapshot
+ * cannot name what ran, so neither is recorded; a snapshot-bearing match is provider evidence.
+ */
+export function reportedServedModel(
+  reported: string,
+  declared: string,
+  wireModel?: string,
+): 'conflict' | 'record' | 'unrecorded' {
+  if (!observedModelMatchesDeclared(reported, declared)) return 'conflict'
+  if (reported === wireModel || !observedModelHasSnapshot(reported)) return 'unrecorded'
+  return 'record'
+}
+
 function modelIdentityParts(model: string): ModelIdentityParts | null {
   if (model.length === 0) return null
   const at = model.lastIndexOf('@')

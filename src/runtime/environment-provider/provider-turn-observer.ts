@@ -1,6 +1,11 @@
 import type { AgentEnvironmentEvent } from '@tangle-network/agent-interface/environment-provider'
 import type { SandboxEvent } from '@tangle-network/sandbox'
-import { sameModelId, sandboxEventServedBackend } from '../sandbox-events'
+import { reportedServedModel } from '../model-identity'
+import {
+  sameModelId,
+  sandboxEventProviderModels,
+  sandboxEventServedBackend,
+} from '../sandbox-events'
 import { createSandboxToolPartState, sandboxProgressEvents } from '../sandbox-executor-output'
 import {
   recordRuntimeOwnedProviderIdentityConflict,
@@ -36,15 +41,26 @@ export class ProviderTurnObserver {
     private readonly turnModel: string | undefined,
   ) {}
 
-  /** The platform's `effectiveBackend` (on `execution.started` and the terminal event) is the attempt's
-   *  provider evidence; a model other than the declared one is an identity conflict (the leaf's rule). */
+  /** The platform's `effectiveBackend` (on `execution.started` and the terminal event) is the
+   *  attempt's provider evidence; a model other than the declared one is an identity conflict
+   *  (the leaf's rule). Without one, a CLI Bridge provider's `provider_models` are judged by the
+   *  bridge path's rule. */
   private recordServedModel(sandboxEvent: SandboxEvent): void {
-    const served = sandboxEventServedBackend(sandboxEvent)
-    if (served?.model === undefined) return
+    const executor = this.args.scope.executor()
     const declared = this.turnModel ?? concreteProfileModel(this.args.profile)
+    const served = sandboxEventServedBackend(sandboxEvent)
+    if (served?.model === undefined) {
+      if (declared === undefined) return
+      for (const model of sandboxEventProviderModels(sandboxEvent)) {
+        const verdict = reportedServedModel(model, declared)
+        if (verdict === 'conflict') recordRuntimeOwnedProviderIdentityConflict(executor)
+        else if (verdict === 'record') recordRuntimeOwnedProviderModel(executor, model)
+      }
+      return
+    }
     if (declared !== undefined && !sameModelId(served.model, declared, [served.provider])) {
-      recordRuntimeOwnedProviderIdentityConflict(this.args.scope.executor())
-    } else recordRuntimeOwnedProviderModel(this.args.scope.executor(), served.model)
+      recordRuntimeOwnedProviderIdentityConflict(executor)
+    } else recordRuntimeOwnedProviderModel(executor, served.model)
   }
 
   async *consume(
