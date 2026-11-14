@@ -1,7 +1,11 @@
 import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
 import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/content-address'
-import { describeRetainedNativeStops, stopRetainedNativeExecution } from '../retained-native-stop'
+import {
+  describeRetainedNativeStops,
+  NATIVE_STOP_UNCONFIRMED,
+  stopRetainedNativeExecution,
+} from '../retained-native-stop'
 import { runAbortable } from './abortable'
 import { causeChain, errMessage } from './error-message'
 import { cleanCheckpoints, settleCaptureForks } from './retained-owner-checkpoint-capture'
@@ -163,7 +167,7 @@ async function releaseOwnerEnvironment(
     let destroyed = false
     let detail: string | undefined
     const asked = destroys.get(environmentId)
-    // Refused under a retention hold before this release, whose native runs were stopped then.
+    // Refused under a retention hold before this release.
     const heldBefore = asked === undefined ? held.get(environmentId) : undefined
     const retentionReason = retentionFailures.get(environmentId) ?? heldBefore
     const nativeHold = retentionReason?.startsWith('native session copy incomplete:') === true
@@ -195,11 +199,21 @@ async function releaseOwnerEnvironment(
       }
     }
     // A delete still running ends the harness with the box; a stop would reconnect to it.
-    if (!destroyed && heldBefore === undefined && !state.destroys?.has(environmentId)) {
+    if (!destroyed && !state.destroys?.has(environmentId)) {
       // A kept environment keeps its files, never its running harness: the run has settled, so
       // nothing will observe or reconcile an owner turn still executing inside it.
       const runs = unsettledOwnerRuns(events, args.nodeId, environmentId)
-      if (runs.length > 0) {
+      // A held box was stopped by its provider's refusal, and a reconnect to stop its harness
+      // would wake it; the receipt names the stop as not attempted, never as done.
+      if (runs.length > 0 && held.has(environmentId)) {
+        detail = `${detail}; ${runs
+          .map(
+            (run) =>
+              `native execution ${run.executionId} stop not attempted: its provider holds the environment under a retention hold and a reconnect would wake it; ${NATIVE_STOP_UNCONFIRMED}`,
+          )
+          .join('; ')}`
+        lastDetail = detail
+      } else if (runs.length > 0) {
         const stops = await Promise.all(
           runs.map((controlRef) =>
             stopRetainedNativeExecution({

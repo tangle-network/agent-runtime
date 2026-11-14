@@ -92,6 +92,23 @@ const RECORDED: ReadonlyArray<readonly [box: string, beforeCancel: boolean, answ
   [ROOT_BOX, false, [NO_ANSWER, 'hold@1794608122021']],
 ]
 
+/** Boxes whose last owner turn was dispatched and never returned a result, with that run's
+ *  recorded execution id: a release stops such a harness unless the box is held. */
+const UNFINISHED_RUNS = new Map([
+  [
+    'sandbox-cfb39a31e0a4',
+    'retained-execution-5bfc554212c2f36a7cae5588b32be92b01910841abfb5ffdd830ae226a111a32',
+  ],
+  [
+    'sandbox-f3dbc0183a31',
+    'retained-execution-1839f7f74bf4beaaad7d0f8f4aae28965bb24d30380e7bdd971887da3b84a225',
+  ],
+  [
+    'sandbox-045b63813a1b',
+    'retained-execution-d2e01ff8ce7147fb3d09c0f939b63960856b9be518b94afde05b3b20743b6a2a',
+  ],
+])
+
 /** A provider double that answers each box's deletes with its recorded answers, in order. */
 function recordedProvider() {
   const answers = new Map(RECORDED.map(([box, , recorded]) => [box, recorded]))
@@ -99,6 +116,8 @@ function recordedProvider() {
   const wakes = new Map<string, number>()
   const stopped = new Set<string>()
   const removed = new Set<string>()
+  // A native-run reconnect starts by reading the provider's capabilities; no delete does.
+  let reconnects = 0
   const environment = (id: string): AgentEnvironment => ({
     id,
     provider: PROVIDER,
@@ -120,7 +139,10 @@ function recordedProvider() {
   })
   const provider: AgentEnvironmentProvider = {
     name: PROVIDER,
-    capabilities: async () => ({}),
+    capabilities: async () => {
+      reconnects += 1
+      return {}
+    },
     create: async () => {
       throw new Error('a release never creates an environment')
     },
@@ -131,7 +153,7 @@ function recordedProvider() {
       return environment(id)
     },
   }
-  return { provider, destroys, wakes }
+  return { provider, destroys, wakes, reconnects: () => reconnects }
 }
 
 /** The owner's turn as a retained run journals it: its input, its intent, then its box. */
@@ -159,6 +181,21 @@ async function admitBox(
     requestDigest: canonicalCandidateDigest({ box, task }),
   })
   await owner.onAdmission({ phase: 'environment', ...identity, environmentId: box })
+  const executionId = UNFINISHED_RUNS.get(box)
+  if (executionId === undefined) return
+  await owner.onAdmission({
+    phase: 'dispatched',
+    idempotencyKey: identity.idempotencyKey,
+    turnId: identity.turnId,
+    controlRef: {
+      provider: provider.name,
+      environmentId: box,
+      sessionId: identity.sessionId,
+      executionId,
+      runId: executionId,
+      requestDigest: canonicalCandidateDigest({ box, task }),
+    },
+  })
 }
 
 function aborted(signal: AbortSignal): Promise<never> {
@@ -236,14 +273,16 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
   expect([heldBoxes.length, unanswered.length, deleted.length]).toEqual([14, 12, 2])
 
   // One release wait (90 s), where the recorded teardown took 1315 s.
-  console.info(`cancel-to-result ${cancelToResultMs} ms for ${RECORDED.length} boxes`)
-  expect(cancelToResultMs).toBeLessThan(120_000)
-  // Each box is asked once: a held box is never reconnected to, and a delete still in flight is
-  // joined, not asked again.
+  const measured = `cancel-to-result ${cancelToResultMs} ms for ${RECORDED.length} boxes`
+  console.log(measured)
+  expect(cancelToResultMs, measured).toBeLessThan(120_000)
+  // Each box is asked once: a held box is never reconnected to, not even to stop its harness, and
+  // a delete still in flight is joined, not asked again.
   expect(Object.fromEntries(fixture.destroys)).toEqual(
     Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
   )
   expect(Object.fromEntries(fixture.wakes)).toEqual({})
+  expect(fixture.reconnects()).toBe(0)
 
   const unconfirmed = result.teardownUnconfirmed ?? []
   const nodeOf = (box: string) =>
@@ -260,6 +299,14 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
       keptFor: 'evidence',
     })
     expect(node?.detail, box).toContain(refusal(box, firstAnswer.get(box)!))
+  }
+  // A held box's unfinished harness is named as not stopped, never as stopped.
+  for (const [box, executionId] of UNFINISHED_RUNS) {
+    expect(heldBoxes, box).toContain(box)
+    const detail = nodeOf(box)?.detail ?? ''
+    expect(detail, box).toContain(`native execution ${executionId} stop not attempted`)
+    expect(detail, box).toContain('it may still be running')
+    expect(detail, box).not.toContain(`native execution ${executionId} stopped`)
   }
   // A delete that never answered is unconfirmed and named for a sweeper; none is kept.
   expect(
