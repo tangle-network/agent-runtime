@@ -107,7 +107,7 @@ export function driveHarnessFromBackend(
     })
   }
   drive.resultArtifact = () => state.managerArtifact
-  if (backend.backend === 'provider' && backend.outputFormat === 'file') {
+  if (backend.backend === 'provider' && backend.outputFile !== undefined) {
     drive.withFileOutput = (submission, accept) => {
       const executor = state.activeExecutor
       if (!executor?.withFileOutput)

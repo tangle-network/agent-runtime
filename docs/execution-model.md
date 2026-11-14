@@ -67,7 +67,7 @@ An environment-provider executor passes the exact profile's `model.metadata.cred
 
 An authored profile selects file output with `AgentProfile.outputFile`, relative to the managed workspace root.
 Provider executor construction and manager harness resolution select file mode for that profile; other profiles retain the backend's JSON/text default.
-Explicit backend-wide `outputFormat: 'file'` and `outputFile` remain available for callers that want every execution to use that policy.
+An explicit backend-wide `outputFile` remains available for callers that want every execution to use that policy.
 Runtime binds that policy into the original retained intent and materialization, and requires provider support before dispatch.
 At submission, it reserves the original metadata, invocation and actual dispatched handle before awaiting capture.
 The provider owns stopped-source exclusion and immutable regular-file publication; Runtime writes the association through its existing evidence and result writers.

@@ -69,7 +69,7 @@ export async function* streamProviderExecutor(
   // turn starts streaming, so the finalized declaration is complete evidence.
   await args.onEnvironment(environment)
   args.scope.state.fileOutput =
-    args.options.outputFormat === 'file' ? new ProviderFileOutput(args) : undefined
+    args.options.outputFile !== undefined ? new ProviderFileOutput(args) : undefined
   const usage = new ProviderUsageAccount(args, turn.model)
   const observer = new ProviderTurnObserver(args, usage, source.retained, turn.model)
   const settlement = new ProviderTurnSettlement(

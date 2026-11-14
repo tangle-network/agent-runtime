@@ -245,13 +245,13 @@ export async function providerExecutionSource(
 }> {
   const selectedTurn = subscriptionTurnProfile(
     turn,
-    args.options.outputFormat === 'file' ? args.createProfile : args.profile,
+    args.options.outputFile !== undefined ? args.createProfile : args.profile,
   )
   AgentTurnInputSchema.parse(selectedTurn)
   const needsMcp = hasRuntimeMcpAttachments(args.options.defaults)
   const capabilities = args.retention || needsMcp ? await args.provider.capabilities() : undefined
   if (
-    args.options.outputFormat === 'file' &&
+    args.options.outputFile !== undefined &&
     (capabilities?.retainedControl === undefined ||
       capabilities.workspace.retainFileOutput !== true)
   )

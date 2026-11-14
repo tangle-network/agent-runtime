@@ -34,7 +34,7 @@ export function providerOutputOptions(
   )
     throw new ValidationError('profile outputFile conflicts with the provider output policy')
   return {
-    outputFormat: 'file',
+    outputFormat: undefined,
     outputFile: detachedSnapshot(profile.outputFile, 'profile outputFile'),
   }
 }
@@ -151,8 +151,8 @@ export interface ProviderExecutorOptions {
   destroyOnSettle?: boolean
   requireTerminalEvent?: boolean
   /** Exact final-message JSON for graph output; requires Runtime-owned durable evidence. */
-  outputFormat?: 'json' | 'file'
-  /** One immutable regular file relative to the managed workspace root. Requires file mode;
+  outputFormat?: 'json'
+  /** Selects file mode: one immutable regular file relative to the managed workspace root;
    * submission JSON remains metadata and cannot select a different source or path. */
   outputFile?: AgentFileOutputPolicy
   /** Trusted host capture after exact retained terminal proof. Reuses the Bridge capture

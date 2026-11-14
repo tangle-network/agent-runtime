@@ -5612,7 +5612,7 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 ##### outputFormat?
 
-> `optional` **outputFormat?**: `"json"` \| `"file"`
+> `optional` **outputFormat?**: `"json"`
 
 **`Experimental`**
 
@@ -5624,7 +5624,7 @@ Exact final-message JSON for graph output; requires Runtime-owned durable eviden
 
 **`Experimental`**
 
-One immutable regular file relative to the managed workspace root. Requires file mode;
+Selects file mode: one immutable regular file relative to the managed workspace root;
 submission JSON remains metadata and cannot select a different source or path.
 
 ##### harnessTranscript?
@@ -26978,7 +26978,7 @@ Select exactly one caller-declared placement from each child's unchanged profile
 
 ##### outputFormat?
 
-> `optional` **outputFormat?**: `"json"` \| `"file"`
+> `optional` **outputFormat?**: `"json"`
 
 Exact final-message JSON for graph output; requires Runtime-owned durable evidence.
 
@@ -26990,7 +26990,7 @@ Exact final-message JSON for graph output; requires Runtime-owned durable eviden
 
 > `optional` **outputFile?**: `AgentFileOutputPolicy`
 
-One immutable regular file relative to the managed workspace root. Requires file mode;
+Selects file mode: one immutable regular file relative to the managed workspace root;
 submission JSON remains metadata and cannot select a different source or path.
 
 ###### Inherited from
