@@ -27,14 +27,18 @@ import {
   requiredPackedPackageVersion,
   requiredPackedPeerCandidateVersion,
 } from './lib/packed-package-test.mjs'
-import { peerCompatibility } from './lib/dependency-contract.mjs'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
+// Each run owns its npm cache under tempRoot: the host's shared ~/.npm/_cacache races between
+// concurrent gates (EEXIST on rename), and tempRoot's removal deletes this cache with it. Every
+// npm child inherits it, including the `npm view` calls dependency-contract makes when loaded.
+process.env.npm_config_cache = join(tempRoot, 'npm-cache')
 const suppliedTarball = process.argv[2] ? resolve(process.argv[2]) : undefined
 const suppliedKnowledgeTarball = process.argv[3] ? resolve(process.argv[3]) : undefined
 const suppliedSandboxTarball = process.argv[4] ? resolve(process.argv[4]) : undefined
 
 try {
+  const { peerCompatibility } = await import('./lib/dependency-contract.mjs')
   const packDir = join(tempRoot, 'pack')
   const unpackDir = join(tempRoot, 'unpack')
   const appDir = join(tempRoot, 'app')
