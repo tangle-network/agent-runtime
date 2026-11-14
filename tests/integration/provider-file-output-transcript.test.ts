@@ -91,10 +91,13 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
           status: async () => 'running',
           async *events() {
             // The original submission is accepted while its native stream is still open.
-            await executor!.withFileOutput!({ summary: 'report written' }, async (prepared, onAccepted) => {
-              onAccepted()
-              return prepared
-            })
+            await executor!.withFileOutput!(
+              { summary: 'report written' },
+              async (prepared, onAccepted) => {
+                onAccepted()
+                return prepared
+              },
+            )
             yield* []
             throw new Error('native stream lost before the result committed')
           },
