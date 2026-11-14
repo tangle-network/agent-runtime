@@ -4,7 +4,6 @@ import type { RuntimeHooks } from '../../runtime-hooks'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import type { RetainedExecutorContext, RetainedWorkspaceRestore } from './retained-executor'
 import type {
-  ExecutorResult,
   NodeId,
   ResultBlobStore,
   Scope,
@@ -19,7 +18,7 @@ export interface OwnerState {
   readonly context: RetainedExecutorContext
   readonly args: OwnerRegistration
   inputSequence?: number
-  prepared?: boolean
+  /** No later read returns the committed result; the next prepare starts a new invocation. */
   acceptedConsumed?: boolean
   priorSession?: RetainedRunEnvironmentAdmission
   /** A changed native provider starts a new harness session from a verified checkpoint. */
@@ -37,7 +36,6 @@ export interface OwnerState {
   /** Each environment's destroy in flight, joined by every later release until it succeeds. */
   destroys?: Map<string, { readonly destroy: Promise<void>; readonly since: number }>
   taskRef?: string
-  accepted?: ExecutorResult<unknown>
   acceptedRef?: Extract<SpawnEvent, { kind: 'execution-result' }>
   /** The checkpoint the current invocation's NEW environment starts from, if any. */
   restore?: RetainedWorkspaceRestore
