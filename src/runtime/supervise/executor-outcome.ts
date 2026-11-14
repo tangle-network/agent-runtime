@@ -27,6 +27,7 @@ const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true, f
     errorCode: AgentTurnResultSchema.shape.error,
     statusCode: z.number().int().min(400).max(599).optional(),
     remediation: runtimeFailureRemediationSchema.readonly().optional(),
+    resetAt: z.string().datetime({ offset: true }).optional(),
   })
   .strict()
 
@@ -37,6 +38,8 @@ export interface ExecutorFailure {
   readonly errorCode?: string
   readonly statusCode?: number
   readonly remediation?: z.infer<typeof runtimeFailureRemediationSchema>
+  /** When the producer's exhausted quota resets: Sandbox's `AgentRunOutcome.resetAt`. */
+  readonly resetAt?: string
 }
 
 /** Read only the executor envelope; application output and grades are not execution status. */
@@ -52,6 +55,7 @@ export function executorFailure(
     ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
     ...(outcome.statusCode === undefined ? {} : { statusCode: outcome.statusCode }),
     ...(outcome.remediation === undefined ? {} : { remediation: outcome.remediation }),
+    ...(outcome.resetAt === undefined ? {} : { resetAt: outcome.resetAt }),
   }
 }
 

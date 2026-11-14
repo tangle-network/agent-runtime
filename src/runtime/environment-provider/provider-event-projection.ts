@@ -204,6 +204,23 @@ function failureDetail(value: Record<string, unknown> | undefined): string | und
 }
 
 /** Preserve the Sandbox outcome's numeric HTTP metadata across the provider adapter. */
+/** The executor envelope of a failed turn: the ledger's outcome as Runtime's retry reads it, quota reset included. */
+export function failedTurnOutcome(
+  outcome: ReturnType<ReturnType<typeof createProviderFailureLedger>['finish']>,
+) {
+  if (outcome?.status !== 'failed') return undefined
+  const statusCode = failureStatusCode(outcome)
+  return {
+    success: false,
+    ...(outcome.failure === undefined ? {} : { failure: outcome.failure }),
+    ...(outcome.error ? { error: outcome.error } : {}),
+    ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    ...(statusCode === undefined ? {} : { statusCode }),
+    ...(outcome.remediation === undefined ? {} : { remediation: outcome.remediation }),
+    ...(outcome.resetAt ? { resetAt: outcome.resetAt } : {}),
+  }
+}
+
 export function failureStatusCode(value: unknown): number | undefined {
   const statusCode = recordValue(value)?.statusCode
   return typeof statusCode === 'number' &&

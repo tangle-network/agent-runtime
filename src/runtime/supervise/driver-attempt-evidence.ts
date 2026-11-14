@@ -157,6 +157,8 @@ export class HarnessTurnFailedError extends Error {
   /** The shared HTTP error reader also uses this status for persisted diagnostics. */
   readonly status?: number
   readonly failure?: ExecutorFailure['failure']
+  /** The producer's quota reset, which `reportedResetAt` holds a capacity pause to. */
+  readonly resetAt?: string
 
   constructor(runtime: string, failure: ExecutorFailure) {
     super(
@@ -169,6 +171,7 @@ export class HarnessTurnFailedError extends Error {
     this.reported = failure.error
     if (failure.failure !== undefined) this.failure = failure.failure
     if (failure.errorCode !== undefined) this.errorCode = failure.errorCode
+    if (failure.resetAt !== undefined) this.resetAt = failure.resetAt
     if (failure.statusCode !== undefined) {
       this.statusCode = failure.statusCode
       this.status = failure.statusCode
