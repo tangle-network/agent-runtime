@@ -125,57 +125,57 @@ async function runProcess(
 it.each(['native', 'fresh'] as const)(
   'restarts an in-flight file-mode owner turn in a %s session',
   async (session) => {
-  const directory = await mkdtemp(join(tmpdir(), 'retained-owner-file-recovery-'))
-  try {
-    const journal = new InMemorySpawnJournal()
-    const at = new Date(0).toISOString()
-    await journal.beginTree(ROOT, at)
-    await journal.appendEvent(ROOT, {
-      kind: 'spawned',
-      id: OWNER,
-      parent: ROOT,
-      label: OWNER,
-      runtime: 'cli',
-      budget: { maxIterations: 1_000, maxTokens: 1_000_000 },
-      seq: 0,
-      at,
-    })
-    const blobs = new InMemoryResultBlobStore()
-    const dispatched: string[] = []
-    const provider = fileProvider(join(directory, 'provider.json'), dispatched)
-    const first = await runProcess(journal, blobs, provider, true).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    // The executor reports the lost process as pending work; its cause is the crash.
-    const causes: unknown[] = []
-    for (let error = first; error instanceof Error; error = error.cause) causes.push(error)
-    expect(
-      causes.some((error) => error instanceof ProcessCrash),
-      String(first),
-    ).toBe(true)
-    expect(dispatched).toHaveLength(1)
-    // The restart observes the same native run again: no file custody proof is owed for it yet.
-    // That run ended without a submission, so its turn stays pending with custody held.
-    const second = await runProcess(journal, blobs, provider, false, session).then(
-      () => undefined,
-      (error: unknown) => error,
-    )
-    const chain: string[] = []
-    for (let e = second; e instanceof Error; e = e.cause) chain.push(`${e.name}: ${e.message}`)
-    if (session === 'native') {
-      expect(chain.join(' <- ')).not.toContain('prepare refused')
-      expect(chain.join(' <- ')).toContain('no independently accepted submission')
-    } else {
-      // A fresh session is new work over the unfinished file workspace: custody still refuses it.
-      expect(chain.join(' <- ')).toContain('prepare refused')
-      expect(chain.join(' <- ')).toContain('no verified workspace receipt')
+    const directory = await mkdtemp(join(tmpdir(), 'retained-owner-file-recovery-'))
+    try {
+      const journal = new InMemorySpawnJournal()
+      const at = new Date(0).toISOString()
+      await journal.beginTree(ROOT, at)
+      await journal.appendEvent(ROOT, {
+        kind: 'spawned',
+        id: OWNER,
+        parent: ROOT,
+        label: OWNER,
+        runtime: 'cli',
+        budget: { maxIterations: 1_000, maxTokens: 1_000_000 },
+        seq: 0,
+        at,
+      })
+      const blobs = new InMemoryResultBlobStore()
+      const dispatched: string[] = []
+      const provider = fileProvider(join(directory, 'provider.json'), dispatched)
+      const first = await runProcess(journal, blobs, provider, true).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      // The executor reports the lost process as pending work; its cause is the crash.
+      const causes: unknown[] = []
+      for (let error = first; error instanceof Error; error = error.cause) causes.push(error)
+      expect(
+        causes.some((error) => error instanceof ProcessCrash),
+        String(first),
+      ).toBe(true)
+      expect(dispatched).toHaveLength(1)
+      // The restart observes the same native run again: no file custody proof is owed for it yet.
+      // That run ended without a submission, so its turn stays pending with custody held.
+      const second = await runProcess(journal, blobs, provider, false, session).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      const chain: string[] = []
+      for (let e = second; e instanceof Error; e = e.cause) chain.push(`${e.name}: ${e.message}`)
+      if (session === 'native') {
+        expect(chain.join(' <- ')).not.toContain('prepare refused')
+        expect(chain.join(' <- ')).toContain('no independently accepted submission')
+      } else {
+        // A fresh session is new work over the unfinished file workspace: custody still refuses it.
+        expect(chain.join(' <- ')).toContain('prepare refused')
+        expect(chain.join(' <- ')).toContain('no verified workspace receipt')
+      }
+      expect(dispatched).toHaveLength(1)
+      const events = ((await journal.loadTree(ROOT)) ?? []).filter((event) => event.id === OWNER)
+      expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
     }
-    expect(dispatched).toHaveLength(1)
-    const events = ((await journal.loadTree(ROOT)) ?? []).filter((event) => event.id === OWNER)
-    expect(events.filter((event) => event.kind === 'execution-input')).toHaveLength(1)
-  } finally {
-    await rm(directory, { recursive: true, force: true })
-  }
   },
 )
