@@ -1,12 +1,13 @@
 /**
- * Cancelling a finished multi-manager run must settle in about one release wait, not one per tree
- * level. Measured 2026-11-13 on a 28-box run: cancel-to-result took 22 minutes. Its provider held
- * most manager boxes for retention, refused each delete with an HTTP error naming the hold, and
- * stopped each refused box. The run asked again at every level of the tree and on every retry
- * pass. Each reconnect woke a stopped box and waited for it to run. The three levels (retained
- * children, nested managers, the root's own box) released one after another, each with a
- * five-minute wait. The held boxes were also reported as leaks for a sweeper to delete, not as
- * evidence the provider keeps.
+ * Cancelling a finished multi-manager run returns its result within one release wait and keeps
+ * every box its provider holds for retention.
+ *
+ * The answers below are a production provider's, recorded on 2026-11-13 for a cancelled run of 28
+ * manager boxes whose work had finished: each box's delete answers in the order the provider gave
+ * them. A held box is refused with an HTTP error naming the hold and stopped; asking it again
+ * reconnects, wakes it, and times out waiting for it to run. That run's teardown took 1315 s from
+ * cancel to its last receipt: it asked held boxes again at every level and retry pass, and the
+ * root's own box waited behind its managers' boxes, each level with its own five-minute wait.
  */
 
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
@@ -15,6 +16,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { expect, it } from 'vitest'
+import { loadSpawnForest } from '../../src/durable/spawn-journal/spawn-forest'
 import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import {
@@ -24,77 +26,96 @@ import {
 } from '../../src/runtime/supervise/retained-scope-owner'
 import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import type { Scope, SpawnEvent, SupervisorOpts } from '../../src/runtime/supervise/types'
+import type { Scope } from '../../src/runtime/supervise/types'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const RUN_ID = 'cancel-teardown'
-const PROVIDER = 'held-box-provider'
-const ROOT_BOX = 'root-box'
+const PROVIDER = 'tangle-sandbox'
+/** A delete the run stopped waiting for: the replay never answers it. */
+const NO_ANSWER = null
+const DELETED = 'deleted'
+/** A reconnect to a stopped box that timed out waiting for it to run. */
+const WAKE = 'wake'
+/** A reconnect refused while the provider removes the box's sidecar. */
+const DEPROVISIONING = 'deprovisioning'
+/** Each recorded answer: one of the above, or `hold@<heldAt>` for a retention-hold refusal. */
+type Answer = string | typeof NO_ANSWER
 
-/** How each fixture box answers a delete. */
-type Box =
-  /** A retention hold refuses it with HTTP 500 and a message naming the hold; the box stops. */
-  | 'held'
-  /** A retention hold refuses it with 409 `RETENTION_HOLD`; the box stops. */
-  | 'held-coded'
-  /** Deleted once the root's own delete has started, refused while it has not (3 s). */
-  | 'after-root'
-  /** Deleted at once. */
-  | 'deletes'
-  /** Never answered. */
-  | 'hangs'
-
-class ProviderRefusal extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code?: string,
-  ) {
-    super(message)
-  }
+/** The provider's words for each answer, as the run recorded them. */
+function refusal(box: string, answer: string): string {
+  if (answer === WAKE)
+    return `Tangle sandbox ${box} did not reach running: Timed out waiting for sandbox to reach running: caused by TimeoutError: HTTP 504: Timed out waiting for sandbox to reach running`
+  if (answer === DEPROVISIONING)
+    return `Tangle native capture requires the current selected backend before reconnect: caused by ServerError: HTTP 503: Sidecar with id ${box} is not ready: project_deprovisioning`
+  return `HTTP 500: Project ${box} is under retention hold ${box}@${answer.slice('hold@'.length)}`
 }
 
-function boxProvider(boxes: Readonly<Record<string, Box>>) {
-  const gets = new Map<string, number>()
+/** Each box's delete answers, in order. A manager whose first answer came before the cancel had
+ *  finished and was released at its own settlement; the others were first asked at the cancel. */
+const ROOT_BOX = 'sandbox-5bb4f439e6db'
+const RECORDED: ReadonlyArray<readonly [box: string, beforeCancel: boolean, answers: Answer[]]> = [
+  ['sandbox-3ac408d86aac', true, ['hold@1794597224771', NO_ANSWER, 'hold@1794597224771']],
+  ['sandbox-3b3d61b1c81a', true, ['hold@1794597332229', NO_ANSWER, 'hold@1794597332229']],
+  ['sandbox-450033cbd62d', true, ['hold@1794597346938', WAKE, WAKE]],
+  ['sandbox-e6036016a986', true, ['hold@1794597399474', WAKE, WAKE]],
+  ['sandbox-41a219792071', true, [NO_ANSWER, NO_ANSWER, 'hold@1794597677460']],
+  ['sandbox-cc321e510463', true, [NO_ANSWER, WAKE, WAKE]],
+  ['sandbox-923aee591d9b', true, [NO_ANSWER, NO_ANSWER, NO_ANSWER]],
+  ['sandbox-70dfb82b3fcb', true, [NO_ANSWER, NO_ANSWER, 'hold@1794597572163']],
+  ['sandbox-e90d0d571273', true, ['hold@1794599543270', NO_ANSWER, 'hold@1794599543270']],
+  ['sandbox-b8680ac394f7', true, ['hold@1794599583839', NO_ANSWER, 'hold@1794599583839']],
+  ['sandbox-32ae05a2e811', true, ['hold@1794599709094', WAKE, WAKE]],
+  ['sandbox-5032d2ed6a54', true, ['hold@1794599739205', NO_ANSWER, NO_ANSWER]],
+  ['sandbox-cfb39a31e0a4', true, ['hold@1794599765832', NO_ANSWER, NO_ANSWER]],
+  [
+    'sandbox-a3f31ff5ed1f',
+    true,
+    ['hold@1794599822107', 'hold@1794599822107', 'hold@1794599822107'],
+  ],
+  ['sandbox-517c2438f90e', true, ['hold@1794599917745', WAKE, WAKE]],
+  ['sandbox-d8ac32d12ea5', true, [NO_ANSWER, NO_ANSWER, DEPROVISIONING]],
+  ['sandbox-1b927f597d37', true, [NO_ANSWER, WAKE, WAKE]],
+  ['sandbox-f3dbc0183a31', true, ['hold@1794601719324', WAKE, WAKE]],
+  ['sandbox-91f76270177d', true, [NO_ANSWER, WAKE, WAKE]],
+  ['sandbox-4fba06273057', true, [NO_ANSWER, NO_ANSWER, DEPROVISIONING]],
+  ['sandbox-2e2a882862f3', true, [NO_ANSWER, WAKE, WAKE]],
+  ['sandbox-1713a766df41', true, [NO_ANSWER, WAKE, WAKE]],
+  ['sandbox-us1-71f9a6f8282d', true, [NO_ANSWER, DEPROVISIONING, 'hold@1794601947209']],
+  ['sandbox-1c283e18bc0b', true, ['hold@1794602580913', DELETED]],
+  ['sandbox-380366c7a583', false, [DELETED]],
+  ['sandbox-0f2f04f51300', false, [DELETED]],
+  [
+    'sandbox-045b63813a1b',
+    false,
+    ['hold@1794607244787', NO_ANSWER, 'hold@1794607244787', 'hold@1794607244787'],
+  ],
+  [ROOT_BOX, false, [NO_ANSWER, 'hold@1794608122021']],
+]
+
+/** A provider double that answers each box's deletes with its recorded answers, in order. */
+function recordedProvider() {
+  const answers = new Map(RECORDED.map(([box, , recorded]) => [box, recorded]))
   const destroys = new Map<string, number>()
   const wakes = new Map<string, number>()
   const stopped = new Set<string>()
   const removed = new Set<string>()
-  let rootDeleting = (): void => {}
-  const rootDeleteStarted = new Promise<void>((resolve) => {
-    rootDeleting = resolve
-  })
-  const count = (map: Map<string, number>, id: string) => map.set(id, (map.get(id) ?? 0) + 1)
   const environment = (id: string): AgentEnvironment => ({
     id,
     provider: PROVIDER,
     status: async () => 'running',
     async *stream() {},
     async destroy() {
-      count(destroys, id)
-      if (id === ROOT_BOX) rootDeleting()
-      const box = boxes[id]
-      if (box === 'held') {
-        stopped.add(id)
-        throw new ProviderRefusal(`Project ${id} is under retention hold ${id}@1700000000000`, 500)
+      const asked = destroys.get(id) ?? 0
+      destroys.set(id, asked + 1)
+      const answer = answers.get(id)?.[asked] ?? NO_ANSWER
+      if (answer === NO_ANSWER) return await new Promise<void>(() => {})
+      if (answer === DELETED) {
+        removed.add(id)
+        return
       }
-      if (box === 'held-coded') {
-        stopped.add(id)
-        throw new ProviderRefusal('A retention hold refuses this delete', 409, 'RETENTION_HOLD')
-      }
-      if (box === 'hangs') return await new Promise<void>(() => {})
-      if (box === 'after-root') {
-        let timer: ReturnType<typeof setTimeout> | undefined
-        const started = await Promise.race([
-          rootDeleteStarted.then(() => true),
-          new Promise<boolean>((resolve) => {
-            timer = setTimeout(() => resolve(false), 3_000)
-          }),
-        ])
-        clearTimeout(timer)
-        if (!started) throw new ProviderRefusal('delete refused: the workspace is sealing', 503)
-      }
-      removed.add(id)
+      // The provider stops a box whose delete it refuses.
+      if (answer.startsWith('hold@')) stopped.add(id)
+      throw new Error(refusal(id, answer))
     },
   })
   const provider: AgentEnvironmentProvider = {
@@ -104,14 +125,13 @@ function boxProvider(boxes: Readonly<Record<string, Box>>) {
       throw new Error('a release never creates an environment')
     },
     async get(id) {
-      count(gets, id)
-      if (removed.has(id) || boxes[id] === undefined) return null
-      // A reconnect to a box a refused delete stopped resumes it and waits for it to run.
-      if (stopped.has(id)) count(wakes, id)
+      if (removed.has(id) || !answers.has(id)) return null
+      // A reconnect to a stopped box resumes it and waits for it to run.
+      if (stopped.has(id)) wakes.set(id, (wakes.get(id) ?? 0) + 1)
       return environment(id)
     },
   }
-  return { provider, gets, destroys, wakes }
+  return { provider, destroys, wakes }
 }
 
 /** The owner's turn as a retained run journals it: its input, its intent, then its box. */
@@ -148,57 +168,45 @@ function aborted(signal: AbortSignal): Promise<never> {
   })
 }
 
-/**
- * A root that owns its own box and runs three managers, each with one box: two finish and are
- * released at their settlement, one is still working when the run is cancelled. The root waits
- * for both finished managers' boxes to be asked to delete, then for the cancel.
- */
-async function cancelFinishedRun(
-  boxes: Readonly<Record<string, Box>>,
-  managers: { readonly finished: readonly [string, string]; readonly working: string },
-  opts: Partial<SupervisorOpts> = {},
-) {
-  const fixture = boxProvider(boxes)
+it('returns a cancelled 28-box run within one release wait and keeps every held box', async () => {
+  const fixture = recordedProvider()
   const context = createInMemoryRunContext({ withDriver: true })
   const controller = new AbortController()
+  const managers = RECORDED.filter(([box]) => box !== ROOT_BOX)
+  const finished = managers.filter(([, beforeCancel]) => beforeCancel).map(([box]) => box)
   let finishedAsked = (): void => {}
   const asked = new Promise<void>((resolve) => {
     finishedAsked = resolve
   })
-  const manager = (box: string, working: boolean) =>
-    driverChild(
-      testAgentProfile(`${box}-manager`),
-      {
-        name: `${box}-manager`,
-        async act(task, scope) {
-          await admitBox(scope, fixture.provider, box, task)
-          if (working) await aborted(scope.signal)
-          return box
-        },
-      },
-      context.journal,
-    )
   let cancelledAt = 0
-  const run = createSupervisor<unknown, unknown>().run(
+  const result = await createSupervisor<unknown, unknown>().run(
     {
       name: 'root',
       async act(task, scope) {
         await admitBox(scope, fixture.provider, ROOT_BOX, task)
-        for (const [box, working] of [
-          [managers.finished[0], false],
-          [managers.finished[1], false],
-          [managers.working, true],
-        ] as const) {
-          const spawned = scope.spawn(manager(box, working), 'work', {
+        for (const [box, beforeCancel] of managers) {
+          const manager = driverChild(
+            testAgentProfile(`${box}-manager`),
+            {
+              name: `${box}-manager`,
+              async act(managerTask, managerScope) {
+                await admitBox(managerScope, fixture.provider, box, managerTask)
+                if (!beforeCancel) await aborted(managerScope.signal)
+                return box
+              },
+            },
+            context.journal,
+          )
+          const spawned = scope.spawn(manager, 'work', {
             key: box,
             budget: { maxTokens: 100, maxIterations: 5 },
           })
           if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
         }
-        await scope.next()
-        await scope.next()
+        for (const _ of finished) await scope.next()
+        // Every finished manager's release has asked for its box before the cancel.
         const poll = setInterval(() => {
-          if (managers.finished.every((box) => fixture.destroys.has(box))) finishedAsked()
+          if (finished.every((box) => fixture.destroys.has(box))) finishedAsked()
         }, 5)
         await asked
         clearInterval(poll)
@@ -211,86 +219,62 @@ async function cancelFinishedRun(
     {
       ...context,
       runId: RUN_ID,
-      budget: { maxTokens: 1000, maxIterations: 50 },
-      workerSlots: 4,
+      budget: { maxTokens: 10_000, maxIterations: 500 },
+      workerSlots: RECORDED.length,
       signal: controller.signal,
-      ...opts,
     },
   )
-  const result = await run
-  const elapsedMs = Date.now() - cancelledAt
-  const events = (await context.journal.loadTree(RUN_ID)) ?? []
-  return { ...fixture, result, elapsedMs, events }
-}
+  const cancelToResultMs = Date.now() - cancelledAt
+  const forest = await loadSpawnForest(context.journal, RUN_ID)
 
-const unconfirmedRows = (events: readonly SpawnEvent[]) =>
-  events.filter(
-    (event): event is Extract<SpawnEvent, { kind: 'teardown-unconfirmed' }> =>
-      event.kind === 'teardown-unconfirmed',
-  )
+  const firstAnswer = new Map(RECORDED.map(([box, , answers]) => [box, answers[0]]))
+  const boxesAnswered = (match: (answer: Answer) => boolean) =>
+    [...firstAnswer].filter(([, answer]) => match(answer)).map(([box]) => box)
+  const heldBoxes = boxesAnswered((answer) => answer?.startsWith('hold@') === true)
+  const unanswered = boxesAnswered((answer) => answer === NO_ANSWER)
+  const deleted = boxesAnswered((answer) => answer === DELETED)
+  expect([heldBoxes.length, unanswered.length, deleted.length]).toEqual([14, 12, 2])
 
-it('keeps a held box after one refused delete and releases every level at once', async () => {
-  const run = await cancelFinishedRun(
-    {
-      'held-box': 'held',
-      'held-coded-box': 'held-coded',
-      'working-box': 'after-root',
-      [ROOT_BOX]: 'deletes',
-    },
-    { finished: ['held-box', 'held-coded-box'], working: 'working-box' },
-    { teardownConfirmMs: 5_000 },
+  // One release wait (90 s), where the recorded teardown took 1315 s.
+  console.info(`cancel-to-result ${cancelToResultMs} ms for ${RECORDED.length} boxes`)
+  expect(cancelToResultMs).toBeLessThan(120_000)
+  // Each box is asked once: a held box is never reconnected to, and a delete still in flight is
+  // joined, not asked again.
+  expect(Object.fromEntries(fixture.destroys)).toEqual(
+    Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
   )
-  // A held box is asked once and never reconnected to again; the working manager's box is deleted
-  // on its first ask because the root's own release runs beside it.
-  expect(Object.fromEntries(run.destroys)).toEqual({
-    'held-box': 1,
-    'held-coded-box': 1,
-    'working-box': 1,
-    [ROOT_BOX]: 1,
-  })
-  expect(Object.fromEntries(run.wakes)).toEqual({})
-  const unconfirmed = run.result.teardownUnconfirmed ?? []
-  // Nothing is left for a sweeper to delete; the held boxes are named as evidence.
-  expect(unconfirmed.flatMap((node) => node.environments ?? [])).toEqual([])
-  const kept = [
-    { provider: PROVIDER, environmentId: 'held-box', keptFor: 'evidence' },
-    { provider: PROVIDER, environmentId: 'held-coded-box', keptFor: 'evidence' },
-  ]
-  expect(unconfirmed.flatMap((node) => node.kept ?? [])).toEqual(expect.arrayContaining(kept))
-  expect(unconfirmedRows(run.events).flatMap((row) => row.kept ?? [])).toEqual(
-    expect.arrayContaining(kept),
-  )
-  expect(unconfirmedRows(run.events).flatMap((row) => row.environments ?? [])).toEqual([])
-  expect(run.elapsedMs).toBeLessThan(4_000)
-}, 60_000)
+  expect(Object.fromEntries(fixture.wakes)).toEqual({})
 
-it('settles a cancel whose deletes never answer within one release wait', async () => {
-  const run = await cancelFinishedRun(
-    {
-      'held-box': 'held',
-      'slow-box': 'hangs',
-      'working-box': 'hangs',
-      [ROOT_BOX]: 'hangs',
-    },
-    { finished: ['held-box', 'slow-box'], working: 'working-box' },
-  )
-  // One release wait (90 s), not one per level and retry pass.
-  expect(run.elapsedMs).toBeLessThan(100_000)
-  // A delete that never answered is asked once and named for a sweeper; it is not evidence.
-  expect(Object.fromEntries(run.destroys)).toEqual({
-    'held-box': 1,
-    'slow-box': 1,
-    'working-box': 1,
-    [ROOT_BOX]: 1,
-  })
-  const unconfirmed = run.result.teardownUnconfirmed ?? []
+  const unconfirmed = result.teardownUnconfirmed ?? []
+  const nodeOf = (box: string) =>
+    unconfirmed.find((node) =>
+      [...(node.environments ?? []), ...(node.kept ?? [])].some(
+        (ref) => ref.environmentId === box,
+      ),
+    )
+  // Every held box is kept as evidence, named with the provider's own refusal, and never left
+  // for a sweeper to delete.
+  for (const box of heldBoxes) {
+    const node = nodeOf(box)
+    expect(node?.kept, box).toContainEqual({
+      provider: PROVIDER,
+      environmentId: box,
+      keptFor: 'evidence',
+    })
+    expect(node?.detail, box).toContain(refusal(box, firstAnswer.get(box)!))
+  }
+  // A delete that never answered is unconfirmed and named for a sweeper; none is kept.
   expect(
     unconfirmed
       .flatMap((node) => node.environments ?? [])
       .map((ref) => ref.environmentId)
       .sort(),
-  ).toEqual([ROOT_BOX, 'slow-box', 'working-box'])
-  expect(unconfirmed.flatMap((node) => node.kept ?? [])).toEqual([
-    { provider: PROVIDER, environmentId: 'held-box', keptFor: 'evidence' },
-  ])
-}, 150_000)
+  ).toEqual([...unanswered].sort())
+  // Only a delete the provider confirmed is journaled as destroyed.
+  const receipts = forest.events.flatMap(({ event }) =>
+    event.kind === 'environment-teardown' ? [event] : [],
+  )
+  expect(
+    [...new Set(receipts.filter((r) => r.destroyed).map((r) => r.environmentId))].sort(),
+  ).toEqual([...deleted].sort())
+}, 180_000)

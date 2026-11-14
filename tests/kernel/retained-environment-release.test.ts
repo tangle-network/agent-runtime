@@ -1376,11 +1376,13 @@ describe('retained environments at root settlement', () => {
     expect(result.kind, JSON.stringify(result)).toBe('winner')
     expect(fleet.environments()).toHaveLength(1)
     const nested = (await context.journal.loadTree('root/root:s0')) ?? []
-    // Released when its manager finished and asked again when the run settled, refused both times.
-    expect(releaseReceipts(nested)).toMatchObject([
-      { id: 'root:s0:s0', destroyed: false },
-      { id: 'root:s0:s0', destroyed: false },
-    ])
+    // Released when its manager finished, and asked again when the run settled unless that release
+    // was still running and the run's joined it; refused every time.
+    const receipts = releaseReceipts(nested)
+    expect(receipts.length).toBeGreaterThanOrEqual(1)
+    expect(receipts.length).toBeLessThanOrEqual(2)
+    for (const receipt of receipts)
+      expect(receipt).toMatchObject({ id: 'root:s0:s0', destroyed: false })
     // The grandchild closes where its manager's scope journals it, never in the root tree.
     expect(terminalRecords(nested, 'root:s0:s0')).toMatchObject([
       { kind: 'settled', status: 'down', retainedExecution: 'release-unconfirmed' },
