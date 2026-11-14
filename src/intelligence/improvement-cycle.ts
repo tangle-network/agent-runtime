@@ -6,10 +6,8 @@ import {
   type CompareCandidateExperimentOptions,
   measuredComparisonFromAgentProfileImprovementExperiment,
   measuredComparisonFromCandidateExperiment,
-  runAgentProfileImprovementExperiment,
   runCandidateExperiment,
   type Scenario,
-  sealAgentProfileImprovementExperiment,
   sealCandidateExperiment,
   verifyAgentProfileImprovementExperimentComparison,
   verifyCandidateExperiment,
@@ -82,7 +80,7 @@ import {
 } from '../improvement/improve'
 import { createAgentImprovementProposal } from './activation'
 import { assertReleaseScenariosAreFresh } from './improvement-experiment-lineage'
-import { agentImprovementProfileDiffs, isAgentProfileMeasuredSurface } from './improvement-surfaces'
+import { isAgentProfileMeasuredSurface } from './improvement-surfaces'
 import {
   assertNoCallerOptimizationReceipt,
   attachOptimizationActivationReceipt,
@@ -92,16 +90,15 @@ import {
   completeImprovementSearchAccounting,
   createProfileImprovementCostLedger,
   type ImprovementSearchAccounting,
+  measureProfileImprovementCandidate,
   type ProposeAgentProfileImprovementHeldResult,
   type ProposeAgentProfileImprovementIncompleteResult,
   type ProposeAgentProfileImprovementOptions,
   type ProposeAgentProfileImprovementResult,
   profileImprovementHold,
-  profileImprovementMeasure,
   profileImprovementMetadata,
   profileImprovementModelBinding,
   profilePolicyWithBudget,
-  profilePreparationAccounting,
   profileStateDigest,
   profileTaskScenarioIdentity,
   type RecordAgentProfileImprovementOptions,
@@ -572,76 +569,20 @@ export async function proposeAgentProfileImprovement<TScenario extends Scenario,
     if (improvement.decision !== 'ship') {
       throw new Error('agent profile improvement search did not produce a promotable candidate')
     }
-    const candidateProfile = parseExactAgentProfile(
-      improvement.candidate.profile,
-      'profile improvement candidate',
-    )
-    const candidateStateDigest = profileStateDigest(
-      options.stateDigest,
-      source.sourceIdentity,
-      candidateProfile,
-    )
-    if (candidateStateDigest === baselineStateDigest) {
-      throw new Error('profile improvement candidate state digest matches the baseline')
-    }
-    const change = agentImprovementProfileDiffs(profile, candidateProfile, {
-      id: `profile-improvement:${candidateStateDigest}`,
-      metadata: {
-        sourceIdentity: source.sourceIdentity,
-        sourceRevision: source.sourceRevision,
-      },
-    })
-    const profileDiffIds = change.map((step) => {
-      if (!step.id) throw new Error('profile improvement change requires an exact diff id')
-      return step.id
-    })
-    assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
-    assertProfileReleaseWorkIsFresh(benchmark, improvement)
-    const modelBinding = await resolveModelBinding({
-      change,
-      tasks: benchmark.tasks,
-      profiles: { baseline: profile, candidate: candidateProfile },
-      unchanged: () =>
-        profileStateDigest(options.stateDigest, source.sourceIdentity, profile) ===
-          baselineStateDigest &&
-        profileStateDigest(options.stateDigest, source.sourceIdentity, candidateProfile) ===
-          candidateStateDigest,
-    })
-    const experiment = sealAgentProfileImprovementExperiment({
-      kind: 'agent-profile-improvement-experiment',
-      digestAlgorithm: 'rfc8785-sha256',
+    const { experiment, preparation, run } = await measureProfileImprovementCandidate(options, {
       source,
-      executionRef: options.executor.executionRef,
-      baseline: { stateDigest: baselineStateDigest },
-      candidate: { stateDigest: candidateStateDigest },
-      change,
-      ...(modelBinding && { modelBinding }),
-      candidateLineage: {
-        source: 'optimizer',
-        parentDigests: [source.sourceDigest],
-        runIds: [improvement.lineage.runId],
-        profileDiffIds,
-        developmentSplitDigest: improvement.lineage.developmentSplitDigest,
-      },
+      baseline: { profile, stateDigest: baselineStateDigest },
+      candidate: improvement.candidate.profile,
+      lineage: improvement.lineage,
       benchmark,
       policy,
-    })
-    const preparation = profilePreparationAccounting(costLedger, preparationStartedAt)
-    const run = await runAgentProfileImprovementExperiment({
-      allowIncomplete: true,
-      experiment,
-      ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
+      resolveModelBinding,
+      assertCandidate: (candidateProfile) => {
+        assertProfileTrainingIsHeldOut(candidateProfile, heldOutDigests)
+        assertProfileReleaseWorkIsFresh(benchmark, improvement)
+      },
       costLedger,
-      ...(options.signal ? { signal: options.signal } : {}),
-      execute: profileImprovementMeasure(
-        options,
-        source.sourceIdentity,
-        experiment,
-        new Map<Sha256Digest, AgentProfile>([
-          [baselineStateDigest, profile],
-          [candidateStateDigest, candidateProfile],
-        ]),
-      ),
+      preparationStartedAt,
     })
     if ('status' in run) {
       if (options.allowIncomplete !== true)

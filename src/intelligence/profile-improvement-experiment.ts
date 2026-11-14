@@ -11,7 +11,9 @@ import {
 import {
   type AgentProfileImprovementExperimentExecutionInput,
   type AgentProfileImprovementIncompleteExperimentRun,
+  runAgentProfileImprovementExperiment,
   type Scenario,
+  sealAgentProfileImprovementExperiment,
   sealAgentProfileImprovementSuite,
   sealAgentProfileImprovementTask,
 } from '@tangle-network/agent-eval/contract'
@@ -44,6 +46,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type { RunAnalystLoopResult } from '../analyst-loop/types'
 import { immutableCandidateValue } from '../candidate-execution/digest'
+import { parseExactAgentProfile } from '../candidate-execution/profile'
 import type {
   ImproveMethodOptions,
   ImproveMethodResult,
@@ -52,7 +55,10 @@ import type {
 } from '../improvement/improve'
 import type { ReadonlyAgentProfile } from '../improvement/profile-types'
 import type { AgentImprovementAnalysisOptions } from './improvement-cycle'
-import type { AgentProfileMeasuredSurface } from './improvement-surfaces'
+import {
+  type AgentProfileMeasuredSurface,
+  agentImprovementProfileDiffs,
+} from './improvement-surfaces'
 import {
   assertNoCallerOptimizationReceipt,
   attachOptimizationActivationReceipt,
@@ -282,7 +288,7 @@ export function profileImprovementModelBinding(
 }
 
 /** Measure only the sealed profile states, re-checking each state and its model before the cell. */
-export function profileImprovementMeasure<TScenario extends Scenario, TArtifact>(
+function profileImprovementMeasure<TScenario extends Scenario, TArtifact>(
   options:
     | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
     | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
@@ -311,6 +317,88 @@ export function profileImprovementMeasure<TScenario extends Scenario, TArtifact>
       ? receipt
       : agentProfileImprovementRunReceiptSchema.parse(receipt)
   }
+}
+
+/** Seal the optimizer's exact candidate state, resolve its model binding on the frozen states, and
+ *  measure both states. `assertCandidate` runs on the parsed candidate before the binding resolves. */
+export async function measureProfileImprovementCandidate<TScenario extends Scenario, TArtifact>(
+  options:
+    | ProposeAgentProfileImprovementOptions<TScenario, TArtifact>
+    | RecordAgentProfileImprovementOptions<TScenario, TArtifact>,
+  input: {
+    readonly source: AgentImprovementSource
+    readonly baseline: { readonly profile: AgentProfile; readonly stateDigest: Sha256Digest }
+    readonly candidate: unknown
+    readonly lineage: { readonly runId: string; readonly developmentSplitDigest: Sha256Digest }
+    readonly benchmark: AgentProfileImprovementSuiteInputs
+    readonly policy: AgentCandidateEvaluationPolicy
+    readonly resolveModelBinding: ReturnType<typeof profileImprovementModelBinding>
+    readonly assertCandidate: (profile: AgentProfile) => void
+    readonly costLedger: CostLedger
+    readonly preparationStartedAt: number
+  },
+) {
+  const { source, baseline, benchmark, costLedger } = input
+  const profile = parseExactAgentProfile(input.candidate, 'profile improvement candidate')
+  const stateDigest = profileStateDigest(options.stateDigest, source.sourceIdentity, profile)
+  if (stateDigest === baseline.stateDigest) {
+    throw new Error('profile improvement candidate state digest matches the baseline')
+  }
+  const change = agentImprovementProfileDiffs(baseline.profile, profile, {
+    id: `profile-improvement:${stateDigest}`,
+    metadata: { sourceIdentity: source.sourceIdentity, sourceRevision: source.sourceRevision },
+  })
+  const profileDiffIds = change.map((step) => {
+    if (!step.id) throw new Error('profile improvement change requires an exact diff id')
+    return step.id
+  })
+  input.assertCandidate(profile)
+  const modelBinding = await input.resolveModelBinding({
+    change,
+    tasks: benchmark.tasks,
+    profiles: { baseline: baseline.profile, candidate: profile },
+    unchanged: () =>
+      profileStateDigest(options.stateDigest, source.sourceIdentity, baseline.profile) ===
+        baseline.stateDigest &&
+      profileStateDigest(options.stateDigest, source.sourceIdentity, profile) === stateDigest,
+  })
+  const experiment = sealAgentProfileImprovementExperiment({
+    kind: 'agent-profile-improvement-experiment',
+    digestAlgorithm: 'rfc8785-sha256',
+    source,
+    executionRef: options.executor.executionRef,
+    baseline: { stateDigest: baseline.stateDigest },
+    candidate: { stateDigest },
+    change,
+    ...(modelBinding && { modelBinding }),
+    candidateLineage: {
+      source: 'optimizer',
+      parentDigests: [source.sourceDigest],
+      runIds: [input.lineage.runId],
+      profileDiffIds,
+      developmentSplitDigest: input.lineage.developmentSplitDigest,
+    },
+    benchmark,
+    policy: input.policy,
+  })
+  const preparation = profilePreparationAccounting(costLedger, input.preparationStartedAt)
+  const run = await runAgentProfileImprovementExperiment({
+    allowIncomplete: true,
+    experiment,
+    ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
+    costLedger,
+    ...(options.signal ? { signal: options.signal } : {}),
+    execute: profileImprovementMeasure(
+      options,
+      source.sourceIdentity,
+      experiment,
+      new Map<Sha256Digest, AgentProfile>([
+        [baseline.stateDigest, baseline.profile],
+        [stateDigest, profile],
+      ]),
+    ),
+  })
+  return { experiment, preparation, run }
 }
 
 export function sealProfileImprovementBenchmark(
