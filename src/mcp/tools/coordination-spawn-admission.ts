@@ -1,11 +1,12 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ResourceRequestSchema } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import type { Handle, Scope, Settled } from '../../runtime'
+import type { Budget, Handle, Scope, Settled } from '../../runtime'
 import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import type { PeerMailbox } from '../../runtime/supervise/peer-mail'
 import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import { emptyPreflightCounts, spawnRefusalReason } from './coordination-budget'
-import { mergeBudget } from './coordination-budget-override'
+import { fitDefaultBudget, mergeBudget } from './coordination-budget-override'
 import type {
   CoordinationToolsOptions,
   ResolvedContinuity,
@@ -238,7 +239,7 @@ type SpawnResult = ReturnType<Scope<unknown>['spawn']>
 
 async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise<unknown> {
   const { opts, peerMail } = state
-  const { profile, key, continuity, successorOf } = input
+  const { profile, key } = input
   const a = input.args
   const task = detachedFrozen(input.task)
   const label = typeof a.label === 'string' ? a.label : input.defaultLabel
@@ -250,7 +251,7 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
   const resources = spawnResources(a.resources)
   const refused = await preflightRefusal(state, effective, { label, task, key, resources })
   if (refused !== undefined) return refused
-  const budget = Object.freeze(
+  const asked = Object.freeze(
     a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
   )
   const assignmentId =
@@ -259,6 +260,38 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
   // the node id is not known until after it. The capability is bound to the concrete worker
   // below, and sends nothing until then.
   const peerMailUrl = peerMail()?.mintCapability(assignmentId)
+  const spawn = (budget: Budget) =>
+    spawnWith(state, input, effective, budget, assignmentId, peerMailUrl, resources, label, task)
+  let res = spawn(asked)
+  // The default slice is a ceiling: with one slot it is the whole pool, which the second node of a
+  // flow can never reserve once the first has spent from it (agent-runtime#2619).
+  if (!res.ok && res.reason === 'budget-exhausted' && a.budget === undefined) {
+    const fitted = fitDefaultBudget(asked, res.shortfalls)
+    if (fitted !== undefined) res = spawn(Object.freeze(fitted))
+  }
+  // Return the durable result immediately; its original event may still await cursor delivery.
+  if (res.ok && res.prior?.state === 'completed') {
+    return Promise.resolve(committedSpawnReport(state, res.prior.settled))
+  }
+  if (res.ok) recordSpawnedWorker(state, res.handle, profile.name, assignmentId)
+  return Promise.resolve(
+    res.ok ? startedSpawnReport(state, input, res, assignmentId) : refusedSpawnReport(state, res),
+  )
+}
+
+function spawnWith(
+  state: AdmissionState,
+  input: SpawnAdmission,
+  effective: AgentProfile,
+  budget: Budget,
+  assignmentId: string,
+  peerMailUrl: string | undefined,
+  resources: WorkerSpawnContext['resources'],
+  label: string,
+  task: unknown,
+): SpawnResult {
+  const { opts } = state
+  const { key, continuity, successorOf } = input
   const context: WorkerSpawnContext = Object.freeze({
     assignmentId,
     parentNodeId: opts.scope.view.root,
@@ -274,7 +307,7 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
     ...(input.map !== undefined ? { map: input.map } : {}),
     ...(input.route !== undefined ? { route: input.route } : {}),
   })
-  const res = opts.scope.spawn(() => opts.makeWorkerAgent(effective, context), task, {
+  return opts.scope.spawn(() => opts.makeWorkerAgent(effective, context), task, {
     budget,
     label,
     assignmentId,
@@ -282,16 +315,8 @@ async function admitSpawn(state: AdmissionState, input: SpawnAdmission): Promise
     ...(successorOf !== undefined ? { successorOf } : {}),
     // A re-spawned key that names a budget asks for more: a result that ended over its budget,
     // with its environment still held, continues in the same session.
-    ...(key !== undefined && a.budget !== undefined ? { continueHeld: true } : {}),
+    ...(key !== undefined && input.args.budget !== undefined ? { continueHeld: true } : {}),
   })
-  // Return the durable result immediately; its original event may still await cursor delivery.
-  if (res.ok && res.prior?.state === 'completed') {
-    return Promise.resolve(committedSpawnReport(state, res.prior.settled))
-  }
-  if (res.ok) recordSpawnedWorker(state, res.handle, profile.name, assignmentId)
-  return Promise.resolve(
-    res.ok ? startedSpawnReport(state, input, res, assignmentId) : refusedSpawnReport(state, res),
-  )
 }
 
 function committedSpawnReport(state: AdmissionState, s: Settled<unknown>) {
