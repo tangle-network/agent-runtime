@@ -131,6 +131,7 @@ export class ProviderTurnSettlement {
             ...(outcome.error ? { error: outcome.error } : {}),
             ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
             ...(statusCode === undefined ? {} : { statusCode }),
+            ...(outcome.remediation === undefined ? {} : { remediation: outcome.remediation }),
           }
         : undefined
     const settled: ExecutorResult<unknown> = {

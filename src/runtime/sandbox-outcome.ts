@@ -1,6 +1,7 @@
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import type { AgentTaskStatus, BackendErrorDetail } from '../types'
 import { type RuntimeFailureCause, reportedFailureCause } from './failure-cause'
+import { turnRemediationOf } from './supervise/executor-outcome'
 import type { DefaultVerdict } from './supervise/types'
 
 /** The outcome carried by Runtime-owned Sandbox artifacts. */
@@ -40,6 +41,7 @@ export function projectSandboxOutcome(outcome: AgentRunOutcome): SandboxOutcomeP
         error: reason,
         errorCode: outcome.errorCode,
         statusCode: outcome.statusCode,
+        remediation: turnRemediationOf(outcome),
       }),
     }
   }

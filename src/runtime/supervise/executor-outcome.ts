@@ -9,10 +9,24 @@ import { fnv1a32Hex } from '../util'
 import { causeChain } from './error-message'
 import type { ExecutorResult } from './types'
 
+/** @internal Canonical producer-supplied remediation, shared by transport and read models. */
+export const runtimeFailureRemediationSchema = z.object({
+  cause: z.enum([
+    'api_key_selected',
+    'provider_unresolved',
+    'subscription_unverified',
+    'not_authenticated',
+  ]),
+  fix: z.string().min(1).max(256),
+  harness: z.string().min(1).max(64),
+  provider: z.string().min(1).max(128).nullable(),
+})
+
 const outcomeSchema = AgentTurnResultSchema.pick({ success: true, error: true, failure: true })
   .extend({
     errorCode: AgentTurnResultSchema.shape.error,
     statusCode: z.number().int().min(400).max(599).optional(),
+    remediation: runtimeFailureRemediationSchema.readonly().optional(),
   })
   .strict()
 
@@ -22,6 +36,7 @@ export interface ExecutorFailure {
   readonly error: string
   readonly errorCode?: string
   readonly statusCode?: number
+  readonly remediation?: z.infer<typeof runtimeFailureRemediationSchema>
 }
 
 /** Read only the executor envelope; application output and grades are not execution status. */
@@ -36,6 +51,7 @@ export function executorFailure(
     ...(outcome.failure === undefined ? {} : { failure: outcome.failure }),
     ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
     ...(outcome.statusCode === undefined ? {} : { statusCode: outcome.statusCode }),
+    ...(outcome.remediation === undefined ? {} : { remediation: outcome.remediation }),
   }
 }
 
@@ -88,6 +104,23 @@ export function turnFailureOf(value: unknown): AgentTurnFailure | undefined {
       if (parsed.success) return parsed.data
     } catch {
       /* A foreign getter cannot replace the original failure. */
+    }
+  }
+  return undefined
+}
+
+/** The producer's structured subscription remedy in a failure chain; message text is never read. */
+export function turnRemediationOf(
+  value: unknown,
+): z.infer<typeof runtimeFailureRemediationSchema> | undefined {
+  for (const link of causeChain(value)) {
+    try {
+      const parsed = runtimeFailureRemediationSchema
+        .readonly()
+        .safeParse(Reflect.get(link, 'remediation'))
+      if (parsed.success) return parsed.data
+    } catch {
+      /* A foreign getter cannot replace the original remedy. */
     }
   }
   return undefined

@@ -5,8 +5,10 @@ import { isCredentialRefusal } from './supervise/credential-refusal'
 import { causeChain, errMessage } from './supervise/error-message'
 import {
   PLATFORM_FAILURE_CODES,
+  runtimeFailureRemediationSchema,
   turnFailureOf,
   turnFailurePolicy,
+  turnRemediationOf,
 } from './supervise/executor-outcome'
 import {
   classifyRetainedPendingCause,
@@ -38,18 +40,7 @@ export type RuntimeFailureOwner = RuntimeFailureCause['owner']
 /** Stable failure codes. A consumer branches on these, never on `cause` text. @stable */
 export type RuntimeFailureCode = RuntimeFailureCause['code']
 
-/** @internal Canonical producer-supplied remediation, shared by transport and read models. */
-export const runtimeFailureRemediationSchema = z.object({
-  cause: z.enum([
-    'api_key_selected',
-    'provider_unresolved',
-    'subscription_unverified',
-    'not_authenticated',
-  ]),
-  fix: z.string().min(1).max(256),
-  harness: z.string().min(1).max(64),
-  provider: z.string().min(1).max(128).nullable(),
-})
+export { runtimeFailureRemediationSchema }
 
 /** @internal Validate Runtime-owned failure values on observation transports. */
 export const runtimeFailureCauseSchema = z
@@ -215,7 +206,10 @@ export function runtimeFailureCause(
         link.upstreamCode === 'subscription_required' &&
         link.providerDispatch === 'not_started',
     ) as BackendTransportError | undefined
-    const remedy = runtimeFailureRemediationSchema.readonly().safeParse(upstream?.remediation)
+    // Runtime's own Bridge transport, or a provider that reported the Bridge's structured remedy.
+    const remedy = runtimeFailureRemediationSchema
+      .readonly()
+      .safeParse(upstream?.remediation ?? turnRemediationOf(error))
     const failure = ({ code, owner }: Classified): RuntimeFailureCause => ({
       code,
       owner,
@@ -282,12 +276,14 @@ export function reportedFailureCause(outcome: {
   readonly errorCode?: string
   readonly statusCode?: number
   readonly failure?: import('@tangle-network/agent-interface/environment-provider').AgentTurnFailure
+  readonly remediation?: RuntimeFailureCause['remediation']
 }): RuntimeFailureCause {
   return runtimeFailureCause(
     Object.assign(new Error(outcome.error ?? 'execution reported a failure'), {
       errorCode: outcome.errorCode,
       statusCode: outcome.statusCode,
       failure: outcome.failure,
+      remediation: outcome.remediation,
     }),
   )
 }
