@@ -60,7 +60,7 @@ const graph: AgentGraph = {
   deliverable: { check: () => true },
 }
 
-async function paired(kind: string) {
+async function paired(kind: string, scenario: Record<string, unknown> = {}) {
   if (!bridgeEntry)
     throw new Error('set RUNTIME_BRIDGE_PACKAGE_ENTRY to the installed public Bridge entry')
   const bridge = (await import(/* @vite-ignore */ bridgeEntry)) as PublicBridge
@@ -71,7 +71,7 @@ async function paired(kind: string) {
     executable,
   )
   await chmod(executable, 0o700)
-  await writeFile(join(directory, 'native-case.json'), JSON.stringify({ kind }))
+  await writeFile(join(directory, 'native-case.json'), JSON.stringify({ kind, ...scenario }))
   const bearer = 'disposable-local-protocol-fixture-token'
   try {
     const server = await bridge.startServer({
@@ -936,3 +936,89 @@ describe('bridge executor capacity refusals', () => {
     expect(decoded.message).not.toContain('capacity')
   })
 })
+
+describe.skipIf(!bridgeEntry)(
+  'provider served-model evidence through an installed real Bridge server',
+  () => {
+    it('records the snapshot model the native stream served, never the Bridge transport name', async () => {
+      const served = 'protocol-fixture-model-20261028'
+      const fixture = await paired('served', { model: served })
+      const servedProfile = { ...profile, model: { provider: 'anthropic', default: served } }
+      // Tap the provider's own HTTP reads to prove the stream also carried a `cli-bridge` frame.
+      const reads: Promise<unknown>[] = []
+      const bodies: string[] = []
+      const tap: typeof fetch = async (input, init) => {
+        const response = await fetch(input, init)
+        if (!response.body) return response
+        const [own, copy] = response.body.tee()
+        const read = new Response(copy).text().catch(() => '')
+        reads.push(read.then((text) => bodies.push(text)))
+        return new Response(own, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        })
+      }
+      const worker: Agent<unknown, unknown> = Object.assign(
+        { name: 'native-worker', act: async () => 'unused' },
+        {
+          executorSpec: {
+            profile: servedProfile,
+            harness: null,
+            executorFactory: createExecutor({
+              backend: 'provider',
+              provider: createCliBridgeProvider({
+                baseUrl: fixture.backend.bridgeUrl,
+                bearerToken: fixture.backend.bridgeBearer,
+                defaultModel: `claude-code/anthropic/${served}`,
+                fetch: tap,
+              }),
+              defaults: { workspace: { cwd: { base: 'host', path: fixture.directory } } },
+              destroyOnSettle: false,
+            }),
+          },
+        },
+      )
+      const root: Agent<unknown, unknown> = {
+        name: 'served-owner',
+        act: async (_task, scope) => {
+          const child = scope.spawn(worker, 'Return the protocol fixture result.', {
+            key: 'only',
+            label: 'native-worker',
+            budget: { maxIterations: 2, maxTokens: 1000 },
+          })
+          if (!child.ok) throw new Error('native worker was not admitted')
+          const settled = await scope.next()
+          if (settled?.kind !== 'done') throw new Error('native worker did not settle')
+          return settled.out
+        },
+      }
+      const runId = 'provider-served-model'
+      const context = createFileRunContext(join(fixture.directory, 'served-run'))
+      try {
+        const result = await createSupervisor<unknown, unknown>().run(root, 'served-task', {
+          ...context,
+          runId,
+          budget,
+          rootIdentity: {
+            profileDigest: canonicalCandidateDigest({ name: root.name }),
+            taskDigest: canonicalCandidateDigest('served-task'),
+          },
+        })
+        expect(result.kind).toBe('winner')
+        const events = (await context.journal.loadTree(runId)) ?? []
+        const leaf = events.find((event) => event.kind === 'settled' && event.id !== runId)
+        if (leaf?.kind !== 'settled') throw new Error('native child has no Scope settlement')
+        expect(leaf.providerModel).toEqual({
+          status: 'known',
+          attempts: [{ observations: [served] }],
+          models: [served],
+        })
+        await Promise.race([Promise.allSettled(reads), sleep(2000)])
+        expect(bodies.join('\n')).toMatch(/"model":\s*"cli-bridge"/u)
+      } finally {
+        await fixture.close()
+      }
+    }, 60000)
+  },
+)

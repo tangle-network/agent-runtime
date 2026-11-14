@@ -45,7 +45,11 @@ if (scenario.kind === 'abort') {
     })
     event({
       type: 'assistant',
-      message: { id: 'answer', content: [{ type: 'text', text: result }] },
+      message: {
+        id: 'answer',
+        ...(scenario.model ? { model: scenario.model } : {}),
+        content: [{ type: 'text', text: result }],
+      },
     })
     event({
       type: 'result',
