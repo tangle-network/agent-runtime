@@ -126,11 +126,22 @@ export async function storeCoordinationSecret(
   }
 }
 
-export function coordinationRuntimeAttachment(url: string, key: string) {
+/** The coordination bearer's env name; Bridge lifts exactly this one off a request into memory. */
+export const COORDINATION_TOKEN_ENV = 'AGENT_RUNTIME_COORDINATION_TOKEN'
+
+/** The one coordination attachment: an unauthenticated listener gets no header, and a credentialed
+ * one only a reference to the bearer its backend receives beside it. */
+export function coordinationRuntimeAttachment(url: string, key?: string) {
   return {
     transport: 'http' as const,
     url,
-    headers: { Authorization: { kind: 'secret-ref' as const, key, format: 'bearer' as const } },
+    ...(key === undefined
+      ? {}
+      : {
+          headers: {
+            Authorization: { kind: 'secret-ref' as const, key, format: 'bearer' as const },
+          },
+        }),
     metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
   }
 }

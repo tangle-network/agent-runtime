@@ -2,6 +2,7 @@ export { createKnowledgeImprovementActivationExecutor } from './activation'
 
 export {
   buildKnowledgeImprovementExperimentBundles,
+  captureKnowledgeImprovementCandidatePair,
   runKnowledgeImprovementJob,
 } from './improvement-job'
 

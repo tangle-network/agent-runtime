@@ -5,6 +5,13 @@ import {
   agentCandidateArtifactRefSchema,
   agentCandidateWorkspaceManifestMaterialSchema,
 } from '@tangle-network/agent-interface'
+import {
+  BOUND_HARNESS_SESSION_READ_LIMITS,
+  type BoundHarnessSession,
+  HARNESS_TRANSCRIPT_DENY,
+  type HarnessFileBinding,
+  readBoundHarnessSessions as readNativeFamily,
+} from '@tangle-network/harness-sessions'
 import { z } from 'zod'
 import { verifiedArtifactChunks } from '../candidate-execution/artifact-streams'
 import { deepFreezeCandidate, sha256Bytes } from '../candidate-execution/digest'
@@ -43,6 +50,7 @@ const sourceSchema = z.object({
   profileDigest: digest,
   providerSessionId: text.nullable(),
   nativeSessionId: text.nullable(),
+  nativeSessionIds: z.array(text).min(1).max(1_000).optional(),
   coverageComplete: z.boolean(),
   incompleteReason: z.string().optional(),
 })
@@ -59,6 +67,13 @@ const fileSchema = z.object({
   attribution: attributionSchema,
 })
 const skippedSchema = z.object({ path: text, reason: text })
+const omittedSchema = z.object({
+  path: text,
+  reason: z.enum(['harness-install', 'harness-cache', 'credential']),
+  bytes: count.optional(),
+  sha256: digest.optional(),
+  attribution: attributionSchema,
+})
 const retainedSchema = z.object({
   kind: z.literal('retained-harness-transcript'),
   schemaVersion: z.literal(1),
@@ -74,6 +89,7 @@ const retainedSchema = z.object({
   }),
   files: z.array(fileSchema),
   skipped: z.array(skippedSchema),
+  omitted: z.array(omittedSchema).optional(),
   missing: z.array(z.string()),
 })
 
@@ -90,6 +106,7 @@ export interface RetainedHarnessTranscriptDescriptor {
     readonly profileDigest: `sha256:${string}`
     readonly providerSessionId: string | null
     readonly nativeSessionId: string | null
+    readonly nativeSessionIds?: readonly string[]
     readonly coverageComplete: boolean
     readonly incompleteReason?: string
   }
@@ -113,6 +130,19 @@ export interface RetainedHarnessTranscriptDescriptor {
     }
   }[]
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
+  /** Producer-declared non-session material intentionally excluded from native byte retention. */
+  readonly omitted?: readonly {
+    readonly path: string
+    readonly reason: 'harness-install' | 'harness-cache' | 'credential'
+    readonly bytes?: number
+    readonly sha256?: `sha256:${string}`
+    readonly attribution: {
+      readonly providerSessionId: string
+      readonly sourceId?: string
+      readonly rootScope: 'session-home' | 'workspace-session'
+      readonly nativePath: string
+    }
+  }[]
   readonly missing: readonly string[]
 }
 export interface RetainedHarnessTranscriptCapture {
@@ -134,6 +164,7 @@ export interface HarnessTranscriptMetadata {
     readonly attribution?: RetainedHarnessTranscriptDescriptor['files'][number]['attribution']
   }[]
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
+  readonly omitted?: RetainedHarnessTranscriptDescriptor['omitted']
   readonly source?: RetainedHarnessTranscriptDescriptor['source']
   readonly missing?: readonly string[]
   readonly provider?: string
@@ -156,9 +187,7 @@ export interface HarnessTranscriptReadOptions {
 }
 /** One native capture/read bound per child; replay resolves references rather than copying bytes. */
 export const HARNESS_TRANSCRIPT_READ_LIMITS: HarnessTranscriptReadLimits = Object.freeze({
-  maxFileBytes: 2 * 1024 * 1024,
-  maxTotalBytes: 16 * 1024 * 1024,
-  maxFiles: 1_000,
+  ...BOUND_HARNESS_SESSION_READ_LIMITS,
   maxManifestBytes: 16 * 1024 * 1024,
 })
 
@@ -170,6 +199,12 @@ export function parseRetainedHarnessTranscript(
   if (!parsed.success)
     throw new ValidationError(`Invalid retained harness transcript: ${parsed.error.message}`)
   const paths = new Set<string>()
+  const ids = parsed.data.source.nativeSessionIds
+  if (
+    ids &&
+    (new Set(ids).size !== ids.length || !ids.includes(parsed.data.source.nativeSessionId ?? ''))
+  )
+    throw new ValidationError('Retained transcript native identities are ambiguous')
   for (const file of parsed.data.files) {
     if (paths.has(file.path))
       throw new ValidationError(`Retained transcript repeats native identity: ${file.path}`)
@@ -178,6 +213,11 @@ export function parseRetainedHarnessTranscript(
       throw new ValidationError(
         `Retained transcript native identity does not match its attribution: ${file.path}`,
       )
+  }
+  for (const file of parsed.data.omitted ?? []) {
+    if (paths.has(file.path) || file.path !== nativeIdentity(file.attribution))
+      throw new ValidationError('Retained transcript omission conflicts with its native inventory')
+    paths.add(file.path)
   }
   return deepFreezeCandidate(parsed.data)
 }
@@ -214,13 +254,45 @@ function nativeDigest(value: string | null): string | null {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) ? `sha256:${value}` : value
 }
 
+/** Every native conversation observed across this exact execution's attempts, in order. */
+function retainedNativeSessionIds(
+  receipt: ProviderWorkspaceCaptureReceipt,
+): readonly string[] | undefined {
+  const observedIds = [
+    ...new Set(
+      (receipt.provenance.attempts ?? [])
+        .filter(
+          (attempt) =>
+            attempt.executionId === (receipt.controlRef?.executionId ?? receipt.executionId),
+        )
+        .flatMap((attempt) => attempt.nativeSessionIds),
+    ),
+  ]
+  const nativeSessionIds =
+    receipt.nativeSessionIds ??
+    (observedIds.length > 0
+      ? [
+          ...new Set([
+            ...observedIds,
+            ...(receipt.nativeSessionId ? [receipt.nativeSessionId] : []),
+          ]),
+        ]
+      : undefined)
+  if (nativeSessionIds && observedIds.some((id) => !nativeSessionIds.includes(id)))
+    throw new ValidationError('Retained transcript omits an observed native execution attempt')
+  return nativeSessionIds
+}
+
 function retainedCapture(
   receipt: ProviderWorkspaceCaptureReceipt,
   harness: string,
 ): RetainedHarnessTranscriptCapture | HarnessTranscriptUnavailable {
-  const { snapshot, provenance, ...source } = receipt
+  const { snapshot, provenance, ...originalSource } = receipt
+  const nativeSessionIds = retainedNativeSessionIds(receipt)
+  const source = { ...originalSource, ...(nativeSessionIds ? { nativeSessionIds } : {}) }
   const files: Array<RetainedHarnessTranscriptDescriptor['files'][number]> = []
   const skipped: Array<RetainedHarnessTranscriptDescriptor['skipped'][number]> = []
+  const omitted: z.infer<typeof omittedSchema>[] = []
   const missing = [...provenance.missing]
   for (const session of provenance.sessions ?? []) {
     if (session.executionId !== receipt.executionId || session.backendType !== harness)
@@ -239,6 +311,18 @@ function retainedCapture(
         rootScope: entry.rootScope,
         nativePath: entry.path,
       }
+      if (entry.contentOmitted !== undefined) {
+        omitted.push(
+          omittedSchema.parse({
+            path: nativeIdentity(attribution),
+            reason: entry.contentOmitted,
+            bytes: entry.sizeBytes,
+            ...(nativeDigest(entry.sha256) === null ? {} : { sha256: nativeDigest(entry.sha256) }),
+            attribution,
+          }),
+        )
+        continue
+      }
       const parsed = fileSchema.safeParse({
         path: nativeIdentity(attribution),
         bytes: entry.sizeBytes,
@@ -253,14 +337,17 @@ function retainedCapture(
       }
     }
     for (const entry of session.nativeStore.excludedPaths) {
-      skipped.push({
-        path: nativeIdentity({
-          providerSessionId: session.id,
-          ...(entry.sourceId === undefined ? {} : { sourceId: entry.sourceId }),
-          rootScope: entry.rootScope,
-          nativePath: entry.path,
-        }),
+      const attribution = {
+        providerSessionId: session.id,
+        ...(entry.sourceId === undefined ? {} : { sourceId: entry.sourceId }),
+        rootScope: entry.rootScope,
+        nativePath: entry.path,
+      }
+      omitted.push({
+        path: nativeIdentity(attribution),
         reason: entry.reason,
+        bytes: entry.sizeBytes,
+        attribution,
       })
     }
   }
@@ -280,6 +367,7 @@ function retainedCapture(
     },
     files,
     skipped,
+    ...(omitted.length ? { omitted } : {}),
     missing,
   })
   if (files.length === 0)
@@ -412,7 +500,7 @@ export async function resolveHarnessTranscriptCapture(
     try {
       const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
       if (content.includes('\0')) throw new Error('NUL in native file')
-      files.push({ path: file.path, bytes: file.bytes, content })
+      files.push({ path: file.path, bytes: file.bytes, content, attribution: file.attribution })
     } catch {
       skipped.push({
         path: file.path,
@@ -426,106 +514,33 @@ export async function resolveHarnessTranscriptCapture(
     source: descriptor.source,
     files,
     skipped,
+    ...(descriptor.omitted ? { omitted: descriptor.omitted } : {}),
   })
 }
 
-/** Credential-shaped paths are refused even when a producer lists them. */
-export const HARNESS_TRANSCRIPT_DENY =
-  /(^|\/)(auth\.json|\.credentials\.json|credentials|\.netrc|\.env(\..*)?|secrets?(\.|$)|.*\.(pem|key|p12|pfx)|id_[a-z0-9_]+)$/iu
+export type { BoundHarnessSession, HarnessFileBinding }
+export { HARNESS_TRANSCRIPT_DENY }
 
-export interface BoundHarnessSession {
-  readonly nativeSessionId: string
-  readonly parentNativeSessionId?: string | null
-  readonly children: readonly { readonly nativeSessionId: string }[]
-  readonly integrity: {
-    readonly truncated: boolean
-    readonly unparsedRecords: number
-    readonly gaps: readonly unknown[]
-  }
-}
-export interface HarnessFileBinding {
-  readonly path: string
-  readonly nativeSessionId: string
-  readonly sha256?: string
-  readonly byteLength?: number
-}
-
-/** Verify a bound native family without owning a store, filesystem layout or native parser. */
+/** Compatibility entry. The shared reader owns native-family integrity; Runtime
+ * retains its archive path policy, abort behavior and public error identity. */
 export async function readBoundHarnessSessions<S extends BoundHarnessSession>(input: {
   readonly nativeSessionId: string
+  /** Every native conversation observed for this execution, in execution order. */
+  readonly nativeSessionIds?: readonly string[]
   readonly files: readonly HarnessFileBinding[]
   readonly read: (file: HarnessFileBinding, signal?: AbortSignal) => Promise<Uint8Array>
   readonly parse: (text: string, file: HarnessFileBinding) => S
   readonly signal?: AbortSignal
 }) {
-  const files: { path: string; nativeSessionId: string; sha256: string; byteLength: number }[] = []
-  const sessions = new Map<string, S>()
-  const parents = new Map<string, string>()
-  const paths = new Set<string>()
-  const pathBytes = workspaceLimits(undefined).maxPathBytes
-  const pending = [input.nativeSessionId]
-  let total = 0
-  while (pending.length) {
-    const id = pending.shift()!
-    if (sessions.has(id)) continue
-    const candidates = input.files.filter((file) => file.nativeSessionId === id)
-    if (!candidates.length)
-      throw new ValidationError('The exact native session or a recorded child was not retained')
-    for (const file of candidates) {
-      input.signal?.throwIfAborted()
-      if (files.length >= HARNESS_TRANSCRIPT_READ_LIMITS.maxFiles)
-        throw new ValidationError('Native file count exceeds the capture bound')
-      safeArchivePath(file.path, pathBytes)
-      if (HARNESS_TRANSCRIPT_DENY.test(file.path) || paths.has(file.path))
-        throw new ValidationError('Native file path is denied or repeated')
-      paths.add(file.path)
-      const read = () => input.read(file, input.signal)
-      const bytes = input.signal
-        ? await runAbortable(read, input.signal, 'Native source read stopped')
-        : await read()
-      total += bytes.byteLength
-      if (
-        bytes.byteLength > HARNESS_TRANSCRIPT_READ_LIMITS.maxFileBytes ||
-        total > HARNESS_TRANSCRIPT_READ_LIMITS.maxTotalBytes
-      )
-        throw new ValidationError('Native bytes exceed the capture bound')
-      const actual = sha256Bytes(bytes)
-      if (
-        (file.sha256 && file.sha256.replace(/^sha256:/, '') !== actual.slice(7)) ||
-        (file.byteLength !== undefined && file.byteLength !== bytes.byteLength)
-      )
-        throw new ValidationError('Captured native session bytes changed')
-      const session = input.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes), file)
-      if (
-        session.nativeSessionId !== id ||
-        session.integrity.truncated ||
-        session.integrity.unparsedRecords ||
-        session.integrity.gaps.length
-      )
-        throw new ValidationError('Native session identity or integrity did not match its binding')
-      if (
-        session.parentNativeSessionId &&
-        parents.has(id) &&
-        session.parentNativeSessionId !== parents.get(id)
-      )
-        throw new ValidationError('Native child has a different recorded parent')
-      const prior = files.find((value) => value.nativeSessionId === id)
-      if (prior && prior.sha256 !== actual)
-        throw new ValidationError('Native session copies are ambiguous')
-      files.push({
-        path: file.path,
-        nativeSessionId: id,
-        sha256: actual,
-        byteLength: bytes.byteLength,
-      })
-      if (!prior) sessions.set(id, session)
-    }
-    for (const child of sessions.get(id)!.children) {
-      if (parents.has(child.nativeSessionId) && parents.get(child.nativeSessionId) !== id)
-        throw new ValidationError('Native child has ambiguous recorded parents')
-      parents.set(child.nativeSessionId, id)
-      if (!sessions.has(child.nativeSessionId)) pending.push(child.nativeSessionId)
-    }
-  }
-  return { files, sessions: [...sessions.values()] }
+  return readNativeFamily({
+    ...input,
+    validatePath: (path) => {
+      safeArchivePath(path, workspaceLimits(undefined).maxPathBytes)
+    },
+    failure: (message) => new ValidationError(message),
+    read: (file, signal) =>
+      signal
+        ? runAbortable(() => input.read(file, signal), signal, 'Native source read stopped')
+        : input.read(file),
+  })
 }

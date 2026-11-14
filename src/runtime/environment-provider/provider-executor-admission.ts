@@ -13,6 +13,7 @@ import type {
 import type { PromptOptions } from '@tangle-network/sandbox'
 import { type ProviderPlacement, selectProviderPlacement } from '../provider-placement'
 import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
+import type { BridgeSeam } from '../supervise/bridge-config'
 import { detachedSnapshot } from '../supervise/snapshot'
 import type { ExecutorFactory, Runtime } from '../supervise/types'
 import type { UnavailablePausePolicy } from '../supervise/upstream-unavailable'
@@ -154,6 +155,9 @@ export interface ProviderExecutorOptions {
   /** One immutable regular file relative to the managed workspace root. Requires file mode;
    * submission JSON remains metadata and cannot select a different source or path. */
   outputFile?: AgentFileOutputPolicy
+  /** Trusted host capture after exact retained terminal proof. Reuses the Bridge capture
+   * contract and Scope/CAS retention; absent keeps the environment-reader behavior. */
+  harnessTranscript?: BridgeSeam['harnessTranscript']
   /**
    * Per-run prompt options merged UNDER every streamed turn: a mapped turn's own field wins, and
    * the runtime's abort signal is applied last. `providerOptions` merges one level, so a

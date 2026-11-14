@@ -2,9 +2,10 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { parse } from 'yaml'
-import { runEvidence, superviseGraphPursuit } from '../../src/durable'
+import { FileObserverJournal, runEvidence, superviseGraphPursuit } from '../../src/durable'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
 import { readGraphStrings, setGraphStrings } from '../../src/runtime'
 import type { UsageEvent } from '../../src/runtime/supervise/types'
@@ -38,6 +39,37 @@ const leaf: MakeWorkerAgent = (profile, context) => {
 }
 
 describe('runEvidence', () => {
+  it('keeps failed evidence canonical JSON without inventing output or usage', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-evidence-failed-'))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const journal = new FileObserverJournal(join(dir, 'observer.jsonl'), 'failed')
+    const identity = { pursuitId: 'failed', runId: 'failed', phase: 'after' as const, timestamp: 1 }
+    await journal.appendEvent({
+      ...identity,
+      id: 'spawn',
+      target: 'agent.spawn',
+      payload: { childId: 'worker' },
+    })
+    await journal.appendEvent({
+      ...identity,
+      id: 'failed',
+      target: 'agent.child',
+      payload: { childId: 'worker', status: 'down', reason: 'provider unavailable' },
+    })
+    const evidence = await runEvidence(dir)
+    expect(evidence.nodes.length).toBeGreaterThan(0)
+    expect(evidence.nodes.some((node) => node.settled === undefined)).toBe(true)
+    expect(evidence.nodes.some((node) => node.tokens === undefined)).toBe(true)
+    expect(evidence.nodes[0]).toEqual({
+      id: 'worker',
+      outcome: 'down',
+      toolCalls: [],
+      message: '',
+    })
+    expect(evidence).toStrictEqual(JSON.parse(JSON.stringify(evidence)))
+    expect(() => canonicalCandidateDigest(evidence)).not.toThrow()
+  })
+
   it('bounds each node of a written run, strips ANSI and caps the serialized result', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'run-evidence-'))
     onTestFinished(() => rm(dir, { recursive: true, force: true }))

@@ -6,7 +6,13 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { harnessTranscriptArtifact } from '../../src/runtime/harness-transcript'
+import type { ProviderExecutorOptions } from '../../src/runtime/environment-provider/provider-executor-admission'
+import {
+  type BoundHarnessSession,
+  captureBoundHarnessTranscript,
+  harnessTranscriptArtifact,
+} from '../../src/runtime/harness-transcript'
+import { readHarnessTranscriptSessions } from '../../src/runtime/harness-transcript-sessions'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { supervise } from '../../src/runtime/supervise/supervise'
 import { testContinuation } from '../helpers/continuation'
@@ -47,6 +53,7 @@ async function rootRun(
   options: {
     readable: boolean
     native?: NativeCopies
+    harnessTranscript?: ProviderExecutorOptions['harnessTranscript']
   },
 ) {
   const directory = await mkdtemp(join(tmpdir(), 'root-harness-transcript-'))
@@ -62,6 +69,9 @@ async function rootRun(
       const session = environment.session!(id, sessionOptions)
       return {
         ...session,
+        ...(options.harnessTranscript === undefined
+          ? {}
+          : { status: async () => 'completed' as const }),
         result: async () => ({
           ...(await session.result()),
           usage: { inputTokens: 3, outputTokens: 2 },
@@ -131,8 +141,18 @@ async function rootRun(
       journal: context.journal,
       blobs: context.blobs,
       signal: abort.signal,
-      backend: { backend: 'provider', provider },
-      driverBackend: { backend: 'provider', provider },
+      backend: {
+        backend: 'provider',
+        provider,
+        harnessTranscript: options.harnessTranscript,
+        defaults: { workspace: { cwd: { base: 'host', path: directory } } },
+      },
+      driverBackend: {
+        backend: 'provider',
+        provider,
+        harnessTranscript: options.harnessTranscript,
+        defaults: { workspace: { cwd: { base: 'host', path: directory } } },
+      },
       budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 60_000 },
       driverRetry: { maxAttempts: 1, initialBackoffMs: 0, maxBackoffMs: 0 },
       retainedAtSettlement: 'release',
@@ -153,10 +173,91 @@ async function rootRun(
       },
     },
   ).finally(() => clearTimeout(timer))
-  return { result, blobs: context.blobs }
+  return { result, blobs: context.blobs, journal: context.journal }
 }
 
 describe("the root's harness session", () => {
+  it('retains the provider manager native family under its exact journaled attempt', async () => {
+    const requests: Parameters<NonNullable<ProviderExecutorOptions['harnessTranscript']>>[0][] = []
+    const { result, blobs, journal } = await rootRun('root-provider-native', {
+      readable: false,
+      harnessTranscript: async (request) => {
+        if (!request.controlRef) throw new Error('missing exact provider control reference')
+        requests.push(request)
+        const session: BoundHarnessSession = {
+          nativeSessionId: `native-${request.controlRef.sessionId}`,
+          children: [],
+          integrity: { truncated: false, unparsedRecords: 0, gaps: [] },
+        }
+        return captureBoundHarnessTranscript({
+          harness: request.harness,
+          binding: {
+            kind: 'provider',
+            controlRef: request.controlRef,
+            node: request.node,
+            sessionId: request.controlRef.sessionId,
+            nativeSessionId: session.nativeSessionId,
+            profileDigest: request.profileDigest,
+            runs: [
+              { runId: request.controlRef.runId, requestDigest: request.controlRef.requestDigest },
+            ],
+          },
+          nativeSessionId: session.nativeSessionId,
+          files: [{ path: 'native.jsonl', nativeSessionId: session.nativeSessionId }],
+          read: async () => Buffer.from(JSON.stringify(session)),
+          parse: (text) => JSON.parse(text) as BoundHarnessSession,
+          signal: request.signal,
+        })
+      },
+    })
+    expect(requests).toHaveLength(1)
+    expect(result.rootHarnessTranscript).toMatchObject({
+      status: 'available',
+      coverageComplete: true,
+    })
+    const request = requests[0]!
+    const events = (await journal.loadTree('root-provider-native')) ?? []
+    const evidence = events.filter((event) => event.kind === 'execution-evidence')
+    expect(evidence.length).toBeGreaterThan(0)
+    // The record holds content; the journal row names the exact attempt.
+    const { attemptId, ...requestNode } = request.node!
+    for (const event of evidence) {
+      expect(event.attemptId).toBe(attemptId)
+      const record = (await blobs.get(event.outRef)) as { node: unknown }
+      expect(record.node).toEqual(requestNode)
+      expect(record).toMatchObject({
+        kind: 'harness-transcript',
+        harnessTranscript: result.rootHarnessTranscript,
+      })
+    }
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'execution-bound',
+          binding: expect.objectContaining({ attemptId: request.node!.attemptId }),
+        }),
+      ]),
+    )
+    expect(
+      await readHarnessTranscriptSessions(result.rootHarnessTranscript, blobs, {
+        node: { ...requestNode, attemptId: evidence[0]!.attemptId! },
+        readSessions: async (artifact) =>
+          artifact.files.map((file) => JSON.parse(file.content) as BoundHarnessSession),
+      }),
+    ).toMatchObject({ succeeded: true })
+    // A row naming another attempt does not verify against this capture.
+    expect(
+      await readHarnessTranscriptSessions(result.rootHarnessTranscript, blobs, {
+        node: { ...requestNode, attemptId: `${evidence[0]!.attemptId}:other` },
+        readSessions: async (artifact) =>
+          artifact.files.map((file) => JSON.parse(file.content) as BoundHarnessSession),
+      }),
+    ).toEqual({
+      succeeded: false,
+      error: 'Native transcript attemptId does not match the requested execution',
+    })
+  })
+
   it('reaches the result as a persisted receipt, like a child settlement', async () => {
     const { result, blobs } = await rootRun('root-transcript', { readable: true })
 

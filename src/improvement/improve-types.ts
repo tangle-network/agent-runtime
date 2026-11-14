@@ -8,6 +8,7 @@ import type {
   CampaignCellResult,
   CampaignScenarioIdentity,
   CompareOptimizationMethodsOptions,
+  FinalEvidenceUse,
   OptimizationMethod,
   OptimizationMethodComparison,
   SearchAllocator,
@@ -198,7 +199,6 @@ export type ImproveSearchOptions<TScenario extends Scenario, TArtifact> = Omit<
   | 'claim'
   | 'confidence'
   | 'evidence'
-  | 'finalEvidence'
   | 'resamples'
   | 'reps'
   | 'maxConcurrency'
@@ -493,6 +493,8 @@ export interface ImproveSearchResult extends ImproveResultBase<ImprovementProfil
   liftInterval?: { low: number; high: number }
   /** The search ledger, closed and verified from its bytes. */
   searchHistory: SearchHistoryReceipt
+  /** Shared final-data reservation and exposure, when a final-evidence policy was supplied. */
+  finalEvidence?: FinalEvidenceUse
   /** Present exactly when `decision` is `ship`. */
   promotion?: SearchPromotion
 }

@@ -135,14 +135,9 @@ export type {
   AgentCandidateExperimentCellPlacement,
   AgentImprovementAnalysisOptions,
   AgentImprovementExperimentMaterial,
-  AgentProfileImprovementBenchmark,
-  AgentProfileImprovementExecutor,
-  AgentProfileImprovementMethodOptions,
   ExecuteAgentCandidateExperimentCellOptions,
   ProposeAgentImprovementOptions,
   ProposeAgentImprovementResult,
-  ProposeAgentProfileImprovementOptions,
-  ProposeAgentProfileImprovementResult,
   RunAgentCandidateExperimentOptions,
   RunAgentCandidateExperimentResult,
   VerifyCandidateExecutionEvidenceOptions,
@@ -189,6 +184,17 @@ export type {
   AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
+export type {
+  AgentProfileImprovementBenchmark,
+  AgentProfileImprovementExecutor,
+  AgentProfileImprovementMethodOptions,
+  AgentProfileImprovementModelBindingSource,
+  ProposeAgentProfileImprovementHeldResult,
+  ProposeAgentProfileImprovementIncompleteResult,
+  ProposeAgentProfileImprovementOptions,
+  ProposeAgentProfileImprovementResult,
+  RecordAgentProfileImprovementOptions,
+} from './profile-improvement-experiment'
 export type {
   AppliedIntelligence,
   IntelligenceAgent,

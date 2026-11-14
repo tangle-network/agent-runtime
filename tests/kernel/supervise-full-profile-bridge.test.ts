@@ -19,6 +19,12 @@ import { replaySpawnTree } from '../../src/durable/spawn-journal/replay'
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
 import { materializeTreeView } from '../../src/durable/spawn-journal/tree-view'
 import { RuntimeRunStateError } from '../../src/errors'
+import {
+  type HarnessTranscriptCapture,
+  type HarnessTranscriptEvidence,
+  harnessTranscriptArtifact,
+} from '../../src/runtime/harness-transcript'
+import type { BridgeSeam } from '../../src/runtime/supervise/bridge-config'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
@@ -426,6 +432,201 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     if (server) await new Promise((resolve) => server?.close(resolve))
     server = undefined
   })
+
+  it.each([
+    { session: 'native' as const, failFinal: false },
+    { session: 'fresh' as const, failFinal: false },
+    { session: 'fresh' as const, failFinal: true },
+  ])(
+    'retains every manager native capture ($session, final failure: $failFinal)',
+    async ({ session, failFinal }) => {
+      const requests: BridgeRequest[] = []
+      const captures: Parameters<NonNullable<BridgeSeam['harnessTranscript']>>[0][] = []
+      const firstTurn = firstTurnOf()
+      const journal = new InMemorySpawnJournal()
+      const blobs = new InMemoryResultBlobStore()
+      const runId = 'manager-native-capture'
+      let releaseCapture!: () => void
+      const captureGate = new Promise<void>((resolve) => {
+        releaseCapture = resolve
+      })
+      let rootCaptureStarted = false
+      let completed = false
+      server = createBridgeServer(async (req, res) => {
+        const cancelled = cancelledRunId(req.url)
+        if (cancelled !== undefined) return respondWithTerminalCancellation(res, cancelled)
+        try {
+          const body = await readJson(req)
+          requests.push(body)
+          const name = body.agent_profile.name
+          const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+          if (coordination?.url && firstTurn(name)) {
+            await callCoordination(coordination.url, 'spawn_worker', {
+              profile: codexTestProfile(
+                name === 'root' ? 'manager' : 'worker',
+                'Measure.',
+                name === 'root' ? ['spawn_worker'] : [],
+              ),
+              task: { instruction: 'Return the measurement.', case: name },
+            })
+          }
+          respondWithBridgeStream(res, body, successStream('RESULT=42'))
+        } catch (error) {
+          res.writeHead(500)
+          res.end(String(error))
+        }
+      })
+      await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+      const { port } = server.address() as AddressInfo
+      const task = { task: 'Delegate a measurement.', trigger: { event: 'case-1' } }
+      const running = supervise(codexTestProfile('root', 'Lead.', ['spawn_worker']), task, {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test',
+          harnessTranscript: async (request): Promise<HarnessTranscriptCapture> => {
+            captures.push(request)
+            const root = request.node?.nodeId === runId
+            const rootCaptures = captures.filter((capture) => capture.node?.nodeId === runId)
+            if (root && rootCaptures.length === 1) {
+              rootCaptureStarted = true
+              await captureGate
+            }
+            if (root && rootCaptures.length === 2 && failFinal)
+              return { status: 'unavailable', reason: 'capture-failed' }
+            const content = JSON.stringify(
+              requests
+                .filter((turn) => turn.session_id === request.sessionId)
+                .map((turn) => turn.messages),
+            )
+            return {
+              status: 'captured',
+              artifact: {
+                schemaVersion: 1,
+                harness: request.harness,
+                binding: {
+                  kind: 'bridge',
+                  node: request.node,
+                  sessionId: request.sessionId,
+                  nativeSessionId: `native-${request.sessionId}`,
+                  profileDigest: request.profileDigest,
+                  runs: request.runs,
+                },
+                files: [
+                  {
+                    path: `${request.sessionId}.jsonl`,
+                    bytes: Buffer.byteLength(content),
+                    content,
+                  },
+                ],
+                skipped: [],
+              },
+              fileCount: 1,
+              totalBytes: Buffer.byteLength(content),
+              skippedCount: 0,
+              coverageComplete: true,
+              missing: [],
+            }
+          },
+        },
+        budget: { maxIterations: 20, maxTokens: 100_000 },
+        perWorker: { maxIterations: 8, maxTokens: 20_000 },
+        maxDepth: 3,
+        driverRetry: { enabled: false },
+        deliverable: {
+          check: (out) =>
+            typeof out === 'object' &&
+            out !== null &&
+            (out as { content?: unknown }).content === 'RESULT=42',
+        },
+        continuation: testContinuation({ session }),
+        journal,
+        blobs,
+        runId,
+      }).then((result) => {
+        completed = true
+        return result
+      })
+      try {
+        await expect.poll(() => rootCaptureStarted).toBe(true)
+        expect(completed).toBe(false)
+        expect(requests.filter((request) => request.agent_profile.name === 'root')).toHaveLength(1)
+      } finally {
+        releaseCapture()
+      }
+      const result = await running
+      expect(requests.map((request) => request.agent_profile.name)).toEqual([
+        'root',
+        'manager',
+        'worker',
+        'manager',
+        'root',
+      ])
+      const rootCaptures = captures.filter((capture) => capture.node?.nodeId === runId)
+      expect(rootCaptures).toHaveLength(2)
+      expect(new Set(rootCaptures.map((capture) => capture.sessionId)).size).toBe(
+        session === 'fresh' ? 2 : 1,
+      )
+      const events = (await journal.loadTree(runId)) ?? []
+      const retained: Array<{
+        attemptId: string
+        node: { nodeId: string }
+        taskRef: string
+        harnessTranscript: HarnessTranscriptEvidence
+      }> = []
+      for (const event of events) {
+        if (event.kind !== 'execution-evidence') continue
+        const value = await blobs.get(event.outRef)
+        expect(value).toMatchObject({ kind: 'harness-transcript', schemaVersion: 1 })
+        // The record holds content; the journal row names the exact attempt.
+        expect(value).not.toHaveProperty('node.attemptId')
+        expect(event.attemptId).toEqual(expect.any(String))
+        retained.push({
+          ...(value as Omit<(typeof retained)[number], 'attemptId'>),
+          attemptId: event.attemptId!,
+        })
+      }
+      expect(retained).toHaveLength(4)
+      expect(new Set(retained.map((value) => value.attemptId)).size).toBe(4)
+      const rootEvidence = retained.filter((value) => value.node.nodeId === runId)
+      expect(await blobs.get(rootEvidence[0]!.taskRef)).toEqual(task)
+      expect(await blobs.get(rootEvidence[1]!.taskRef)).not.toEqual(task)
+      for (const evidence of retained) {
+        if (evidence === rootEvidence[1] && failFinal) {
+          expect(evidence.harnessTranscript).toEqual({
+            status: 'unavailable',
+            reason: 'capture-failed',
+          })
+          continue
+        }
+        const artifact = await harnessTranscriptArtifact(evidence.harnessTranscript, blobs)
+        expect(artifact?.binding?.node?.attemptId).toBe(evidence.attemptId)
+        const request = requests.find(
+          (request) => request.run_id === artifact?.binding?.runs[0]?.runId,
+        )
+        expect(request).toBeDefined()
+        expect(artifact?.files[0]?.content).toContain(JSON.stringify(request!.messages))
+      }
+      if (failFinal)
+        expect(result.rootHarnessTranscript).toEqual({
+          status: 'unavailable',
+          reason: 'capture-failed',
+        })
+      else
+        expect(result.rootHarnessTranscript).toMatchObject({
+          status: 'available',
+          coverageComplete: true,
+        })
+      const manager = events.find((event) => event.kind === 'spawned' && event.label === 'manager')
+      expect(manager).toBeDefined()
+      const settledManager = events.find(
+        (event) => event.kind === 'settled' && event.id === manager?.id,
+      )
+      expect(settledManager).toMatchObject({
+        harnessTranscript: { status: 'available', coverageComplete: true },
+      })
+    },
+  )
 
   it.each([
     { label: 'explicit unchecked tools', tools: ['observe_agent'], inherit: false, runs: true },

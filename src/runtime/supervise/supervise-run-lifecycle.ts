@@ -1,7 +1,11 @@
 import { resolve } from 'node:path'
 import type { ChildQuestionInbox } from '../../mcp/tools/coordination-questions'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import { persistHarnessTranscript, readHarnessTranscript } from '../harness-transcript'
+import {
+  persistHarnessTranscript,
+  readHarnessTranscript,
+  settleHarnessTranscript,
+} from '../harness-transcript'
 import type { ToolLoopChat } from '../tool-loop'
 import { RunCancellationReason } from './abortable'
 import { CONTINUATIONS_DIR } from './continuation'
@@ -542,6 +546,7 @@ async function settleSupervisedRun(
   recordRunCancellationOutcome(options.runDir, result, setup.now)
   // A nested manager's session rides its settle record (#1359); the root has none, so 312 of 312
   // Discovery roots of 2026-09-23/24 settled without a session receipt (#1264). The result carries it.
+  if (rootDriveHarness !== undefined) await settleHarnessTranscript(rootDriveHarness)
   const rootHarnessTranscript =
     rootDriveHarness === undefined
       ? undefined

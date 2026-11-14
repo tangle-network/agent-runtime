@@ -6,10 +6,13 @@ import {
   mergeProxySecretBindings,
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
-import { ValidationError } from '../../errors'
-import { COORDINATION_CLIENT_TOOL_TIMEOUT_MS } from '../../mcp/tools/coordination-request-context'
+import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { resolveAgentEnvironmentProvider } from '../environment-provider/provider-registry'
-import type { HarnessTranscriptCapture } from '../harness-transcript'
+import {
+  type HarnessTranscriptCapture,
+  readHarnessTranscript,
+  settleHarnessTranscript,
+} from '../harness-transcript'
 import { isAsyncIterable, zeroSpend } from '../util'
 import { coordinationBindingHost } from './coordination-mcp'
 import { type DriverAttemptIdentity, DriverExecutionAttempt } from './driver-execution-attempt'
@@ -28,11 +31,16 @@ import type { RootStreamSink } from './root-stream'
 import {
   bindReusableExecutorExecutionId,
   bridgeRuntimeAttachmentsKey,
+  bridgeRuntimeEnvKey,
   bridgeStopSignalKey,
   createExecutor,
 } from './runtime'
 import { scopeOwnerExecutorNodeContext } from './scope'
-import { scopeOwnerExecutionObservation } from './scope-owner-materialization'
+import {
+  holdScopeOwnerTranscript,
+  recordScopeOwnerHarnessTranscript,
+  scopeOwnerExecutionObservation,
+} from './scope-owner-materialization'
 import type { ActiveSeat } from './seat-chain'
 import { detachedSnapshot } from './snapshot'
 import { exhaustedBudgetChannels } from './supervise-budget'
@@ -44,6 +52,7 @@ import {
 } from './supervise-profile-admission'
 import {
   CLAUDE_CODE_ONE_HOUR_CACHE,
+  COORDINATION_TOKEN_ENV,
   coordinationRuntimeAttachment,
   peerMailMcpAlias,
   peerMailRuntimeAttachment,
@@ -56,6 +65,7 @@ import {
 } from './supervisor-agent'
 import type {
   AgentSpec,
+  Executor,
   ExecutorFactory,
   ExecutorProgressEvent,
   ExecutorResult,
@@ -79,15 +89,7 @@ interface DriverAttemptInput extends Omit<Parameters<DriveHarness>[0], 'task' | 
 
 export async function executeDriverAttempt(input: DriverAttemptInput): Promise<void> {
   const { state, scope, retainedOwner, turnCap } = input
-  if (!(scope.view.inFlight > 0)) {
-    const spent =
-      exhaustedBudgetChannels(scope.budget, input.now()) ??
-      (scope.budget.iterationsCapped !== false && scope.budget.iterationsLeft <= 0
-        ? 'iterations: none left'
-        : undefined)
-    if (spent)
-      throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
-  }
+  assertDriverBudget(input)
   const identity = admitDriverProfiles(input)
   const spec: AgentSpec = {
     profile: identity.providerProfile,
@@ -106,12 +108,6 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   const peerMailAttachment = peerMailRuntimeAttachment(input.authoredProfile, state.boundBackend, {
     peerMailUrl: input.peerMailUrl,
   })
-  const attachment = {
-    transport: 'http' as const,
-    url: input.coordinationMcpUrl,
-    ...(input.coordinationMcpHeaders ? { headers: input.coordinationMcpHeaders } : {}),
-    metadata: { toolTimeoutMs: COORDINATION_CLIENT_TOOL_TIMEOUT_MS },
-  }
   const factory =
     reusedAttemptFactory(input) ??
     (await providerAttemptFactory(input, identity.providerProfile.harness))
@@ -119,29 +115,25 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     input.rootStream?.append(event)
     input.noteDriveProgress(event)
   })
+  // A retained provider turn journals its own capture through the owner seam; the driver writes
+  // one only for an attempt that seam did not record, so each attempt has exactly one receipt.
+  let transcriptRecorded = false
   const executor = factory(spec, {
     signal: scope.signal,
     node: scopeOwnerExecutorNodeContext(scope),
     seams: {
       [executorObservationSeamKey]: observation,
-      ...(retainedOwner
-        ? {
-            [retainedExecutorSeamKey]: {
-              ...retainedOwner,
-              onResult: async (result: ExecutorResult<unknown>) =>
-                attempt.commitOwnerResult(result),
-            },
-          }
-        : {}),
+      ...retainedOwnerSeam(
+        retainedOwner,
+        async (result) => attempt.commitOwnerResult(result),
+        () => {
+          transcriptRecorded = true
+        },
+      ),
       [bridgeStopSignalKey]: stopSignal,
       ...(state.boundBackend.backend === 'provider'
         ? {}
-        : {
-            [bridgeRuntimeAttachmentsKey]: {
-              ...(peerMailAttachment ?? {}),
-              [coordinationMcpAlias]: attachment,
-            },
-          }),
+        : bridgeCoordinationSeams(input, peerMailAttachment)),
     },
   })
   input.keepTranscript(state.lastExecutor?.harnessTranscript?.())
@@ -158,6 +150,10 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   )
   const pending = runtimeOwnedPendingExecutorMaterialization(executor)
   const endDrive = retainedOwner ? beginScopeRetainedOwnerDrive(scope) : () => {}
+  const releaseTranscriptHold =
+    state.boundBackend.backend === 'bridge' || state.boundBackend.backend === 'provider'
+      ? holdScopeOwnerTranscript(scope)
+      : () => {}
   try {
     await attempt.admit(pending)
     attempt.started = true
@@ -176,14 +172,92 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
   } catch (error) {
     attempt.noteFailure(error)
   } finally {
-    await attempt.release(pending, input.drive)
-    input.keepTranscript(executor.harnessTranscript?.())
-    if (state.activeExecutor === executor) state.activeExecutor = undefined
-    endDrive()
+    try {
+      await attempt.release(pending, input.drive)
+      await recordAttemptTranscript(input, executor, attempt, () => transcriptRecorded)
+      input.keepTranscript(executor.harnessTranscript?.())
+    } finally {
+      if (state.activeExecutor === executor) state.activeExecutor = undefined
+      endDrive()
+      releaseTranscriptHold()
+    }
   }
   if (attempt.failed) throw attempt.failure
   state.managerArtifact = attempt.terminalArtifact
   if (attempt.turnFailure !== undefined) throw attempt.turnFailure
+}
+
+/** A driver with no child in flight starts no turn once a supervisor budget channel is spent. */
+function assertDriverBudget({ scope, now }: DriverAttemptInput): void {
+  if (scope.view.inFlight > 0) return
+  const spent =
+    exhaustedBudgetChannels(scope.budget, now()) ??
+    (scope.budget.iterationsCapped !== false && scope.budget.iterationsLeft <= 0
+      ? 'iterations: none left'
+      : undefined)
+  if (spent)
+    throw new ValidationError(`driveHarnessFromBackend: supervisor budget exhausted (${spent})`)
+}
+
+/**
+ * A continuation may start a new native session. Keep each completed bridge or provider attempt
+ * before the next drive replaces its executor, including explicit capture failures and exact
+ * inputs, unless the retained owner seam already journaled it.
+ */
+async function recordAttemptTranscript(
+  input: DriverAttemptInput,
+  executor: Executor<unknown>,
+  attempt: DriverExecutionAttempt,
+  recorded: () => boolean,
+): Promise<void> {
+  const { backend } = input.state.boundBackend
+  if (backend !== 'bridge' && backend !== 'provider') return
+  await settleHarnessTranscript(executor)
+  if (recorded()) return
+  try {
+    await recordScopeOwnerHarnessTranscript(
+      input.scope,
+      input.originalTask,
+      readHarnessTranscript(executor),
+      attempt.terminalArtifact,
+    )
+  } catch (cause) {
+    // Evidence debt is terminal even when the original turn failed transiently: retrying could
+    // spend again while the previous attempt has no durable capture receipt.
+    attempt.failed = true
+    attempt.failure = new RuntimeRunStateError(
+      'manager transcript evidence could not be persisted',
+      { cause },
+    )
+  }
+}
+
+/** The retained owner seam for one attempt, reporting when it journaled the attempt's capture. */
+function retainedOwnerSeam(
+  retainedOwner: DriverAttemptInput['retainedOwner'],
+  commitResult: (result: ExecutorResult<unknown>) => Promise<void>,
+  onRecorded: () => void,
+) {
+  if (!retainedOwner) return {}
+  const record = retainedOwner.onHarnessTranscript
+  return {
+    [retainedExecutorSeamKey]: {
+      ...retainedOwner,
+      onResult: commitResult,
+      ...(record === undefined
+        ? {}
+        : {
+            onHarnessTranscript: async (
+              task: unknown,
+              capture: HarnessTranscriptCapture,
+              result: ExecutorResult<unknown> | undefined,
+            ) => {
+              await record(task, capture, result)
+              onRecorded()
+            },
+          }),
+    },
+  }
 }
 
 function admitDriverProfiles(input: DriverAttemptInput): DriverAttemptIdentity {
@@ -221,6 +295,28 @@ function admitDriverProfiles(input: DriverAttemptInput): DriverAttemptIdentity {
     providerProfile,
     coordinationTools,
     coordinationMcpUrl: input.coordinationMcpUrl,
+  }
+}
+
+/** Bridge coordination rides as a secret reference; the bearer goes in request env, which the
+ * bridge lifts into memory and resolves only into a private MCP config or its jail relay. */
+function bridgeCoordinationSeams(
+  input: DriverAttemptInput,
+  peerMail: ReturnType<typeof peerMailRuntimeAttachment>,
+) {
+  const authorization = input.coordinationMcpHeaders?.Authorization
+  if (
+    authorization !== undefined &&
+    (!authorization.startsWith('Bearer ') || authorization.length === 7)
+  )
+    throw new ValidationError('bridge coordination requires a bearer credential')
+  const key = authorization === undefined ? undefined : COORDINATION_TOKEN_ENV
+  return {
+    [bridgeRuntimeAttachmentsKey]: {
+      ...peerMail,
+      [coordinationMcpAlias]: coordinationRuntimeAttachment(input.coordinationMcpUrl, key),
+    },
+    ...(key === undefined ? {} : { [bridgeRuntimeEnvKey]: { [key]: authorization!.slice(7) } }),
   }
 }
 
@@ -266,13 +362,13 @@ async function providerAttemptFactory(
   const suffix = canonicalCandidateDigest([input.executionId, provider.name, host ?? 'isolated'])
     .slice(7, 31)
     .toUpperCase()
-  const credentialName = `AGENT_RUNTIME_COORDINATION_TOKEN${protectedPath ? `_${suffix}` : ''}`
+  const credentialName = `${COORDINATION_TOKEN_ENV}${protectedPath ? `_${suffix}` : ''}`
   const defaults = backend.defaults ?? {}
   const env: Record<string, string> = {
     ...(providerHarness === 'claude-code' ? { [CLAUDE_CODE_ONE_HOUR_CACHE]: '1' } : {}),
     ...defaults.env,
   }
-  delete env.AGENT_RUNTIME_COORDINATION_TOKEN
+  delete env[COORDINATION_TOKEN_ENV]
   delete env[credentialName]
   for (const mcp of [
     defaults.runtimeAttachments?.mcp,

@@ -25,10 +25,10 @@ import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-
 import { parseExactAgentProfile } from '../candidate-execution/profile'
 import { assertProfileTrainingIsHeldOut } from '../improvement/candidate-validation'
 import { createAgentImprovementProposal } from './activation'
-import type { AgentProfileImprovementBenchmark } from './improvement-cycle'
 import { agentImprovementProfileDiffs } from './improvement-surfaces'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
 import {
+  type AgentProfileImprovementBenchmark,
   createProfileImprovementCostLedger,
   profileImprovementMetadata,
   profilePolicyWithBudget,

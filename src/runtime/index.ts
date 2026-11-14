@@ -122,7 +122,12 @@ export type {
   QuestionRecord,
   questionEscalationTargets,
 } from '../mcp/tools/coordination-questions'
-export type { JsonScalar, RouteGate, RouteMatch } from '../mcp/tools/coordination-route-contracts'
+export type {
+  JsonScalar,
+  RouteFlowEvent,
+  RouteGate,
+  RouteMatch,
+} from '../mcp/tools/coordination-route-contracts'
 export type { GitRunner } from '../mcp/worktree'
 export type { WorktreeCheckRunner, WorktreeHarnessResult } from '../mcp/worktree-harness'
 // Re-exported on the KERNEL entry, not only the package root: a `supervise` caller imports
@@ -225,6 +230,7 @@ export {
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
 } from './harness-transcript'
+export { readHarnessTranscriptSessions } from './harness-transcript-sessions'
 // Per-harness usage decoders: the ONE registry of harnesses that report token usage only inside
 // their own event, read alongside the canonical usage events by `createSandboxUsageLedger`. Only
 // the composite is public, as with `decodeToolPart` — the registry and its entries stay internal
@@ -266,6 +272,13 @@ export {
   superviseDispatch,
 } from './loop-dispatch'
 export * from './mcp-environment'
+export {
+  type CanonicalObservedModelParts,
+  canonicalObservedModelParts,
+  observedModelHasSnapshot,
+  observedModelMatchesDeclared,
+  type SnapshotKind,
+} from './model-identity'
 export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).
@@ -605,11 +618,17 @@ export {
   graphFileSchema,
   graphRouteWhenSchema,
 } from './supervise/graph-file-schema'
+export { graphFlowSpawnProfile } from './supervise/graph-overlay'
 // The designer's memory: graphs and their outcomes as files in a workspace, so a rerun over
 // the same sandbox replays a known-good graph (near-zero inference) or authors a better one.
 export * from './supervise/graph-registry'
 export * from './supervise/graph-session-observation'
-export { readGraphStrings, setGraphStrings } from './supervise/graph-strings'
+export {
+  readGraphProfile,
+  readGraphStrings,
+  setGraphProfile,
+  setGraphStrings,
+} from './supervise/graph-strings'
 // The in-place CLI leaf executor: the same authored AgentProfile on the same local harness CLI,
 // running in a workspace the CALLER supplies, so the edits stay in that directory for the next
 // spawn. `createExecutor({ backend: 'cli-in-place', workspacePath })` routes to this leaf.

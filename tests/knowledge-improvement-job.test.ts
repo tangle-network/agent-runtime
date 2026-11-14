@@ -26,6 +26,7 @@ import {
 import { runAgentCandidateExperiment } from '../src/intelligence/improvement-cycle'
 import {
   buildKnowledgeImprovementExperimentBundles,
+  captureKnowledgeImprovementCandidatePair,
   createKnowledgeImprovementActivationExecutor,
   runKnowledgeImprovementJob,
 } from '../src/knowledge'
@@ -64,6 +65,15 @@ async function withKb(fn: (root: string) => Promise<void>): Promise<void> {
   }
 }
 
+const RUNTIME_JOB_PAGE = [
+  '---',
+  'id: runtime-job',
+  'title: Runtime Job',
+  '---',
+  '# Runtime Job',
+  'The runtime job updates the candidate workspace.',
+].join('\n')
+
 function winner(): SupervisedResult<unknown> {
   return {
     kind: 'winner',
@@ -73,6 +83,7 @@ function winner(): SupervisedResult<unknown> {
     spentTotal: {
       iterations: 2,
       tokens: { input: 30, output: 12 },
+      tokensKnown: false,
       usdKnown: false,
       usd: 0.004,
       ms: 75,
@@ -193,6 +204,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               profile: SupervisorProfile
               task: unknown
               opts: SuperviseOptions
+              root: string
             }
           | undefined
 
@@ -215,23 +227,15 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               return { ready: false, summary: 'runtime job page missing' }
             }
           },
-          runSupervised: async (profile, task, opts) => {
-            captured = { profile, task, opts }
-            const candidateRoot = rootFromTask(task)
+          runSupervised: async (profile, task, opts, context) => {
+            if (!context) throw new Error('isolated execution context was not supplied')
+            expect(context.goal).toBe('Add runtime job knowledge')
+            expect(context.root).not.toBe(root)
+            captured = { profile, task, opts, root: context.root }
+            const candidateRoot = context.root
             const page = join(candidateRoot, 'knowledge', 'runtime-job.md')
             await mkdir(dirname(page), { recursive: true })
-            await writeFile(
-              page,
-              [
-                '---',
-                'id: runtime-job',
-                'title: Runtime Job',
-                '---',
-                '# Runtime Job',
-                'The runtime job updates the candidate workspace.',
-              ].join('\n'),
-              'utf8',
-            )
+            await writeFile(page, RUNTIME_JOB_PAGE, 'utf8')
             await expectReadyDeliverable(opts)
             return winner()
           },
@@ -257,6 +261,13 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         await withKnowledgeImprovementCandidate(
           { root, candidate: knowledgeImprovementCandidateRef(result.improvement) },
           async ({ root: candidateRoot }) => {
+            // On Linux the isolated update root is a directory-descriptor path, so the reopened
+            // candidate is identified by the bytes the update wrote and its measured hash.
+            expect(captured?.root).toBeDefined()
+            expect(candidateRoot).not.toBe(root)
+            expect(await readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8')).toBe(
+              RUNTIME_JOB_PAGE,
+            )
             expect(result.knowledge?.reference.candidateHash).toBe(
               `sha256:${await hashKnowledgeBase(candidateRoot)}`,
             )
@@ -273,6 +284,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           iterations: 2,
           inputTokens: 30,
           outputTokens: 12,
+          tokensKnown: false,
           usdKnown: false,
           usd: 0.004,
           ms: 75,
@@ -403,6 +415,30 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         if (!knowledge) throw new Error('expected frozen knowledge candidate')
         expect(knowledge.stateScope).toEqual(expectedScope)
         const candidateRef = knowledgeImprovementCandidateRef(proposed.improvement)
+        const recaptured = await captureKnowledgeImprovementCandidatePair({
+          root,
+          candidate: candidateRef,
+          artifacts,
+        })
+        expect(recaptured).toEqual(knowledge)
+        await expect(
+          captureKnowledgeImprovementCandidatePair({
+            root,
+            candidate: { ...candidateRef, evidenceHash: '0'.repeat(64) },
+            artifacts,
+          }),
+        ).rejects.toThrow()
+        const drift = join(root, pagesDirectory, 'unmeasured-drift.md')
+        // The live research root has no curated pages yet; the drift page creates its directory.
+        const createdDirectory = await mkdir(dirname(drift), { recursive: true })
+        await writeFile(drift, 'Unmeasured curated change', { flag: 'wx' })
+        try {
+          await expect(
+            captureKnowledgeImprovementCandidatePair({ root, candidate: candidateRef, artifacts }),
+          ).rejects.toThrow('current curated state')
+        } finally {
+          await rm(createdDirectory ?? drift, { recursive: true })
+        }
         const candidateBytes = await withKnowledgeImprovementCandidate(
           { root, candidate: candidateRef },
           ({ root: candidateRoot }) => liveKnowledgeBytes(candidateRoot, pagesDirectory),

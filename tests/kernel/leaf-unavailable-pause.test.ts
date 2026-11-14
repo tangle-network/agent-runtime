@@ -6,6 +6,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
+  AgentSessionStatus,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -13,8 +14,16 @@ import {
   providerAsExecutor,
 } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { LEAF_CONTINUATION_TASK } from '../../src/runtime/environment-provider/provider-executor-lifecycle'
+import {
+  type BoundHarnessSession,
+  captureBoundHarnessTranscript,
+  type HarnessTranscriptEvidence,
+  harnessTranscriptArtifact,
+} from '../../src/runtime/harness-transcript'
+import { readHarnessTranscriptSessions } from '../../src/runtime/harness-transcript-sessions'
 import { BUDGET_CONTINUATION_TASK } from '../../src/runtime/supervise/retained-executor'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
+import { createExecutor } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, ExecutorFactory, Scope, SpawnEvent } from '../../src/runtime/supervise/types'
 import { promptOptionsFromAgentTurnInput } from '../../src/runtime/turn-input'
@@ -52,6 +61,7 @@ async function leafFixture(options: {
   readonly profile?: AgentProfile
   readonly costMode?: 'known' | 'estimated'
   readonly executor?: Omit<ProviderExecutorOptions, 'destroyOnSettle'>
+  readonly terminalStatus?: AgentSessionStatus
   /** Refused turns spend this much before their refusal. */
   readonly refusedUsage?: { readonly inputTokens: number; readonly outputTokens: number }
 }) {
@@ -61,6 +71,7 @@ async function leafFixture(options: {
   const runDir = join(root, 'run')
   const context = createFileRunContext(runDir)
   const dispatches: Dispatch[] = []
+  const executors: ReturnType<ExecutorFactory<unknown>>[] = []
   const failedExecutions = new Map<string, string>()
   let creates = 0
   const provider = (): AgentEnvironmentProvider => {
@@ -87,6 +98,9 @@ async function leafFixture(options: {
         const failure = failedExecutions.get(sessionOptions?.controlRef?.executionId ?? '')
         return {
           ...session,
+          ...(options.terminalStatus === undefined
+            ? {}
+            : { status: async () => options.terminalStatus! }),
           async *events(eventOptions): AsyncIterable<AgentEnvironmentEvent> {
             if (failure !== undefined && options.failureCode !== undefined) {
               yield {
@@ -144,10 +158,23 @@ async function leafFixture(options: {
   }
   const executorOptions: ProviderExecutorOptions = {
     destroyOnSettle: true,
+    defaults: { workspace: { cwd: { base: 'host', path: root } } },
     unavailablePause: { unavailablePauseMs: 5, maxUnavailablePauseMs: 20 },
     ...options.executor,
   }
   const profile = options.profile ?? testAgentProfile('leaf')
+  const recordingExecutorFactory = (): ExecutorFactory<unknown> => {
+    const factory = createExecutor({
+      backend: 'provider',
+      provider: provider(),
+      ...executorOptions,
+    })
+    return (spec, ctx) => {
+      const executor = factory(spec, ctx)
+      executors.push(executor)
+      return executor
+    }
+  }
   const worker = (): Agent<unknown, unknown> =>
     Object.assign(
       { name: 'leaf', act: async () => 'unused' },
@@ -155,7 +182,7 @@ async function leafFixture(options: {
         executorSpec: {
           profile,
           harness: profile.harness,
-          executorFactory: providerAsExecutor(provider(), executorOptions),
+          executorFactory: recordingExecutorFactory(),
         },
       },
     )
@@ -169,7 +196,7 @@ async function leafFixture(options: {
       { name: 'root', act: (_task, scope) => act(scope) },
       'root-task',
       {
-        ...createFileRunContext(runDir),
+        ...context,
         runId: 'root',
         budget: { maxIterations: 10, maxTokens: 100 },
         rootIdentity: {
@@ -192,13 +219,277 @@ async function leafFixture(options: {
     executorOptions,
     run,
     dispatches,
+    executors,
     creates: () => creates,
     leafEvents,
     liveEnvironments,
   }
 }
 
+type NativeCaptureRequest = Parameters<NonNullable<ProviderExecutorOptions['harnessTranscript']>>[0]
+
+async function nativeCapture(request: NativeCaptureRequest) {
+  if (!request.controlRef) throw new Error('missing exact provider control reference')
+  const session: BoundHarnessSession = {
+    nativeSessionId: `native-${request.controlRef.sessionId}`,
+    children: [],
+    integrity: { truncated: false, unparsedRecords: 0, gaps: [] },
+  }
+  const bytes = Buffer.from(JSON.stringify({ ...session, run: request.controlRef.runId }))
+  return captureBoundHarnessTranscript({
+    harness: request.harness,
+    binding: {
+      kind: 'provider',
+      controlRef: request.controlRef,
+      node: request.node,
+      sessionId: request.controlRef.sessionId,
+      nativeSessionId: session.nativeSessionId,
+      profileDigest: request.profileDigest,
+      runs: [{ runId: request.controlRef.runId, requestDigest: request.controlRef.requestDigest }],
+    },
+    nativeSessionId: session.nativeSessionId,
+    files: [
+      { path: 'native.jsonl', nativeSessionId: session.nativeSessionId, byteLength: bytes.length },
+    ],
+    read: async () => bytes,
+    parse: (text) => JSON.parse(text) as BoundHarnessSession,
+    signal: request.signal,
+  })
+}
+
 describe('a leaf whose model provider refuses its turn for capacity', () => {
+  it('retains a verified native receipt for every exact invocation before reusing or deleting its environment', async () => {
+    const captures: NativeCaptureRequest[] = []
+    const fixture = await leafFixture({
+      failure: (dispatch) => (dispatch <= 2 ? 'Usage window exhausted' : undefined),
+      failureCode: 'rate_limit_error',
+      terminalStatus: 'completed',
+      executor: {
+        harnessTranscript: async (request) => {
+          captures.push(request)
+          return nativeCapture(request)
+        },
+      },
+    })
+    await fixture.run(async (scope) => {
+      scope.spawn(
+        fixture.worker(),
+        { instruction: 'Return an answer', trigger: { key: 'case-1' } },
+        {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 100 },
+        },
+      )
+      expect((await scope.next())?.kind).toBe('done')
+      return 'completed'
+    })
+    expect(captures).toHaveLength(3)
+    expect(new Set(captures.map((capture) => capture.controlRef!.executionId)).size).toBe(3)
+    const events = await fixture.leafEvents()
+    const inputs = events.filter((event) => event.kind === 'execution-input')
+    const outputs = events.filter((event) => event.kind === 'execution-result')
+    const receipts = events.filter((event) => event.kind === 'execution-evidence')
+    expect(inputs).toHaveLength(3)
+    expect(outputs).toHaveLength(3)
+    expect(receipts).toHaveLength(3)
+    for (const [index, event] of receipts.entries()) {
+      const wrapper = (await fixture.context.blobs.get(event.outRef)) as {
+        node: NonNullable<NativeCaptureRequest['node']>
+        taskRef: string
+        outRef: string
+        harnessTranscript: HarnessTranscriptEvidence
+      }
+      // The record holds content; the journal row names the exact attempt.
+      const { attemptId, ...captureNode } = captures[index]!.node!
+      expect(event.attemptId).toBe(attemptId)
+      expect(wrapper.node).toEqual(captureNode)
+      expect(wrapper).toMatchObject({
+        kind: 'harness-transcript',
+        schemaVersion: 1,
+        taskRef: inputs[index]!.taskRef,
+        outRef: outputs[index]!.outRef,
+        harnessTranscript: { status: 'available', coverageComplete: true },
+      })
+      expect(events.indexOf(event)).toBeLessThan(
+        index + 1 === inputs.length ? events.length : events.indexOf(inputs[index + 1]!),
+      )
+      const artifact = await harnessTranscriptArtifact(
+        wrapper.harnessTranscript,
+        fixture.context.blobs,
+      )
+      expect(artifact?.binding).toMatchObject({
+        kind: 'provider',
+        controlRef: captures[index]!.controlRef,
+      })
+      const loaded = await readHarnessTranscriptSessions(
+        wrapper.harnessTranscript,
+        fixture.context.blobs,
+        {
+          node: { ...wrapper.node, attemptId: event.attemptId! },
+          readSessions: async (value) =>
+            value.files.map((file) => JSON.parse(file.content) as BoundHarnessSession),
+        },
+      )
+      expect(loaded.succeeded).toBe(true)
+    }
+    expect(await fixture.liveEnvironments()).toEqual([])
+  })
+
+  it.each([
+    'capture-failure',
+    'foreign-binding',
+    'unconfirmed-stop',
+    'persistence-failure',
+  ] as const)('preserves the native source and records the gap after %s', async (fault) => {
+    let reads = 0
+    const fixture = await leafFixture({
+      failure: () => undefined,
+      terminalStatus: fault === 'unconfirmed-stop' ? 'running' : 'completed',
+      executor: {
+        harnessTranscript: async (request) => {
+          reads += 1
+          if (fault === 'capture-failure') throw new Error('native export failed')
+          return nativeCapture(
+            fault === 'foreign-binding'
+              ? { ...request, controlRef: { ...request.controlRef!, runId: 'another-run' } }
+              : request,
+          )
+        },
+      },
+    })
+    if (fault === 'persistence-failure') {
+      const put = fixture.context.blobs.put.bind(fixture.context.blobs)
+      fixture.context.blobs.put = async (ref, value) => {
+        if (value && typeof value === 'object' && 'files' in value && 'binding' in value)
+          throw new Error('native blob store unavailable')
+        return put(ref, value)
+      }
+    }
+    const running = fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 100 },
+      })
+      await scope.next()
+      return 'completed'
+    })
+    if (fault === 'persistence-failure')
+      await expect(running).rejects.toThrow(/durable state unavailable/)
+    else await running
+    if (fault === 'unconfirmed-stop') expect(reads).toBe(0)
+    else expect(reads).toBeGreaterThan(0)
+    expect(await fixture.liveEnvironments()).toHaveLength(1)
+    // Storage failure closes the durable writer; no later receipt can be promised.
+    if (fault === 'persistence-failure') return
+    const wrappers = await Promise.all(
+      (await fixture.leafEvents())
+        .filter((event) => event.kind === 'execution-evidence')
+        .map((event) => fixture.context.blobs.get(event.outRef)),
+    )
+    expect(wrappers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'harness-transcript',
+          harnessTranscript: expect.objectContaining({ status: 'unavailable' }),
+        }),
+      ]),
+    )
+  })
+
+  it('repairs one exact invocation on explicit retained release without running the agent again', async () => {
+    let reads = 0
+    const fixture = await leafFixture({
+      failure: () => undefined,
+      terminalStatus: 'completed',
+      executor: {
+        harnessTranscript: async (request) => {
+          if (++reads === 1) throw new Error('temporary native export failure')
+          return nativeCapture(request)
+        },
+      },
+    })
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 100 },
+      })
+      await scope.next()
+      return 'completed'
+    })
+    expect(fixture.dispatches).toHaveLength(1)
+    expect(reads).toBe(1)
+    expect(await fixture.liveEnvironments()).toHaveLength(1)
+    const released = await fixture.executors[0]!.releaseRetained!(new AbortController().signal)
+    expect(released).toEqual([expect.objectContaining({ destroyed: true })])
+    expect(reads).toBe(2)
+    expect(await fixture.liveEnvironments()).toEqual([])
+    const rows = (await fixture.leafEvents()).filter((event) => event.kind === 'execution-evidence')
+    const receipts = (await Promise.all(
+      rows.map((event) => fixture.context.blobs.get(event.outRef)),
+    )) as Array<{
+      node: Record<string, unknown>
+      taskRef: string
+      outRef: string
+      harnessTranscript: HarnessTranscriptEvidence
+    }>
+    expect(receipts.map((receipt) => receipt.harnessTranscript.status)).toEqual([
+      'unavailable',
+      'available',
+    ])
+    expect(receipts.every((receipt) => !('attemptId' in receipt.node))).toBe(true)
+    expect(rows.every((row) => typeof row.attemptId === 'string')).toBe(true)
+    expect(new Set(rows.map((row) => row.attemptId)).size).toBe(1)
+    expect(new Set(receipts.map((receipt) => receipt.taskRef)).size).toBe(1)
+    expect(new Set(receipts.map((receipt) => receipt.outRef)).size).toBe(1)
+  })
+
+  it('does not attribute the previous result to a failed continuation or its repaired capture', async () => {
+    let reads = 0
+    let validations = 0
+    const fixture = await leafFixture({
+      failure: (dispatch) => (dispatch === 1 ? 'Usage window exhausted' : undefined),
+      failureCode: 'rate_limit_error',
+      terminalStatus: 'completed',
+      executor: {
+        harnessTranscript: async (request) => {
+          reads += 1
+          if (reads === 2 || reads === 3) throw new Error('temporary native export failure')
+          return nativeCapture(request)
+        },
+        validator: {
+          async validate() {
+            if (++validations === 2) throw new Error('validation transport failed')
+            return { valid: true, score: 1 }
+          },
+        },
+      },
+    })
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 100 },
+      })
+      await scope.next()
+      return 'completed'
+    })
+    await fixture.executors[0]!.releaseRetained!(new AbortController().signal)
+    expect(fixture.dispatches).toHaveLength(2)
+    const events = await fixture.leafEvents()
+    const inputs = events.filter((event) => event.kind === 'execution-input')
+    const receipts = (await Promise.all(
+      events
+        .filter((event) => event.kind === 'execution-evidence')
+        .map((event) => fixture.context.blobs.get(event.outRef)),
+    )) as Array<{ taskRef: string; outRef?: string; harnessTranscript: HarnessTranscriptEvidence }>
+    const failed = receipts.filter((receipt) => receipt.taskRef === inputs[1]!.taskRef)
+    expect(failed.map((receipt) => receipt.harnessTranscript.status)).toEqual([
+      'unavailable',
+      'available',
+    ])
+    expect(failed.every((receipt) => !Object.hasOwn(receipt, 'outRef'))).toBe(true)
+    expect(await fixture.liveEnvironments()).toEqual([])
+  })
+
   it('continues typed quota refusals with distinct native invocation identities in one session', async () => {
     const fixture = await leafFixture({
       failure: (dispatch) => (dispatch <= 2 ? 'Usage window exhausted' : undefined),

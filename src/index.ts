@@ -200,6 +200,7 @@ export {
 } from './knowledge/activation'
 export {
   buildKnowledgeImprovementExperimentBundles,
+  captureKnowledgeImprovementCandidatePair,
   type KnowledgeImprovementCandidatePair,
   type KnowledgeImprovementExperimentBundles,
   type KnowledgeImprovementJobMeasurement,
@@ -211,6 +212,7 @@ export type {
   KnowledgeReadinessCheck,
   KnowledgeReadinessCheckInput,
   KnowledgeReadinessCheckResult,
+  SupervisedKnowledgeUpdateOptions,
 } from './knowledge/supervised-update'
 // ── Delegated loop-runner (configured code/research/review/audit/improvement) ──
 export { auditLoopRunner, type DelegatedLoopRunner } from './loop-runner'

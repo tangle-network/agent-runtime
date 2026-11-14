@@ -63,6 +63,7 @@ The system is four steps, each with a named entry point:
    `searchHistory` is the method's search ledger, verified from its bytes: every scored candidate as a node, every evaluation as a cell, and GEPA's parents as edges.
    `improve(profile, { method: searchMethod({ proposer, maxExpansions, lanes }), claim, ... })` runs Runtime's native search on Eval's search kernel instead: a policy, an allocator, and a proposer, with parent-to-child Interface diffs on every edge and one claim on the sealed test split.
    A producer can pass `recordCell({ cell, search, result })` to bind its RunRecord during each scored cell settlement. The callback receives final attempt accounting and trace identity; a failed callback stops the search before the cell settles. Pass `executionRunId(artifact)` when a cell ran a nested AgentGraph so its graph run id reaches `traceRef.execRunId`.
+   Pass `finalEvidence` with a ledger shared across related campaigns to reserve final units before development and record the sealed candidate roster before test dispatch. Native search returns that receipt and permits an interrupted claim to resume only from its identical durable plan; a fresh adaptive attempt cannot reuse exposed final units.
    Its `lanes` say where cells run (shared boxes, dedicated environments, subscription seats or the router) and under which cost rule; a hard lane caps each cell's paid calls.
    Use `surface: 'agent-profile'` to search the complete profile.
    Use `profileComponents` to select one field or a group, with exact read/apply validation.
@@ -366,6 +367,8 @@ Continue with the same path and the returned character offset to reconstruct a l
 Successive pages reuse one encoding of the selected artifact.
 Changing the selection or finishing its final page releases that encoding.
 The blob remains unchanged, and reads remain scoped to workers visible to the manager.
+
+Knowledge update hosts receive the exact isolated `root` and `goal` in the optional fourth `runSupervised` callback argument. Bind the executor workspace from that context, retain the actual supervised result, and honor the supplied readiness deliverable. The formatted task is agent input, not a workspace authority. Existing three-argument callbacks remain supported. Job `supervisedSpent.tokensKnown` preserves Runtime's completeness flag; numeric input/output totals remain the observed subtotals when a native counter is unavailable. Legacy summaries without this flag have unavailable completeness, not proven-known usage.
 
 Knowledge improvement jobs carry nondefault `stateScope` into both frozen experiment bundles and prepared execution.
 Knowledge owns scope normalization and hashing, including the selected pages directory and optional research state.

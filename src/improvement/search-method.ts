@@ -25,11 +25,13 @@ import {
   asha,
   type CampaignStorage,
   campaignCellSearchResult,
+  captureFinalEvidencePolicy,
   createRunCostLedger,
   fsCampaignStorage,
   isProposedCandidate,
   openSearchLedger,
   type ProposeContext,
+  prepareSearchFinalEvidence,
   type RunCampaignOptions,
   renderSearchSummary,
   resolveRunDir,
@@ -228,8 +230,10 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     workerSlots,
     budgetPool,
     trace,
+    finalEvidence: inputFinalEvidence,
     ...campaignOptions
   } = opts
+  const finalEvidencePolicy = inputFinalEvidence && captureFinalEvidencePolicy(inputFinalEvidence)
   const splitScenarios = { trainScenarios, selectionScenarios, testScenarios }
   const claim = assertSearchRequest(method, inputClaim, splitScenarios)
   const { allocation, policy, lanes } = method
@@ -248,6 +252,14 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     evaluationRef,
     process: SEARCH_METHOD_SOURCE,
     method: searchMethodDescriptor(method),
+    ...(finalEvidencePolicy
+      ? {
+          finalEvidence: {
+            requestId: finalEvidencePolicy.requestId,
+            evaluatorDigest: finalEvidencePolicy.evaluatorDigest,
+          },
+        }
+      : {}),
   }).slice('sha256:'.length, 'sha256:'.length + 24)
   const searchId = `improve-${searchKey}`
   const searchDir = `${runDir}/search/${searchId}`
@@ -268,6 +280,15 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     concurrency,
     execution,
   })
+  const finalEvidence = finalEvidencePolicy
+    ? await prepareSearchFinalEvidence({
+        policy: finalEvidencePolicy,
+        recorder,
+        claim,
+        finalScenarios: testScenarios,
+        developmentScenarios: [...trainScenarios, ...selectionScenarios],
+      })
+    : undefined
   const session: SearchSession<TScenario, TArtifact> = {
     method,
     prepared,
@@ -332,9 +353,11 @@ export async function runSearchImprovement<TScenario extends Scenario, TArtifact
     admit: (node) => admissionRefusal(session, node),
     maxExpansions: method.maxExpansions,
     maxAttempts: method.maxAttempts,
+    ...(finalEvidence ? { beforeClaim: finalEvidence.beforeClaim } : {}),
     ...(signal ? { signal } : {}),
   })
-  return decideSearchResult({ session, codec, result, costCeiling, startedAt })
+  const decided = await decideSearchResult({ session, codec, result, costCeiling, startedAt })
+  return { ...decided, ...(finalEvidence ? { finalEvidence: finalEvidence.receipt() } : {}) }
 }
 
 interface OpenSearchRecorderInput<TScenario extends Scenario, TArtifact> {

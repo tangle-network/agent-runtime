@@ -125,7 +125,10 @@ export function driveHarnessFromBackend(
   drive.deliverReady = (): boolean => state.activeExecutor !== undefined
   drive.traceSource = () => state.activeExecutor?.traceSource?.()
   drive.progress = () => manager.progress()
-  if (state.boundBackend.backend === 'provider') {
+  if (
+    state.boundBackend.backend === 'provider' ||
+    (state.boundBackend.backend === 'bridge' && state.boundBackend.harnessTranscript)
+  ) {
     drive.harnessTranscript = () => manager.harnessTranscript()
     drive.harnessTranscriptSettled = () =>
       state.lastExecutor?.harnessTranscriptSettled?.() ?? Promise.resolve()

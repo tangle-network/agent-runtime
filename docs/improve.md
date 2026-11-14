@@ -475,3 +475,33 @@ Set `implementationRef` to the deployed `git:<40 hex>` revision, or to a `sha256
 The same run ID resumes only when this identity still matches.
 Measure the returned bundle pair, record the review, then activate through `executeAgentImprovementActivation`.
 Activation is the only write path.
+
+## Exact profile measurement and incomplete outcomes
+
+`proposeAgentProfileImprovement` from `/intelligence` composes analysis, the
+existing optimizer, a fresh final assessment and the measured proposal. Its
+`benchmark` must identify tasks disjoint from every optimizer train, selection
+and final-test case. Products supply an explicit fresh assessment manifest;
+reusing or silently splitting the optimizer's test cohort does not establish
+independent final assessment.
+
+Optional `modelBinding` accepts an exact Interface policy value or an async
+resolver on frozen baseline/candidate profiles. Runtime calls that resolver once
+and seals its result before final cells. Interface's shared model helper checks
+the actual source profiles and declared changes at sealing and before each
+execution; Eval requires every measured receipt to attest the exact resolved
+model/snapshot for its arm. Missing observed identity refuses before final
+measurement. The product's trusted resolver must obtain those facts from the
+execution owner. A configured model string or a static profile digest does not
+prove which model served a run, which Hub account resolved, or which tools an
+expanded capability grant admitted. Products retain those existing owner
+receipts and placement bindings separately.
+
+The complete result remains the default. With `allowIncomplete: true`, the same
+function also accepts Interface's recorded accounting branches and can return
+`status: 'incomplete'`, `decision: 'hold'`, exact paired records, missing-fact
+reasons and null comparative measurement cost. It has no proposal and cannot
+authorize activation. Known native counters remain known and missing facts
+remain null. Raw evidence references preserve facts outside the profile
+accounting fields. Dispose the returned `improvement` when inspection is complete,
+as for a complete result.

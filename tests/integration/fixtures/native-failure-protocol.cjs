@@ -7,6 +7,16 @@ if (process.argv.includes('--version')) {
 }
 const scenario = JSON.parse(fs.readFileSync('native-case.json', 'utf8'))
 fs.writeFileSync('native.pid', String(process.pid))
+if (scenario.kind === 'capture') {
+  fs.appendFileSync('native-capture-launches.jsonl', JSON.stringify({ pid: process.pid }) + '\n')
+  fs.writeFileSync(
+    'native-transcript.jsonl',
+    JSON.stringify({
+      nativeSessionId: 'failure-projection-fixture',
+      text: 'actual-native-file-canary',
+    }) + '\n',
+  )
+}
 const event = (value) => process.stdout.write(JSON.stringify(value) + '\n')
 event({
   type: 'system',

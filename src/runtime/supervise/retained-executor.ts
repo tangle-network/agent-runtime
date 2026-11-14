@@ -1,5 +1,6 @@
 import type { AgentProfile, WorkspaceCheckpointRef } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
+import type { HarnessTranscriptCapture } from '../harness-transcript'
 import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
@@ -54,6 +55,12 @@ export interface RetainedExecutorContext {
   readonly onResult: (result: ExecutorResult<unknown>) => Promise<void>
   /** Retain failure evidence without accepting a result or changing recovery state. */
   readonly onEvidence?: (out: unknown) => Promise<void>
+  /** Persist an invocation's capture before its provider environment can be destroyed or reused. */
+  readonly onHarnessTranscript?: (
+    task: unknown,
+    capture: HarnessTranscriptCapture,
+    result: ExecutorResult<unknown> | undefined,
+  ) => Promise<void>
   /** Start this node's next invocation in its last one's environment and session, once that one
    *  committed its result: the scope journals `task` as the next `execution-input` and answers the
    *  new invocation's context. A Scope leaf has it; an owner's driver re-enters instead. */
@@ -81,6 +88,8 @@ export function executorEvidenceWriter(args: {
   blobs: ResultBlobStore
   rootId: string
   nodeId: string
+  /** The exact attempt the evidence belongs to, recorded on the row rather than in the blob. */
+  attemptId?: string
   nextSequence: () => number
   now: () => number
   /** The node's trace-root writer: evidence whose events its result already rooted gets none. */
@@ -95,6 +104,7 @@ export function executorEvidenceWriter(args: {
     await args.journal.appendEvent(args.rootId, {
       kind: 'execution-evidence',
       id: args.nodeId,
+      ...(args.attemptId === undefined ? {} : { attemptId: args.attemptId }),
       outRef,
       ...(traceRoot === undefined ? {} : { traceRoot }),
       seq: args.nextSequence(),

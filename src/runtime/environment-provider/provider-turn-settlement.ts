@@ -1,5 +1,4 @@
 import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
-import { captureHarnessTranscript } from '../harness-transcript'
 import { retainedSessionReplaced } from '../retained-run-binding'
 import type { SandboxOutcomeCarrier } from '../sandbox-outcome'
 import { CheckUnavailableError } from '../supervise/completion-gate'
@@ -15,6 +14,10 @@ import {
   resultFromEvents,
 } from './provider-event-projection'
 import type { ProviderLeafOut } from './provider-executor-admission'
+import {
+  captureProviderHarnessTranscript,
+  persistProviderHarnessTranscript,
+} from './provider-harness-transcript'
 import type { ProviderInvocationEnd, StreamProviderExecutorArgs } from './provider-invocation'
 import { environmentAsSandboxInstance } from './provider-sandbox-adapter'
 import type { ProviderTurnObserver } from './provider-turn-observer'
@@ -65,9 +68,9 @@ export class ProviderTurnSettlement {
   /** Read the provider transcript while its environment is still available. */
   private async readLiveTranscript(): Promise<void> {
     const { args } = this
-    args.scope.state.harnessTranscript = await captureHarnessTranscript(
-      this.environment as Parameters<typeof captureHarnessTranscript>[0],
-      args.profile.harness,
+    args.scope.state.harnessTranscript = await captureProviderHarnessTranscript(
+      args.scope,
+      this.environment,
       args.signal,
     )
   }
@@ -158,9 +161,14 @@ export class ProviderTurnSettlement {
         }
     }
     this.commitStarted = true
-    if (this.retained) await args.retention?.onResult(settled)
+    if (this.retained) {
+      await args.retention?.onResult(settled)
+      args.scope.state.artifact = settled
+    }
     file?.resultCommitted()
     this.settled = settled
+    if (this.retained)
+      await persistProviderHarnessTranscript(args.scope, args.task, settled, args.retention)
     args.scope.state.pending = false
     args.scope.state.artifact = settled
   }
@@ -189,6 +197,8 @@ export class ProviderTurnSettlement {
       await args.retention?.onResult(settled)
       file.resultCommitted()
       this.settled = settled
+      if (this.retained)
+        await persistProviderHarnessTranscript(args.scope, args.task, settled, args.retention)
       args.scope.state.pending = false
       args.scope.state.artifact = settled
       return
@@ -201,8 +211,21 @@ export class ProviderTurnSettlement {
         : error
     this.failed = true
     await this.stopEndedHarness()
-    args.scope.state.settleTranscript()
     await this.readLiveTranscript()
+    if (this.retained) {
+      try {
+        await persistProviderHarnessTranscript(
+          this.args.scope,
+          this.args.task,
+          this.settled,
+          this.args.retention,
+        )
+      } catch (error) {
+        // Persistence debt keeps the source alive; it cannot replace the turn's own failure.
+        if (this.failure instanceof Error && this.failure.cause === undefined)
+          this.failure.cause = error
+      }
+    }
   }
 
   /** Stop the harness when required, then settle its environment's custody. */
