@@ -1,7 +1,7 @@
 import { ValidationError } from '../../errors'
 import type { DriverAttemptRecord } from './driver-attempt-evidence'
 import type { TeamProgress } from './progress'
-import { owners } from './retained-owner-state'
+import { owners, type ReleaseClock } from './retained-owner-state'
 import {
   releaseScopeRetainedOwnerEnvironment,
   retainedOwnerReleaseRetriable,
@@ -198,12 +198,12 @@ async function releaseScope(scope: Scope<unknown>, nested: boolean): Promise<voi
   await scopeSeatAccountingUpdates.get(scope)?.()
 }
 
-/** @internal Bound every owner release in this scope's tree by the settling run's teardown
- *  deadline (epoch ms), so no destroy wait at any level outlasts it. */
-export function boundRetainedReleases(scope: Scope<unknown>, deadlineAt: number): void {
+/** @internal Bound every owner release in this scope's tree by the settling run's one teardown
+ *  clock, so no destroy wait at any level outlasts it. */
+export function boundRetainedReleases(scope: Scope<unknown>, clock: ReleaseClock): void {
   const owner = owners.get(scope)
-  if (owner !== undefined) owner.releaseDeadlineAt = deadlineAt
-  for (const nested of nestedManagerScopes(scope)) boundRetainedReleases(nested, deadlineAt)
+  if (owner !== undefined) owner.releaseClock = clock
+  for (const nested of nestedManagerScopes(scope)) boundRetainedReleases(nested, clock)
 }
 
 /** The manager scopes this scope's children own, read live. */

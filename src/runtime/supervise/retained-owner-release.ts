@@ -137,30 +137,38 @@ async function releaseOwnerEnvironment(
   }
   const forksUnresolved = await settleCaptureForks(state, captures.signal)
   for (const { event } of checkpointFailures) pendingSources.add(event.environmentId)
-  // Every destroy starts at once under one deadline, never past the settling run's; receipts are
-  // still journaled in order.
-  const left = (state.releaseDeadlineAt ?? Number.POSITIVE_INFINITY) - Date.now()
+  const held = (state.held ??= new Map())
+  const asking = [...environments].filter(
+    (id) =>
+      !released.has(id) && !retentionFailures.has(id) && !pendingSources.has(id) && !held.has(id),
+  )
+  // Every destroy starts at once under one deadline; receipts are still journaled in order. In a
+  // settling run, an owner's first destroys get one full wait from when they are asked, so the
+  // captures above never spend it, and a later release ends by the run's window or that wait.
+  const clock = state.releaseClock
+  if (clock !== undefined && asking.length > 0) {
+    clock.startedAt ??= Date.now()
+    state.releaseDestroysAt ??= Date.now()
+  }
+  const left =
+    clock?.startedAt === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(
+          clock.startedAt + clock.windowMs,
+          (state.releaseDestroysAt ?? Date.now()) + destroyMs,
+        ) - Date.now()
   const waitMs = Math.max(0, Math.min(destroyMs, left))
   const destroyDeadline = AbortSignal.timeout(waitMs)
-  const held = (state.held ??= new Map())
   const destroys = new Map(
-    [...environments]
-      .filter(
-        (id) =>
-          !released.has(id) &&
-          !retentionFailures.has(id) &&
-          !pendingSources.has(id) &&
-          !held.has(id),
+    asking.map((id) => {
+      const wait = runAbortable(
+        () => ownerEnvironmentDestroy(state, provider, id),
+        destroyDeadline,
+        () => new Error(`destroy still running after ${waitMs} ms`),
       )
-      .map((id) => {
-        const wait = runAbortable(
-          () => ownerEnvironmentDestroy(state, provider, id),
-          destroyDeadline,
-          () => new Error(`destroy still running after ${waitMs} ms`),
-        )
-        wait.catch(() => undefined)
-        return [id, wait] as const
-      }),
+      wait.catch(() => undefined)
+      return [id, wait] as const
+    }),
   )
   for (const environmentId of environments) {
     if (released.has(environmentId)) continue

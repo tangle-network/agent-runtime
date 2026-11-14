@@ -2,6 +2,7 @@ import { loadSpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import { RunCancellationReason } from './abortable'
 import type { ScopeResumeState } from './recover-executors'
 import { RELEASE_DESTROY_MS } from './retained-owner-release'
+import type { ReleaseClock } from './retained-owner-state'
 import type { guardRunPersistence } from './run-persistence'
 import {
   boundRetainedReleases,
@@ -56,15 +57,14 @@ export async function joinRunChildren(
   // of a 60-slot fleet for 19 to 37 hours. The caller knows whether a later process
   // resumes, so the policy decides; the unconfirmed set is re-read so released nodes drop out.
   const releasing = !persistence.failed && join.retainedAtSettlement === 'release'
-  // The teardown opens now and has one deadline: every release in the tree, its retries
-  // included, ends within one destroy wait (or the longer retry window). Releasing the tree one
-  // level after another, each level waiting its own deadline, took 22 minutes on a 28-box cancel.
-  let opensAt = Date.now()
-  if (releasing)
-    boundRetainedReleases(
-      scope,
-      opensAt + Math.max(join.opts.teardownConfirmMs ?? 0, RELEASE_DESTROY_MS),
-    )
+  // Every level of the tree releases at once under one clock, started by the tree's first destroy
+  // request: each owner's destroys get one destroy wait from when it asks, after its captures, and
+  // retries end with the clock's window. Releasing the tree one level after another, each level
+  // waiting its own deadline, took 22 minutes on a 28-box cancel.
+  const clock: ReleaseClock = {
+    windowMs: Math.max(join.opts.teardownConfirmMs ?? 0, RELEASE_DESTROY_MS),
+  }
+  if (releasing) boundRetainedReleases(scope, clock)
   // A settled manager may still be capturing its last turn's workspace and releasing its
   // environment; both finish before the run settles. The run's release joins that work instead of
   // waiting for it, since each release waits for its own manager's capture before any destroy.
@@ -73,8 +73,8 @@ export async function joinRunChildren(
     releasing ? releaseRetainedEnvironments(scope) : undefined,
   ])
   join.teardownUnconfirmed = unconfirmedTeardowns(scope)
-  // With no release, the retries' window opens once that settlement work is done.
-  if (!releasing) opensAt = Date.now()
+  // The retries share the release's clock; with no destroy asked, they open once settlement is done.
+  const opensAt = clock.startedAt ?? Date.now()
   await confirmRetriableTeardowns(join, releasing, opensAt)
   // An expired or cancelled resume can stop before adopting retained children.
   // Preserve those nodes and name their source environments instead of implying

@@ -19,6 +19,7 @@ import { expect, it } from 'vitest'
 import { loadSpawnForest } from '../../src/durable/spawn-journal/spawn-forest'
 import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
+import { RELEASE_DESTROY_MS } from '../../src/runtime/supervise/retained-owner-release'
 import {
   bindScopeRetainedOwnerProvider,
   prepareScopeRetainedOwnerTask,
@@ -110,8 +111,8 @@ const UNFINISHED_RUNS = new Map([
 ])
 
 /** A provider double that answers each box's deletes with its recorded answers, in order. */
-function recordedProvider() {
-  const answers = new Map(RECORDED.map(([box, , recorded]) => [box, recorded]))
+function recordedProvider(recorded: typeof RECORDED) {
+  const answers = new Map(recorded.map(([box, , boxAnswers]) => [box, boxAnswers]))
   const destroys = new Map<string, number>()
   const wakes = new Map<string, number>()
   const stopped = new Set<string>()
@@ -156,7 +157,8 @@ function recordedProvider() {
   return { provider, destroys, wakes, reconnects: () => reconnects }
 }
 
-/** The owner's turn as a retained run journals it: its input, its intent, then its box. */
+/** The owner's turn as a retained run journals it: its input, its intent, its box, and, for a
+ *  turn that never returned, its dispatched run. */
 async function admitBox(
   scope: Scope<unknown>,
   provider: AgentEnvironmentProvider,
@@ -166,23 +168,24 @@ async function admitBox(
   bindScopeRetainedOwnerProvider(scope, provider)
   await prepareScopeRetainedOwnerTask(scope, task)
   const owner = scopeRetainedOwnerContext(scope)!
+  const unfinished = UNFINISHED_RUNS.get(box)
   const identity = {
     provider: provider.name,
     idempotencyKey: `${box}:key`,
     turnId: `${box}:turn`,
     sessionId: `${box}:session`,
-    executionId: `${box}:execution`,
+    executionId: unfinished ?? `${box}:execution`,
   }
+  const requestDigest = canonicalCandidateDigest({ box, task })
   await owner.onAdmission({
     phase: 'intent',
     ...identity,
     runId: RUN_ID,
     requestedProfileDigest: canonicalCandidateDigest({ box }),
-    requestDigest: canonicalCandidateDigest({ box, task }),
+    requestDigest,
   })
   await owner.onAdmission({ phase: 'environment', ...identity, environmentId: box })
-  const executionId = UNFINISHED_RUNS.get(box)
-  if (executionId === undefined) return
+  if (unfinished === undefined) return
   await owner.onAdmission({
     phase: 'dispatched',
     idempotencyKey: identity.idempotencyKey,
@@ -191,9 +194,9 @@ async function admitBox(
       provider: provider.name,
       environmentId: box,
       sessionId: identity.sessionId,
-      executionId,
-      runId: executionId,
-      requestDigest: canonicalCandidateDigest({ box, task }),
+      executionId: unfinished,
+      runId: unfinished,
+      requestDigest,
     },
   })
 }
@@ -205,11 +208,21 @@ function aborted(signal: AbortSignal): Promise<never> {
   })
 }
 
-it('returns a cancelled 28-box run within one release wait and keeps every held box', async () => {
-  const fixture = recordedProvider()
+/**
+ * Run a root that owns `rootBox` and one manager per other recorded box. A manager whose first
+ * answer came before the cancel finishes and is released at its settlement; the others work until
+ * the cancel. The root cancels once every finished manager's box was asked to delete. With
+ * `rootCaptureMs`, the root's last turn hands over an end-of-turn capture that long.
+ */
+async function cancelRun(
+  recorded: typeof RECORDED,
+  rootBox: string,
+  { rootCaptureMs }: { readonly rootCaptureMs?: number } = {},
+) {
+  const fixture = recordedProvider(recorded)
   const context = createInMemoryRunContext({ withDriver: true })
   const controller = new AbortController()
-  const managers = RECORDED.filter(([box]) => box !== ROOT_BOX)
+  const managers = recorded.filter(([box]) => box !== rootBox)
   const finished = managers.filter(([, beforeCancel]) => beforeCancel).map(([box]) => box)
   let finishedAsked = (): void => {}
   const asked = new Promise<void>((resolve) => {
@@ -220,7 +233,12 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
     {
       name: 'root',
       async act(task, scope) {
-        await admitBox(scope, fixture.provider, ROOT_BOX, task)
+        await admitBox(scope, fixture.provider, rootBox, task)
+        if (rootCaptureMs !== undefined) {
+          const handOver = scopeRetainedOwnerContext(scope)?.onEndOfTurnWork
+          if (handOver === undefined) throw new Error('the owner takes no end-of-turn work')
+          handOver(new Promise<void>((resolve) => setTimeout(resolve, rootCaptureMs)))
+        }
         for (const [box, beforeCancel] of managers) {
           const manager = driverChild(
             testAgentProfile(`${box}-manager`),
@@ -257,13 +275,24 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
       ...context,
       runId: RUN_ID,
       budget: { maxTokens: 10_000, maxIterations: 500 },
-      workerSlots: RECORDED.length,
+      workerSlots: recorded.length,
       signal: controller.signal,
     },
   )
   const cancelToResultMs = Date.now() - cancelledAt
   const forest = await loadSpawnForest(context.journal, RUN_ID)
+  const destroyedBoxes = [
+    ...new Set(
+      forest.events.flatMap(({ event }) =>
+        event.kind === 'environment-teardown' && event.destroyed ? [event.environmentId] : [],
+      ),
+    ),
+  ].sort()
+  return { ...fixture, result, cancelToResultMs, destroyedBoxes }
+}
 
+it('returns a cancelled 28-box run within one release wait and keeps every held box', async () => {
+  const run = await cancelRun(RECORDED, ROOT_BOX)
   const firstAnswer = new Map(RECORDED.map(([box, , answers]) => [box, answers[0]]))
   const boxesAnswered = (match: (answer: Answer) => boolean) =>
     [...firstAnswer].filter(([, answer]) => match(answer)).map(([box]) => box)
@@ -273,18 +302,18 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
   expect([heldBoxes.length, unanswered.length, deleted.length]).toEqual([14, 12, 2])
 
   // One release wait (90 s), where the recorded teardown took 1315 s.
-  const measured = `cancel-to-result ${cancelToResultMs} ms for ${RECORDED.length} boxes`
+  const measured = `cancel-to-result ${run.cancelToResultMs} ms for ${RECORDED.length} boxes`
   console.log(measured)
-  expect(cancelToResultMs, measured).toBeLessThan(120_000)
+  expect(run.cancelToResultMs, measured).toBeLessThan(120_000)
   // Each box is asked once: a held box is never reconnected to, not even to stop its harness, and
   // a delete still in flight is joined, not asked again.
-  expect(Object.fromEntries(fixture.destroys)).toEqual(
+  expect(Object.fromEntries(run.destroys)).toEqual(
     Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
   )
-  expect(Object.fromEntries(fixture.wakes)).toEqual({})
-  expect(fixture.reconnects()).toBe(0)
+  expect(Object.fromEntries(run.wakes)).toEqual({})
+  expect(run.reconnects()).toBe(0)
 
-  const unconfirmed = result.teardownUnconfirmed ?? []
+  const unconfirmed = run.result.teardownUnconfirmed ?? []
   const nodeOf = (box: string) =>
     unconfirmed.find((node) =>
       [...(node.environments ?? []), ...(node.kept ?? [])].some((ref) => ref.environmentId === box),
@@ -316,10 +345,21 @@ it('returns a cancelled 28-box run within one release wait and keeps every held 
       .sort(),
   ).toEqual([...unanswered].sort())
   // Only a delete the provider confirmed is journaled as destroyed.
-  const receipts = forest.events.flatMap(({ event }) =>
-    event.kind === 'environment-teardown' ? [event] : [],
-  )
-  expect(
-    [...new Set(receipts.filter((r) => r.destroyed).map((r) => r.environmentId))].sort(),
-  ).toEqual([...deleted].sort())
+  expect(run.destroyedBoxes).toEqual([...deleted].sort())
 }, 180_000)
+
+it('confirms a delete asked after a capture that outlasts the release wait', async () => {
+  // The two boxes the recorded provider deleted at once: one manager's, and the root's, whose last
+  // turn's capture outlasts one release wait. The capture spends no part of the delete's wait.
+  const deletes = RECORDED.filter(([, , answers]) => answers[0] === DELETED)
+  const [rootBox, managerBox] = deletes.map(([box]) => box)
+  const captureMs = RELEASE_DESTROY_MS + 5_000
+  const run = await cancelRun(
+    deletes.map(([box, , answers]) => [box, false, answers] as const),
+    rootBox!,
+    { rootCaptureMs: captureMs },
+  )
+  expect(run.cancelToResultMs).toBeGreaterThanOrEqual(captureMs - 1_000)
+  expect(run.destroyedBoxes).toEqual([rootBox, managerBox].sort())
+  expect(run.result.teardownUnconfirmed ?? []).toEqual([])
+}, 240_000)

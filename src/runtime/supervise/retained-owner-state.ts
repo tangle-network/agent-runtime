@@ -13,6 +13,14 @@ import type {
 } from './types'
 
 /** @internal */
+/** One teardown window for a settling run's tree, opened by the first owner in the tree to ask its
+ *  provider to delete, so end-of-turn captures never spend it. */
+export interface ReleaseClock {
+  readonly windowMs: number
+  /** Epoch ms of the tree's first destroy request; unset until one is issued. */
+  startedAt?: number
+}
+
 export interface OwnerState {
   readonly admissions: RetainedRunAdmission[]
   readonly context: RetainedExecutorContext
@@ -38,8 +46,10 @@ export interface OwnerState {
   /** Environments whose provider refused deletion under a retention hold, with the receipt's
    *  detail: kept as evidence, and never reconnected to or asked again by this process. */
   held?: Map<string, string>
-  /** The settling run's teardown deadline (epoch ms): no release waits on a destroy past it. */
-  releaseDeadlineAt?: number
+  /** The settling run's teardown clock: no release waits on a destroy past it. */
+  releaseClock?: ReleaseClock
+  /** When this owner first asked its provider to delete under `releaseClock` (epoch ms). */
+  releaseDestroysAt?: number
   taskRef?: string
   acceptedRef?: Extract<SpawnEvent, { kind: 'execution-result' }>
   /** The checkpoint the current invocation's NEW environment starts from, if any. */
