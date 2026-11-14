@@ -12,7 +12,7 @@ import {
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { recordValue } from '../../record-value'
 import { isSandboxTerminalEvent, sandboxTerminalUsageField } from '../sandbox-events'
-import { turnFailureOf } from '../supervise/executor-outcome'
+import { turnFailureOf, turnRemediationOf } from '../supervise/executor-outcome'
 import type { ExecutorResult } from '../supervise/types'
 import type { ProviderLeafOut } from './provider-executor-admission'
 
@@ -103,6 +103,8 @@ function providerFailureEvent(
     failureStatusCode(sandboxEvent.data) ?? failureStatusCode(outcome) ?? failureStatusCode(result)
   const failure =
     turnFailureOf(sandboxEvent.data) ?? turnFailureOf(outcome) ?? turnFailureOf(result)
+  const remediation =
+    turnRemediationOf(sandboxEvent.data) ?? turnRemediationOf(outcome) ?? turnRemediationOf(result)
   return {
     type: 'result',
     data: {
@@ -111,6 +113,7 @@ function providerFailureEvent(
       ...(errorCode ? { errorCode } : {}),
       ...(statusCode === undefined ? {} : { statusCode }),
       ...(failure === undefined ? {} : { failure }),
+      ...(remediation === undefined ? {} : { remediation }),
     },
   }
 }
@@ -146,7 +149,12 @@ function providerTerminalSuccess(
 /** Terminal success forgives recovered error frames; explicit failed verdicts retain their evidence. */
 export function createProviderFailureLedger(): {
   observe(event: AgentEnvironmentEvent, sandboxEvent: SandboxEvent): void
-  finish(): (AgentRunOutcome & { failure?: AgentTurnFailure }) | undefined
+  finish():
+    | (AgentRunOutcome & {
+        failure?: AgentTurnFailure
+        remediation?: ReturnType<typeof turnRemediationOf>
+      })
+    | undefined
 } {
   const failures: SandboxEvent[] = []
   let verdicts = 0
@@ -173,7 +181,15 @@ export function createProviderFailureLedger(): {
           .reverse()
           .map((frame) => turnFailureOf(frame.data))
           .find((value) => value !== undefined)
-      return outcome === undefined ? undefined : { ...outcome, failure }
+      // The Sandbox tracker keeps only its own fields; the producer's structured remedy rides here.
+      const remediation = failures
+        .slice()
+        .reverse()
+        .map((frame) => turnRemediationOf(frame.data))
+        .find((value) => value !== undefined)
+      return outcome === undefined
+        ? undefined
+        : { ...outcome, failure, ...(remediation === undefined ? {} : { remediation }) }
     },
   }
 }
