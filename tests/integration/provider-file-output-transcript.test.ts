@@ -148,7 +148,12 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
       return put(ref, value)
     }
     const createExecutor = providerAsExecutor(provider, {})
-    let turn: Promise<unknown> | undefined
+    // The executor's own terminal outcome, observed beneath the supervisor.
+    let failure: unknown
+    let ended!: () => void
+    const turnEnded = new Promise<void>((resolve) => {
+      ended = resolve
+    })
     const runId = 'native-file-output'
     // Any failed store write seals this controller's persistence (guardRunPersistence), so the
     // run itself ends unavailable; the retained turn underneath must still end pending.
@@ -170,9 +175,15 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
                   executor = created
                   return {
                     ...created,
-                    execute: (task, signal) => {
-                      turn = created.execute(task, signal)
-                      return turn as ReturnType<typeof created.execute>
+                    async *execute(task, signal) {
+                      try {
+                        return yield* created.execute(task, signal)
+                      } catch (error) {
+                        failure = error
+                        throw error
+                      } finally {
+                        ended()
+                      }
                     },
                   }
                 },
@@ -182,8 +193,7 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
             { budget: { maxIterations: 1, maxTokens: 100 } },
           )
           expect(spawn.ok).toBe(true)
-          await expect.poll(() => turn, { timeout: 30_000 }).toBeDefined()
-          await turn!.catch(() => undefined)
+          await turnEnded
           return 'observed'
         },
       },
@@ -202,10 +212,7 @@ it('keeps an accepted file turn pending when its transcript write fails', async 
     )
     await expect(run).rejects.toBeInstanceOf(RuntimeRunStateError)
     // The committed turn reports pending, as a persistence throw from settle() does.
-    const failure = await turn!.then(
-      () => undefined,
-      (error: unknown) => error,
-    )
+    await turnEnded
     expect(failure).toBeInstanceOf(RetainedExecutionPendingError)
     // The source is kept for repair; the sealed store refused the retry instead of a raw throw.
     expect(destroyed).toBe(0)
