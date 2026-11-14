@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentProfile, AgentProfileMcpServer } from '@tangle-network/agent-interface'
 import { BackendTransportError, ValidationError } from '../../errors'
-import {
-  mergeObservedModelIdentity,
-  observedModelHasSnapshot,
-  observedModelMatchesDeclared,
-} from '../model-identity'
+import { mergeObservedModelIdentity, reportedServedModel } from '../model-identity'
 import { linkAbort, runAbortable } from './abortable'
 import {
   type ResolvedBridgeModelCredential,
@@ -382,19 +378,17 @@ function observeChunkIdentity(
   const { seam } = args
   if (chunk.model !== undefined) {
     try {
-      if (!observedModelMatchesDeclared(chunk.model, seam.providerModel)) {
+      const verdict = reportedServedModel(chunk.model, seam.providerModel, seam.model)
+      if (verdict === 'conflict') {
         args.onProviderIdentityConflict()
         throw new ValidationError(
           `bridgeExecutor: bridge reported model ${JSON.stringify(chunk.model)} but the profile requires ${JSON.stringify(seam.providerModel)}`,
         )
       }
-      const isWireModel = chunk.model === seam.model
+      // Record each snapshot before merging so a later conflict stays visible (fail-closed).
+      if (verdict === 'record') args.onProviderModel(chunk.model)
       // The exact request id is transport metadata: never served identity.
-      if (!isWireModel && observedModelHasSnapshot(chunk.model)) {
-        // Record each snapshot before merging so a later conflict stays visible (fail-closed).
-        args.onProviderModel(chunk.model)
-      }
-      if (!isWireModel) {
+      if (chunk.model !== seam.model) {
         ledger.observedModel = mergeBridgeObservedModel(ledger.observedModel, chunk.model)
       }
     } catch (error) {

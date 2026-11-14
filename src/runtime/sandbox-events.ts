@@ -104,6 +104,21 @@ export function sandboxEventServedBackend(event: SandboxEvent): SandboxServedBac
 }
 
 /**
+ * Read the served models a CLI Bridge provider names on one event, from `provider_models` and
+ * `provider_model` only. A chunk's `model` field is never read: Bridge run-event replay and
+ * one-shot retained deltas set it to the literal `cli-bridge` (cli-bridge src/routes/runs.ts), so
+ * it names the transport, not the served model.
+ */
+export function sandboxEventProviderModels(event: SandboxEvent): string[] {
+  const data = plainRecord((event as { data?: unknown } | null)?.data)
+  const listed = Array.isArray(data?.provider_models) ? data.provider_models : []
+  const models = [...listed, data?.provider_model].filter(
+    (model): model is string => typeof model === 'string' && model.trim().length > 0,
+  )
+  return [...new Set(models)]
+}
+
+/**
  * Fail the execution when the platform reports serving a model other than the exact one asked for.
  * Measured motive (agent-runtime#892): 6 of 6 boxes declaring `zai-coding-plan/glm-5.2` reported
  * `deepseek/deepseek-v4-flash` (`source: "environment"`) while the materialization receipt recorded
