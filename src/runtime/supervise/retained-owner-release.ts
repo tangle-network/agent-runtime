@@ -206,12 +206,10 @@ async function releaseOwnerEnvironment(
       // A held box was stopped by its provider's refusal, and a reconnect to stop its harness
       // would wake it; the receipt names the stop as not attempted, never as done.
       if (runs.length > 0 && held.has(environmentId)) {
-        detail = `${detail}; ${runs
-          .map(
-            (run) =>
-              `native execution ${run.executionId} stop not attempted: its provider holds the environment under a retention hold and a reconnect would wake it; ${NATIVE_STOP_UNCONFIRMED}`,
-          )
-          .join('; ')}`
+        const stops = runs.map(
+          (run) => `native execution ${run.executionId} ${HELD_STOP}; ${NATIVE_STOP_UNCONFIRMED}`,
+        )
+        detail = `${detail}; ${stops.join('; ')}`
         lastDetail = detail
       } else if (runs.length > 0) {
         const stops = await Promise.all(
@@ -303,6 +301,9 @@ async function releaseOwnerEnvironment(
 }
 
 class PermanentReleaseRefusal extends Error {}
+
+const HELD_STOP =
+  'stop not attempted: its provider holds the environment under a retention hold and a reconnect would wake it'
 
 /**
  * A provider that keeps an environment under a retention hold refuses its delete until the hold is
