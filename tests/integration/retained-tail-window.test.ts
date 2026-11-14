@@ -99,13 +99,13 @@ it('reads a terminal frame that arrives one provider read after the exact result
   for await (const row of new RetainedObservation(handle, stop.signal).observe(session))
     rows.push(row)
 
-  // The flipped order the window must absorb: the result settles first, late in the window.
-  expect(at.result! - at.frame!).toBeGreaterThanOrEqual(NATIVE_FINISH_MS)
-  expect(at.terminal!).toBeGreaterThan(at.result!)
-  expect(rows).toContainEqual(expect.objectContaining({ id: 'tail-1', type: 'result' }))
   const settled = rows.at(-1) as { type: string; data: Record<string, unknown> }
   expect(settled.type).toBe('result')
-  expect(settled.data, JSON.stringify(settled.data)).toMatchObject({ success: true })
+  expect(settled.data.eventStreamError).toBeUndefined()
   expect(settled.data).not.toHaveProperty('eventStreamComplete')
-  expect(settled.data).not.toHaveProperty('eventStreamError')
+  expect(settled.data, JSON.stringify(settled.data)).toMatchObject({ success: true })
+  expect(rows).toContainEqual(expect.objectContaining({ id: 'tail-1', type: 'result' }))
+  // The flipped order the window absorbed: the result settled first, late in the window.
+  expect(at.result! - at.frame!).toBeGreaterThanOrEqual(NATIVE_FINISH_MS)
+  expect(at.terminal!).toBeGreaterThan(at.result!)
 })
