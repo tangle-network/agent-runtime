@@ -27,6 +27,11 @@ import {
   retainIsolatedCheckOutputs,
 } from '../isolated-checker-outputs'
 import type { CompletionCheckContext } from './completion-gate'
+import type {
+  ExecutorNodeContext,
+  ProfileMaterializationReceipt,
+} from './contracts/execution-identity'
+import type { SpawnJournal } from './contracts/spawn-journal'
 import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
 import { retainedExecutorContext } from './retained-executor'
@@ -362,10 +367,51 @@ function evidenceOf(task: unknown): Array<[string, unknown]> {
   return [...entries]
 }
 
+/** Project execution identity from the owning journal, never from a node's settled output. */
+async function graphCheckRuntime(
+  graph: AgentGraph,
+  journal: SpawnJournal | undefined,
+  runId: string,
+  node: ExecutorNodeContext,
+) {
+  const events = (await journal?.loadTree(runId)) ?? []
+  const names = new Set(graph.nodes.map(({ id }) => id))
+  const nodeNames = new Map<string, string>()
+  for (const event of events)
+    if (event.kind === 'edge' && event.graph === undefined && names.has(event.edge.to))
+      nodeNames.set(event.id, event.edge.to)
+  const attempts = new Map<
+    string,
+    { nodeId: string; attemptId?: string; materializations: ProfileMaterializationReceipt[] }
+  >()
+  for (const event of events)
+    if (event.kind === 'spawned' && nodeNames.has(event.id))
+      attempts.set(event.id, {
+        nodeId: event.id,
+        ...(event.attemptId === undefined ? {} : { attemptId: event.attemptId }),
+        materializations: [],
+      })
+  for (const event of events)
+    if (event.kind === 'materialized' || event.kind === 'seat-materialized')
+      attempts.get(event.id)?.materializations.push(event.receipt)
+  return {
+    runId,
+    nodeId: node.nodeId,
+    attemptId: node.attemptId,
+    nodes: Object.fromEntries(
+      [...names].map((name) => [
+        name,
+        [...attempts.values()].filter((attempt) => nodeNames.get(attempt.nodeId) === name),
+      ]),
+    ),
+  }
+}
+
 async function writeEvidence(
   directory: string,
   task: unknown,
   trigger: RunGraphOptions['trigger'],
+  runtime: Awaited<ReturnType<typeof graphCheckRuntime>>,
 ): Promise<void> {
   await mkdir(directory, { recursive: true })
   for (const [id, result] of evidenceOf(task)) {
@@ -378,6 +424,7 @@ async function writeEvidence(
     canonicalCandidateBytes({
       task,
       ...(trigger === undefined ? {} : { trigger }),
+      runtime,
     }),
   )
 }
@@ -734,7 +781,12 @@ export function bindGraphCheckNodes(
         }
         let ran: Awaited<ReturnType<typeof runLocalCheck>>
         try {
-          await writeEvidence(evidence, task, options.trigger)
+          await writeEvidence(
+            evidence,
+            task,
+            options.trigger,
+            await graphCheckRuntime(graph, options.journal, runId ?? node.rootId, node),
+          )
           ran = local
             ? await runLocalCheck(check, local.cwd, evidence, signal, secrets, retention)
             : await runBoxCheck(

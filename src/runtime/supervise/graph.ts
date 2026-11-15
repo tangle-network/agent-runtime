@@ -847,7 +847,7 @@ export function superviseAgentGraph(
     opts.runContext?.runId ??
     `graph-${canonicalCandidateDigest(graph.nodes.map((n) => n.id)).slice('sha256:'.length, 'sha256:'.length + 12)}`
   const now = opts.now ?? Date.now
-  const checkNodes = bindGraphCheckNodes(graph, { ...opts, runId, trigger })
+  const checkNodes = bindGraphCheckNodes(graph, { ...opts, journal, runId, trigger })
 
   // The graph layer: node pinning, analyst routes, continuity defaults and the edge ledger. A
   // `run_graph` subtask builds the same overlay around its nested manager.

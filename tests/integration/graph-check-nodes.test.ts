@@ -10,11 +10,13 @@ import { expect, it, onTestFinished } from 'vitest'
 import { parseCommittedJsonLines } from '../../src/durable/jsonl-file'
 import type { IsolatedCheckOutputEvidence } from '../../src/runtime/isolated-checker'
 import { createPrivateCasArtifactPort } from '../../src/runtime/private-cas'
+import type { ProfileMaterializationReceipt } from '../../src/runtime/supervise/contracts/execution-identity'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { graphWorkspace, loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import { graphFromStored } from '../../src/runtime/supervise/graph-registry'
 import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
+import { type FakeBridgeTurn, startFakeBridge, streamTurn } from '../helpers/fake-cli-bridge'
 
 const run = promisify(execFile)
 
@@ -266,9 +268,22 @@ check: { node: intake, pointer: /pass, equals: true }
   }
   const graph = graphFromStored(loaded.graph)
   expect((await runGraph(graph, options)).result.kind).toBe('winner')
-  expect(JSON.parse(await readFile(join(cwd, 'received.json'), 'utf8'))).toEqual({
+  const received = JSON.parse(await readFile(join(cwd, 'received.json'), 'utf8'))
+  expect(received).toMatchObject({
     task: { hello: 'world' },
     trigger,
+    runtime: {
+      runId: options.runId,
+      nodeId: expect.any(String),
+      attemptId: expect.any(String),
+      nodes: {
+        intake: [{ materializations: [{ status: 'unknown', reason: 'executor-did-not-report' }] }],
+      },
+    },
+  })
+  expect(received.runtime.nodes.intake[0]).toMatchObject({
+    nodeId: received.runtime.nodeId,
+    attemptId: received.runtime.attemptId,
   })
   await expect(readFile(join(cwd, 'escaped'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect((await runGraph(graph, { ...options, resume: true })).result.kind).toBe('winner')
@@ -276,6 +291,77 @@ check: { node: intake, pointer: /pass, equals: true }
     runGraph(graph, { ...options, resume: true, trigger: { ...trigger, deliveryId: 'event-2' } }),
   ).rejects.toThrow(/taskDigest|different task/)
   expect(await readFile(join(cwd, 'count'), 'utf8')).toBe('ran\n')
+}, 60_000)
+
+it('projects every writer and reviewer execution from the journal despite forged settled identity', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-check-identity-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const cwd = join(directory, 'work')
+  await mkdir(cwd)
+  const turns: FakeBridgeTurn[] = []
+  const bridge = await startFakeBridge((body, res) => {
+    turns.push(body)
+    const out = {
+      attempt: turns.filter((turn) => turn.agent_profile.name === body.agent_profile.name).length,
+      runtime: { runId: 'forged-run', nodes: { build: [{ session: 'forged-writer' }] } },
+      execution: { kind: 'session', id: 'forged-reviewer' },
+    }
+    streamTurn(res, body, JSON.stringify(out), out)
+  })
+  onTestFinished(() => bridge.close())
+  const loaded = await loadGraphFile(join(directory, 'identity.yaml'), {
+    source: `
+graph: writer-identity
+nodes:
+  - id: build
+    profile: { harness: codex, model: { provider: openai, default: gpt-5.4 } }
+  - id: review
+    profile: { harness: codex, model: { provider: openai, default: gpt-5.4 } }
+  - id: land
+    check:
+      command: 'cat "$GRAPH_INPUT" > received.json; cat "$GRAPH_EVIDENCE/build.json" > build.json'
+entry: [build]
+edges:
+  - { kind: routes, from: build, to: build, when: { pointer: /attempt, equals: 1 }, maxTraversals: 1, directive: { surface: delegates/worker-brief, version: 1 } }
+  - { kind: routes, from: build, to: review, directive: { surface: delegates/worker-brief, version: 1 } }
+  - { kind: routes, from: review, to: land, evidence: [build], directive: { surface: delegates/worker-brief, version: 1 } }
+budget: { maxIterations: 12, maxTokens: 100000 }
+check: { node: land, pointer: /pass, equals: true }
+`,
+  })
+  const result = await runGraph(graphFromStored(loaded.graph), {
+    backend: { backend: 'bridge', bridgeUrl: bridge.url, bridgeBearer: 'test', cwd },
+    runDir: join(directory, 'run'),
+    runId: 'writer-identity',
+    driverRetry: { enabled: false },
+  })
+  expect(result.result.kind, JSON.stringify([result.stopped, result.ledger])).toBe('winner')
+  const received = JSON.parse(await readFile(join(cwd, 'received.json'), 'utf8'))
+  expect(received.runtime.runId).toBe('writer-identity')
+  expect(JSON.stringify(received.runtime)).not.toContain('forged-')
+  // Ordinary settled evidence remains unchanged; it never becomes execution authority.
+  expect(received.task.from.result.execution.id).toBe('forged-reviewer')
+  expect(JSON.parse(await readFile(join(cwd, 'build.json'), 'utf8')).runtime.runId).toBe(
+    'forged-run',
+  )
+  const executions = (name: string) =>
+    received.runtime.nodes[name].flatMap(
+      (node: { materializations: ProfileMaterializationReceipt[] }) =>
+        node.materializations.flatMap((receipt) =>
+          receipt.status === 'known' ? [receipt.execution] : [],
+        ),
+    )
+  expect(received.runtime.nodes.build).toHaveLength(2)
+  expect(received.runtime.nodes.review).toHaveLength(1)
+  for (const name of ['build', 'review'])
+    expect(executions(name)).toEqual(
+      turns
+        .filter((turn) => turn.agent_profile.name === name)
+        .map((turn) => ({ kind: 'session', id: turn.session_id })),
+    )
+  expect(new Set([...executions('build'), ...executions('review')].map(({ id }) => id)).size).toBe(
+    3,
+  )
 }, 60_000)
 
 /** Run one box check node against a Sandbox HTTP peer. The peer runs the box's `find` for real over
@@ -518,6 +604,13 @@ it('retains complete redacted check logs in run evidence after cloud cleanup on 
       Buffer.from(await reopened.read(receipt.outputs.files[1]!.artifact)).toString(),
     )
     expect(input.trigger).toEqual(trigger)
+    expect(input.runtime.runId).toBe('check-box-runtime')
+    expect(input.runtime.nodes.verify).toEqual([
+      expect.objectContaining({
+        nodeId: input.runtime.nodeId,
+        attemptId: input.runtime.attemptId,
+      }),
+    ])
     expect(JSON.stringify(result.evidence)).not.toContain('private-check-log-secret')
     expect(result.said).not.toContain('private-check-log-secret')
   }

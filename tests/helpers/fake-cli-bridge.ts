@@ -102,13 +102,19 @@ export function openTurn(res: ServerResponse, body: FakeBridgeTurn): void {
   })
 }
 
-/** Answer one turn completely: text, usage with a provider cost receipt, the profile
- *  materialization receipt, and `[DONE]`. */
-export function streamTurn(res: ServerResponse, body: FakeBridgeTurn, content: string): void {
+/** Answer one turn completely: text, optional final JSON, usage with a provider cost receipt,
+ *  the profile materialization receipt, and `[DONE]`. */
+export function streamTurn(
+  res: ServerResponse,
+  body: FakeBridgeTurn,
+  content: string,
+  finalOutput?: unknown,
+): void {
   if (!res.headersSent) openTurn(res, body)
   const [harness, provider] = body.model.split('/')
   const frames = [
     { choices: [{ delta: { content } }] },
+    ...(finalOutput === undefined ? [] : [{ final_output: finalOutput }]),
     {
       usage: {
         prompt_tokens: 11,
