@@ -107,15 +107,25 @@ const probe = spawn(
 let probeOut = ''
 probe.stdout.on('data', (chunk) => (probeOut += chunk))
 
-/** Bind a recorded frame's run coordinates to the replay's execution, so binding checks pass. */
+/** Bind a recorded frame's run coordinates to the replay's execution, in every field the provider
+ *  converter and Runtime's binding check read, so a frame passes exactly as it did live. */
 function rebind(record: Record<string, unknown>, ref: { sessionId: string; executionId: string }) {
-  const data = record.data as Record<string, unknown> | undefined
+  const object = (value: unknown) =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined
   record.sessionId = ref.sessionId
   record.executionId = ref.executionId
-  if (data && typeof data === 'object') {
-    if ('executionId' in data) data.executionId = ref.executionId
-    if ('sessionId' in data && record.type !== 'session.updated') data.sessionId = ref.sessionId
-    delete data.runControlRef
+  const data = object(record.data)
+  if (data === undefined) return record
+  delete data.runControlRef
+  const properties = object(data.properties)
+  for (const carrier of [data, properties, object(properties?.info), object(properties?.part)]) {
+    if (carrier === undefined) continue
+    for (const key of ['sessionId', 'sessionID'])
+      if (key in carrier && !(carrier === data && record.type === 'session.updated'))
+        carrier[key] = ref.sessionId
+    if ('executionId' in carrier) carrier.executionId = ref.executionId
   }
   return record
 }
