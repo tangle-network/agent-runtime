@@ -7,7 +7,10 @@
  * real HTTP request open while that node waits on its far reset; `root-requests.jsonl` records
  * when the request reached and left the server.
  *
- * Usage: `node hosted-seat-parking.mjs <dir> <long|short|root-act> <park|early|resume>`
+ * `gate-held` runs a flow whose second entry settles into a gate; answering it holds the same request
+ * open while the seated entry waits on its far reset.
+ *
+ * Usage: `node hosted-seat-parking.mjs <dir> <long|short|root-act|gate-held> <park|early|resume>`
  */
 import { appendFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -71,7 +74,12 @@ const server = createServer((_req, res) => {
     }, ROOT_REQUEST_HOLD_MS)
   })
 })
-if (mode === 'root-act') await new Promise<void>((resolve) => server.listen(0, resolve))
+const holdsRequest = mode === 'root-act' || mode === 'gate-held'
+if (holdsRequest) await new Promise<void>((resolve) => server.listen(0, resolve))
+const heldRequest = async (): Promise<void> => {
+  const address = server.address() as { port: number }
+  await (await fetch(`http://127.0.0.1:${address.port}/effect`, { method: 'POST' })).text()
+}
 let rootTurns = 0
 const rootBrain: ToolLoopChat = async () => {
   rootTurns += 1
@@ -86,12 +94,10 @@ const rootBrain: ToolLoopChat = async () => {
       ],
     }
   }
-  if (rootTurns === 2) {
-    const address = server.address() as { port: number }
-    await (await fetch(`http://127.0.0.1:${address.port}/effect`, { method: 'POST' })).text()
-  }
+  if (rootTurns === 2) await heldRequest()
   return { content: 'waiting for the seated work', toolCalls: [] }
 }
+const directive = promptHandle('delegates/worker-brief/v1')
 const graph =
   mode === 'root-act'
     ? {
@@ -110,16 +116,43 @@ const graph =
             kind: 'delegates' as const,
             from: 'lead',
             to: 'work',
-            directive: promptHandle('delegates/worker-brief/v1'),
+            directive,
             maxTraversals: 1,
           },
         ],
       }
-    : {
-        nodes: [{ id: 'work', profile }],
-        edges: [],
-        entry: [{ node: 'work', task: 'Finish the seated work.' }],
-      }
+    : mode === 'gate-held'
+      ? {
+          nodes: [
+            { id: 'work', profile },
+            {
+              id: 'build',
+              profile: testAgentProfile('build', {
+                model: { provider: 'anthropic', default: 'claude-opus-4-1' },
+              }),
+            },
+          ],
+          entry: [
+            { node: 'work', task: 'Finish the seated work.' },
+            { node: 'build', task: 'Build it.' },
+          ],
+          edges: [
+            { kind: 'routes' as const, from: 'build', to: 'review', directive },
+            ...['approve', 'reject'].map((choice) => ({
+              kind: 'routes' as const,
+              from: 'review',
+              to: { stop: choice },
+              directive,
+              when: { pointer: '/choice', equals: choice },
+            })),
+          ],
+          gates: [{ id: 'review', question: 'Ship it?', choices: ['approve', 'reject'] }],
+        }
+      : {
+          nodes: [{ id: 'work', profile }],
+          edges: [],
+          entry: [{ node: 'work', task: 'Finish the seated work.' }],
+        }
 try {
   const outcome = await runGraph(
     {
@@ -130,6 +163,15 @@ try {
     {
       // A rooted graph drives its harness nodes only on an explicit driver backend.
       ...(mode === 'root-act' ? { brain: rootBrain, driverBackend: backend } : {}),
+      // The gate's answer is the flow root's own outside request, made while it settles `build`.
+      ...(mode === 'gate-held'
+        ? {
+            decideGate: async () => {
+              await heldRequest()
+              return { kind: 'choose' as const, choice: 'reject', by: 'fixture' }
+            },
+          }
+        : {}),
       runId: RUN_ID,
       runContext: context,
       ...(phase === 'park' ? {} : { resume: true }),
@@ -139,7 +181,7 @@ try {
       selectSeat: async () => {
         selections += 1
         if (phase === 'resume') return { seat: 'ready-seat', backend }
-        return { resumeAt: new Date(now() + (mode === 'long' ? 360_000 : 300)).toISOString() }
+        return { resumeAt: new Date(now() + (mode === 'short' ? 300 : 360_000)).toISOString() }
       },
       coordination: {
         authentication: {
@@ -178,7 +220,7 @@ try {
 } finally {
   sql.database.close()
   // A root request still open when the run parked would answer after this point; record it.
-  if (mode === 'root-act') {
+  if (holdsRequest) {
     await requestDone
     server.closeAllConnections()
     server.close()

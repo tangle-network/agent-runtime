@@ -113,10 +113,12 @@ export async function acquireSandbox(
   const createOpts: CreateSandboxOptions = { ...options, name }
   const c = client as PollableClient
 
-  // A budget with no running box is a placement shortage, not a fault: pause on the shared
-  // capacity schedule and open another under the same name, so a create the platform accepted
-  // late is still found. The step waits out the shortage instead of failing its run.
+  // A budget in which every create was refused is a placement shortage, not a fault: pause on the
+  // shared capacity schedule and open another under the same name, so a create the platform
+  // accepted late is still found. A box that came back and never ran was deleted; its name is
+  // not reused, so that miss ends the acquire.
   for (let misses = 1; ; misses += 1) {
+    let boxed = false
     try {
       const deadline = now() + budgetMs
       let lastErr: unknown
@@ -133,6 +135,7 @@ export async function acquireSandbox(
           )
           // Tear the just-created box down if it never reaches `running` (abort,
           // terminal status, budget) so a failed wait never leaks a live sandbox.
+          boxed = true
           return await waitReadyOrDestroy(box, deadline, pollMs, acquire.signal, now, sleep)
         } catch (err) {
           throwIfAborted(acquire.signal)
@@ -152,6 +155,7 @@ export async function acquireSandbox(
             for (let scan = 0; scan < appearScans && now() < deadline; scan += 1) {
               const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
               if (found) {
+                boxed = true
                 return await waitReadyOrDestroy(found, deadline, pollMs, acquire.signal, now, sleep)
               }
               if (scan < appearScans - 1) await sleep(pollMs)
@@ -166,7 +170,8 @@ export async function acquireSandbox(
         { cause: lastErr instanceof Error ? lastErr : undefined },
       )
     } catch (error) {
-      if (!(error instanceof SandboxAcquireTimeoutError) || misses >= SAME_CAUSE_LIMIT) throw error
+      const another = error instanceof SandboxAcquireTimeoutError && !boxed
+      if (!another || misses >= SAME_CAUSE_LIMIT) throw error
       await sleep(unavailablePauseMs(misses))
     }
   }

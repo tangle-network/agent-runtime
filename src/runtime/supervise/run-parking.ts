@@ -91,7 +91,7 @@ interface ParkingContext {
   readonly waits: Map<string, ParkableWait>
   /** Rejects once with the run's park, so the root execution and every wait hand off together. */
   readonly parked: Promise<never>
-  readonly park: (error: RunParkedError) => void
+  readonly park: (error: unknown) => void
   handingOff: boolean
   /** The root's wake waits in flight: a root awaiting its children's events runs no work of its own. */
   rootWakes: number
@@ -172,7 +172,7 @@ export async function withRunParking<T>(
   }
   if (previous !== undefined && runDir !== undefined)
     await writeParkingProjection(runDir, runId, previous, now())
-  let park!: (error: RunParkedError) => void
+  let park!: (error: unknown) => void
   const parked = new Promise<never>((_, reject) => {
     park = reject
   })
@@ -314,15 +314,22 @@ async function parkRun(
   }
   // Seal synchronously before publishing: no concurrent MCP spawn may cross this handoff.
   for (const held of heldScopes(context)) closeScopeAdmission(held)
-  await context.journal.appendEvent(context.runId, {
-    kind: 'run-parked',
-    id: context.runId,
-    ...parking,
-    seq: events.filter((event) => event.kind === 'run-parked').length,
-    at: new Date(context.now()).toISOString(),
-  })
-  if (context.runDir !== undefined)
-    await writeParkingProjection(context.runDir, context.runId, parking)
+  try {
+    await context.journal.appendEvent(context.runId, {
+      kind: 'run-parked',
+      id: context.runId,
+      ...parking,
+      seq: events.filter((event) => event.kind === 'run-parked').length,
+      at: new Date(context.now()).toISOString(),
+    })
+    if (context.runDir !== undefined)
+      await writeParkingProjection(context.runDir, context.runId, parking)
+  } catch (failure) {
+    // Admission is closed and the handoff unpublished: end the run on the write failure rather
+    // than leave the root and every wait on a park that never comes.
+    context.park(failure)
+    throw failure
+  }
   const error = new RunParkedError(context.runId, parking)
   // Waiting nodes unwind through their own scopes; none of them may settle the parked run.
   if (waits.some((wait) => wait.scope !== root.scope)) root.seal(error)

@@ -210,7 +210,11 @@ describe('hosted graph seat parking over a SQL run context', () => {
     await hosted?.dispose()
   })
   /** The process must exit on its own: a parked run leaves no timer, listener or socket behind. */
-  async function host(dir: string, mode: 'long' | 'short' | 'root-act', phase: string) {
+  async function host(
+    dir: string,
+    mode: 'long' | 'short' | 'root-act' | 'gate-held',
+    phase: string,
+  ) {
     const { stdout } = await exec(process.execPath, [hosted.path, dir, mode, phase], {
       timeout: CHILD_TIMEOUT_MS,
       maxBuffer: 20_000_000,
@@ -285,6 +289,22 @@ describe('hosted graph seat parking over a SQL run context', () => {
     // The root's one outside request was answered before the handoff, so none outlives the park.
     expect(requests).toHaveLength(1)
     expect(requests[0]!.answeredAt).toBeLessThanOrEqual(Date.parse(rows[0]!.at))
+  })
+
+  it('keeps the coordinator while its flow root answers a gate beside a far seat wait', async () => {
+    const dir = await directory()
+    const outcome = await host(dir, 'gate-held', 'park')
+    const requests = (await readFile(join(dir, 'root-requests.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { reachedAt: number; answeredAt: number })
+    expect(requests).toHaveLength(1)
+    // No handoff while the gate's request was open; its reject answer then stops the flow.
+    for (const row of parkedRows(outcome.events) as Array<{ at: string }>) {
+      expect(Date.parse(row.at)).toBeGreaterThanOrEqual(requests[0]!.answeredAt)
+    }
+    expect(outcome.kind).toBe('settled')
+    expect(outcome.reason).toBe('stopped')
   })
 
   it('keeps a run whose seat resets within the park floor in its process', async () => {
