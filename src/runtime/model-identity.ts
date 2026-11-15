@@ -1,3 +1,4 @@
+import { modelHasSnapshot } from '@tangle-network/agent-eval'
 import { harnessTypeSchema } from '@tangle-network/agent-interface'
 
 const SNAPSHOT_TOKEN = /^[A-Za-z0-9._-]+$/u
@@ -5,7 +6,7 @@ const datedIsoSuffix = /^(.*)-(\d{4})-(\d{2})-(\d{2})$/u
 const datedCompactSuffix = /^(.*)-(\d{4})(\d{2})(\d{2})$/u
 const datedMonthSuffix = /^(.*)-(\d{4})-(\d{2})$/u
 
-export type SnapshotKind = 'date' | 'opaque'
+export type SnapshotKind = 'date' | 'opaque' | 'fixed'
 
 interface ModelIdentityParts {
   readonly base: string
@@ -62,7 +63,7 @@ export function canonicalObservedModelParts(
   if (!identity) return undefined
   const base = identity.base.slice(identity.base.lastIndexOf('/') + 1)
   const canonical =
-    identity.snapshot === undefined
+    identity.snapshot === undefined || identity.snapshotKind === 'fixed'
       ? base
       : identity.snapshotKind === 'date'
         ? `${base}-${identity.snapshot}`
@@ -101,7 +102,13 @@ function modelIdentityParts(model: string): ModelIdentityParts | null {
   if (at < 0) {
     const dated = datedModelIdentity(model)
     if (dated !== undefined) return dated
-    return modelLeaf(model).length === 0 ? null : { base: model }
+    const leaf = modelLeaf(model)
+    if (leaf.length === 0) return null
+    // Eval owns which provider model ids are immutable without a separate build suffix.
+    // Their exact id is the snapshot; keep it distinct from an appended opaque token.
+    return modelHasSnapshot(model)
+      ? { base: model, snapshot: leaf, snapshotKind: 'fixed' }
+      : { base: model }
   }
   const base = model.slice(0, at)
   const snapshot = model.slice(at + 1)
