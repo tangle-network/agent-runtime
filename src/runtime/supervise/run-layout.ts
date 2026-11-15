@@ -28,16 +28,16 @@
  * @experimental
  */
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import { sha256 } from '../../content-digest'
-import { fenceRunWrite } from '../../durable/run-fence'
 import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { DriverAttemptStop } from './driver-attempt-evidence'
 import {
   appendDurableFile,
+  appendRunLines,
   assertNoSymlinkDescendant,
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
@@ -320,7 +320,7 @@ export function writeWorkerSteer(
   mkdirSync(supervisorWorkersDir(dir), { recursive: true })
   const projection = workerInboxFileFromEventDir(dir, workerId)
   try {
-    fenceRunWrite(() => appendFileSync(projection, `${JSON.stringify(request)}\n`, 'utf8'))
+    appendRunLines(projection, [`${JSON.stringify(request)}\n`])
   } catch {
     // The atomic operation file is the queue. This projection does not control admission.
   }
@@ -703,14 +703,11 @@ export function appendWorkerControlEvent(
   event: Record<string, unknown>,
 ): void {
   try {
-    fenceRunWrite(() => {
-      mkdirSync(supervisorWorkersDir(eventDir), { recursive: true })
-      appendFileSync(
-        workerControlLogFile(eventDir, label),
-        `${JSON.stringify({ at: new Date().toISOString(), label, ...event })}\n`,
-        'utf8',
-      )
-    })
+    appendRunLines(
+      workerControlLogFile(eventDir, label),
+      [`${JSON.stringify({ at: new Date().toISOString(), label, ...event })}\n`],
+      { directory: supervisorWorkersDir(eventDir) },
+    )
   } catch {
     // Control logging is best-effort; the inbox write above is the durable part.
   }

@@ -10,6 +10,7 @@ import { workerCancellationsDir } from '../runtime/supervise/run-layout'
 import { assertValidBudget } from '../runtime/supervise/spend-validation'
 import { assertResumeLimits } from '../runtime/supervise/supervisor-root-contract'
 import type { Budget, SpawnEvent, SpawnJournal, SupervisorOpts } from '../runtime/supervise/types'
+import { runFenced } from './durable-writer'
 import type { FileObserverJournal } from './observer-journal'
 import { fenceRunWrite } from './run-fence'
 import { SETTLE_RECORD_FILE, settleRecordDigest } from './settle-record'
@@ -176,6 +177,11 @@ export async function reopenSettledRun(input: {
       payload: { reopened: { operator: reopen.operator, reason: reopen.reason, archivedAs } },
     })
   }
+  runFenced('reopenSettle', reopenSettleFenced, runDir, operationId, settlePath)
+}
+
+/** Set the settled run's cancellation aside and remove its settle record, under the fence. @internal */
+export function reopenSettleFenced(runDir: string, operationId: string, settlePath: string): void {
   fenceRunWrite(() => {
     setCancellationAside(runDir, operationId)
     unlinkSync(settlePath)
@@ -187,7 +193,7 @@ export async function reopenSettledRun(input: {
  *  crashed after archiving and before its journal row). */
 async function archiveName(runDir: string, settled: string): Promise<string> {
   const dir = resolve(runDir, SETTLE_ARCHIVE_DIR)
-  fenceRunWrite(() => mkdirSync(dir, { recursive: true }))
+  runFenced('makeRunDirectory', makeRunDirectoryFenced, dir)
   const numbers = readdirSync(dir)
     .map((name) => /^(\d+)\.json$/u.exec(name)?.[1])
     .filter((n): n is string => n !== undefined)
@@ -234,4 +240,9 @@ async function readBytes(path: string): Promise<string | undefined> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
+}
+
+/** Create a directory inside the run under the fence. @internal */
+export function makeRunDirectoryFenced(dir: string): void {
+  fenceRunWrite(() => mkdirSync(dir, { recursive: true }))
 }

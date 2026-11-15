@@ -5,6 +5,8 @@ export default defineConfig({
     index: 'src/index.ts',
     agent: 'src/agent/index.ts',
     durable: 'src/durable/index.ts',
+    // Loaded as a worker by src/durable/durable-writer.ts, beside the chunks that start it.
+    'durable-writer-thread': 'src/durable/durable-writer-thread.ts',
     'chat-turn': 'src/durable/chat-turn.ts',
     'tool-loop': 'src/tool-loop.ts',
     placement: 'src/placement/index.ts',

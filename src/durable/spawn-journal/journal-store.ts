@@ -1,6 +1,6 @@
-import { type BigIntStats, fstatSync, statSync } from 'node:fs'
 import { detachedSnapshot } from '../../runtime/supervise/snapshot'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../runtime/supervise/types'
+import { journalFileStamp } from '../jsonl-append'
 import { appendCommittedJsonLine, isNoEntError, readCommittedJsonLines } from '../jsonl-file'
 import { captureRunWriteContext } from '../run-fence'
 import { SpawnEventIndex } from './event-index'
@@ -176,23 +176,12 @@ export class FileSpawnJournal implements SpawnJournal {
     const { dirname } = await import('node:path')
     try {
       await fs.mkdir(dirname(this.path), { recursive: true })
-      return await appendCommittedJsonLine(this.path, record, (fd) => {
-        const stamp = journalFileStamp(fstatSync(fd, { bigint: true }))
-        if (journalFileStamp(statSync(this.path, { bigint: true })) !== stamp) {
-          throw new Error('spawn journal changed while acknowledging its append')
-        }
-        return stamp
-      })
+      return await appendCommittedJsonLine(this.path, record, { journalStamp: true })
     } catch (error) {
       this.appendIndex = undefined
       throw error
     }
   }
-}
-
-/** Detect replacement, truncation, and same-size edits; this is not a cross-process write lock. */
-function journalFileStamp(stat: BigIntStats): string {
-  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`
 }
 
 type SpawnJournalRecord =

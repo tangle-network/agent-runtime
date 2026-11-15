@@ -28,10 +28,10 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto'
-import { appendFileSync, closeSync, existsSync, openSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { fenceRunWrite } from '../../durable/run-fence'
+import { appendRunLines } from './durable-file'
 
 /** Inherited from the supervisor process to every worker unchanged. */
 const INHERITED = ['TANGLE_OPERATOR', 'TANGLE_PROJECT', 'TANGLE_ACCOUNT'] as const
@@ -202,15 +202,7 @@ function recordLaunch(
       attrs: {},
     })
     // One O_APPEND write per line (each well under PIPE_BUF), so concurrent writers never interleave.
-    fenceRunWrite(() => {
-      const fd = openSync(join(dir, `${host}.jsonl`), 'a', 0o600)
-      try {
-        appendFileSync(fd, node)
-        appendFileSync(fd, edge)
-      } finally {
-        closeSync(fd)
-      }
-    })
+    appendRunLines(join(dir, `${host}.jsonl`), [node, edge], { mode: 0o600 })
   } catch {
     // Lineage is observability; a full disk or a read-only home must not fail the spawn.
   }

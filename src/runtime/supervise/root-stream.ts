@@ -30,6 +30,7 @@ import { createHash } from 'node:crypto'
 import { closeSync, constants as fsConstants, fsyncSync, openSync, writeSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import { runFencedAsync } from '../../durable/durable-writer'
 import { isNoEntError, prepareJsonlAppend, readCommittedJsonLines } from '../../durable/jsonl-file'
 import { captureRunWriteContext, fenceRunWrite } from '../../durable/run-fence'
 import { errorMessage } from '../util'
@@ -101,18 +102,21 @@ export function createRootStreamSink(
   const pending: string[] = []
   let failure: unknown
   let flushedAt = 0
-  // Group commit: at most one fenced write per second; a lost claim is thrown to the next caller.
+  // Group commit: at most one fenced write per second, chained so lines land in order; a lost
+  // claim or failed write is thrown to the next caller.
+  let writes: Promise<void> = Promise.resolve()
   const flush = (): void =>
     withClaim(() => {
       const writer = fd
       if (pending.length === 0 || writer === undefined) return
       const lines = pending.splice(0).join('\n')
       flushedAt = Date.now()
-      try {
-        fenceRunWrite(() => writeLine(writer, lines))
-      } catch (error) {
-        failure ??= error
-      }
+      const write = runFencedAsync('writeStreamLines', writeStreamLinesFenced, writer, lines)
+      writes = writes
+        .then(() => write)
+        .catch((error: unknown) => {
+          failure ??= error
+        })
     })
 
   const openOnce = async (): Promise<void> => {
@@ -132,23 +136,7 @@ export function createRootStreamSink(
     }
     // Text from different attempts never merges when their numbers stay distinct.
     if (options.continueAttempts === true) attempt += priorAttempts
-    fd = fenceRunWrite(() => {
-      const writer = openSync(
-        path,
-        fsConstants.O_APPEND |
-          fsConstants.O_CREAT |
-          fsConstants.O_WRONLY |
-          (typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0),
-        0o600,
-      )
-      try {
-        if (needsSeparator) writeLine(writer, '')
-        return writer
-      } catch (error) {
-        closeSync(writer)
-        throw error
-      }
-    })
+    fd = await runFencedAsync('openStreamFile', openStreamFileFenced, path, needsSeparator)
   }
 
   return {
@@ -160,8 +148,10 @@ export function createRootStreamSink(
         // before the next attempt appends after them.
         const writer = fd
         flush()
+        await writes
         if (failure !== undefined) throw failure
-        if (writer !== undefined) fenceRunWrite(() => fsyncSync(writer))
+        if (writer !== undefined)
+          await runFencedAsync('syncStreamFile', syncStreamFileFenced, writer)
         await openOnce()
       })
     },
@@ -195,8 +185,9 @@ export function createRootStreamSink(
         if (writer === undefined) return undefined
         try {
           flush()
+          await writes
           if (failure !== undefined) throw failure
-          fenceRunWrite(() => fsyncSync(writer))
+          await runFencedAsync('syncStreamFile', syncStreamFileFenced, writer)
         } finally {
           closeSync(writer)
           fd = undefined
@@ -205,6 +196,37 @@ export function createRootStreamSink(
       })
     },
   }
+}
+
+/** Open a stream file for append under the fence, separating it from a torn tail. @internal */
+export function openStreamFileFenced(path: string, needsSeparator: boolean): number {
+  return fenceRunWrite(() => {
+    const writer = openSync(
+      path,
+      fsConstants.O_APPEND |
+        fsConstants.O_CREAT |
+        fsConstants.O_WRONLY |
+        (typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0),
+      0o600,
+    )
+    try {
+      if (needsSeparator) writeLine(writer, '')
+      return writer
+    } catch (error) {
+      closeSync(writer)
+      throw error
+    }
+  })
+}
+
+/** Write grouped stream lines to an open descriptor under the fence. @internal */
+export function writeStreamLinesFenced(fd: number, lines: string): void {
+  fenceRunWrite(() => writeLine(fd, lines))
+}
+
+/** Fsync an open stream descriptor under the fence. @internal */
+export function syncStreamFileFenced(fd: number): void {
+  fenceRunWrite(() => fsyncSync(fd))
 }
 
 /** `writeSync` may legally make a short write; loop until the whole line and its newline land. */
