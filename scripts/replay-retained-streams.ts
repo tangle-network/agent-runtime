@@ -259,27 +259,50 @@ const report = {
 writeFileSync(join(outDir, 'replay-report.json'), JSON.stringify(report, null, 2))
 console.log(JSON.stringify({ ...report, samples: undefined }, null, 2))
 
-/** Self time per function across the run's CPU profiles, the functions the loop sat in. */
+/** Self and inclusive time per function across the run's CPU profiles: self names the hot leaf,
+ *  inclusive names the caller in Runtime or the provider that owns it. */
 function summarize(dir: string) {
+  type Node = {
+    id: number
+    callFrame: { functionName: string; url: string; lineNumber: number }
+    children?: number[]
+  }
   for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.cpuprofile'))) {
     const profile = JSON.parse(readFileSync(join(dir, name), 'utf8')) as {
-      nodes: Array<{ id: number; callFrame: { functionName: string; url: string; lineNumber: number } }>
+      nodes: Node[]
       samples: number[]
       timeDeltas: number[]
     }
     const byId = new Map(profile.nodes.map((node) => [node.id, node]))
+    const parent = new Map<number, number>()
+    for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id)
+    const label = (node: Node) =>
+      `${node.callFrame.functionName || '(anonymous)'} ${node.callFrame.url.replace(/^.*node_modules\//, '').replace(/^.*\/(src|tests|scripts)\//, '$1/')}:${node.callFrame.lineNumber + 1}`
     const self = new Map<string, number>()
+    const inclusive = new Map<string, number>()
     let total = 0
     profile.samples.forEach((id, index) => {
-      const frame = byId.get(id)!.callFrame
-      const key = `${frame.functionName || '(anonymous)'} ${frame.url.replace(/^.*node_modules\//, '').replace(/^.*\/(src|tests|scripts)\//, '$1/')}:${frame.lineNumber + 1}`
       const delta = profile.timeDeltas[index] ?? 0
-      self.set(key, (self.get(key) ?? 0) + delta)
       total += delta
+      const leaf = label(byId.get(id)!)
+      self.set(leaf, (self.get(leaf) ?? 0) + delta)
+      const seen = new Set<string>()
+      for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+        const key = label(byId.get(at)!)
+        if (seen.has(key)) continue
+        seen.add(key)
+        inclusive.set(key, (inclusive.get(key) ?? 0) + delta)
+      }
     })
-    console.log(`${name}: ${(total / 1e6).toFixed(1)} s sampled`)
-    for (const [key, micros] of [...self].sort((a, b) => b[1] - a[1]).slice(0, 30)) {
-      console.log(`${(micros / 1e6).toFixed(1).padStart(8)} s ${((100 * micros) / total).toFixed(1).padStart(5)}%  ${key}`)
+    const print = (title: string, table: Map<string, number>, keep: (key: string) => boolean) => {
+      console.log(`${name}: ${title}, ${(total / 1e6).toFixed(1)} s sampled`)
+      for (const [key, micros] of [...table].filter(([key]) => keep(key)).sort((a, b) => b[1] - a[1]).slice(0, 30)) {
+        console.log(`${(micros / 1e6).toFixed(1).padStart(8)} s ${((100 * micros) / total).toFixed(1).padStart(5)}%  ${key}`)
+      }
     }
+    print('self time', self, () => true)
+    print('inclusive time, Runtime and provider frames', inclusive, (key) =>
+      /src\/|agent-provider-tangle|agent-interface|sandbox\//.test(key),
+    )
   }
 }
