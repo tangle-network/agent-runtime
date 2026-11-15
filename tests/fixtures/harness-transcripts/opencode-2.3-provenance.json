@@ -1,0 +1,21 @@
+{
+  "sourceOwner": "tangle-network/agent-sdk/packages/harness-sessions/test/fixtures/opencode2",
+  "nativeCliVersion": "2.3.0",
+  "sourceRepository": "https://github.com/anomalyco/opencode",
+  "sourceCommit": "a6b15d33daf6ab7d35569f6d711fdb630b9f04e7",
+  "capture": "Read transaction over only selected session_v2, session_message and session_part rows; fresh SQLite database, never a copy or backup of the original account-bearing store.",
+  "minimization": [
+    "Only the selected native session and the reader-used native columns are retained.",
+    "User/assistant/tool text payloads replaced with [REDACTED:fixture-content]; absolute workspace paths normalized.",
+    "Native ids, ordering, tool names/inputs/status, response tokens, timestamps, selected model, failure and idle outcomes remain unchanged."
+  ],
+  "fixture": {
+    "file": "opencode-2.3-native.db",
+    "sha256": "8ff858b47559589215d883865d7133e582cb1a8025ac23342f49a28678fc6c14",
+    "nativeSessionId": "ses_e23464143ffe9edyHNWQGSpDEB",
+    "origin": "official OpenCode 2.3.0 CLI with scripted localhost provider; 4 actual responses and 3 actual skill calls",
+    "sourceReceipt": "disco-native-packed-proof/call/data/opencode/opencode.db",
+    "selectedSourceRowsSha256": "b4c519d74f5675e8d875f8dcb8ab9ceee7ab9d8260805f7484e7eed6f3f1a4e7"
+  },
+  "runtimeControl": "The test adds one empty, explicitly controlled child row to exercise multiple verified session bindings in one immutable snapshot. This is a binary custody/reader proof, not a new native execution or a provider quality/billing claim."
+}

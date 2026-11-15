@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1074 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1075 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -559,6 +559,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1074 exports.
 | `graphRunsFor` | function | Records for one task shape or deterministic label query, newest last. |
 | `graphWorkspace` | function | The directory a graph run's nodes work in. `workspace: cwd` (the default) is `cwd`. `workspace: |
 | `harnessTranscriptArtifact` | function | Rehydrate the exact persisted transcript a receipt points at, or `undefined` when the receipt |
+| `harnessTranscriptFileBytes` | function | Recover exact inline bytes, refusing permissive base64 decoding or inconsistent accounting. |
 | `harnessUsageIsEmpty` | function | True when a report states any spend at all. |
 | `harvestCorpus` | function | Batch the selected observation implementation over completed runs and retain its findings. |
 | `harvestSurfaceDiffs` | function | Re-read every mounted (and watched) surface and report the ones whose settled state differs from |

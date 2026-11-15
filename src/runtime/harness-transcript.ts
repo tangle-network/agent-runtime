@@ -35,6 +35,7 @@ export {
   type HarnessTranscriptMetadata,
   type HarnessTranscriptReadLimits,
   type HarnessTranscriptReadOptions,
+  harnessTranscriptFileBytes,
   type RetainedHarnessTranscriptCapture,
   type RetainedHarnessTranscriptDescriptor,
   readBoundHarnessSessions,
@@ -69,6 +70,10 @@ export interface HarnessTranscriptFile {
   readonly path: string
   readonly bytes: number
   readonly content: string
+  /** Omitted for historical UTF-8 content; binary bytes use canonical base64. */
+  readonly encoding?: 'utf8' | 'base64'
+  /** Exact sessions verified against this one physical inline payload. */
+  readonly nativeSessionIds?: readonly string[]
   /** Original provider-native path and source, independent of the archive's storage layout. */
   readonly attribution?: HarnessTranscriptMetadata['files'][number]['attribution']
 }
@@ -668,6 +673,12 @@ function isHarnessTranscriptArtifact(value: unknown): value is HarnessTranscript
         typeof file === 'object' &&
         typeof file.path === 'string' &&
         typeof file.content === 'string' &&
+        (file.encoding === undefined || file.encoding === 'utf8' || file.encoding === 'base64') &&
+        (file.nativeSessionIds === undefined ||
+          (Array.isArray(file.nativeSessionIds) &&
+            file.nativeSessionIds.length > 0 &&
+            file.nativeSessionIds.every((id: unknown) => typeof id === 'string' && id.length > 0) &&
+            new Set(file.nativeSessionIds).size === file.nativeSessionIds.length)) &&
         Number.isSafeInteger(file.bytes) &&
         file.bytes >= 0,
     ) &&
@@ -721,19 +732,27 @@ export async function captureBoundHarnessTranscript<S extends BoundHarnessSessio
     input.binding.runs.some((run) => !run.runId || !/^sha256:[a-f0-9]{64}$/.test(run.requestDigest))
   )
     throw new ValidationError('Native capture binding is incomplete')
-  const files: HarnessTranscriptFile[] = []
-  await readBoundHarnessSessions({
+  const contents = new Map<string, Uint8Array>()
+  const verified = await readBoundHarnessSessions({
     ...input,
     read: async (file, signal) => {
-      const bytes = await input.read(file, signal)
-      files.push({
-        path: file.path,
-        bytes: bytes.byteLength,
-        content: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
-      })
+      const bytes = Uint8Array.from(await input.read(file, signal))
+      contents.set(file.path, bytes)
       return bytes
     },
   })
+  const files: HarnessTranscriptFile[] = [...contents].map(([path, bytes]) => ({
+    path,
+    bytes: bytes.byteLength,
+    ...(input.parseBytes
+      ? { encoding: 'base64' as const, content: Buffer.from(bytes).toString('base64') }
+      : { content: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) }),
+    nativeSessionIds: [
+      ...new Set(
+        verified.files.filter((file) => file.path === path).map((file) => file.nativeSessionId),
+      ),
+    ],
+  }))
   return capturedTranscript(
     { schemaVersion: 1, harness: input.harness, binding: input.binding, files, skipped: [] },
     true,

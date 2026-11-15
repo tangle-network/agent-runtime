@@ -126,7 +126,7 @@ export async function readHarnessTranscriptSessions<S extends BoundHarnessSessio
     if (!artifact.files.length)
       throw new Error('Native transcript projection has no readable session bytes')
     // Source custody can include non-session binary/config bytes. The native parser must resolve
-    // every exact bound family from the available text projection before it qualifies for learning.
+    // every exact bound family from the requested text/binary projection before it qualifies for learning.
     options.signal?.throwIfAborted()
     const sessions = await readSessions(artifact, options.signal)
     // The shared reader walks the exact bound family; each parsed session stands in for its file.

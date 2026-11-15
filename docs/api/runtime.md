@@ -6278,6 +6278,18 @@ Translate unsupported Sandbox controls while preserving requested custody.
 
 > `readonly` **content**: `string`
 
+##### encoding?
+
+> `readonly` `optional` **encoding?**: `"utf8"` \| `"base64"`
+
+Omitted for historical UTF-8 content; binary bytes use canonical base64.
+
+##### nativeSessionIds?
+
+> `readonly` `optional` **nativeSessionIds?**: readonly `string`[]
+
+Exact sessions verified against this one physical inline payload.
+
 ##### attribution?
 
 > `readonly` `optional` **attribution?**: `object`
@@ -11104,6 +11116,12 @@ Projection limits do not change what the original archive retained.
 ##### content?
 
 > `readonly` `optional` **content?**: `boolean`
+
+##### binary?
+
+> `readonly` `optional` **binary?**: `"base64"`
+
+Include verified binary archive members as explicit base64 files; text remains UTF-8.
 
 ##### artifacts?
 
@@ -41787,7 +41805,7 @@ Local native bytes enter the same artifact/settlement path as every other transc
 
 ##### input
 
-`object` & `object`
+\{ readonly nativeSessionId: string; readonly nativeSessionIds?: readonly string\[\] \| undefined; readonly files: readonly HarnessFileBinding\[\]; readonly read: (file: HarnessFileBinding, signal?: AbortSignal \| undefined) =\> Promise\<...\>; readonly signal?: AbortSignal \| undefined; \} & (\{ ...; \} \| \{ ...; \}) & `object`
 
 #### Returns
 
@@ -43127,6 +43145,24 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 
 ***
 
+### harnessTranscriptFileBytes()
+
+> **harnessTranscriptFileBytes**(`file`): `Uint8Array`
+
+Recover exact inline bytes, refusing permissive base64 decoding or inconsistent accounting.
+
+#### Parameters
+
+##### file
+
+[`HarnessTranscriptFile`](#harnesstranscriptfile)
+
+#### Returns
+
+`Uint8Array`
+
+***
+
 ### retainHarnessTranscript()
 
 > **retainHarnessTranscript**(`receipt`, `harness`): [`RetainedHarnessTranscriptCapture`](#retainedharnesstranscriptcapture) \| [`HarnessTranscriptUnavailable`](#harnesstranscriptunavailable)
@@ -43210,31 +43246,7 @@ retains its archive path policy, abort behavior and public error identity.
 
 ##### input
 
-###### nativeSessionId
-
-`string`
-
-###### nativeSessionIds?
-
-readonly `string`[]
-
-Every native conversation observed for this execution, in execution order.
-
-###### files
-
-readonly `HarnessFileBinding`[]
-
-###### read
-
-(`file`, `signal?`) => `Promise`\<`Uint8Array`\<`ArrayBufferLike`\>\>
-
-###### parse
-
-(`text`, `file`) => `S`
-
-###### signal?
-
-`AbortSignal`
+`object` & (\{ `parse`: (`text`, `file`) => `S`; `parseBytes?`: `undefined`; \} \| \{ `parse?`: `undefined`; `parseBytes`: (`bytes`, `file`, `signal?`) => `S` \| `Promise`\<`S`\>; \})
 
 #### Returns
 

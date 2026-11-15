@@ -5,6 +5,7 @@ import {
   agentCandidateArtifactRefSchema,
   agentCandidateWorkspaceManifestMaterialSchema,
 } from '@tangle-network/agent-interface'
+import * as harnessSessions from '@tangle-network/harness-sessions'
 import {
   BOUND_HARNESS_SESSION_READ_LIMITS,
   type BoundHarnessSession,
@@ -161,6 +162,8 @@ export interface HarnessTranscriptMetadata {
     readonly path: string
     readonly bytes: number
     readonly sha256: string
+    readonly encoding?: HarnessTranscriptFile['encoding']
+    readonly nativeSessionIds?: readonly string[]
     readonly attribution?: RetainedHarnessTranscriptDescriptor['files'][number]['attribution']
   }[]
   readonly skipped: readonly { readonly path: string; readonly reason: string }[]
@@ -180,10 +183,33 @@ export interface HarnessTranscriptReadLimits {
 }
 export interface HarnessTranscriptReadOptions {
   readonly content?: boolean
+  /** Include verified binary archive members as explicit base64 files; text remains UTF-8. */
+  readonly binary?: 'base64'
   readonly artifacts?: AgentCandidateArtifactPort
   readonly limits?: Partial<HarnessTranscriptReadLimits>
   readonly workspaceLimits?: Partial<AgentCandidateWorkspaceArchiveLimits>
   readonly signal?: AbortSignal
+}
+
+/** Recover exact inline bytes, refusing permissive base64 decoding or inconsistent accounting. */
+export function harnessTranscriptFileBytes(file: HarnessTranscriptFile): Uint8Array {
+  if (typeof file.content !== 'string' || !Number.isSafeInteger(file.bytes) || file.bytes < 0)
+    throw new ValidationError('Transcript file has invalid content or byte count')
+  let bytes: Buffer
+  if (file.encoding === 'base64') {
+    if (file.content.length !== Math.ceil(file.bytes / 3) * 4)
+      throw new ValidationError('Transcript base64 length does not match its byte count')
+    bytes = Buffer.from(file.content, 'base64')
+    if (bytes.toString('base64') !== file.content)
+      throw new ValidationError('Transcript file requires canonical base64')
+  } else if (file.encoding === undefined || file.encoding === 'utf8') {
+    bytes = Buffer.from(file.content, 'utf8')
+    if (new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) !== file.content)
+      throw new ValidationError('Transcript file is not lossless UTF-8')
+  } else throw new ValidationError('Transcript file has an unsupported encoding')
+  if (bytes.byteLength !== file.bytes)
+    throw new ValidationError('Transcript file content does not match its byte count')
+  return bytes
 }
 /** One native capture/read bound per child; replay resolves references rather than copying bytes. */
 export const HARNESS_TRANSCRIPT_READ_LIMITS: HarnessTranscriptReadLimits = Object.freeze({
@@ -401,6 +427,8 @@ export async function resolveHarnessTranscriptCapture(
   capture: HarnessTranscriptCapture,
   options: HarnessTranscriptReadOptions = {},
 ): Promise<HarnessTranscriptArtifact | HarnessTranscriptMetadata | undefined> {
+  if (options.binary !== undefined && options.binary !== 'base64')
+    throw new ValidationError('Unsupported binary transcript projection')
   if (capture.status === 'unavailable') return undefined
   if (capture.status === 'captured') {
     const limits = { ...HARNESS_TRANSCRIPT_READ_LIMITS, ...options.limits }
@@ -414,21 +442,17 @@ export async function resolveHarnessTranscriptCapture(
         throw new ValidationError('Transcript path is denied or repeated')
       paths.add(file.path)
       total += file.bytes
-      if (
-        Buffer.byteLength(file.content, 'utf8') !== file.bytes ||
-        file.bytes > limits.maxFileBytes ||
-        total > limits.maxTotalBytes
-      )
+      if (file.bytes > limits.maxFileBytes || total > limits.maxTotalBytes)
         throw new ValidationError(`Transcript file violates its byte bound: ${file.path}`)
+      harnessTranscriptFileBytes(file)
     }
     if (options.content !== false) return capture.artifact
     return {
       ...capture.artifact,
-      files: capture.artifact.files.map(({ path, bytes, content }) => ({
-        path,
-        bytes,
-        sha256: sha256Bytes(Buffer.from(content)),
-      })),
+      files: capture.artifact.files.map((file) => {
+        const { content: _content, ...metadata } = file
+        return { ...metadata, sha256: sha256Bytes(harnessTranscriptFileBytes(file)) }
+      }),
     }
   }
   const descriptor = parseRetainedHarnessTranscript(capture.descriptor)
@@ -502,10 +526,20 @@ export async function resolveHarnessTranscriptCapture(
       if (content.includes('\0')) throw new Error('NUL in native file')
       files.push({ path: file.path, bytes: file.bytes, content, attribution: file.attribution })
     } catch {
-      skipped.push({
-        path: file.path,
-        reason: 'binary-or-invalid-utf8; bytes remain retained in workspace archive',
-      })
+      if (options.binary === 'base64') {
+        files.push({
+          path: file.path,
+          bytes: file.bytes,
+          content: Buffer.from(bytes).toString('base64'),
+          encoding: 'base64',
+          attribution: file.attribution,
+        })
+      } else {
+        skipped.push({
+          path: file.path,
+          reason: 'binary-or-invalid-utf8; bytes remain retained in workspace archive',
+        })
+      }
     }
   }
   return deepFreezeCandidate({
@@ -523,24 +557,50 @@ export { HARNESS_TRANSCRIPT_DENY }
 
 /** Compatibility entry. The shared reader owns native-family integrity; Runtime
  * retains its archive path policy, abort behavior and public error identity. */
-export async function readBoundHarnessSessions<S extends BoundHarnessSession>(input: {
-  readonly nativeSessionId: string
-  /** Every native conversation observed for this execution, in execution order. */
-  readonly nativeSessionIds?: readonly string[]
-  readonly files: readonly HarnessFileBinding[]
-  readonly read: (file: HarnessFileBinding, signal?: AbortSignal) => Promise<Uint8Array>
-  readonly parse: (text: string, file: HarnessFileBinding) => S
-  readonly signal?: AbortSignal
-}) {
-  return readNativeFamily({
+export async function readBoundHarnessSessions<S extends BoundHarnessSession>(
+  input: {
+    readonly nativeSessionId: string
+    /** Every native conversation observed for this execution, in execution order. */
+    readonly nativeSessionIds?: readonly string[]
+    readonly files: readonly HarnessFileBinding[]
+    readonly read: (file: HarnessFileBinding, signal?: AbortSignal) => Promise<Uint8Array>
+    readonly signal?: AbortSignal
+  } & (
+    | { readonly parse: (text: string, file: HarnessFileBinding) => S; readonly parseBytes?: never }
+    | {
+        readonly parse?: never
+        readonly parseBytes: (
+          bytes: Uint8Array,
+          file: HarnessFileBinding,
+          signal?: AbortSignal,
+        ) => S | Promise<S>
+      }
+  ),
+) {
+  if (
+    input.parseBytes &&
+    typeof Reflect.get(harnessSessions, 'readOpenCodeSessionSnapshot') !== 'function'
+  )
+    throw new ValidationError(
+      'Binary native sessions require a harness-sessions build with readOpenCodeSessionSnapshot',
+    )
+  const options = {
     ...input,
-    validatePath: (path) => {
+    validatePath: (path: string) => {
       safeArchivePath(path, workspaceLimits(undefined).maxPathBytes)
     },
-    failure: (message) => new ValidationError(message),
-    read: (file, signal) =>
+    failure: (message: string) => new ValidationError(message),
+    read: (file: HarnessFileBinding, signal?: AbortSignal) =>
       signal
         ? runAbortable(() => input.read(file, signal), signal, 'Native source read stopped')
         : input.read(file),
-  })
+  }
+  if (input.parseBytes) {
+    // Capability checked above; the installed declaration may still describe the text-only owner.
+    const readBytes = readNativeFamily as (
+      value: typeof options,
+    ) => ReturnType<typeof readNativeFamily<S>>
+    return readBytes(options)
+  }
+  return readNativeFamily({ ...options, parse: input.parse! })
 }

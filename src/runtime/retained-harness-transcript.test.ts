@@ -9,6 +9,7 @@ import { InMemoryResultBlobStore } from '../durable/in-memory-spawn-stores'
 import { ValidationError } from '../errors'
 import {
   harnessTranscriptArtifact,
+  harnessTranscriptFileBytes,
   persistHarnessTranscript,
   resolveHarnessTranscriptCapture,
   retainHarnessTranscript,
@@ -114,6 +115,18 @@ describe('retained native transcript projection', () => {
         artifact: { files: [], skipped: [{ reason: expect.stringContaining('binary') }] },
       },
     })
+    const binary = await readVerifiedHarnessTranscript(evidence, blobs, {
+      ...options,
+      binary: 'base64',
+    })
+    expect(binary.succeeded).toBe(true)
+    if (!binary.succeeded) throw new Error(binary.error)
+    expect(binary.value.artifact.files).toHaveLength(1)
+    expect(binary.value.artifact.skipped).toEqual([])
+    expect(binary.value.artifact.files[0]?.encoding).toBe('base64')
+    expect(harnessTranscriptFileBytes(binary.value.artifact.files[0]!)).toEqual(
+      Buffer.from([0xff, 0]),
+    )
     expect(
       await readVerifiedHarnessTranscript(evidence, blobs, {
         ...options,
@@ -326,7 +339,7 @@ describe('retained native transcript projection', () => {
     const artifact = await harnessTranscriptArtifact(evidence, blobs, { artifacts })
     expect(artifact?.schemaVersion).toBe(1)
     expect(artifact?.files).toHaveLength(1)
-    expect(Buffer.from(artifact!.files[0]!.content)).toEqual(contents[0])
+    expect(harnessTranscriptFileBytes(artifact!.files[0]!)).toEqual(contents[0])
     expect(artifact!.files[0]!.bytes).toBe(contents[0]!.byteLength)
   })
 

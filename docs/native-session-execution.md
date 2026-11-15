@@ -50,6 +50,22 @@ Successful native skill loads can carry a resource digest only after their path-
 directory and exact rendered content match the bytes Runtime mounted before execution. A matching
 skill name or the model's claim that it read a skill is insufficient.
 
+## Binary transcript custody
+
+An authenticated capture owner can pass session-only SQLite bytes to `captureBoundHarnessTranscript`
+with `parseBytes`, using the shared harness-sessions snapshot reader. Runtime checks that the installed
+reader supports that capability before reading bytes. One immutable payload can bind several verified
+native sessions; its inline transcript file stores canonical base64, decoded byte count and those
+session IDs once. `harnessTranscriptFileBytes` verifies the encoding and byte count, and metadata hashes
+cover the decoded bytes. The capture owner must create the credential-free snapshot before this call;
+Runtime does not copy or sanitize an ambient OpenCode database.
+
+Retained workspace readers preserve their existing text projection by default. Pass `binary: 'base64'`
+through `harnessTranscriptArtifact`, `resolveHarnessTranscriptCapture` or `readHarnessTranscriptSessions`
+to include verified binary archive members, then use the same decoder and shared `parseBytes` reader.
+Inline evidence has one canonical `binding`; retained provider descriptors use `source`. Conflicting
+dual bindings remain refused. Binary custody does not establish successful execution or model identity.
+
 ## Bounds and supported requests
 
 For **opencode/glm-5.3-flash-free**, a profile's `maxVisibleOutputTokens` is lowered into the

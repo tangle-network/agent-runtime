@@ -228,6 +228,7 @@ export {
   type HarnessTranscriptUnavailable,
   type HarnessTranscriptUnavailableReason,
   harnessTranscriptArtifact,
+  harnessTranscriptFileBytes,
   persistHarnessTranscript,
   type ReadableEnvironment,
   readBoundHarnessSessions,
