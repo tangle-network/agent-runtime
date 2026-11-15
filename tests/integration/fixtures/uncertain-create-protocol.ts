@@ -18,6 +18,7 @@ export type Scenario =
   | 'json-owner-capture'
   | 'json-output'
   | 'json-fenced'
+  | 'json-prose-object'
   | 'json-fence-then-text'
   | 'json-authority'
   | 'json-overflow'

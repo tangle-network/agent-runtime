@@ -10,9 +10,14 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import { claudeCodeReader, claudeCodeRefForFile } from '@tangle-network/harness-sessions'
 import { afterEach, describe, expect, it } from 'vitest'
+import { contentAddress } from '../../src/durable/content-address'
 import type { ProviderExecutorOptions } from '../../src/runtime/environment-provider/provider-executor-admission'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
-import { captureBoundHarnessTranscript } from '../../src/runtime/harness-transcript'
+import {
+  captureBoundHarnessTranscript,
+  type HarnessTranscriptArtifact,
+  harnessTranscriptArtifact,
+} from '../../src/runtime/harness-transcript'
 import { readHarnessTranscriptSessions } from '../../src/runtime/harness-transcript-sessions'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -22,6 +27,8 @@ import type {
   SpawnEvent,
   SpawnJournal,
 } from '../../src/runtime/supervise/types'
+import { loadTopSnapshot } from '../../src/tui/top-snapshot'
+import { readTopAgentInspection } from '../../src/tui/top-transcript'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
@@ -197,24 +204,25 @@ async function runDirectory(options: { readonly crash: boolean }) {
   const leaf = events.filter((event) => event.id === 'root:s0')
   const evidence = leaf.filter((event) => event.kind === 'execution-evidence')
   const bound = leaf.filter((event) => event.kind === 'execution-bound')
+  const readSessions = async (artifact: HarnessTranscriptArtifact) => {
+    const directory = await mkdtemp(join(root, 'native-'))
+    return Promise.all(
+      artifact.files.map(async (file) => {
+        const path = join(directory, basename(file.path))
+        await writeFile(path, file.content)
+        return claudeCodeReader.read(claudeCodeRefForFile(path))
+      }),
+    )
+  }
   const read = () =>
     runtimeRunRolloutLines(runDir, {
       readNativeTranscript: (request) =>
         readHarnessTranscriptSessions(request.receipt, context.blobs, {
           node: { rootId: request.rootId, nodeId: request.nodeId, attemptId: request.attemptId },
-          readSessions: async (artifact) => {
-            const directory = await mkdtemp(join(root, 'native-'))
-            return Promise.all(
-              artifact.files.map(async (file) => {
-                const path = join(directory, basename(file.path))
-                await writeFile(path, file.content)
-                return claudeCodeReader.read(claudeCodeRefForFile(path))
-              }),
-            )
-          },
+          readSessions,
         }),
     })
-  return { root, runDir, context, events, evidence, bound, read }
+  return { root, runDir, context, events, evidence, bound, read, readSessions }
 }
 
 /** The leaf's row: its provenance names each native capture and any projection gap. */
@@ -250,6 +258,42 @@ describe("Eval's published reader over a Runtime run directory", () => {
       expect(provenance.lossy_projection).toBeUndefined()
       // The test provider offers no workspace read; that channel is the row's only gap.
       expect(provenance.gap).toBe('workspace capture evidence incomplete')
+      const snapshot = await loadTopSnapshot(run.root, { runDir: run.runDir, format: 'journal' })
+      const worker = snapshot.supervisors
+        .flatMap((row) => row.workers)
+        .find((row) => row.id === 'root:s0')
+      if (!worker) throw new Error('native leaf has no TUI projection')
+      const inspection = await readTopAgentInspection({
+        worker,
+        runId: 'root',
+        blobs: run.context.blobs,
+        readSessions: run.readSessions,
+      })
+      expect(inspection.coverage).toMatchObject({ status: 'complete' })
+      expect(inspection.rows?.map((row) => row.event.text)).toContain('native work')
+      const receipt = worker.harnessTranscript
+      if (receipt?.status !== 'available') throw new Error('native leaf has no transcript receipt')
+      const artifact = await harnessTranscriptArtifact(receipt, run.context.blobs)
+      if (!artifact?.binding?.controlRef)
+        throw new Error('native capture has no provider reference')
+      for (const controlRef of [
+        null,
+        { ...artifact.binding.controlRef, environmentId: 'foreign-environment' },
+        { ...artifact.binding.controlRef, sessionId: 'foreign-session' },
+      ]) {
+        const changed = { ...artifact, binding: { ...artifact.binding, controlRef } }
+        const transcriptRef = contentAddress(changed)
+        await run.context.blobs.put(transcriptRef, changed)
+        const refused = await readTopAgentInspection({
+          worker: { ...worker, harnessTranscript: { ...receipt, transcriptRef } },
+          runId: 'root',
+          blobs: run.context.blobs,
+          readSessions: async () => {
+            throw new Error('mismatched capture must be refused before reading native content')
+          },
+        })
+        expect(refused.coverage).toMatchObject({ status: 'missing', code: 'source-mismatch' })
+      }
     }
     // The recovered attempt's record is content only, so it addresses the same bytes a clean
     // attempt with the same identity would; neither run cites one address twice.

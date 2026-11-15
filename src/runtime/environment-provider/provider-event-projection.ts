@@ -354,14 +354,25 @@ export function resultFromEvents(
   return { content: fallbackText, events }
 }
 
-/** A non-JSON final message settles the fenced block ending it; trailing text keeps it refused. */
+/** The final message may end with a JSON fence or, like Bridge, a bare line-start object. */
 function finalJsonValue(text: string | undefined): string {
   if (text === undefined) return ''
   try {
     JSON.parse(text)
     return text
   } catch {}
-  return /```(?:json)?[ \t]*\r?\n((?:(?!```)[\s\S])*)```\s*$/i.exec(text)?.[1] ?? text
+  const fenced = /```(?:json)?[ \t]*\r?\n((?:(?!```)[\s\S])*)```\s*$/i.exec(text)?.[1]
+  if (fenced !== undefined) return fenced
+  // A fence with trailing text remains invalid; only unfenced output uses the bare-object rule.
+  if (text.includes('```')) return text
+  for (let i = text.lastIndexOf('\n{'); i >= 0; i = i === 0 ? -1 : text.lastIndexOf('\n{', i - 1)) {
+    const candidate = text.slice(i + 1)
+    try {
+      JSON.parse(candidate)
+      return candidate
+    } catch {}
+  }
+  return text
 }
 
 /** Decode only the final assistant message, keeping the stream as evidence. A stream not wholly

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readSync } from 'node:fs'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { AgentExactRunControlRefSchema } from '@tangle-network/agent-interface'
 import type { AgentCandidateArtifactPort } from '../candidate-execution/types'
 import type { PursuitNodeProjection } from '../durable/observer-projection'
 import { FileResultBlobStore } from '../durable/spawn-journal/result-blob-store'
@@ -208,10 +209,32 @@ function inspectionBinding(metadata: HarnessTranscriptMetadata, worker: WorkerVi
   const mismatch: string[] = [],
     missing: string[] = []
   if (metadata.binding !== undefined && !recordValue(metadata.binding))
-    mismatch.push('Capture Bridge binding is malformed')
+    mismatch.push('Capture binding is malformed')
   if (metadata.source && metadata.binding) mismatch.push('Capture has conflicting source bindings')
   const source = metadata.source ?? metadata.binding
   if (!source) return { mismatch, missing: ['Capture has no recorded node binding'] }
+  const binding = metadata.binding
+  const provider =
+    binding?.kind === 'provider'
+      ? AgentExactRunControlRefSchema.safeParse(binding.controlRef)
+      : undefined
+  if (
+    binding &&
+    ((binding.kind !== 'bridge' && binding.kind !== 'provider') ||
+      !binding.nativeSessionId ||
+      !binding.sessionId)
+  )
+    mismatch.push('Capture binding is malformed')
+  if (
+    provider &&
+    (!provider.success ||
+      binding?.sessionId !== provider.data.sessionId ||
+      !Array.isArray(binding.runs) ||
+      binding.runs.length !== 1 ||
+      binding.runs[0]?.runId !== provider.data.runId ||
+      binding.runs[0]?.requestDigest !== provider.data.requestDigest)
+  )
+    mismatch.push('Capture provider control reference is malformed or inconsistent')
   const node = recordValue(source.node)
   if (!node) {
     if (source.node !== undefined) mismatch.push('Capture node binding is malformed')
@@ -246,18 +269,17 @@ function inspectionBinding(metadata: HarnessTranscriptMetadata, worker: WorkerVi
     if (source.profileDigest !== materialization.effectiveProfileDigest)
       mismatch.push('Capture profile does not match selected materialization')
     const execution = materialization.execution
-    const kind = metadata.source ? 'environment' : 'session'
-    const id = metadata.source?.environmentId ?? metadata.binding?.sessionId
-    if (execution.kind !== kind || execution.id !== id)
+    const kind = metadata.source || provider ? 'environment' : 'session'
+    const id =
+      metadata.source?.environmentId ??
+      (provider?.success ? provider.data.environmentId : binding?.sessionId)
+    if (
+      execution.kind !== kind ||
+      execution.id !== id ||
+      (provider?.success && provider.data.provider !== materialization.backend)
+    )
       mismatch.push('Capture execution does not match selected materialization')
   }
-  if (
-    metadata.binding &&
-    (metadata.binding.kind !== 'bridge' ||
-      !metadata.binding.nativeSessionId ||
-      !metadata.binding.sessionId)
-  )
-    mismatch.push('Capture Bridge binding is malformed')
   return { mismatch, missing }
 }
 

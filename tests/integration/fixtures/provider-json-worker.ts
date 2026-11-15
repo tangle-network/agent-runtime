@@ -171,6 +171,8 @@ process.stdout.write(
         ? fence
         : mode === 'json-fence-then-text'
           ? `${fence}\n- private-json-answer-canary\n`
-          : JSON.stringify(output),
+          : mode === 'json-prose-object'
+            ? `The answer follows.\n${JSON.stringify(output, null, 2)}\n`
+            : JSON.stringify(output),
 )
 process.exitCode = mode === 'json-native-failed' || mode === 'json-observation-long-failed' ? 7 : 0
