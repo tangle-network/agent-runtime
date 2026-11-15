@@ -368,6 +368,9 @@ function finalJsonValue(text: string | undefined): string {
   const fenced = /```(?:json)?[ \t]*\r?\n((?:(?!```)[\s\S])*)```\s*$/i.exec(text)?.[1]
   if (fenced !== undefined) return fenced
   if (/```json[ \t]*\r?\n[\s\S]*?\r?\n```/i.test(text)) return text
+  // A candidate is a whole object, so none parses unless the message ends with `}`; checking that
+  // first keeps a long unclosed prefix from costing one full parse per line.
+  if (!text.trimEnd().endsWith('}')) return text
   // Last line-start `{` first; index 0 is the whole message, tried above.
   for (let i = text.lastIndexOf('\n{'); i > 0; i = text.lastIndexOf('\n{', i - 1)) {
     const candidate = text.slice(i + 1)

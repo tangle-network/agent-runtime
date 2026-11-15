@@ -177,7 +177,7 @@ process.stdout.write(
             : mode === 'json-object-then-fence'
               ? `${JSON.stringify(output)}\n\n\`\`\`json\n${JSON.stringify(output)}\n\`\`\``
               : mode === 'json-object-then-text'
-                ? `${prose}\n\n${JSON.stringify(output)}\n\n- private-json-answer-canary\n`
+                ? `${prose}\n\n${JSON.stringify(output)}\n\n- private-json-answer-canary {sic}\n`
                 : mode === 'json-fence-then-object'
                   ? `${fence}\nprivate-json-answer-canary:\n${JSON.stringify(output)}`
                   : JSON.stringify(output),
