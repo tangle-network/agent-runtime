@@ -276,9 +276,9 @@ export function writeWorkerSteer(
 }
 
 /**
- * `writeWorkerSteer` without blocking the calling thread on the disk: the request file is
- * published by the durable writer, so an event loop that admits steers keeps running while the
- * file and its directory reach disk. Same admission, replay and conflict rules.
+ * Admit one steer like `writeWorkerSteer`, without blocking the calling thread on the disk.
+ * The request file is published by the durable writer, so an event loop that admits steers keeps
+ * running while the file and its directory reach disk. Same admission, replay and conflict rules.
  * @stable
  */
 export async function writeWorkerSteerAsync(
