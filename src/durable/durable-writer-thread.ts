@@ -73,8 +73,8 @@ parentPort!.on('message', (request: DurableWriterRequest) => {
       error: {
         message: failure.message,
         name: failure.name,
-        ...(typeof (failure as { code?: unknown }).code === 'string'
-          ? { code: (failure as { code: string }).code }
+        ...(typeof Reflect.get(failure, 'code') === 'string'
+          ? { code: Reflect.get(failure, 'code') as string }
           : {}),
         ...(failure.stack === undefined ? {} : { stack: failure.stack }),
       },

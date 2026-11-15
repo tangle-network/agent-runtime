@@ -117,6 +117,8 @@ export async function acquireRunDirectoryLock(
   // durable writer: the one thread that takes this directory's mutation lock in this process.
   const holder = await runFencedAlways('acquireRunLock', acquireRunLockFenced, dir, path, owner)
   const generation = holder.generation
+  if (generation === undefined)
+    throw new Error(`supervisePursuit: ${path} was taken without a generation`)
   let released = false
   return Object.freeze({
     ...holder,

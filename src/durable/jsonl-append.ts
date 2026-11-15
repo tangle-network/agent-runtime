@@ -22,7 +22,7 @@ import { fenceRunWrite } from './run-fence'
  * fence, that the file it wrote is still the one at `path`, and resolves with that file's stamp.
  * @internal
  */
-export function appendCommittedJsonLine(path: string, record: unknown): Promise<void>
+export function appendCommittedJsonLine(path: string, record: unknown): Promise<undefined>
 export function appendCommittedJsonLine(
   path: string,
   record: unknown,

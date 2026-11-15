@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { monitorEventLoopDelay } from 'node:perf_hooks'
+import { setTimeout as delay } from 'node:timers/promises'
 import { afterEach, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import { appendCommittedJsonLine } from '../../src/durable/jsonl-file'
@@ -53,8 +53,15 @@ it('claimed writes wait on a held run lock without blocking the event loop, in t
       text: 'x'.repeat(64 * 1024),
     }))
     const holder = await holdMutationLock(join(dir, RUN_DIRECTORY_LOCK_FILE), 3_000)
-    const lag = monitorEventLoopDelay({ resolution: 10 })
-    lag.enable()
+    // A 5 ms heartbeat: the largest gap between beats is the longest time this loop was blocked.
+    let last = performance.now()
+    let worstGapMs = 0
+    const beat = setInterval(() => {
+      const now = performance.now()
+      worstGapMs = Math.max(worstGapMs, now - last)
+      last = now
+    }, 5)
+    await delay(50)
     const began = performance.now()
     // Issued without awaiting each: blob, journal line naming it, next blob, next line, ...
     const writes = lock.run(() =>
@@ -68,12 +75,13 @@ it('claimed writes wait on a held run lock without blocking the event loop, in t
     )
     await Promise.all(writes)
     const waitedMs = performance.now() - began
-    lag.disable()
+    worstGapMs = Math.max(worstGapMs, performance.now() - last)
+    clearInterval(beat)
     holder.kill('SIGKILL')
 
     // The writes waited for the other process's lock (about 3 s) while this loop kept running.
     expect(waitedMs).toBeGreaterThan(2_500)
-    expect(lag.max / 1e6).toBeLessThan(100)
+    expect(worstGapMs).toBeLessThan(100)
     const lines = (await readFile(journal, 'utf8'))
       .trim()
       .split('\n')

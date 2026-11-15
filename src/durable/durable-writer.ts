@@ -165,7 +165,7 @@ function start(): Writer {
     if (reply.ok) waiting.resolve(reply.value)
     else waiting.reject(revive(reply.error))
   })
-  worker.on('error', (error) =>
+  worker.on('error', (error: Error) =>
     fail(new Error(`durable writer failed: ${error.message}`, { cause: error })),
   )
   worker.on('exit', (code) => fail(new Error(`durable writer exited with code ${code}`)))
