@@ -163,9 +163,10 @@ it.each([
               directive: { surface: 'delegates/worker-brief', version: 1 },
             },
           ],
-          // A pool no admissible slice fits: the stage spends both iterations, so the review's default (2)
-          // cannot be lowered to fit (#2620's fitDefaultBudget) and refuses. A pool of 3 leaves 1, which it fits.
-          budget: { ...budget, maxIterations: 2 },
+          // A pool no admissible slice fits: the stage spends all 3 iterations, so the review's default (2) has
+          // nothing to be lowered to (#2620's fitDefaultBudget) and refuses. A stage that spends 2 leaves 1, which
+          // the lowered default fits; a pool of 2 equals perWorker, which setup refuses before any spawn.
+          budget: { ...budget, maxIterations: 3 },
         }
       : graph
     const pending = superviseGraphPursuit(executionGraph, {
@@ -173,7 +174,7 @@ it.each([
       runId,
       pursuitId,
       signal: stop.signal,
-      makeLeafAgent: processLeaf(root, known, fail, refuse ? 2 : 1),
+      makeLeafAgent: processLeaf(root, known, fail, refuse ? 3 : 1),
       perWorker: { maxIterations: refuse ? 2 : 1, maxTokens: 1000 },
       driverRetry: { enabled: false },
     })
