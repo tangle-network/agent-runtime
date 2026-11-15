@@ -163,7 +163,9 @@ it.each([
               directive: { surface: 'delegates/worker-brief', version: 1 },
             },
           ],
-          budget: { ...budget, maxIterations: 3 },
+          // A pool no admissible slice fits: the stage spends both iterations, so the review's default (2)
+          // cannot be lowered to fit (#2620's fitDefaultBudget) and refuses. A pool of 3 leaves 1, which it fits.
+          budget: { ...budget, maxIterations: 2 },
         }
       : graph
     const pending = superviseGraphPursuit(executionGraph, {
