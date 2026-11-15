@@ -1758,7 +1758,8 @@
       "workerFromInteractiveProvider": "value 39402cf08b4d",
       "workerInboxFileFromEventDir": "value 3e1f2128fc64",
       "worktreeFanout": "value d3180f64e42b",
-      "writeWorkerSteer": "value fb0f7dc950d1"
+      "writeWorkerSteer": "value fb0f7dc950d1",
+      "writeWorkerSteerAsync": "value c012effcb19e"
     },
     "./mcp": {
       "AnalystRegistry": "type 25b72b10ec51",
@@ -3353,6 +3354,7 @@
     "bfe9af8b2361": {"(0)":"8161c1be","=>":["8a626d4e",{"Promise<>":"445be54d"}],"~form":"TSTypeAliasDeclaration"},
     "bfed97e5ac3c": {"readonly namespace":"473287f8","readonly location":"473287f8","readonly deletedObjects":"12886f9d","readonly deletedBytes":"12886f9d","readonly remainingObjects":"12886f9d","readonly remainingBytes":"12886f9d","readonly complete":"bf84d3d6","~form":"TSInterfaceDeclaration"},
     "c00f22a77c3e": {"~form":"function","@0":["c00f22a7",{"(0)":"ffafea9c","(1?)":["2feab376",{"minimumScore?":"12886f9d"}],"=>":"c7ccf8ba"}]},
+    "c012effcb19e": {"~form":"function","@0":["c012effc",{"(0)":"473287f8","(1)":"473287f8","(2)":"473287f8","(3)":"63866162","=>":["69eb1139",{"Promise<>":"a7e7a015"}]}]},
     "c014f9a6eb17": {"~form":"function","@0":["c014f9a6",{"(0)":"faaf3550","(1)":"d0495c46","(2)":"e6ddbc03","=>":"a32971f6"}]},
     "c079fd677967": {"~form":"function","@0":["c079fd67",{"(0)":"cc1613b0","(1)":"93cf60ee","=>":["f3be653f",{"Promise<>":"ce728304"}]}]},
     "c089ca89cb01": {"~form":"function","@0":["c089ca89",{"(0)":"f1eb1ec0","=>":["77783f20",{"Promise<>":"d470896b"}]}]},
