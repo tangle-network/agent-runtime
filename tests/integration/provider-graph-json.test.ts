@@ -29,10 +29,12 @@ it.each<Scenario>([
   'json-output',
   'json-fenced',
   'json-fence-then-text',
-  // Two layouts recorded graph turns ended with, and an object-first layout that stays refused.
+  // Two layouts recorded graph turns ended with; then text after a trailing object, and an object
+  // after text after a fence, both of which stay refused.
   'json-prose-then-object',
   'json-object-then-fence',
   'json-object-then-text',
+  'json-fence-then-object',
   'json-authority',
   'json-overflow',
   'json-no-terminal',

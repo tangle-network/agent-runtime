@@ -22,6 +22,7 @@ export type Scenario =
   | 'json-prose-then-object'
   | 'json-object-then-fence'
   | 'json-object-then-text'
+  | 'json-fence-then-object'
   | 'json-authority'
   | 'json-overflow'
   | 'json-no-terminal'
