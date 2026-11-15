@@ -718,6 +718,7 @@ export {
   type WriteWorkerSteerOptions,
   workerInboxFileFromEventDir,
   writeWorkerSteer,
+  writeWorkerSteerAsync,
 } from './supervise/run-layout'
 export type { ParkedRun, RunParkingPolicy, RunParkingRecord } from './supervise/run-parking'
 export { RunParkedError, readRunParking } from './supervise/run-parking'

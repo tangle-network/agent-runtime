@@ -8,6 +8,16 @@ import { contentAddress } from '../../src/durable/content-address'
 import { appendCommittedJsonLine } from '../../src/durable/jsonl-file'
 import { acquireRunDirectoryLock, RUN_DIRECTORY_LOCK_FILE } from '../../src/durable/run-lock'
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import {
+  claimWorkerSteerDelivery,
+  readWorkerSteerAcknowledgement,
+  writeWorkerSteerAcknowledgement,
+  writeWorkerSteerAsync,
+} from '../../src/runtime/supervise/run-layout'
+import {
+  readWorkerInteractiveBinding,
+  writeWorkerInteractiveBindingAsync,
+} from '../../src/runtime/supervise/worker-interactive'
 
 const children = new Set<ChildProcess>()
 const directories: string[] = []
@@ -40,6 +50,86 @@ function holdMutationLock(lockFile: string, holdMs: number): Promise<ChildProces
     child.once('exit', (code) => code !== 0 && reject(new Error(`holder exited ${code}`)))
   })
 }
+
+/** A 5 ms heartbeat: the largest gap between beats is the longest time this loop was blocked. */
+function heartbeat(): () => number {
+  let last = performance.now()
+  let worst = 0
+  const beat = setInterval(() => {
+    const now = performance.now()
+    worst = Math.max(worst, now - last)
+    last = now
+  }, 5)
+  return () => {
+    clearInterval(beat)
+    return Math.max(worst, performance.now() - last)
+  }
+}
+
+it('steer and binding writes wait on the durable writer without blocking the event loop, claimed or not', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'durable-writer-steer-'))
+  directories.push(dir)
+  const lock = await acquireRunDirectoryLock(dir, 'steer-off-loop')
+  try {
+    const holder = await holdMutationLock(join(dir, RUN_DIRECTORY_LOCK_FILE), 3_000)
+    const worstGap = heartbeat()
+    await delay(50)
+    const began = performance.now()
+    // The claimed blob write waits for the other process's lock, so every later write on the
+    // durable writer waits behind it: an unclaimed steer completes only after the lock is free.
+    const blocked = lock.run(() =>
+      new FileResultBlobStore(join(dir, 'blobs')).put(contentAddress({ a: 1 }), { a: 1 }),
+    )
+    const unclaimed = writeWorkerSteerAsync(dir, 'run', 'run:s0', {
+      eventDir: dir,
+      operationId: 'steer-unclaimed',
+      message: 'admitted outside any claim',
+    }).then((steer) => ({ steer, doneMs: performance.now() - began }))
+    const claimed = lock.run(async () => {
+      const steer = await writeWorkerSteerAsync(dir, 'run', 'run:s1', {
+        eventDir: dir,
+        operationId: 'steer-claimed',
+        message: 'admitted under the run claim',
+      })
+      const record = {
+        schemaVersion: 1 as const,
+        operationId: steer.request.operationId,
+        requestDigest: steer.request.requestDigest,
+        worker: steer.request.worker,
+        requestedAt: steer.request.at,
+        observedAt: steer.request.at,
+        effect: 'unknown' as const,
+        detail: 'delivery admitted',
+      }
+      expect(await claimWorkerSteerDelivery(dir, record)).toBe(true)
+      await writeWorkerSteerAcknowledgement(dir, {
+        ...record,
+        effect: 'delivered',
+        detail: 'delivered',
+      })
+      await writeWorkerInteractiveBindingAsync(dir, 'run:s1', 'worker', dir, {
+        status: 'unavailable',
+        reason: 'not-live',
+      })
+      return steer
+    })
+    const [, admitted, steer] = await Promise.all([blocked, unclaimed, claimed])
+    const waitedMs = performance.now() - began
+    const worstGapMs = worstGap()
+    holder.kill('SIGKILL')
+
+    // Every write waited for the other process's lock (about 3 s) while this loop kept running.
+    expect(waitedMs).toBeGreaterThan(2_500)
+    expect(admitted.doneMs).toBeGreaterThan(2_500)
+    expect(worstGapMs).toBeLessThan(100)
+    expect(admitted.steer.replayed).toBe(false)
+    expect(steer.replayed).toBe(false)
+    expect(readWorkerSteerAcknowledgement(dir, 'steer-claimed')?.effect).toBe('delivered')
+    expect(readWorkerInteractiveBinding(dir, 'run:s1')?.status).toBe('unavailable')
+  } finally {
+    await lock.release()
+  }
+}, 30_000)
 
 it('claimed writes wait on a held run lock without blocking the event loop, in the order issued', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'durable-writer-'))

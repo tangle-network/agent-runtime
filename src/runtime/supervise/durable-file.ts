@@ -29,7 +29,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
-import { runFenced, runFencedAsync } from '../../durable/durable-writer'
+import { runFenced, runFencedAlways } from '../../durable/durable-writer'
 import { fenceRunWrite } from '../../durable/run-fence'
 
 interface DurableFileOptions {
@@ -58,13 +58,16 @@ export function publishExclusiveDurableFile(
     : publishExclusiveFenced(filePath, content, options)
 }
 
-/** `publishExclusiveDurableFile` without blocking the calling thread on the disk. */
+/**
+ * `publishExclusiveDurableFile` without blocking the calling thread on the disk: from the main
+ * thread the write runs on the durable writer whether or not a run claim is held.
+ */
 export function publishExclusiveDurableFileAsync(
   filePath: string,
   content: string,
   options: DurableFileOptions = {},
 ): Promise<boolean> {
-  return runFencedAsync(
+  return runFencedAlways(
     'publishExclusiveDurableFile',
     publishExclusiveFenced,
     filePath,
@@ -243,6 +246,15 @@ export function writeAtomicDurableFile(
   if (typeof content === 'string')
     runFenced('writeAtomicDurableFile', writeAtomicFenced, filePath, content, options)
   else writeAtomicFenced(filePath, content, options)
+}
+
+/** `writeAtomicDurableFile` without blocking the calling thread on the disk, claimed or not. */
+export function writeAtomicDurableFileAsync(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
+): Promise<void> {
+  return runFencedAlways('writeAtomicDurableFile', writeAtomicFenced, filePath, content, options)
 }
 
 /** The fenced atomic replacement the durable writer runs. @internal */

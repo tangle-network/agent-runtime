@@ -121,7 +121,7 @@ describe('supervisor run layout', () => {
     expect(read.map((r) => r.message)).toEqual(['first', 'second'])
   })
 
-  it('admits one delivery claimant and exposes the durable acknowledgement after restart', () => {
+  it('admits one delivery claimant and exposes the durable acknowledgement after restart', async () => {
     const root = tempRoot()
     const dir = supervisorRunDir(root, 'run-1')
     const request = writeWorkerSteer(root, 'run-1', 'run-1:s0', {
@@ -138,10 +138,10 @@ describe('supervisor run layout', () => {
       observedAt: '2026-08-28T00:00:00.000Z',
       detail: 'delivery admitted; outcome not yet known',
     }
-    expect(claimWorkerSteerDelivery(dir, claim)).toBe(true)
-    expect(claimWorkerSteerDelivery(dir, claim)).toBe(false)
+    expect(await claimWorkerSteerDelivery(dir, claim)).toBe(true)
+    expect(await claimWorkerSteerDelivery(dir, claim)).toBe(false)
     expect(readWorkerSteerAcknowledgement(dir, request.operationId)).toEqual(claim)
-    writeWorkerSteerAcknowledgement(dir, {
+    await writeWorkerSteerAcknowledgement(dir, {
       ...claim,
       effect: 'delivered',
       observedAt: '2026-08-28T00:00:01.000Z',
@@ -198,7 +198,7 @@ describe('supervisor run layout', () => {
     ])
   })
 
-  it('ignores requests under foreign names and per-file symbolic links', () => {
+  it('ignores requests under foreign names and per-file symbolic links', async () => {
     const root = tempRoot()
     const dir = supervisorRunDir(root, 'run-forged-request')
     const canonical = writeWorkerSteer(root, 'run-forged-request', 'run-forged-request:s0', {
@@ -221,7 +221,7 @@ describe('supervisor run layout', () => {
     expect(readWorkerSteerRequests(dir).map((request) => request.operationId)).toEqual([
       'steer-canonical',
     ])
-    expect(() =>
+    await expect(
       claimWorkerSteerDelivery(dir, {
         schemaVersion: 1,
         operationId: linked.request.operationId,
@@ -232,7 +232,7 @@ describe('supervisor run layout', () => {
         observedAt: '2026-08-28T00:00:00.000Z',
         detail: 'must not claim a linked request',
       }),
-    ).toThrow(/symbolic link/)
+    ).rejects.toThrow(/symbolic link/)
   })
 
   it('rejects empty and symlinked explicit event directories before admission', () => {

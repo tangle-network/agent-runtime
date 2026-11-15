@@ -12,7 +12,11 @@ import { spawnJournalRecordEvents } from '../../durable/spawn-journal/record-eve
 import { loadSpawnForest } from '../../durable/spawn-journal/spawn-forest'
 import type { AgentEnvironmentProviderRegistry } from '../environment-provider/provider-registry'
 import { reconnectRetainedInteractiveRun } from '../retained-interactive'
-import { assertNoSymlinkDescendant, publishExclusiveDurableFile } from './durable-file'
+import {
+  assertNoSymlinkDescendant,
+  publishExclusiveDurableFile,
+  publishExclusiveDurableFileAsync,
+} from './durable-file'
 import type { WorkerInteractiveSession, WorkerInteractiveUnavailableReason } from './types'
 
 const WORKER_BINDING_SCHEMA_VERSION = 1 as const
@@ -94,6 +98,47 @@ export function writeWorkerInteractiveBinding(
   session: WorkerInteractiveSession,
   now = Date.now,
 ): WorkerInteractiveBinding {
+  const pending = prepareBinding(eventDir, workerId, label, journalRoot, session, now)
+  if ('existing' in pending) return pending.existing
+  return settleBinding(
+    eventDir,
+    pending.binding,
+    publishExclusiveDurableFile(pending.file, bindingText(pending.binding)),
+  )
+}
+
+/** `writeWorkerInteractiveBinding` without blocking the calling thread on the disk. @internal */
+export async function writeWorkerInteractiveBindingAsync(
+  eventDir: string,
+  workerId: string,
+  label: string,
+  journalRoot: string,
+  session: WorkerInteractiveSession,
+  now = Date.now,
+): Promise<WorkerInteractiveBinding> {
+  const pending = prepareBinding(eventDir, workerId, label, journalRoot, session, now)
+  if ('existing' in pending) return pending.existing
+  return settleBinding(
+    eventDir,
+    pending.binding,
+    await publishExclusiveDurableFileAsync(pending.file, bindingText(pending.binding)),
+  )
+}
+
+const bindingText = (binding: WorkerInteractiveBinding): string =>
+  `${JSON.stringify(binding, null, 2)}\n`
+
+/** The binding to publish and its file, or the identical binding already published. */
+function prepareBinding(
+  eventDir: string,
+  workerId: string,
+  label: string,
+  journalRoot: string,
+  session: WorkerInteractiveSession,
+  now: () => number,
+):
+  | { readonly binding: WorkerInteractiveBinding; readonly file: string }
+  | { readonly existing: WorkerInteractiveBinding } {
   const id = stableText(workerId, 'worker id')
   const workerLabel = stableText(label, 'worker label')
   const root = stableText(journalRoot, 'journal root')
@@ -128,12 +173,19 @@ export function writeWorkerInteractiveBinding(
   const existing = readWorkerInteractiveBinding(eventDir, id)
   if (existing !== undefined) {
     assertSameBinding(existing, binding)
-    return existing
+    return { existing }
   }
-  if (publishExclusiveDurableFile(file, `${JSON.stringify(binding, null, 2)}\n`)) {
-    return binding
-  }
-  const winner = readWorkerInteractiveBinding(eventDir, id)
+  return { binding, file }
+}
+
+/** The published binding: this one, or the identical winner of a concurrent publication. */
+function settleBinding(
+  eventDir: string,
+  binding: WorkerInteractiveBinding,
+  published: boolean,
+): WorkerInteractiveBinding {
+  if (published) return binding
+  const winner = readWorkerInteractiveBinding(eventDir, binding.workerId)
   if (winner === undefined) {
     throw new Error(`worker interactive binding publication lost its winner`)
   }

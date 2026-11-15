@@ -29,7 +29,7 @@ if (mode === 'write') {
     (candidate) => candidate.operationId === operationId,
   )
   if (request === undefined) throw new Error('admitted steer request not found')
-  const won = claimWorkerSteerDelivery(required(eventDir), {
+  const won = await claimWorkerSteerDelivery(required(eventDir), {
     schemaVersion: 1,
     operationId: request.operationId,
     requestDigest: request.requestDigest,
