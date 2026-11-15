@@ -8,6 +8,7 @@ import {
   canonicalAgentProfileDigest,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
+import { profileBridgeWireModel } from '@tangle-network/agent-runtime/kernel'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/in-memory-spawn-stores'
 import { replaySpawnTree } from '../../durable/spawn-journal/replay'
@@ -1547,7 +1548,8 @@ describe('bridgeExecutor upstream-error propagation', () => {
       },
     })
     server = stub.server
-    for (const declared of ['glm-5.3-flash-free', 'opencode/glm-5.3-flash-free']) {
+    const declaredModels = ['glm-5.3-flash-free', 'opencode/glm-5.3-flash-free']
+    for (const declared of declaredModels) {
       const executor = bridgeExecutor(
         {
           profile: {
@@ -1571,6 +1573,15 @@ describe('bridgeExecutor upstream-error propagation', () => {
       'opencode/opencode/glm-5.3-flash-free',
       'opencode/opencode/glm-5.3-flash-free',
     ])
+    // A caller that speaks to cli-bridge itself gets the same wire model from the kernel export.
+    expect(
+      declaredModels.map((declared) =>
+        profileBridgeWireModel({
+          harness: 'opencode',
+          model: { provider: 'opencode', default: declared },
+        }),
+      ),
+    ).toEqual(models)
   })
 
   it('prices a turn the bridge reported no price for, and keeps the dollars unknown', async () => {
