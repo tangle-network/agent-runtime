@@ -263,7 +263,7 @@ describe('durable root steering through the existing operation protocol', () => 
     const { runDir, options, write } = fixture()
     const { request } = write('in-doubt-root')
     expect(
-      claimWorkerSteerDelivery(runDir, {
+      await claimWorkerSteerDelivery(runDir, {
         schemaVersion: 1,
         operationId: request.operationId,
         requestDigest: request.requestDigest,
