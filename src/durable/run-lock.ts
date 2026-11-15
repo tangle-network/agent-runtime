@@ -21,7 +21,7 @@ import {
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
 } from '../runtime/supervise/durable-file'
-import { runFencedAlways } from './durable-writer'
+import { registerDurableErrorClass, runFencedAlways } from './durable-writer'
 import { isNoEntError } from './jsonl-file'
 import { mutateRunClaim, runGenerationPath, runWithWriteClaim } from './run-fence'
 
@@ -92,6 +92,8 @@ export class RunDirectoryLockedError extends Error {
     this.holder = holder
   }
 }
+
+registerDurableErrorClass('RunDirectoryLockedError', RunDirectoryLockedError)
 
 /**
  * Take `runDir/supervise.lock`, or refuse.

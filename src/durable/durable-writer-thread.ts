@@ -14,6 +14,7 @@ import {
   writeAtomicFenced,
 } from '../runtime/supervise/durable-file'
 import {
+  closeStreamFile,
   openStreamFileFenced,
   syncStreamFileFenced,
   writeStreamLinesFenced,
@@ -36,6 +37,7 @@ const OPERATIONS: Readonly<Record<string, (...args: never[]) => unknown>> = {
   appendCommittedLine,
   appendDurableFile: appendDurableFenced,
   appendRunLines: appendRunLinesFenced,
+  closeStreamFile,
   makeRunDirectory: makeRunDirectoryFenced,
   openStreamFile: openStreamFileFenced,
   prepareJsonlAppend: prepareJsonlTailFenced,
@@ -51,6 +53,20 @@ function perform(operation: DurableOperation): unknown {
   const run = OPERATIONS[operation.name]
   if (run === undefined) throw new Error(`durable writer has no operation named ${operation.name}`)
   return (run as (...args: readonly unknown[]) => unknown)(...operation.args)
+}
+
+/** The error's own fields that survive the thread boundary (a lock holder, a path). */
+function cloneableFields(error: Error): Record<string, unknown> {
+  const fields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(error)) {
+    if (['message', 'name', 'stack', 'code'].includes(key)) continue
+    try {
+      fields[key] = structuredClone(value)
+    } catch {
+      // A field that cannot be cloned stays on this thread.
+    }
+  }
+  return fields
 }
 
 becomeDurableWriter(perform)
@@ -77,6 +93,7 @@ parentPort!.on('message', (request: DurableWriterRequest) => {
           ? { code: Reflect.get(failure, 'code') as string }
           : {}),
         ...(failure.stack === undefined ? {} : { stack: failure.stack }),
+        fields: cloneableFields(failure),
       },
     }
   }
