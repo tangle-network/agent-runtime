@@ -33,7 +33,8 @@ interface BridgeTurnTally {
   usdKnown: boolean
   knownCostSubtotal: number
   costProvenance: 'provider-receipt' | 'billing-receipt' | undefined
-  estimatedCostSubtotal: number
+  // The producer's estimate for this turn; `undefined` when it sent none.
+  estimatedCostSubtotal: number | undefined
   // This turn's own totals, so an unreceipted turn is priced on what IT presented.
   inputTokens: number
   outputTokens: number
@@ -48,7 +49,7 @@ function newTurnTally(): BridgeTurnTally {
     usdKnown: true,
     knownCostSubtotal: 0,
     costProvenance: undefined,
-    estimatedCostSubtotal: 0,
+    estimatedCostSubtotal: undefined,
     inputTokens: 0,
     outputTokens: 0,
   }
@@ -238,14 +239,13 @@ export class BridgeSessionLedger {
       }
     }
     if (typeof chunk.estimatedCost === 'number') {
+      const subtotal = turn.estimatedCostSubtotal ?? 0
       const increment =
-        chunk.costScope === 'total'
-          ? chunk.estimatedCost - turn.estimatedCostSubtotal
-          : chunk.estimatedCost
+        chunk.costScope === 'total' ? chunk.estimatedCost - subtotal : chunk.estimatedCost
       if (increment < 0) {
         throw new ValidationError('bridgeExecutor: total estimated cost decreased within a turn')
       }
-      turn.estimatedCostSubtotal += increment
+      turn.estimatedCostSubtotal = subtotal + increment
       this.estimatedUsd += increment
       this.sawEstimatedUsd = true
     }
@@ -314,23 +314,28 @@ export class BridgeSessionLedger {
     }
   }
 
-  // Price only a turn that billed nothing. The event stays `usdKnown: false`.
+  // The provider path's rule: a subscription seat stays unpriced, the producer's estimate wins,
+  // and the catalog prices only a turn that billed nothing. The event stays `usdKnown: false`.
   private priceUnreceiptedTurn(providerModel: string, credentialSource?: unknown): UsageEvent {
     const { turn } = this
-    const priced =
-      turn.knownCostSubtotal === 0
-        ? priceUnreceiptedWork({
-            inputTokens: turn.inputTokens,
-            outputTokens: turn.outputTokens,
-            model: this.observedModel ?? providerModel,
-            ...(credentialSource === 'subscription' ? { credentialSource } : {}),
-          })
-        : {
-            kind: 'cost' as const,
-            usd: 0,
-            usdKnown: false as const,
-            provenance: 'uncaptured' as const,
+    const estimate = credentialSource === 'subscription' ? undefined : turn.estimatedCostSubtotal
+    const priced: Extract<UsageEvent, { kind: 'cost' }> =
+      estimate !== undefined
+        ? {
+            kind: 'cost',
+            usd: estimate,
+            usdKnown: false,
+            usdEstimated: estimate,
+            provenance: 'catalog-estimate',
           }
+        : turn.knownCostSubtotal === 0
+          ? priceUnreceiptedWork({
+              inputTokens: turn.inputTokens,
+              outputTokens: turn.outputTokens,
+              model: this.observedModel ?? providerModel,
+              ...(credentialSource === 'subscription' ? { credentialSource } : {}),
+            })
+          : { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' }
     if (priced.usdKnown === false && priced.usdEstimated !== undefined) {
       this.estimatedUsdCharged += priced.usdEstimated
     }
