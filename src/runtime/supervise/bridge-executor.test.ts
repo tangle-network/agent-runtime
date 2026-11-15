@@ -1832,6 +1832,40 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
   })
 
+  it.each([
+    {
+      name: 'a measured-empty call',
+      middle: { estimated: false, cost_known: false },
+      unknown: true,
+    },
+    { name: 'an ordinary cost-only receipt', middle: { cost: 0.1 }, unknown: false },
+    { name: 'an ordinary cost-status receipt', middle: { cost_known: false }, unknown: false },
+  ])(
+    'preserves token coverage across $name between measured calls',
+    async ({ middle, unknown }) => {
+      const measured = { prompt_tokens: 11, completion_tokens: 7, estimated: false }
+      const frames = [measured, middle, measured]
+        .map((usage) => `data: ${JSON.stringify({ usage })}\n\n`)
+        .join('')
+      const stub = await startBridgeStub(`${frames}data: [DONE]\n\n`)
+      server = stub.server
+      const executor = makeExecutor(stub.url)
+
+      const events = await drain(
+        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      )
+
+      const tokens = events.filter((event) => event.kind === 'tokens')
+      expect(tokens).toHaveLength(unknown ? 3 : 2)
+      if (unknown)
+        expect(tokens[1]).toEqual({ kind: 'tokens', input: 0, output: 0, tokensKnown: false })
+      const spent = executor.resultArtifact().spent
+      expect(spent.tokens).toMatchObject({ input: 22, output: 14 })
+      expect(spent.tokensKnown).toBe(unknown ? false : undefined)
+      expect(spendFromUsageEvents(events).tokensKnown).toBe(unknown ? false : undefined)
+    },
+  )
+
   it('normalizes the router Fireworks cache receipt into complete prompt classes', async () => {
     const body = `data: ${JSON.stringify({
       usage: {

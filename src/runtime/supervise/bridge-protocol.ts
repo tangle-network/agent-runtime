@@ -886,6 +886,10 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
         ? input - readInput - writeInput
         : undefined)
     if (
+      // Native readers retain an observed call with unknown counters as an explicit
+      // measured receipt. Dropping it lets later calls turn a subtotal into a total.
+      // Cost-only receipts without this token marker still leave coverage unchanged.
+      u.estimated === false ||
       input !== undefined ||
       output !== undefined ||
       freshInput !== undefined ||
