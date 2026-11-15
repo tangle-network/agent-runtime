@@ -765,6 +765,58 @@ describe('flow graphs — a flow inside a maps item and a run_graph subtask', ()
     ])
   })
 
+  it('runs both nodes of an item whose pool is smaller than two full default draws', async () => {
+    // One worker slot makes the default slice the item's whole pool (30 tokens, 3 iterations). The
+    // first node spends 12 and 1, so the second's default draw of 30 and 3 no longer fits; under
+    // 10.0.0 it was refused and every item ended down (agent-runtime#2619, a critic reader then
+    // its verify). It now reserves what the pool has left and the item finishes.
+    const item: GraphTopology = {
+      nodes: [node('critic'), node('verify')],
+      entry: [{ node: 'critic', task: { item: true } }],
+      edges: [
+        routes('critic', 'verify', { evidence: ['critic'] }),
+        routes('verify', { finish: 'verified' }),
+      ],
+    }
+    const graph = flow(
+      ['plan', 'collect'],
+      [{ node: 'plan', task: 'assign the critics' }],
+      [
+        {
+          kind: 'maps',
+          from: 'plan',
+          pointer: '/assignments',
+          graph: item,
+          join: 'collect',
+          directive: brief,
+          maxItems: 2,
+          concurrency: 1,
+          onItemFailure: 'settled-subset',
+          itemBudget: { maxTokens: 30, maxIterations: 3 },
+        },
+      ],
+    )
+    const { res, spawns } = await run(
+      graph,
+      { plan: [{ out: { assignments: ['a', 'b'] } }], collect: [{ out: { collected: 2 } }] },
+      { workerSlots: 1 },
+    )
+    expect(rows(res.ledger)).not.toContainEqual(expect.stringContaining('unpropagated'))
+    expect(res.result.kind).toBe('winner')
+    const verifies = spawns.filter((s) => s.node === 'verify')
+    expect(verifies).toHaveLength(2)
+    for (const spawn of verifies) {
+      expect(spawn.context?.budget.maxTokens).toBe(30 - LEAF_TOKENS.input - LEAF_TOKENS.output)
+      expect(spawn.context?.budget.maxIterations).toBe(2)
+    }
+    const join = spawns.find((s) => s.node === 'collect')?.task as {
+      items: number
+      failures: unknown[]
+    }
+    expect(join.items).toBe(2)
+    expect(join.failures).toEqual([])
+  })
+
   it("resolves an item flow's directives against the graph's own registry", async () => {
     const registry = kernelPromptRegistry()
     registry.register({

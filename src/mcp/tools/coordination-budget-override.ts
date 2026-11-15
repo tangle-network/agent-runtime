@@ -1,4 +1,5 @@
 import type { Budget } from '../../runtime'
+import type { ReservationShortfall } from '../../runtime/supervise/budget'
 import { assertValidBudget } from '../../runtime/supervise/spend-validation'
 
 export // Parse a per-spawn `budget` override and merge it over the per-worker default (per field).
@@ -41,4 +42,45 @@ const mergeBudget = (base: Budget, raw: unknown): Budget => {
   }
   assertValidBudget(merged, 'coordination tools: budget')
   return merged
+}
+
+/**
+ * The default slice lowered to what the pool can admit: each short channel takes the amount the
+ * pool reported free plus held by running workers, and a spawn of at most that waits for them as
+ * any spawn does. A spawn that named no budget asked for the default as a ceiling, not a demand,
+ * so a pool its siblings already drew from still runs it; `undefined` when a short channel has
+ * nothing to give or is closed by unmeasured spend. A spawn that names its budget keeps the refusal.
+ */
+export function fitDefaultBudget(
+  base: Budget,
+  shortfalls: readonly ReservationShortfall[] | undefined,
+): Budget | undefined {
+  if (shortfalls === undefined || shortfalls.length === 0) return undefined
+  if (shortfalls.some((s) => s.closedByUnknownSpend === true || s.free + (s.held ?? 0) <= 0)) {
+    return undefined
+  }
+  const room = new Map(shortfalls.map((s) => [s.channel, s.free + (s.held ?? 0)]))
+  const lowered = (channel: ReservationShortfall['channel'], value: number | undefined) =>
+    value === undefined || !room.has(channel) ? value : Math.min(value, room.get(channel)!)
+  const iterations = lowered('iterations', base.maxIterations)
+  const fitted: Budget = {
+    ...base,
+    ...(base.maxTokens === undefined
+      ? {}
+      : { maxTokens: Math.floor(lowered('tokens', base.maxTokens)!) }),
+    ...(iterations === undefined ? {} : { maxIterations: Math.floor(iterations) }),
+    ...(base.maxUsd === undefined ? {} : { maxUsd: lowered('usd', base.maxUsd) }),
+    ...(base.resources === undefined
+      ? {}
+      : {
+          resources: Object.fromEntries(
+            Object.entries(base.resources).map(([name, value]) => [
+              name,
+              { ...value, limit: Math.floor(lowered(`resource:${name}`, value.limit)!) },
+            ]),
+          ),
+        }),
+  }
+  assertValidBudget(fitted, 'coordination tools: fitted default budget')
+  return fitted
 }
