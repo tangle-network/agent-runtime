@@ -128,6 +128,7 @@ async function replayOne(file: string, index: number) {
   let finish: () => void = () => {}
   const finished = new Promise<void>((resolve) => (finish = resolve))
   let frames = 0
+  let refused = 0
   let bytes = 0
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
@@ -136,20 +137,38 @@ async function replayOne(file: string, index: number) {
       const ref = session.controlRef!
       return {
         ...session,
-        async *events() {
-          for await (const line of recordedLines(file)) {
-            const record = JSON.parse(line) as Record<string, unknown>
-            const due = Number(record.timestamp) - origin - (Date.now() - startedAt)
-            if (due > 0) await new Promise((resolve) => setTimeout(resolve, due))
-            frames += 1
-            bytes += line.length
-            yield convert(rebind(record, ref), {
-              executionId: ref.executionId,
-              sessionId: ref.sessionId,
-              streamBound: true,
-            })
+        async *events(options) {
+          // A cursor replay resumes after the named frame, as the Sidecar's does.
+          let skipping = options?.since !== undefined
+          try {
+            for await (const line of recordedLines(file)) {
+              const record = JSON.parse(line) as Record<string, unknown>
+              if (skipping) {
+                skipping = String(record.eventId) !== options?.since
+                continue
+              }
+              const due = Number(record.timestamp) - origin - (Date.now() - startedAt)
+              if (due > 0) await new Promise((resolve) => setTimeout(resolve, due))
+              frames += 1
+              bytes += line.length
+              let event: AgentEnvironmentEvent
+              try {
+                event = convert(rebind(record, ref), {
+                  executionId: ref.executionId,
+                  sessionId: ref.sessionId,
+                  streamBound: true,
+                })
+              } catch (error) {
+                refused += 1
+                if (refused <= 5)
+                  console.error(`${name}: frame ${String(record.eventId)} ${String(record.type)} refused: ${(error as Error).message}`)
+                continue
+              }
+              yield event
+            }
+          } finally {
+            finish()
           }
-          finish()
         },
         async result() {
           await finished
@@ -210,7 +229,7 @@ async function replayOne(file: string, index: number) {
     error = caught instanceof Error ? caught.message.slice(0, 300) : String(caught)
   }
   await worker.settle().catch(() => {})
-  return { name, frames, mb: Math.round(bytes / 1e6), seconds: Math.round((Date.now() - began) / 1000), error }
+  return { name, frames, refused, mb: Math.round(bytes / 1e6), seconds: Math.round((Date.now() - began) / 1000), error }
 }
 
 const results = await Promise.all(files.map(replayOne))
