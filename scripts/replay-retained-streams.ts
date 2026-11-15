@@ -132,6 +132,10 @@ function rebind(record: Record<string, unknown>, ref: { sessionId: string; execu
 
 async function replayOne(file: string, index: number) {
   const name = basename(file, '.ndjson.zst')
+  // A turn is dispatched when its first frame is due, as live: an execution started at the replay's
+  // origin would sit past Runtime's quiet interval before a later execution's first frame.
+  const startIn = firstAt[index]! - origin - (Date.now() - startedAt)
+  if (startIn > 0) await new Promise((resolve) => setTimeout(resolve, startIn))
   const directory = join(outDir, 'state', name)
   mkdirSync(directory, { recursive: true })
   const base = durableRetainedProvider(join(directory, 'provider.json'))
