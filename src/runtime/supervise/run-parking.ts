@@ -93,6 +93,8 @@ interface ParkingContext {
   readonly parked: Promise<never>
   readonly park: (error: RunParkedError) => void
   handingOff: boolean
+  /** The root's wake waits in flight: a root awaiting its children's events runs no work of its own. */
+  rootWakes: number
 }
 const parkingContext = new AsyncLocalStorage<ParkingContext>()
 const parkingDrains = new WeakMap<
@@ -186,6 +188,7 @@ export async function withRunParking<T>(
       parked,
       park,
       handingOff: false,
+      rootWakes: 0,
     },
     run,
   )
@@ -205,6 +208,23 @@ export function raceRunParking<T>(
   // The parked execution is abandoned in place; its later rejection is not this run's outcome.
   running.catch(() => undefined)
   return Promise.race([running, context.parked])
+}
+
+/**
+ * Await a root's wake on its children's events. Only here, or in its own parkable wait, is a root
+ * free of work of its own, so only here may a child's wait park it. A park ends this wait, and a
+ * wake that lands while the park is published takes no new step.
+ */
+export async function awaitRootWake<T>(scope: Scope<unknown>, wake: Promise<T>): Promise<T> {
+  const context = parkingContext.getStore()
+  if (context === undefined || context.root?.scope !== scope) return wake
+  context.rootWakes += 1
+  try {
+    const woken = await Promise.race([wake, context.parked])
+    return context.handingOff ? await context.parked : woken
+  } finally {
+    context.rootWakes -= 1
+  }
 }
 
 /**
@@ -320,6 +340,9 @@ function heldScopes(context: ParkingContext): Scope<unknown>[] {
 function runIdle(context: ParkingContext): boolean {
   const root = context.root
   if (root === undefined) return false
+  // The root's act is live unless it sleeps in its own wait or awaits a wake: an act mid-request
+  // would keep its outside effects running while the next claim replays it.
+  if (!context.waits.has(context.runId) && context.rootWakes === 0) return false
   if (
     heldScopes(context).some(
       (held) =>

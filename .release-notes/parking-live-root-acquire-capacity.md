@@ -1,0 +1,3 @@
+type: patch
+---
+Parking no longer hands off a run whose root is still acting: a child's far seat wait parks the run only while the root sleeps in its own wait or awaits its workers' events, and the park ends that event wait. `acquireSandbox` now treats a box that does not reach `running` within its ready budget as placement capacity: it pauses on the shared capacity schedule and tries again under the same name, up to three budgets, then throws an error typed `failure: { kind: 'capacity', code: 'sandbox_acquire_timeout' }` whose message names the last refusal. A supervised node waits that out instead of settling down, and a `runAgentRounds` round no longer fails on a short shortage.

@@ -22,6 +22,7 @@ import type { Inbox, InboxLease } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { addResourceSpend, withBudgetResources } from './resources'
 import type { RouterTranscript } from './router-transcript'
+import { awaitRootWake } from './run-parking'
 import { meterRuntimeOwnedProviderAttempt } from './scope'
 import { createProgressTracker, progressStop } from './stop-rules'
 import type { Scope, Spend } from './types'
@@ -346,14 +347,17 @@ export class DriverBrainTurns {
     const controlClock = this.startControlClock()
     let wake: Awaited<ReturnType<typeof coord.awaitWake>>
     try {
-      wake = await coord.awaitWake({
-        signal: scope.signal,
-        heartbeatMs: wakePolicy.heartbeatMs,
-        quietWhileProgressing: true,
-        debounceMs: wakePolicy.debounceMs,
-        ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
-        alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),
-      })
+      wake = await awaitRootWake(
+        scope,
+        coord.awaitWake({
+          signal: scope.signal,
+          heartbeatMs: wakePolicy.heartbeatMs,
+          quietWhileProgressing: true,
+          debounceMs: wakePolicy.debounceMs,
+          ...(warnAt === undefined ? {} : { deadlineAt: warnAt }),
+          alsoWakeOn: inbox.pending() > 0 ? Promise.resolve() : inbox.nextDelivery(),
+        }),
+      )
     } finally {
       if (controlClock !== undefined) clearInterval(controlClock)
     }

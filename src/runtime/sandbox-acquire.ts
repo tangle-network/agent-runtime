@@ -21,13 +21,16 @@
  * errors (auth, validation, budget) fail loud. A box that is created (or found)
  * but never reaches `running` (abort, terminal status, budget) is torn down
  * before the failure propagates, so an abort storm during cold start does not
- * leak live sandboxes.
+ * leak live sandboxes. Running out of the ready budget is placement capacity,
+ * not a fault: it throws {@link SandboxAcquireTimeoutError}, typed `capacity`.
  *
  * @experimental
  */
 
+import type { AgentTurnFailure } from '@tangle-network/agent-interface/environment-provider'
 import type { CreateSandboxOptions, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
+import { SAME_CAUSE_LIMIT, unavailablePauseMs } from './supervise/upstream-unavailable'
 import type { SandboxClient } from './types'
 import { sleep as abortableSleep, deleteBoxSafe, randomUuid, throwIfAborted } from './util'
 
@@ -59,6 +62,32 @@ export interface AcquireOptions {
   sleep?: (ms: number) => Promise<void>
 }
 
+/**
+ * No box reached `running` within the ready budget. The platform did not refuse the shape, so a
+ * later attempt can land: `failure` is the canonical `capacity` classification, which a supervised
+ * node waits out and re-enters instead of failing its run. The message names the last refusal or
+ * the box's last status; `cause` is that refusal.
+ */
+class SandboxAcquireTimeoutError extends Error {
+  readonly failure: AgentTurnFailure = { kind: 'capacity', code: 'sandbox_acquire_timeout' }
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'SandboxAcquireTimeoutError'
+  }
+}
+
+/** The last refusal's status, code and text, for the message a run page shows. */
+function refusalText(error: unknown): string {
+  if (!(error instanceof Error)) return 'no create refusal'
+  const { status, statusCode, code } = error as {
+    status?: unknown
+    statusCode?: unknown
+    code?: unknown
+  }
+  const tags = [status ?? statusCode, code].filter((tag) => tag !== undefined).join(' ')
+  return `last refusal: ${tags ? `${tags} ` : ''}${error.message}`
+}
+
 /** Minimal client surface acquire needs beyond `create` (the real SDK satisfies it). */
 interface PollableClient extends SandboxClient {
   list?: (options?: unknown) => Promise<SandboxInstance[]>
@@ -80,8 +109,46 @@ export async function acquireSandbox(
   }
   const now = acquire.now ?? Date.now
   const sleep = acquire.sleep ?? ((ms: number) => abortableSleep(ms, acquire.signal))
-  const pollMs = acquire.pollIntervalMs ?? 3000
-  const deadline = now() + (acquire.readyTimeoutMs ?? 600_000)
+  // crypto.randomUUID is collision-resistant — find-by-name recovery scans
+  // list() for this exact name, so two concurrent acquires must never collide.
+  const name = options.name ?? acquire.name ?? `loop-sbx-${randomUuid()}`
+  const window: AcquireWindow = {
+    client: client as PollableClient,
+    createOpts: { ...options, name },
+    budgetMs: acquire.readyTimeoutMs ?? 600_000,
+    pollMs: acquire.pollIntervalMs ?? 3000,
+    signal: acquire.signal,
+    now,
+    sleep,
+  }
+  // A window with no running box is a placement shortage, not a fault: pause on the shared
+  // capacity schedule and open another under the same name, so a create the platform accepted
+  // late is still found. The step waits out the shortage instead of failing its run.
+  for (let misses = 1; ; misses += 1) {
+    try {
+      return await acquireWithinBudget(window)
+    } catch (error) {
+      if (!(error instanceof SandboxAcquireTimeoutError) || misses >= SAME_CAUSE_LIMIT) throw error
+      await sleep(unavailablePauseMs(misses))
+    }
+  }
+}
+
+interface AcquireWindow {
+  readonly client: PollableClient
+  readonly createOpts: CreateSandboxOptions
+  readonly budgetMs: number
+  readonly pollMs: number
+  readonly signal: AbortSignal | undefined
+  readonly now: () => number
+  readonly sleep: (ms: number) => Promise<void>
+}
+
+/** One ready budget: create by name, attach after a lost create, and wait for `running`. */
+async function acquireWithinBudget(window: AcquireWindow): Promise<SandboxInstance> {
+  const { client, createOpts, budgetMs, pollMs, signal, now, sleep } = window
+  const name = createOpts.name
+  const deadline = now() + budgetMs
   // After a retryable create error (commonly a gateway/request timeout on a cold
   // scale-from-zero), the orchestrator has usually ACCEPTED the request and is
   // still provisioning the NAMED box — which appears in list() a few seconds
@@ -90,29 +157,21 @@ export async function acquireSandbox(
   // provision and hits the same wall — that thrash is why a cold acquire never
   // converges within the budget; attaching to the in-flight box does.
   const appearScans = 5
-  // crypto.randomUUID is collision-resistant — find-by-name recovery scans
-  // list() for this exact name, so two concurrent acquires must never collide.
-  const name = options.name ?? acquire.name ?? `loop-sbx-${randomUuid()}`
-  const createOpts: CreateSandboxOptions = { ...options, name }
-  const c = client as PollableClient
 
   let lastErr: unknown
   let attempt = 0
   while (now() < deadline) {
-    throwIfAborted(acquire.signal)
+    throwIfAborted(signal)
     try {
       // The request carries the acquisition signal so an abort stops a pending
       // control-plane create at once instead of waiting for its transport
       // timeout. Acquire owns the deadline, so no request timeout is passed.
-      const box = await client.create(
-        createOpts,
-        acquire.signal === undefined ? undefined : { signal: acquire.signal },
-      )
+      const box = await client.create(createOpts, signal === undefined ? undefined : { signal })
       // Tear the just-created box down if it never reaches `running` (abort,
       // terminal status, budget) so a failed wait never leaks a live sandbox.
-      return await waitReadyOrDestroy(box, deadline, pollMs, acquire.signal, now, sleep)
+      return await waitReadyOrDestroy(box, deadline, pollMs, signal, now, sleep)
     } catch (err) {
-      throwIfAborted(acquire.signal)
+      throwIfAborted(signal)
       // Non-retryable (auth/validation/budget) fails loud immediately.
       if (!isRetryable(err)) throw err
       lastErr = err
@@ -125,11 +184,11 @@ export async function acquireSandbox(
       //  (b) only if it never appears did the create truly roll back — retry
       //      create with backoff (lands once a warm host exists / autoscaler
       //      caught up).
-      if (typeof c.list === 'function') {
+      if (typeof client.list === 'function') {
         for (let scan = 0; scan < appearScans && now() < deadline; scan += 1) {
-          const found = (await c.list().catch(() => []))?.find((b) => b.name === name)
+          const found = (await client.list().catch(() => []))?.find((b) => b.name === name)
           if (found) {
-            return await waitReadyOrDestroy(found, deadline, pollMs, acquire.signal, now, sleep)
+            return await waitReadyOrDestroy(found, deadline, pollMs, signal, now, sleep)
           }
           if (scan < appearScans - 1) await sleep(pollMs)
         }
@@ -138,8 +197,8 @@ export async function acquireSandbox(
       await sleep(Math.min(pollMs * attempt, 15_000))
     }
   }
-  throw new ValidationError(
-    `acquireSandbox: could not acquire a running sandbox "${name}" within budget`,
+  throw new SandboxAcquireTimeoutError(
+    `acquireSandbox: could not acquire a running sandbox "${name}" within ${budgetMs} ms (${refusalText(lastErr)})`,
     { cause: lastErr instanceof Error ? lastErr : undefined },
   )
 }
@@ -181,8 +240,8 @@ async function waitUntilReady(
       )
     }
     if (now() >= deadline) {
-      throw new ValidationError(
-        `acquireSandbox: sandbox ${box.id ?? '(unknown)'} not running within budget (last status: ${status})`,
+      throw new SandboxAcquireTimeoutError(
+        `acquireSandbox: sandbox ${box.id ?? '(unknown)'} not running within budget (last status: ${status}${box.error ? `: ${box.error}` : ''})`,
       )
     }
     await sleep(pollMs)
