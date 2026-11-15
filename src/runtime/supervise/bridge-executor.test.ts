@@ -8,6 +8,7 @@ import {
   canonicalAgentProfileDigest,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
+import { profileBridgeWireModel } from '@tangle-network/agent-runtime/kernel'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/in-memory-spawn-stores'
 import { replaySpawnTree } from '../../durable/spawn-journal/replay'
@@ -27,6 +28,7 @@ import {
   createExecutor,
   createExecutorRegistry,
 } from './runtime'
+import { assertValidSpend } from './spend-validation'
 import { createSupervisor } from './supervisor'
 import type { Agent, AgentSpec, Scope, SpawnEvent, UsageEvent } from './types'
 import { spendFromUsageEvents } from './usage-metering'
@@ -1547,7 +1549,8 @@ describe('bridgeExecutor upstream-error propagation', () => {
       },
     })
     server = stub.server
-    for (const declared of ['glm-5.3-flash-free', 'opencode/glm-5.3-flash-free']) {
+    const declaredModels = ['glm-5.3-flash-free', 'opencode/glm-5.3-flash-free']
+    for (const declared of declaredModels) {
       const executor = bridgeExecutor(
         {
           profile: {
@@ -1571,6 +1574,15 @@ describe('bridgeExecutor upstream-error propagation', () => {
       'opencode/opencode/glm-5.3-flash-free',
       'opencode/opencode/glm-5.3-flash-free',
     ])
+    // A caller that speaks to cli-bridge itself gets the same wire model from the kernel export.
+    expect(
+      declaredModels.map((declared) =>
+        profileBridgeWireModel({
+          harness: 'opencode',
+          model: { provider: 'opencode', default: declared },
+        }),
+      ),
+    ).toEqual(models)
   })
 
   it('prices a turn the bridge reported no price for, and keeps the dollars unknown', async () => {
@@ -1641,6 +1653,77 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(spend.usd).toBe(0)
     expect(spend.usdKnown).toBe(false)
     expect(spend.usdEstimated).toBeUndefined()
+  })
+
+  // The usage object cli-bridge sends for a turn it could only estimate.
+  const bridgeEstimate = {
+    prompt_tokens: 13,
+    completion_tokens: 1,
+    cost_known: false,
+    estimated_cost: 0.25,
+    cost_provenance: 'catalog-estimate',
+    cost_scope: 'total',
+  }
+
+  it("reports the bridge's estimate as the priced part of unknown dollars", async () => {
+    const stub = await startBridgeStub(
+      `data: ${JSON.stringify({ usage: bridgeEstimate })}\n\ndata: [DONE]\n\n`,
+    )
+    server = stub.server
+    const executor = makeExecutor(stub.url, undefined, {
+      name: 'bridge-test-worker',
+      harness: 'pi',
+      model: { provider: 'in-house', default: 'no-such-model-family' },
+    })
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+    expect(events).toContainEqual({
+      kind: 'cost',
+      usd: 0.25,
+      usdKnown: false,
+      usdEstimated: 0.25,
+      provenance: 'catalog-estimate',
+    })
+    const { spent, out } = executor.resultArtifact()
+    expect(spent).toMatchObject({ tokens: { input: 13, output: 1 }, usdKnown: false })
+    expect(spent.usdEstimated).toBe(0.25)
+    // The estimate is part of `usd`, as on the provider path: nothing here was billed.
+    expect(spent.usd - (spent.usdEstimated ?? 0)).toBe(0)
+    expect(() => assertValidSpend(spent, 'bridge spend')).not.toThrow()
+    expect(spendFromUsageEvents(events)).toMatchObject({ usd: 0.25, usdEstimated: 0.25 })
+    expect((out as { estimatedCostUsd?: number }).estimatedCostUsd).toBe(0.25)
+  })
+
+  it("prices a turn by the bridge's estimate, never by the catalog on top of it", async () => {
+    const stub = await startBridgeStub(
+      `data: ${JSON.stringify({ usage: bridgeEstimate })}\n\ndata: [DONE]\n\n`,
+    )
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+    // The catalog would price this turn too, at a different amount.
+    const catalog = priceTokens({
+      model: 'pi/tangle-router/glm-5.2',
+      inputTokens: 13,
+      outputTokens: 1,
+    })!
+    expect(catalog).toBeGreaterThan(0)
+    expect(catalog).not.toBe(0.25)
+    expect(events.filter((event) => event.kind === 'cost')).toEqual([
+      {
+        kind: 'cost',
+        usd: 0.25,
+        usdKnown: false,
+        usdEstimated: 0.25,
+        provenance: 'catalog-estimate',
+      },
+    ])
+    const { spent, out } = executor.resultArtifact()
+    expect(spent).toMatchObject({ usd: 0.25, usdEstimated: 0.25, usdKnown: false })
+    expect((out as { estimatedCostUsd?: number }).estimatedCostUsd).toBe(0.25)
   })
 
   it('lets a trusted terminal total supersede an earlier incomplete cost chunk', async () => {

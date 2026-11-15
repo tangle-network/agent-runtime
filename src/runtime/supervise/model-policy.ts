@@ -48,7 +48,18 @@ export function profileProviderModel(profile: Pick<AgentProfile, 'model'>): stri
   return concreteModelId(model.slice(provider.length + 1))
 }
 
-/** The full cli-bridge wire id declared by a profile: harness/provider/model. */
+/**
+ * The `model` string Runtime sends to cli-bridge for a profile: `harness/provider/model`.
+ *
+ * Takes the profile's `harness` and `model` (`provider`, `default`). A model already prefixed with
+ * its harness or provider is not prefixed again. The harness segment is always added, so a
+ * provider named like its harness keeps both: harness `opencode`, provider `opencode`, model
+ * `glm-5.3-flash-free` (or `opencode/glm-5.3-flash-free`) returns
+ * `opencode/opencode/glm-5.3-flash-free`. Returns the provider/model alone without a harness, the
+ * harness alone without a concrete model, and `undefined` with neither.
+ *
+ * @experimental
+ */
 export function profileBridgeWireModel(
   profile: Pick<AgentProfile, 'harness' | 'model'>,
 ): string | undefined {
