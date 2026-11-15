@@ -19,10 +19,9 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type {
   AgentEnvironment,
   AgentEnvironmentEvent,
@@ -48,10 +47,10 @@ const files = readdirSync(dataDir)
   .sort()
   .map((name) => join(dataDir, name))
 
-const require = createRequire(import.meta.url)
-const providerDir = dirname(require.resolve('@tangle-network/agent-provider-tangle/package.json'))
+// The converter is not a public export; it sits beside the package entry in dist/.
+const providerEntry = fileURLToPath(import.meta.resolve('@tangle-network/agent-provider-tangle'))
 const { environmentEventFromSandboxEvent: convert } = (await import(
-  pathToFileURL(join(providerDir, 'dist/tangle-events.js')).href
+  pathToFileURL(join(dirname(providerEntry), 'tangle-events.js')).href
 )) as { environmentEventFromSandboxEvent: Converter }
 
 /** Lines of a zstd file, pulled: a slow consumer leaves the rest unread, as a fetch body does. */
