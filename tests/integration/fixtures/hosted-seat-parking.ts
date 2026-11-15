@@ -128,7 +128,8 @@ try {
       budget: { maxIterations: 20, maxTokens: 10_000, deadlineMs: 3_600_000 },
     },
     {
-      ...(mode === 'root-act' ? { brain: rootBrain } : {}),
+      // A rooted graph drives its harness nodes only on an explicit driver backend.
+      ...(mode === 'root-act' ? { brain: rootBrain, driverBackend: backend } : {}),
       runId: RUN_ID,
       runContext: context,
       ...(phase === 'park' ? {} : { resume: true }),
