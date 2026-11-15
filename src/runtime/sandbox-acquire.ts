@@ -79,7 +79,6 @@ class SandboxAcquireTimeoutError extends Error {
 /** Minimal client surface acquire needs beyond `create` (the real SDK satisfies it). */
 interface PollableClient extends SandboxClient {
   list?: (options?: unknown) => Promise<SandboxInstance[]>
-  get?: (id: string) => Promise<SandboxInstance | null>
 }
 
 /**
@@ -177,8 +176,9 @@ export async function acquireSandbox(
   }
 }
 
-/** `waitUntilReady`, tearing the box down (best-effort) on any throw so a box
- *  that never reaches `running` (abort, terminal status, budget) does not leak. */
+/** Wait for `running`. No status (minimal fakes) = ready. Terminal status throws. Any throw tears
+ *  the box down (best-effort) so a box that never reaches `running` (abort, terminal status,
+ *  budget) does not leak. */
 async function waitReadyOrDestroy(
   box: SandboxInstance,
   deadline: number,
@@ -188,44 +188,27 @@ async function waitReadyOrDestroy(
   sleep: (ms: number) => Promise<void>,
 ): Promise<SandboxInstance> {
   try {
-    return await waitUntilReady(box, deadline, pollMs, signal, now, sleep)
+    for (;;) {
+      throwIfAborted(signal)
+      const status: unknown = (box as { status?: unknown }).status
+      if (typeof status !== 'string' || status === 'running') return box
+      if (TERMINAL_STATUS.has(status)) {
+        throw new ValidationError(
+          `acquireSandbox: sandbox ${box.id ?? '(unknown)'} is ${status}${box.error ? `: ${box.error}` : ''}`,
+        )
+      }
+      if (now() >= deadline) {
+        throw new SandboxAcquireTimeoutError(
+          `acquireSandbox: sandbox ${box.id ?? '(unknown)'} not running within budget (last status: ${status}${box.error ? `: ${box.error}` : ''})`,
+        )
+      }
+      await sleep(pollMs)
+      if (typeof box.refresh === 'function') await box.refresh()
+    }
   } catch (err) {
     await deleteBoxSafe(box)
     throw err
   }
-}
-
-/** Wait for `running`. No status (minimal fakes) = ready. Terminal status throws. */
-async function waitUntilReady(
-  box: SandboxInstance,
-  deadline: number,
-  pollMs: number,
-  signal: AbortSignal | undefined,
-  now: () => number,
-  sleep: (ms: number) => Promise<void>,
-): Promise<SandboxInstance> {
-  for (;;) {
-    throwIfAborted(signal)
-    const status = readStatus(box)
-    if (status === undefined || status === 'running') return box
-    if (TERMINAL_STATUS.has(status)) {
-      throw new ValidationError(
-        `acquireSandbox: sandbox ${box.id ?? '(unknown)'} is ${status}${box.error ? `: ${box.error}` : ''}`,
-      )
-    }
-    if (now() >= deadline) {
-      throw new SandboxAcquireTimeoutError(
-        `acquireSandbox: sandbox ${box.id ?? '(unknown)'} not running within budget (last status: ${status}${box.error ? `: ${box.error}` : ''})`,
-      )
-    }
-    await sleep(pollMs)
-    if (typeof box.refresh === 'function') await box.refresh()
-  }
-}
-
-function readStatus(box: SandboxInstance): string | undefined {
-  const s = (box as { status?: unknown }).status
-  return typeof s === 'string' ? s : undefined
 }
 
 function isRetryable(err: unknown): boolean {
@@ -262,6 +245,6 @@ function isRetryable(err: unknown): boolean {
   // Retry create onto a FRESH host rather than failing the whole rollout; the loop
   // stays bounded by the ready deadline. A box that booted and then reached a
   // terminal `failed` status with a real error is NOT retried here — that's a genuine
-  // fault surfaced by `waitUntilReady`, not a host blip.
+  // fault surfaced by `waitReadyOrDestroy`, not a host blip.
   return /provision failed|edge data plane|not reachable|failed to create sandbox/i.test(msg)
 }
