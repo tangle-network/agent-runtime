@@ -1,3 +1,7 @@
+## 10.0.3
+
+A supervised run's claimed run-directory writes (result blobs, journal appends, stream files, lock acquisition and release) run on one durable-writer thread instead of the caller's event loop, with the same fence, ordering and fsync before acknowledgement; on a saturated disk the coordinator's event loop no longer blocks on its own writes. A write the writer does not answer within 180 s fails without stopping the writer; a writer that dies fails every waiting and later write and is not replaced; nothing falls back to writing on the caller's thread. The writer starts from `durable-writer-thread.js` beside Runtime's built code, so a tool that bundles Runtime again must emit `src/durable/durable-writer-thread.ts` as `durable-writer-thread.js` (or `.mjs`) beside its bundle; without it, claimed writes fail naming the missing file.
+
 ## 10.0.2
 
 On the Bridge transport, a turn whose usage frame carries only a producer estimate (`cost_known: false` with `estimated_cost`) now reports that estimate as `spent.usdEstimated`, inside `usd` and with `usdKnown: false`, as the provider path does; the producer's estimate replaces Runtime's catalog price for that turn instead of adding to it.
