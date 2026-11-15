@@ -139,6 +139,54 @@ function expectUnknownWorkerLog(
 }
 
 it.each([
+  [3, 2, 2],
+  [4, 3, 3],
+  [4, 2, 2],
+  [3, 2, 3],
+  [5, 4, 4],
+  [4, 3, 4],
+])('PROBE pool %i perWorker %i leaf %i', async (pool, per, leaf) => {
+  const root = await mkdtemp(join(tmpdir(), 'probe-'))
+  const g: AgentGraph = {
+    ...graph,
+    nodes: [...graph.nodes, { id: 'review', profile: { ...profile, name: 'review' } }],
+    edges: [
+      {
+        kind: 'routes',
+        from: 'stage',
+        to: 'review',
+        directive: { surface: 'delegates/worker-brief', version: 1 },
+      },
+    ],
+    budget: { ...budget, maxIterations: pool },
+  }
+  await writeFile(join(root, 'release'), '')
+  try {
+    const r = await superviseGraphPursuit(g, {
+      runDir: join(root, 'durable'),
+      runId: 'p',
+      pursuitId: 'p',
+      makeLeafAgent: processLeaf(root, true, false, leaf),
+      perWorker: { maxIterations: per, maxTokens: 1000 },
+      driverRetry: { enabled: false },
+    })
+    console.log(
+      'PROBE',
+      pool,
+      per,
+      leaf,
+      JSON.stringify({
+        kind: r.result.result.kind,
+        reason: (r.result.result as any).reason,
+        stopped: r.result.stopped,
+      }),
+    )
+  } catch (e) {
+    console.log('PROBE', pool, per, leaf, 'THROW', String((e as Error).message).slice(0, 160))
+  }
+})
+
+it.each([
   { known: true, fail: false, refuse: false },
   { known: false, fail: false, refuse: false },
   { known: false, fail: true, refuse: false },
