@@ -11,6 +11,7 @@ import {
 } from '../runtime/supervise/durable-file'
 import { terminalAccounting } from '../runtime/supervise/supervisor-accounting'
 import type { RootStreamReceipt, SupervisedResult } from '../runtime/supervise/types'
+import { registerDurableErrorClass } from './durable-writer'
 import { isNoEntError } from './jsonl-file'
 import { FileSpawnJournal } from './spawn-journal/journal-store'
 
@@ -53,6 +54,8 @@ export class SettledRunDirectoryError extends Error {
     this.recordedRunId = recordedRunId
   }
 }
+
+registerDurableErrorClass('SettledRunDirectoryError', SettledRunDirectoryError)
 
 /** A result member whose JSON form would misstate it. */
 class UnrecordableSettleValueError extends TypeError {

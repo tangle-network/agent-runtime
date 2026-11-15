@@ -1,4 +1,5 @@
 import type { FileHandle } from 'node:fs/promises'
+import { runFencedAsync } from './durable-writer'
 import { prepareJsonlTail } from './jsonl-append'
 import { fenceRunWrite } from './run-fence'
 
@@ -200,6 +201,11 @@ export async function upsertCommittedJsonLine<T>(
 
 /** Recover a torn tail under the same generation fence as durable publications. @internal */
 export async function prepareJsonlAppend(path: string): Promise<boolean> {
+  return runFencedAsync('prepareJsonlAppend', prepareJsonlTailFenced, path)
+}
+
+/** The fenced tail recovery the durable writer runs. @internal */
+export function prepareJsonlTailFenced(path: string): boolean {
   return fenceRunWrite(() => prepareJsonlTail(path))
 }
 

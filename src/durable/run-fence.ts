@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { closeSync, existsSync, fstatSync, openSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { isMainThread } from 'node:worker_threads'
 import { tryAcquireAtomicFileLock } from '@tangle-network/agent-eval/ledger-core'
 import type { LockIdentity } from '@tangle-network/agent-eval/lock-holder'
 
@@ -13,6 +14,24 @@ export interface RunWriteClaim {
 
 const claims = new AsyncLocalStorage<RunWriteClaim | undefined>()
 const publications = new AsyncLocalStorage<{ readonly claim: RunWriteClaim; active: boolean }>()
+
+// Set on the durable writer thread (durable-writer-thread.ts): the one thread that runs claimed writes.
+let writerThread = false
+
+/** Mark this thread as the process's durable writer. @internal */
+export function markDurableWriterThread(): void {
+  writerThread = true
+}
+
+/** True on the durable writer thread. @internal */
+export function onDurableWriterThread(): boolean {
+  return writerThread
+}
+
+/** The claim the current asynchronous context carries, if any. @internal */
+export function currentRunWriteClaim(): RunWriteClaim | undefined {
+  return claims.getStore()
+}
 
 /** Bind asynchronous work, including callbacks, to the generation that admitted it. @internal */
 export function runWithWriteClaim<T>(claim: RunWriteClaim, operation: () => T): T {
@@ -62,6 +81,11 @@ export function mutateRunClaim<T>(path: string, operation: () => T): T {
 export function fenceRunWrite<T>(operation: () => T): T {
   const claim = claims.getStore()
   if (claim === undefined) return operation()
+  // A claimed write on the main thread would hold the run's mutation lock against the durable
+  // writer and block the event loop on the disk: it must be sent through `runFenced`.
+  if (isMainThread && !writerThread) {
+    throw new Error('a claimed run write reached the main thread; send it through runFenced')
+  }
   const publication = publications.getStore()
   if (
     publication?.active &&
