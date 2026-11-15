@@ -1,10 +1,10 @@
 import { clearImmediate, setImmediate } from 'node:timers'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironmentEvent,
   AgentSession,
   AgentTurnResult,
 } from '@tangle-network/agent-interface/environment-provider'
+import { sha256 } from '../../content-digest'
 import { defaultRedactor } from '../../redact'
 import {
   assertEventBinding,
@@ -330,12 +330,13 @@ export class RetainedObservation {
     const identity = extractTransportEventIdentity(event)
     const eventId = identity.eventId ?? identity.cursor
     if (eventId !== undefined) {
-      const digest = canonicalCandidateDigest({
-        type: event.type,
-        data: event.data,
-        ...(event.usage === undefined ? {} : { usage: event.usage }),
-        ...(event.normalized === undefined ? {} : { normalized: event.normalized }),
-      })
+      // A replay re-sends the frame the provider built from the same buffered record, so equal
+      // frames have equal JSON text; a native hash of that text keeps the per-frame cost of this
+      // check far below a canonical walk, which a coordinator taking hundreds of MB a minute cannot
+      // afford on its one event loop.
+      const digest = sha256(
+        JSON.stringify([event.type, event.data, event.usage ?? null, event.normalized ?? null]),
+      )
       const prior = this.seenEvents.get(eventId)
       if (prior !== undefined) {
         if (prior !== digest) {
