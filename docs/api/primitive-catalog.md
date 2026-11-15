@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@10.0.1` and `@tangle-network/agent-eval@1.0.32` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@10.0.2` and `@tangle-network/agent-eval@1.0.32` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1072 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -606,6 +606,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
 | `plateau` | function | "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than |
 | `plateauLength` | function | How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value |
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
+| `profileBridgeWireModel` | function | The `model` string Runtime sends to cli-bridge for a profile: `harness/provider/model`. |
 | `profileChatClient` | function | Profile-exact adapter for packages that consume agent-eval's ChatClient contract. |
 | `profileOptimizerModelCall` | function | Profile-exact adapter for agent-eval's external optimizer callback. |
 | `profileRegistry` | function | Open (or lazily create) a profile registry rooted at a workspace directory. |
