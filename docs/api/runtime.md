@@ -45447,6 +45447,33 @@ it through the provider's public `get`/interactive contract.
 
 ***
 
+### profileBridgeWireModel()
+
+> **profileBridgeWireModel**(`profile`): `string` \| `undefined`
+
+**`Experimental`**
+
+The `model` string Runtime sends to cli-bridge for a profile: `harness/provider/model`.
+
+Takes the profile's `harness` and `model` (`provider`, `default`). A model already prefixed with
+its harness or provider is not prefixed again. The harness segment is always added, so a
+provider named like its harness keeps both: harness `opencode`, provider `opencode`, model
+`glm-5.3-flash-free` (or `opencode/glm-5.3-flash-free`) returns
+`opencode/opencode/glm-5.3-flash-free`. Returns the provider/model alone without a harness, the
+harness alone without a concrete model, and `undefined` with neither.
+
+#### Parameters
+
+##### profile
+
+`Pick`\<`AgentProfile`, `"harness"` \| `"model"`\>
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
 ### createSupervisorSpanRecorder()
 
 > **createSupervisorSpanRecorder**(`opts`): [`SupervisorSpanRecorder`](#supervisorspanrecorder) \| `undefined`
