@@ -155,12 +155,14 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
     const left = pause.tokensLeft === undefined ? '' : ` with ${pause.tokensLeft} tokens left`
     return { pausedOn: pause, why: `; the root is paused on ${pause.stop}${left}` }
   }
-  const queuedRoot = (request: WorkerSteerRequest): void => {
+  const queuedRoot = async (request: WorkerSteerRequest): Promise<void> => {
+    // A receipt answered while an earlier write was awaited has already written the outcome.
+    if (!awaiting.has(request.operationId)) return
     const { pausedOn, why } = paused()
     const key = pausedOn?.stop ?? ''
     if (named.get(request.operationId) === key) return
     named.set(request.operationId, key)
-    writeWorkerSteerAcknowledgement(deps.dir, {
+    await writeWorkerSteerAcknowledgement(deps.dir, {
       ...base(request),
       effect: 'unknown',
       observedAt: iso(),
@@ -168,12 +170,12 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
       ...(pausedOn === undefined ? {} : { pausedOn }),
     })
   }
-  const answerRoot = (request: WorkerSteerRequest, receipt: InboxReceipt): void => {
+  const answerRoot = async (request: WorkerSteerRequest, receipt: InboxReceipt): Promise<void> => {
     if (!awaiting.delete(request.operationId)) return
     named.delete(request.operationId)
     const { pausedOn, why }: ReturnType<typeof paused> =
       receipt.status === 'consumed' ? { why: '' } : paused()
-    writeWorkerSteerAcknowledgement(deps.dir, {
+    await writeWorkerSteerAcknowledgement(deps.dir, {
       ...base(request),
       ...(receipt.status === 'consumed'
         ? {
@@ -198,6 +200,27 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
     worker: request.worker,
     requestedAt: request.at,
   })
+  // A root answers its receipt synchronously; its acknowledgement write is awaited by the next
+  // pass, and a failed one fails that pass and every pass after it.
+  const answering = new Set<Promise<void>>()
+  let answerFailure: { readonly error: unknown } | undefined
+  const answerLater = (request: WorkerSteerRequest, receipt: InboxReceipt): void => {
+    const write = answerRoot(request, receipt).catch((error: unknown) => {
+      answerFailure ??= { error }
+    })
+    answering.add(write)
+    void write.finally(() => answering.delete(write))
+  }
+  const answered = async (): Promise<void> => {
+    await Promise.all(answering)
+    if (answerFailure !== undefined) throw answerFailure.error
+  }
+  // Steers a pass is claiming or answering. Their writes await the durable writer, so another
+  // pass can run before the acknowledgement reaches disk.
+  const deciding = new Set<string>()
+  // Delivery claims still on their way to disk, and whether the final pass has begun.
+  const claiming = new Set<Promise<boolean>>()
+  let finalizing = false
   let steerStamp = ''
   let steerIdle = false
   const steerChanged = (phase: 'turn' | 'boundary' | 'final'): boolean => {
@@ -213,33 +236,42 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
     return changed
   }
 
-  return {
-    async pass(phase): Promise<void> {
-      if (phase === 'turn') for (const request of awaiting.values()) queuedRoot(request)
-      const changed = steerChanged(phase)
-      if (phase !== 'final' && !changed && steerIdle) return
-      for (const request of readWorkerSteerRequests(deps.dir)) {
-        if (phase !== 'final' && deps.signal?.aborted) {
-          steerIdle = false
-          return
-        }
-        const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
-        // A boundary pass must not deliver to a worker whose execution already finished.
-        if (phase === 'boundary' && !rootRequest) continue
-        if (!rootRequest && !isDirectChildNodeId(deps, request.worker)) continue
-        const queued = awaiting.get(request.operationId)
-        if (phase === 'final' && queued !== undefined) {
-          answerRoot(queued, {
-            status: 'failed',
-            messageId: request.operationId,
-            cause: 'closed',
-            reason: 'the run ended before a root turn read it',
-          })
-          continue
-        }
-        if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
+  const runPass = async (phase: 'turn' | 'boundary' | 'final'): Promise<void> => {
+    if (phase === 'final') {
+      finalizing = true
+      // Claims still reaching disk settle first, so the final pass reads them as claimed.
+      await Promise.allSettled(claiming)
+    }
+    await answered()
+    if (phase === 'turn') for (const request of [...awaiting.values()]) await queuedRoot(request)
+    const changed = steerChanged(phase)
+    if (phase !== 'final' && !changed && steerIdle) return
+    for (const request of readWorkerSteerRequests(deps.dir)) {
+      if (phase !== 'final' && deps.signal?.aborted) {
+        steerIdle = false
+        return
+      }
+      const rootRequest = request.worker === deps.ownerId && deps.deliverRoot !== undefined
+      // A boundary pass must not deliver to a worker whose execution already finished.
+      if (phase === 'boundary' && !rootRequest) continue
+      if (!rootRequest && !isDirectChildNodeId(deps, request.worker)) continue
+      const queued = awaiting.get(request.operationId)
+      if (phase === 'final' && queued !== undefined) {
+        await answerRoot(queued, {
+          status: 'failed',
+          messageId: request.operationId,
+          cause: 'closed',
+          reason: 'the run ended before a root turn read it',
+        })
+        continue
+      }
+      if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
+      // A steer another pass is answering counts as answered, as its acknowledgement on disk would.
+      if (deciding.has(request.operationId)) continue
+      deciding.add(request.operationId)
+      try {
         if (phase === 'final') {
-          writeWorkerSteerAcknowledgement(deps.dir, {
+          await writeWorkerSteerAcknowledgement(deps.dir, {
             ...base(request),
             effect: 'not_live',
             observedAt: iso(),
@@ -247,13 +279,25 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
           })
           continue
         }
-        const claimed = claimWorkerSteerDelivery(deps.dir, {
+        const claim = claimWorkerSteerDelivery(deps.dir, {
           ...base(request),
           effect: 'unknown',
           observedAt: iso(),
           detail: 'delivery admitted; outcome not yet known',
         })
+        claiming.add(claim)
+        const claimed = await claim.finally(() => claiming.delete(claim))
         if (!claimed) continue
+        // The final pass began while this claim reached disk: nothing will consume a delivery now.
+        if (finalizing) {
+          await writeWorkerSteerAcknowledgement(deps.dir, {
+            ...base(request),
+            effect: 'not_live',
+            observedAt: iso(),
+            detail: 'run ended before the steer was applied',
+          })
+          continue
+        }
         try {
           let outcome: Pick<DownMessageEvent, 'delivered' | 'outcome'>
           if (rootRequest) {
@@ -262,7 +306,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
               steer: request.message,
               interrupt: request.interrupt,
               messageId: request.operationId,
-              receipt: (receipt) => answerRoot(request, receipt),
+              receipt: (receipt) => answerLater(request, receipt),
             })
             if (!delivered) awaiting.delete(request.operationId)
             outcome = { delivered, outcome: delivered ? 'delivered' : 'runtime-has-no-inbox' }
@@ -272,7 +316,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
             })
           }
           if (rootRequest && outcome.delivered) {
-            if (awaiting.has(request.operationId)) queuedRoot(request)
+            if (awaiting.has(request.operationId)) await queuedRoot(request)
             continue
           }
           const effect: WorkerSteerAcknowledgement['effect'] = outcome.delivered
@@ -284,7 +328,7 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
                   outcome.outcome === 'scope-stopped'
                 ? 'not_live'
                 : 'unknown'
-          writeWorkerSteerAcknowledgement(deps.dir, {
+          await writeWorkerSteerAcknowledgement(deps.dir, {
             ...base(request),
             effect,
             observedAt: iso(),
@@ -295,17 +339,21 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
         } catch (error) {
           void error
           awaiting.delete(request.operationId)
-          writeWorkerSteerAcknowledgement(deps.dir, {
+          await writeWorkerSteerAcknowledgement(deps.dir, {
             ...base(request),
             effect: 'unknown',
             observedAt: iso(),
             detail: 'delivery outcome is unknown after a runtime error',
           })
         }
+      } finally {
+        deciding.delete(request.operationId)
       }
-      if (phase === 'turn') steerIdle = true
-    },
+    }
+    if (phase === 'final') await answered()
+    if (phase === 'turn') steerIdle = true
   }
+  return { pass: runPass }
 }
 
 function steerAcknowledgementDetail(outcome: Pick<DownMessageEvent, 'outcome'>): string {

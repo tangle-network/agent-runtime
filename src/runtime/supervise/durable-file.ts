@@ -10,6 +10,7 @@
 
 import { randomUUID } from 'node:crypto'
 import {
+  appendFileSync,
   type BigIntStats,
   closeSync,
   existsSync,
@@ -19,6 +20,7 @@ import {
   fsyncSync,
   linkSync,
   lstatSync,
+  mkdirSync,
   openSync,
   renameSync,
   statSync,
@@ -27,6 +29,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
+import { runFenced, runFencedAlways } from '../../durable/durable-writer'
 import { fenceRunWrite } from '../../durable/run-fence'
 
 interface DurableFileOptions {
@@ -44,6 +47,37 @@ type DurableFileContent = string | ((file: BigIntStats) => string)
  * of the temporary file, so a content function sees the published file's inode.
  */
 export function publishExclusiveDurableFile(
+  filePath: string,
+  content: DurableFileContent,
+  options: DurableFileOptions = {},
+): boolean {
+  // Content computed from the new file's own stat cannot cross a thread; its one caller, run-lock
+  // acquisition, already runs on the durable writer.
+  return typeof content === 'string'
+    ? runFenced('publishExclusiveDurableFile', publishExclusiveFenced, filePath, content, options)
+    : publishExclusiveFenced(filePath, content, options)
+}
+
+/**
+ * `publishExclusiveDurableFile` without blocking the calling thread on the disk: from the main
+ * thread the write runs on the durable writer whether or not a run claim is held.
+ */
+export function publishExclusiveDurableFileAsync(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions = {},
+): Promise<boolean> {
+  return runFencedAlways(
+    'publishExclusiveDurableFile',
+    publishExclusiveFenced,
+    filePath,
+    content,
+    options,
+  )
+}
+
+/** The fenced exclusive publication the durable writer runs. @internal */
+export function publishExclusiveFenced(
   filePath: string,
   content: DurableFileContent,
   options: DurableFileOptions = {},
@@ -105,8 +139,56 @@ function syncDurableFile(filePath: string, exactMode?: number): void {
   }
 }
 
+/**
+ * Append whole lines to a run file under the fence, creating `directory` first when given. Each
+ * line is one O_APPEND write (well under PIPE_BUF), so concurrent writers never interleave; there
+ * is no fsync, as for the observability logs that use it.
+ */
+export function appendRunLines(
+  filePath: string,
+  lines: readonly string[],
+  options: { readonly directory?: string; readonly mode?: number } = {},
+): void {
+  runFenced('appendRunLines', appendRunLinesFenced, filePath, lines, options)
+}
+
+/** `appendRunLines` without blocking the calling thread on the disk, claimed or not. */
+export function appendRunLinesAsync(
+  filePath: string,
+  lines: readonly string[],
+  options: { readonly directory?: string; readonly mode?: number } = {},
+): Promise<void> {
+  return runFencedAlways('appendRunLines', appendRunLinesFenced, filePath, lines, options)
+}
+
+/** The fenced line append the durable writer runs. @internal */
+export function appendRunLinesFenced(
+  filePath: string,
+  lines: readonly string[],
+  options: { readonly directory?: string; readonly mode?: number } = {},
+): void {
+  fenceRunWrite(() => {
+    if (options.directory !== undefined) mkdirSync(options.directory, { recursive: true })
+    const fd = openSync(filePath, 'a', options.mode ?? 0o666)
+    try {
+      for (const line of lines) appendFileSync(fd, line)
+    } finally {
+      closeSync(fd)
+    }
+  })
+}
+
 /** Append one record with O_APPEND, then fsync the file and containing directory. */
 export function appendDurableFile(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions = {},
+): void {
+  runFenced('appendDurableFile', appendDurableFenced, filePath, content, options)
+}
+
+/** The fenced durable append the durable writer runs. @internal */
+export function appendDurableFenced(
   filePath: string,
   content: string,
   options: DurableFileOptions = {},
@@ -166,6 +248,26 @@ export function assertNoSymlinkDescendant(root: string, target: string, label = 
  * preserveMode retains ordinary access permissions despite the current umask; a new
  * file keeps normal creation semantics. Callers still own path validation and write exclusion. */
 export function writeAtomicDurableFile(
+  filePath: string,
+  content: DurableFileContent,
+  options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
+): void {
+  if (typeof content === 'string')
+    runFenced('writeAtomicDurableFile', writeAtomicFenced, filePath, content, options)
+  else writeAtomicFenced(filePath, content, options)
+}
+
+/** `writeAtomicDurableFile` without blocking the calling thread on the disk, claimed or not. */
+export function writeAtomicDurableFileAsync(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
+): Promise<void> {
+  return runFencedAlways('writeAtomicDurableFile', writeAtomicFenced, filePath, content, options)
+}
+
+/** The fenced atomic replacement the durable writer runs. @internal */
+export function writeAtomicFenced(
   filePath: string,
   content: DurableFileContent,
   options: DurableFileOptions & { readonly preserveMode?: boolean } = {},

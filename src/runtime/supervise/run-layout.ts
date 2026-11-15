@@ -28,19 +28,22 @@
  * @experimental
  */
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import { sha256 } from '../../content-digest'
-import { fenceRunWrite } from '../../durable/run-fence'
 import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { DriverAttemptStop } from './driver-attempt-evidence'
 import {
   appendDurableFile,
+  appendRunLines,
+  appendRunLinesAsync,
   assertNoSymlinkDescendant,
   publishExclusiveDurableFile,
+  publishExclusiveDurableFileAsync,
   writeAtomicDurableFile,
+  writeAtomicDurableFileAsync,
 } from './durable-file'
 
 /** An `escalateQuestion` that writes each `ask_parent` question to `questions/<id>.json` for an
@@ -269,6 +272,56 @@ export function writeWorkerSteer(
   acknowledgement?: WorkerSteerAcknowledgement
   replayed: boolean
 } {
+  const steer = prepareWorkerSteer(rootDir, supervisorId, worker, options)
+  const admitted = admitSteerRequest(steer.file, steer.request)
+  if (admitted.replayed) return replayedSteer(steer, admitted)
+  for (const projection of steerProjections(steer)) {
+    try {
+      appendRunLines(projection.file, projection.lines, projection.options)
+    } catch {
+      // The atomic operation file is the queue. Its projections do not control admission.
+    }
+  }
+  return { worker: steer.workerId, file: steer.file, request: steer.request, replayed: false }
+}
+
+/**
+ * Admit one steer like `writeWorkerSteer`, without blocking the calling thread on the disk.
+ * The request file is published by the durable writer, so an event loop that admits steers keeps
+ * running while the file and its directory reach disk. Same admission, replay and conflict rules.
+ * @stable
+ */
+export async function writeWorkerSteerAsync(
+  rootDir: string,
+  supervisorId: string,
+  worker: string,
+  options: WriteWorkerSteerOptions,
+): Promise<ReturnType<typeof writeWorkerSteer>> {
+  const steer = prepareWorkerSteer(rootDir, supervisorId, worker, options)
+  const admitted = await admitSteerRequestAsync(steer.file, steer.request)
+  if (admitted.replayed) return replayedSteer(steer, admitted)
+  for (const projection of steerProjections(steer)) {
+    await appendRunLinesAsync(projection.file, projection.lines, projection.options).catch(() => {
+      // The atomic operation file is the queue. Its projections do not control admission.
+    })
+  }
+  return { worker: steer.workerId, file: steer.file, request: steer.request, replayed: false }
+}
+
+interface PreparedWorkerSteer {
+  readonly dir: string
+  readonly file: string
+  readonly operationId: string
+  readonly workerId: string
+  readonly request: WorkerSteerRequest
+}
+
+function prepareWorkerSteer(
+  rootDir: string,
+  supervisorId: string,
+  worker: string,
+  options: WriteWorkerSteerOptions,
+): PreparedWorkerSteer {
   const workerId = worker.trim()
   if (!workerId) throw new Error('writeWorkerSteer: worker id is empty')
   const operationId = options.operationId.trim()
@@ -305,37 +358,51 @@ export function writeWorkerSteer(
   assertNoSymlinkDescendant(dir, file, 'steer request')
   mkdirSync(workerSteerRequestsDir(dir), { recursive: true })
   assertNoSymlinkDescendant(dir, file, 'steer request')
-  const admitted = admitSteerRequest(file, request)
-  if (admitted.replayed) {
-    return {
-      worker: admitted.request.worker,
-      file,
-      request: admitted.request,
-      ...(readWorkerSteerAcknowledgement(dir, operationId) === undefined
-        ? {}
-        : { acknowledgement: readWorkerSteerAcknowledgement(dir, operationId) }),
-      replayed: true,
-    }
+  return { dir, file, operationId, workerId, request }
+}
+
+function replayedSteer(
+  { dir, file, operationId }: PreparedWorkerSteer,
+  admitted: SteerAdmission,
+): ReturnType<typeof writeWorkerSteer> {
+  const acknowledgement = readWorkerSteerAcknowledgement(dir, operationId)
+  return {
+    worker: admitted.request.worker,
+    file,
+    request: admitted.request,
+    ...(acknowledgement === undefined ? {} : { acknowledgement }),
+    replayed: true,
   }
+}
+
+/** The readable projections the admission winner appends: the worker's inbox line and control event. */
+function steerProjections({ dir, operationId, workerId, request }: PreparedWorkerSteer): Array<{
+  readonly file: string
+  readonly lines: readonly string[]
+  readonly options?: { readonly directory: string }
+}> {
   mkdirSync(supervisorWorkersDir(dir), { recursive: true })
-  const projection = workerInboxFileFromEventDir(dir, workerId)
-  try {
-    fenceRunWrite(() => appendFileSync(projection, `${JSON.stringify(request)}\n`, 'utf8'))
-  } catch {
-    // The atomic operation file is the queue. This projection does not control admission.
-  }
-  appendWorkerControlEvent(dir, workerId, {
+  const event = {
+    at: new Date().toISOString(),
+    label: workerId,
     kind: 'message',
     direction: 'down',
-    source,
+    source: request.source,
     operationId,
-    requestDigest,
-    message: trimmed,
-    interrupt,
+    requestDigest: request.requestDigest,
+    message: request.message,
+    interrupt: request.interrupt,
     queued: true,
     delivered: false,
-  })
-  return { worker: workerId, file, request, replayed: false }
+  }
+  return [
+    { file: workerInboxFileFromEventDir(dir, workerId), lines: [`${JSON.stringify(request)}\n`] },
+    {
+      file: workerControlLogFile(dir, workerId),
+      lines: [`${JSON.stringify(event)}\n`],
+      options: { directory: supervisorWorkersDir(dir) },
+    },
+  ]
 }
 
 /** Read every atomically admitted request for one exact worker id, in admission order. @stable */
@@ -391,10 +458,10 @@ export function readWorkerSteerAcknowledgement(
  * Returns `true` only to the process that created the pre-delivery record.
  * @internal
  */
-export function claimWorkerSteerDelivery(
+export async function claimWorkerSteerDelivery(
   eventDir: string,
   record: WorkerSteerAcknowledgement,
-): boolean {
+): Promise<boolean> {
   const exact = parseWorkerSteerAcknowledgement(record)
   if (exact.effect !== 'unknown') {
     throw new Error('steer delivery claim must use effect unknown')
@@ -408,7 +475,7 @@ export function claimWorkerSteerDelivery(
   mkdirSync(dir, { recursive: true })
   assertNoSymlinkDescendant(eventDir, dir, 'steer acknowledgement')
   const file = workerSteerAcknowledgementFile(eventDir, exact.operationId)
-  if (publishExclusiveDurableFile(file, `${JSON.stringify(exact, null, 2)}\n`)) {
+  if (await publishExclusiveDurableFileAsync(file, `${JSON.stringify(exact, null, 2)}\n`)) {
     return true
   }
   const winner = readWorkerSteerAcknowledgement(eventDir, exact.operationId)
@@ -423,10 +490,10 @@ export function claimWorkerSteerDelivery(
 }
 
 /** Atomically replace the runtime acknowledgement for one steer operation. @internal */
-export function writeWorkerSteerAcknowledgement(
+export async function writeWorkerSteerAcknowledgement(
   eventDir: string,
   record: WorkerSteerAcknowledgement,
-): void {
+): Promise<void> {
   const exact = parseWorkerSteerAcknowledgement(record)
   const request = readWorkerSteerRequest(eventDir, exact.operationId)
   if (request === undefined || request.requestDigest !== exact.requestDigest) {
@@ -445,7 +512,7 @@ export function writeWorkerSteerAcknowledgement(
   ) {
     throw new Error(`steer operation '${exact.operationId}' already has a terminal acknowledgement`)
   }
-  writeAtomicDurableFile(file, `${JSON.stringify(exact, null, 2)}\n`)
+  await writeAtomicDurableFileAsync(file, `${JSON.stringify(exact, null, 2)}\n`)
 }
 
 /** The directory holding every cancellation artifact of one run (request inbox + acknowledgements). */
@@ -703,14 +770,11 @@ export function appendWorkerControlEvent(
   event: Record<string, unknown>,
 ): void {
   try {
-    fenceRunWrite(() => {
-      mkdirSync(supervisorWorkersDir(eventDir), { recursive: true })
-      appendFileSync(
-        workerControlLogFile(eventDir, label),
-        `${JSON.stringify({ at: new Date().toISOString(), label, ...event })}\n`,
-        'utf8',
-      )
-    })
+    appendRunLines(
+      workerControlLogFile(eventDir, label),
+      [`${JSON.stringify({ at: new Date().toISOString(), label, ...event })}\n`],
+      { directory: supervisorWorkersDir(eventDir) },
+    )
   } catch {
     // Control logging is best-effort; the inbox write above is the durable part.
   }
@@ -732,18 +796,51 @@ function operationFileHash(operationId: string): string {
   return sha256(id)
 }
 
-function admitSteerRequest(
+interface SteerAdmission {
+  readonly request: WorkerSteerRequest
+  readonly replayed: boolean
+}
+
+function admitSteerRequest(file: string, request: WorkerSteerRequest): SteerAdmission {
+  return (
+    replayedSteerRequest(file, request) ??
+    steerAdmission(file, request, publishExclusiveDurableFile(file, steerRequestText(request)))
+  )
+}
+
+async function admitSteerRequestAsync(
   file: string,
   request: WorkerSteerRequest,
-): { readonly request: WorkerSteerRequest; readonly replayed: boolean } {
+): Promise<SteerAdmission> {
+  return (
+    replayedSteerRequest(file, request) ??
+    steerAdmission(
+      file,
+      request,
+      await publishExclusiveDurableFileAsync(file, steerRequestText(request)),
+    )
+  )
+}
+
+const steerRequestText = (request: WorkerSteerRequest): string =>
+  `${JSON.stringify(request, null, 2)}\n`
+
+function replayedSteerRequest(
+  file: string,
+  request: WorkerSteerRequest,
+): SteerAdmission | undefined {
   const existing = readWorkerSteerRequestFile(file)
-  if (existing !== undefined) {
-    assertSameSteerRequest(existing, request)
-    return { request: existing, replayed: true }
-  }
-  if (publishExclusiveDurableFile(file, `${JSON.stringify(request, null, 2)}\n`)) {
-    return { request, replayed: false }
-  }
+  if (existing === undefined) return undefined
+  assertSameSteerRequest(existing, request)
+  return { request: existing, replayed: true }
+}
+
+function steerAdmission(
+  file: string,
+  request: WorkerSteerRequest,
+  published: boolean,
+): SteerAdmission {
+  if (published) return { request, replayed: false }
   const winner = readWorkerSteerRequestFile(file)
   if (winner === undefined) {
     throw new Error('steer request publication lost its winner')

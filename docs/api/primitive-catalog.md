@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@10.0.2` and `@tangle-network/agent-eval@1.0.32` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@10.0.3` and `@tangle-network/agent-eval@1.0.32` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1072 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -717,6 +717,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1072 exports.
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `writeWorkerSteer` | function | Admit one steer exactly once under a caller-owned operation id. |
+| `writeWorkerSteerAsync` | function | Admit one steer like `writeWorkerSteer`, without blocking the calling thread on the disk. |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |
 | `analyzesFindingsReportPrompt` | const | Default ANALYZES-edge directive: what the RECEIVING node should do with an analyst's findings. |
 | `assertTraceDerivedFindings` | const | Reject analyst findings derived from evaluation scores instead of execution traces. |

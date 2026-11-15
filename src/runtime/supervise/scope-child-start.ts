@@ -59,7 +59,7 @@ import type {
   WorkerInteractiveSession,
 } from './types'
 import { WorkerEvents } from './worker-events'
-import { writeWorkerInteractiveBinding } from './worker-interactive'
+import { writeWorkerInteractiveBindingAsync } from './worker-interactive'
 import type { SlotPermit, WorkerSlots } from './worker-slots'
 import { type TraceContext, workerTraceSeamKey } from './worker-trace'
 
@@ -507,7 +507,7 @@ export function bindInteractiveWorker(
       if (ready === undefined || notStarted(ready)) return
       session = ready
     }
-    writeWorkerInteractiveBinding(
+    await writeWorkerInteractiveBindingAsync(
       args.interactiveBindingDir,
       live.id,
       label,

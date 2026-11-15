@@ -21,6 +21,7 @@ import {
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
 } from '../runtime/supervise/durable-file'
+import { registerDurableErrorClass, runFencedAlways } from './durable-writer'
 import { isNoEntError } from './jsonl-file'
 import { mutateRunClaim, runGenerationPath, runWithWriteClaim } from './run-fence'
 
@@ -92,6 +93,8 @@ export class RunDirectoryLockedError extends Error {
   }
 }
 
+registerDurableErrorClass('RunDirectoryLockedError', RunDirectoryLockedError)
+
 /**
  * Take `runDir/supervise.lock`, or refuse.
  *
@@ -112,6 +115,35 @@ export async function acquireRunDirectoryLock(
   mkdirSync(dir, { recursive: true })
   const { pid, ...identity } = readLockHolderIdentity(process.pid)
   const owner = { pid, startedAt: new Date(now()).toISOString(), runId, ...identity }
+  // The whole critical section, generation decision and holder record included, runs on the
+  // durable writer: the one thread that takes this directory's mutation lock in this process.
+  const holder = await runFencedAlways('acquireRunLock', acquireRunLockFenced, dir, path, owner)
+  const generation = holder.generation
+  if (generation === undefined)
+    throw new Error(`supervisePursuit: ${path} was taken without a generation`)
+  let released = false
+  return Object.freeze({
+    ...holder,
+    generation,
+    path,
+    run: <T>(operation: () => T): T => {
+      if (holder.lock === undefined) throw new Error('run lock has no inode identity')
+      return runWithWriteClaim({ path, generation, lock: holder.lock }, operation)
+    },
+    release: async () => {
+      if (released) return
+      await releaseHolder(path, holder)
+      released = true
+    },
+  })
+}
+
+/** Take the run directory under its mutation lock and return the holder record it wrote. @internal */
+export function acquireRunLockFenced(
+  dir: string,
+  path: string,
+  owner: Omit<RunDirectoryLockHolder, 'generation' | 'lock'>,
+): RunDirectoryLockHolder {
   return mutateRunClaim(path, () => {
     const existing = readLockFile(path)
     if (existing.state === 'holder' && !holderIsDead(existing)) {
@@ -141,25 +173,10 @@ export async function acquireRunDirectoryLock(
       written.holder = Object.freeze({ ...owner, generation, lock: lockIdentity(file) })
       return `${JSON.stringify(written.holder)}\n`
     })
-    const holder = written.holder
-    if (!published || holder === undefined) {
+    if (!published || written.holder === undefined) {
       throw new Error(`supervisePursuit: could not take ${path}`)
     }
-    let released = false
-    return Object.freeze({
-      ...holder,
-      generation,
-      path,
-      run: <T>(operation: () => T): T => {
-        if (holder.lock === undefined) throw new Error('run lock has no inode identity')
-        return runWithWriteClaim({ path, generation, lock: holder.lock }, operation)
-      },
-      release: async () => {
-        if (released) return
-        await releaseHolder(path, holder)
-        released = true
-      },
-    })
+    return written.holder
   })
 }
 
@@ -290,6 +307,11 @@ function holderIsDead(existing: Extract<LockFileState, { state: 'holder' }>): bo
 async function releaseHolder(path: string, holder: RunDirectoryLockHolder): Promise<void> {
   const deadline = performance.now() + 1_000
   while (existsSync(`${path}.guard`) && performance.now() < deadline) await delay(10)
+  await runFencedAlways('releaseRunLock', releaseRunLockFenced, path, holder)
+}
+
+/** Remove the lock under its mutation lock while it still names `holder`. @internal */
+export function releaseRunLockFenced(path: string, holder: RunDirectoryLockHolder): void {
   mutateRunClaim(path, () => {
     const existing = readLockFile(path)
     if (existing.state !== 'holder') return
