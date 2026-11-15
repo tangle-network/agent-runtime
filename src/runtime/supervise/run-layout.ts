@@ -38,6 +38,7 @@ import type { DriverAttemptStop } from './driver-attempt-evidence'
 import {
   appendDurableFile,
   appendRunLines,
+  appendRunLinesAsync,
   assertNoSymlinkDescendant,
   publishExclusiveDurableFile,
   publishExclusiveDurableFileAsync,
@@ -272,7 +273,16 @@ export function writeWorkerSteer(
   replayed: boolean
 } {
   const steer = prepareWorkerSteer(rootDir, supervisorId, worker, options)
-  return finishWorkerSteer(steer, admitSteerRequest(steer.file, steer.request))
+  const admitted = admitSteerRequest(steer.file, steer.request)
+  if (admitted.replayed) return replayedSteer(steer, admitted)
+  for (const projection of steerProjections(steer)) {
+    try {
+      appendRunLines(projection.file, projection.lines, projection.options)
+    } catch {
+      // The atomic operation file is the queue. Its projections do not control admission.
+    }
+  }
+  return { worker: steer.workerId, file: steer.file, request: steer.request, replayed: false }
 }
 
 /**
@@ -288,7 +298,14 @@ export async function writeWorkerSteerAsync(
   options: WriteWorkerSteerOptions,
 ): Promise<ReturnType<typeof writeWorkerSteer>> {
   const steer = prepareWorkerSteer(rootDir, supervisorId, worker, options)
-  return finishWorkerSteer(steer, await admitSteerRequestAsync(steer.file, steer.request))
+  const admitted = await admitSteerRequestAsync(steer.file, steer.request)
+  if (admitted.replayed) return replayedSteer(steer, admitted)
+  for (const projection of steerProjections(steer)) {
+    await appendRunLinesAsync(projection.file, projection.lines, projection.options).catch(() => {
+      // The atomic operation file is the queue. Its projections do not control admission.
+    })
+  }
+  return { worker: steer.workerId, file: steer.file, request: steer.request, replayed: false }
 }
 
 interface PreparedWorkerSteer {
@@ -344,29 +361,30 @@ function prepareWorkerSteer(
   return { dir, file, operationId, workerId, request }
 }
 
-function finishWorkerSteer(
-  { dir, file, operationId, workerId, request }: PreparedWorkerSteer,
+function replayedSteer(
+  { dir, file, operationId }: PreparedWorkerSteer,
   admitted: SteerAdmission,
 ): ReturnType<typeof writeWorkerSteer> {
-  if (admitted.replayed) {
-    return {
-      worker: admitted.request.worker,
-      file,
-      request: admitted.request,
-      ...(readWorkerSteerAcknowledgement(dir, operationId) === undefined
-        ? {}
-        : { acknowledgement: readWorkerSteerAcknowledgement(dir, operationId) }),
-      replayed: true,
-    }
+  const acknowledgement = readWorkerSteerAcknowledgement(dir, operationId)
+  return {
+    worker: admitted.request.worker,
+    file,
+    request: admitted.request,
+    ...(acknowledgement === undefined ? {} : { acknowledgement }),
+    replayed: true,
   }
+}
+
+/** The readable projections the admission winner appends: the worker's inbox line and control event. */
+function steerProjections({ dir, operationId, workerId, request }: PreparedWorkerSteer): Array<{
+  readonly file: string
+  readonly lines: readonly string[]
+  readonly options?: { readonly directory: string }
+}> {
   mkdirSync(supervisorWorkersDir(dir), { recursive: true })
-  const projection = workerInboxFileFromEventDir(dir, workerId)
-  try {
-    appendRunLines(projection, [`${JSON.stringify(request)}\n`])
-  } catch {
-    // The atomic operation file is the queue. This projection does not control admission.
-  }
-  appendWorkerControlEvent(dir, workerId, {
+  const event = {
+    at: new Date().toISOString(),
+    label: workerId,
     kind: 'message',
     direction: 'down',
     source: request.source,
@@ -376,8 +394,15 @@ function finishWorkerSteer(
     interrupt: request.interrupt,
     queued: true,
     delivered: false,
-  })
-  return { worker: workerId, file, request, replayed: false }
+  }
+  return [
+    { file: workerInboxFileFromEventDir(dir, workerId), lines: [`${JSON.stringify(request)}\n`] },
+    {
+      file: workerControlLogFile(dir, workerId),
+      lines: [`${JSON.stringify(event)}\n`],
+      options: { directory: supervisorWorkersDir(dir) },
+    },
+  ]
 }
 
 /** Read every atomically admitted request for one exact worker id, in admission order. @stable */

@@ -218,6 +218,9 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   // Steers a pass is claiming or answering. Their writes await the durable writer, so another
   // pass can run before the acknowledgement reaches disk.
   const deciding = new Set<string>()
+  // Delivery claims still on their way to disk, and whether the final pass has begun.
+  const claiming = new Set<Promise<boolean>>()
+  let finalizing = false
   let steerStamp = ''
   let steerIdle = false
   const steerChanged = (phase: 'turn' | 'boundary' | 'final'): boolean => {
@@ -234,6 +237,11 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   }
 
   const runPass = async (phase: 'turn' | 'boundary' | 'final'): Promise<void> => {
+    if (phase === 'final') {
+      finalizing = true
+      // Claims still reaching disk settle first, so the final pass reads them as claimed.
+      await Promise.allSettled(claiming)
+    }
     await answered()
     if (phase === 'turn') for (const request of [...awaiting.values()]) await queuedRoot(request)
     const changed = steerChanged(phase)
@@ -271,13 +279,25 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
           })
           continue
         }
-        const claimed = await claimWorkerSteerDelivery(deps.dir, {
+        const claim = claimWorkerSteerDelivery(deps.dir, {
           ...base(request),
           effect: 'unknown',
           observedAt: iso(),
           detail: 'delivery admitted; outcome not yet known',
         })
+        claiming.add(claim)
+        const claimed = await claim.finally(() => claiming.delete(claim))
         if (!claimed) continue
+        // The final pass began while this claim reached disk: nothing will consume a delivery now.
+        if (finalizing) {
+          await writeWorkerSteerAcknowledgement(deps.dir, {
+            ...base(request),
+            effect: 'not_live',
+            observedAt: iso(),
+            detail: 'run ended before the steer was applied',
+          })
+          continue
+        }
         try {
           let outcome: Pick<DownMessageEvent, 'delivered' | 'outcome'>
           if (rootRequest) {

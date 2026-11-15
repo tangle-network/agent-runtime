@@ -152,6 +152,15 @@ export function appendRunLines(
   runFenced('appendRunLines', appendRunLinesFenced, filePath, lines, options)
 }
 
+/** `appendRunLines` without blocking the calling thread on the disk, claimed or not. */
+export function appendRunLinesAsync(
+  filePath: string,
+  lines: readonly string[],
+  options: { readonly directory?: string; readonly mode?: number } = {},
+): Promise<void> {
+  return runFencedAlways('appendRunLines', appendRunLinesFenced, filePath, lines, options)
+}
+
 /** The fenced line append the durable writer runs. @internal */
 export function appendRunLinesFenced(
   filePath: string,
