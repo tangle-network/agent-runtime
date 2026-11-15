@@ -8,6 +8,7 @@ import { contentAddress } from '../../src/durable/content-address'
 import { appendCommittedJsonLine } from '../../src/durable/jsonl-file'
 import { acquireRunDirectoryLock, RUN_DIRECTORY_LOCK_FILE } from '../../src/durable/run-lock'
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
+import { writeAtomicDurableFileAsync } from '../../src/runtime/supervise/durable-file'
 import {
   claimWorkerSteerDelivery,
   readWorkerSteerAcknowledgement,
@@ -75,11 +76,10 @@ it('steer and binding writes wait on the durable writer without blocking the eve
     const worstGap = heartbeat()
     await delay(50)
     const began = performance.now()
-    // The claimed blob write waits for the other process's lock, so every later write on the
-    // durable writer waits behind it: an unclaimed steer completes only after the lock is free.
-    const blocked = lock.run(() =>
-      new FileResultBlobStore(join(dir, 'blobs')).put(contentAddress({ a: 1 }), { a: 1 }),
-    )
+    // This claimed write reaches the durable writer as it is called and waits there for the other
+    // process's lock, so every later write waits behind it: an unclaimed steer that completes only
+    // after the lock is free ran on the writer, not on this thread.
+    const blocked = lock.run(() => writeAtomicDurableFileAsync(join(dir, 'first.json'), '{}\n'))
     const unclaimed = writeWorkerSteerAsync(dir, 'run', 'run:s0', {
       eventDir: dir,
       operationId: 'steer-unclaimed',
