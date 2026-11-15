@@ -2916,7 +2916,7 @@ Omit and run_graph takes graphs as data only, without registry reads or recordin
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-1)
 
 ##### promptRegistry?
 
@@ -4235,7 +4235,7 @@ Omit and run_graph takes graphs as data only, without registry reads or recordin
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-1)
 
 ##### driveHarness?
 

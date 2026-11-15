@@ -1253,7 +1253,7 @@ Omit and run_graph takes graphs as data only, without registry reads or recordin
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-1)
 
 ##### driveHarness?
 
@@ -2336,7 +2336,7 @@ Omit and run_graph takes graphs as data only, without registry reads or recordin
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`graphRegistry`](runtime.md#graphregistry-1)
 
 ##### promptRegistry?
 
@@ -3289,7 +3289,7 @@ Required to run an external-harness supervisor: runs the harness as the driver.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driveHarness`](runtime.md#driveharness-4)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driveHarness`](runtime.md#driveharness-3)
 
 ##### driverRetry?
 

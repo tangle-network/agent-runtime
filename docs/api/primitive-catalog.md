@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1074 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -606,6 +606,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
 | `plateau` | function | "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than |
 | `plateauLength` | function | How many trailing entries of a best-so-far curve are within `minDelta` of the curve's value |
 | `printBenchmarkReport` | function | Pretty-print a report — the "free optimization" verdict, with the cost vector. |
+| `profileBridgeWireModel` | function | The `model` string Runtime sends to cli-bridge for a profile: `harness/provider/model`. |
 | `profileChatClient` | function | Profile-exact adapter for packages that consume agent-eval's ChatClient contract. |
 | `profileOptimizerModelCall` | function | Profile-exact adapter for agent-eval's external optimizer callback. |
 | `profileRegistry` | function | Open (or lazily create) a profile registry rooted at a workspace directory. |

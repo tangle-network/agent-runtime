@@ -23626,7 +23626,7 @@ Omit and run_graph takes graphs as data only, without registry reads or recordin
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`graphRegistry`](#graphregistry-4)
+[`SuperviseOptions`](#superviseoptions).[`graphRegistry`](#graphregistry-1)
 
 ##### driveHarness?
 
@@ -26220,7 +26220,7 @@ A separate capability for the same manager's owned workers, without manager tool
 
 ###### Inherited from
 
-[`RemoteSupervisorReader`](#remotesupervisorreader).[`observe`](#observe-5)
+[`RemoteSupervisorReader`](#remotesupervisorreader).[`observe`](#observe-2)
 
 ##### close()
 
@@ -45748,6 +45748,33 @@ it through the provider's public `get`/interactive contract.
 #### Returns
 
 [`MakeWorkerAgent`](#makeworkeragent)
+
+***
+
+### profileBridgeWireModel()
+
+> **profileBridgeWireModel**(`profile`): `string` \| `undefined`
+
+**`Experimental`**
+
+The `model` string Runtime sends to cli-bridge for a profile: `harness/provider/model`.
+
+Takes the profile's `harness` and `model` (`provider`, `default`). A model already prefixed with
+its harness or provider is not prefixed again. The harness segment is always added, so a
+provider named like its harness keeps both: harness `opencode`, provider `opencode`, model
+`glm-5.3-flash-free` (or `opencode/glm-5.3-flash-free`) returns
+`opencode/opencode/glm-5.3-flash-free`. Returns the provider/model alone without a harness, the
+harness alone without a concrete model, and `undefined` with neither.
+
+#### Parameters
+
+##### profile
+
+`Pick`\<`AgentProfile`, `"harness"` \| `"model"`\>
+
+#### Returns
+
+`string` \| `undefined`
 
 ***
 

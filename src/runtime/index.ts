@@ -650,6 +650,8 @@ export type {
 /** Provider-backed native interactive workers. Runtime owns admission and control identity; the
  * provider owns the environment and process. */
 export * from './supervise/interactive-worker'
+// The cli-bridge wire model for a profile: a caller of cli-bridge sends what Runtime sends.
+export { profileBridgeWireModel } from './supervise/model-policy'
 // OPT-IN OTLP tracing for a supervised tree: a pure `RuntimeHooks` observer that turns the
 // lifecycle events `Scope` already emits into one span per node (opened at spawn, closed at settle,
 // parented to its parent node's span) plus an LLM child span per metered driver turn. A span with a

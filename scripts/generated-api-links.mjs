@@ -23,7 +23,8 @@ export function generatedApiLinks(write = false) {
   const plain = (text) => text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[`\\]/g, '')
   for (const name of readdirSync(root).filter((name) => name.endsWith('.md'))) {
     const file = join(root, name), text = readFileSync(file, 'utf8')
-    const anchors = new Set(), labels = new Map()
+    const anchors = new Set(), labels = new Map(), members = new Map()
+    let scope
     for (const [line, prose] of proseLines(text)) {
       if (!prose) continue
       const heading = line.match(/^#{1,6}\s+(.+?)(?:\s+#+)?\s*$/)
@@ -35,21 +36,34 @@ export function generatedApiLinks(write = false) {
       while (anchors.has(anchor)) anchor = `${slug}-${++suffix}`
       anchors.add(anchor)
       labels.set(label, labels.has(label) ? null : anchor)
+      const level = line.match(/^#+/)[0].length
+      if (level <= 3) {
+        scope = level === 3 ? new Map() : undefined
+        if (scope) members.set(anchor, scope)
+      } else if (level === 5 && scope) {
+        const member = label.replace(/(?:\?|\(\))$/, '')
+        scope.set(member, scope.has(member) ? null : anchor)
+      }
     }
     for (const match of text.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/g)) anchors.add(match[1])
-    pages.set(file, { text, anchors, labels })
+    pages.set(file, { text, anchors, labels, members })
   }
   let checked = 0, repaired = 0
   const missing = []
   for (const [file, page] of pages) {
-    const output = proseLines(page.text).map(([line, prose]) => !prose ? line : line.replace(/\[([^\]\n]+)\]\(([^\s)]*#[^\s)]+)\)/g, (link, label, url) => {
+    const output = proseLines(page.text).map(([line, prose]) => !prose ? line : line.replace(/\[([^\]\n]+)\]\(([^\s)]*#[^\s)]+)\)/g, (link, label, url, offset) => {
       if (/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(url)) return link
       const hash = url.indexOf('#'), path = url.slice(0, hash), fragment = url.slice(hash + 1)
       const target = pages.get(path ? resolve(dirname(file), path) : file)
       if (!target) return link
       checked++
       if (target.anchors.has(decodeURIComponent(fragment))) return link
-      const anchor = target.labels.get(plain(label))
+      // An inherited member names its declaring type immediately before the member link.
+      // Resolve within that rendered type; equal member names on other types stay distinct.
+      const owner = line.slice(0, offset).match(/\[[^\]\n]+\]\(([^\s)]*)#([^\s)]+)\)\.$/)
+      const ownerPage = owner && pages.get(owner[1] ? resolve(dirname(file), owner[1]) : file)
+      const member = ownerPage === target && target.members.get(decodeURIComponent(owner[2]))?.get(plain(label))
+      const anchor = member || target.labels.get(plain(label))
       if (write && anchor) { repaired++; return `[${label}](${path}#${anchor})` }
       missing.push(`${file.slice(root.length + 1)} → ${url}`)
       return link
