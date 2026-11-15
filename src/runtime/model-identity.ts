@@ -6,18 +6,20 @@ const datedIsoSuffix = /^(.*)-(\d{4})-(\d{2})-(\d{2})$/u
 const datedCompactSuffix = /^(.*)-(\d{4})(\d{2})(\d{2})$/u
 const datedMonthSuffix = /^(.*)-(\d{4})-(\d{2})$/u
 
-export type SnapshotKind = 'date' | 'opaque' | 'fixed'
+export type SnapshotKind = 'date' | 'opaque'
 
 interface ModelIdentityParts {
   readonly base: string
   readonly snapshot?: string
-  readonly snapshotKind?: SnapshotKind
+  readonly snapshotKind?: SnapshotKind | 'fixed'
 }
 
 export interface CanonicalObservedModelParts {
   readonly base: string
   readonly snapshot?: string
   readonly snapshotKind?: SnapshotKind
+  /** The complete provider model id is immutable without a separate snapshot suffix. */
+  readonly fixed?: true
   readonly canonical: string
 }
 
@@ -71,7 +73,11 @@ export function canonicalObservedModelParts(
   return {
     base,
     ...(identity.snapshot !== undefined ? { snapshot: identity.snapshot } : {}),
-    ...(identity.snapshotKind !== undefined ? { snapshotKind: identity.snapshotKind } : {}),
+    ...(identity.snapshotKind === 'fixed'
+      ? { fixed: true as const }
+      : identity.snapshotKind !== undefined
+        ? { snapshotKind: identity.snapshotKind }
+        : {}),
     canonical,
   }
 }
@@ -233,8 +239,8 @@ function buildDatedIdentity(
   snapshot: string,
   valid: boolean,
 ): ModelIdentityParts | null | undefined {
-  // A date that is the entire model segment is not a snapshot suffix.
-  if (base === undefined || base.length === 0 || base.endsWith('/')) return undefined
+  // A dated shape needs a model name; do not reinterpret a bare suffix as a fixed id.
+  if (base === undefined || base.length === 0 || base.endsWith('/')) return null
   return valid ? { base, snapshot, snapshotKind: 'date' } : null
 }
 

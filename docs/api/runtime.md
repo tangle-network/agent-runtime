@@ -7494,6 +7494,12 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 
 > `readonly` `optional` **snapshotKind?**: [`SnapshotKind`](#snapshotkind)
 
+##### fixed?
+
+> `readonly` `optional` **fixed?**: `true`
+
+The complete provider model id is immutable without a separate snapshot suffix.
+
 ##### canonical
 
 > `readonly` **canonical**: `string`
