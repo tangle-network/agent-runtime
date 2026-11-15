@@ -971,7 +971,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1074 exports.
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
 | `NativeContextContinuationHandle` | interface | Admission once the next exact reference is durable, and the terminal result. |
 | `NativeHarnessSessionEvidence` | interface | A bound OpenCode 2.3.0 response with raw native records and explicit evidence limits. |
-| `NativeSessionUsage` | interface | Native session tokens with disjoint cache and output classes. |
+| `NativeSessionUsage` | interface | Native session tokens with disjoint cache and output classes. A normalized zero |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
 | `NoWinnerError` | interface | Serializable act() rejection; non-Errors retain name NonError and their message. |
 | `ObservedSessionFacts` | interface | Structural projection of traces' SessionFacts. The trace reader owns all |

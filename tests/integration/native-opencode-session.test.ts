@@ -165,7 +165,18 @@ it.skipIf(!binary)(
           status: 'completed',
           nativeModel: 'opencode/glm-5.3-flash-free',
           modelSource: 'turn-context',
-          tokensKnown: true,
+          // OpenCode normalizes absent cache-write usage to zero, so total input is
+          // unknown even though the positive input/read/output observations survive.
+          tokensKnown: false,
+          usage: {
+            input: null,
+            output: 12,
+            freshInput: 36,
+            visibleOutput: 10,
+            reasoningOutput: 2,
+            cachedInput: 4,
+            cacheWriteInput: null,
+          },
           visibleOutputLimit: {
             tokens: 17,
             wireField: 'max_tokens',

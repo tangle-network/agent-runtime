@@ -37,9 +37,13 @@ requests. A quota refusal and an unrecognized export cannot become a successful 
 
 Reported fresh input, cache reads, cache writes, visible output and reasoning remain separate.
 Runtime's input total includes both cache classes, while Eval's billing receipt keeps fresh input,
-cache reads and cache writes disjoint. Complete usage requires readable, nonzero counters for each
-billable assistant/compaction response and reconciliation with the session total. Missing counters,
-zero defaults, unattributed work or tools with unqualified child execution leave usage incomplete.
+cache reads and cache writes disjoint. OpenCode normalizes every absent token class to zero, so
+each ambiguous zero becomes `null` in native evidence. Positive classes remain available, while
+aggregate input/output require all their contributing classes. Complete usage requires every
+class on each settled assistant/compaction response and reconciliation with the session total.
+Pending, retrying and failed rows cannot prove fresh usage: the native updater can retain an older
+attempt's counters. Missing counters, zero defaults, unattributed work or tools with unqualified
+child execution leave usage incomplete; Runtime retains observed subtotals with `tokensKnown: false`.
 Native cost has no reliable provider-versus-catalog attribution, so billed cost remains unknown.
 
 Successful native skill loads can carry a resource digest only after their path-derived id,
@@ -50,7 +54,9 @@ skill name or the model's claim that it read a skill is insufficient.
 
 For **opencode/glm-5.3-flash-free**, a profile's `maxVisibleOutputTokens` is lowered into the
 native model policy before the workspace plan is hashed and applied. The qualified policy emits
-`max_tokens` and the terminal native token records are checked for an overrun. This is a visible
+`max_tokens` and the terminal native token records are checked for an overrun. Complete positive
+visible-output counters can prove that bound independently of missing cache or reasoning classes.
+This is a visible
 token ceiling **per completion**. It does not bound reasoning tokens, the sum of multiple skill/tool
 steps, or dollars. Total and reasoning token ceilings remain unsupported; other provider/model
 routes requesting this visible ceiling are refused until their wire contract is qualified.

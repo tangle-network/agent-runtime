@@ -295,6 +295,67 @@ describe('OpenCode native-session exact profile route', () => {
     expect(response.costUsd).toBeNull()
   })
 
+  it.each(['normalized-zero', 'reused-pending', 'reused-failed'] as const)(
+    'retains partial native usage without qualifying %s counters',
+    async (kind) => {
+      const { executor } = await fixture((value) => {
+        if (kind === 'normalized-zero') {
+          value.info.tokens = { input: 11, output: 3, reasoning: 0, cache: { read: 0, write: 0 } }
+          value.messages[0].tokens = {
+            input: 4,
+            output: 1,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          }
+          value.messages[1].tokens = {
+            input: 7,
+            output: 2,
+            reasoning: 0,
+            cache: { read: 0, write: 0 },
+          }
+        } else if (kind === 'reused-pending') {
+          delete value.messages[0].time.completed
+          delete value.messages[0].finish
+        } else {
+          value.messages[0].finish = 'error'
+          value.messages[0].error = { type: 'provider.failed', message: 'Retried response failed.' }
+        }
+      })
+      const call = profileOptimizerModelCall({
+        profile,
+        executor,
+        context: 'unknown native classes',
+      })
+      const run = await call({
+        callId: kind,
+        request: { model: profile.model!.default!, messages: [{ role: 'user', content: 'Task' }] },
+        signal: AbortSignal.timeout(30_000),
+      })
+      expect(run.succeeded).toBe(true)
+      if (!run.succeeded) throw new Error(run.error)
+      expect(run.response.usage.captured).toBe(false)
+      expect(run.receipt).toMatchObject({ usageUnknown: true, costUnknown: true })
+      expect(run.execution).toMatchObject({ nativeSession: { tokensKnown: false } })
+      if (kind === 'normalized-zero') {
+        expect(run.execution).toMatchObject({
+          nativeSession: {
+            usage: {
+              input: null,
+              output: null,
+              freshInput: 11,
+              visibleOutput: 3,
+              reasoningOutput: null,
+              cachedInput: null,
+              cacheWriteInput: null,
+            },
+          },
+        })
+        expect(run.response.usage.reasoningTokens).toBeUndefined()
+        expect(run.response.usage.cachedPromptTokens).toBeUndefined()
+      }
+    },
+  )
+
   it('refuses a provider response exceeding the native visible cap while retaining spend', async () => {
     const { executor } = await fixture()
     const capped = { ...profile, model: { ...profile.model, maxVisibleOutputTokens: 1 } }

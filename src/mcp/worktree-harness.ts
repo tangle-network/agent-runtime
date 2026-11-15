@@ -392,7 +392,7 @@ export interface InPlaceHarnessResult {
   content?: string
   finishReason?: string
   reasoningTokens?: number
-  promptCache?: { readTokens: number; writeTokens: number }
+  promptCache?: { readTokens?: number; writeTokens?: number }
   nativeSession?: NativeHarnessSessionEvidence
 }
 

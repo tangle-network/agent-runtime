@@ -20,14 +20,16 @@ const SESSION_ID = /^ses_[A-Za-z0-9_-]+$/u
 const EXPORT_TIMEOUT_MS = 15_000
 const EXPORT_MAX_BYTES = 8 * 1024 * 1024
 
-/** Native session tokens with disjoint cache and output classes. @experimental */
+/** Native session tokens with disjoint cache and output classes. A normalized zero
+ * cannot distinguish absent provider usage from measured zero and remains null. @experimental */
 export interface NativeSessionUsage {
-  readonly input: number
-  readonly output: number
-  readonly visibleOutput: number
-  readonly reasoningOutput: number
-  readonly cachedInput: number
-  readonly cacheWriteInput: number
+  readonly input: number | null
+  readonly output: number | null
+  readonly freshInput: number | null
+  readonly visibleOutput: number | null
+  readonly reasoningOutput: number | null
+  readonly cachedInput: number | null
+  readonly cacheWriteInput: number | null
 }
 
 /** A bound OpenCode 2.3.0 response with raw native records and explicit evidence limits. @experimental */
@@ -361,21 +363,45 @@ function projectNativeSession(
     }
   }
   const usage = readNativeUsage(info.tokens)
-  const positiveUsage = usage !== null && usage.input + usage.output > 0
   const billable = messages.filter(
     (message) => message?.type === 'assistant' || message?.type === 'compaction',
   )
-  const perMessage = billable.map((message) => readNativeUsage(message?.tokens))
+  const perMessage = billable.map((message) => {
+    // A resumed/retried assistant can retain the previous attempt's token fields.
+    // Only a settled response owns its counters; failed rows may retain stale usage.
+    const settled =
+      message?.type === 'compaction'
+        ? message.status === 'completed'
+        : typeof recordValue(message?.time)?.completed === 'number' &&
+          typeof message?.finish === 'string' &&
+          message.finish !== 'error' &&
+          message.error === undefined &&
+          message.retry === undefined
+    return settled ? readNativeUsage(message?.tokens) : null
+  })
   const usageComplete =
     usage !== null &&
     perMessage.length > 0 &&
-    perMessage.every((row) => row !== null && row.input + row.output > 0) &&
     (Object.keys(usage) as Array<keyof NativeSessionUsage>).every(
-      (key) => perMessage.reduce((total, row) => total + (row?.[key] ?? 0), 0) === usage[key],
+      (key) =>
+        usage[key] !== null &&
+        perMessage.every((row) => row?.[key] !== null && row?.[key] !== undefined) &&
+        perMessage.reduce((total, row) => total + row![key]!, 0) === usage[key],
     )
+  const visibleComplete =
+    usage?.visibleOutput !== null &&
+    usage?.visibleOutput !== undefined &&
+    perMessage.length > 0 &&
+    perMessage.every((row) => row?.visibleOutput !== null && row?.visibleOutput !== undefined) &&
+    perMessage.reduce((total, row) => total + row!.visibleOutput!, 0) === usage.visibleOutput
   const outputExceeded =
     maxVisibleOutputTokens !== undefined &&
-    perMessage.some((row) => row !== null && row.visibleOutput > maxVisibleOutputTokens)
+    perMessage.some(
+      (row) =>
+        row?.visibleOutput !== null &&
+        row?.visibleOutput !== undefined &&
+        row.visibleOutput > maxVisibleOutputTokens,
+    )
   const finalText = lastContent
     .filter((part) => part?.type === 'text')
     .map((part) => (typeof part?.text === 'string' ? part.text : ''))
@@ -459,7 +485,7 @@ function projectNativeSession(
     finishReason: typeof last?.finish === 'string' ? last.finish : null,
     finalText,
     usage,
-    tokensKnown: positiveUsage && usageComplete && !hasUncapturedChildren,
+    tokensKnown: usageComplete && !hasUncapturedChildren,
     reportedCostUsd:
       typeof info.cost === 'number' && Number.isFinite(info.cost) && info.cost >= 0
         ? info.cost
@@ -473,7 +499,7 @@ function projectNativeSession(
             scope: 'per-completion' as const,
             observed: outputExceeded
               ? ('exceeded' as const)
-              : usageComplete
+              : visibleComplete
                 ? ('within-limit' as const)
                 : ('unknown' as const),
           },
@@ -493,22 +519,32 @@ function projectNativeSession(
   }
 }
 
-/** OpenCode 2.3.0 records fresh input, cache classes, visible output and reasoning separately. */
+/** OpenCode 2.3.0 SessionUsage.tokens defaults every absent class to zero. Positive
+ * values are retained observations; neither normalized zero nor a sum proves a missing class. */
 function readNativeUsage(value: unknown): NativeSessionUsage | null {
   const tokens = recordValue(value),
     cache = recordValue(tokens?.cache)
   const counts = [tokens?.input, tokens?.output, tokens?.reasoning, cache?.read, cache?.write]
   if (
-    !counts.every((count) => typeof count === 'number' && Number.isSafeInteger(count) && count >= 0)
+    !counts.every(
+      (count) =>
+        count === undefined ||
+        (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0),
+    )
   )
     return null
-  const [fresh, visibleOutput, reasoningOutput, cachedInput, cacheWriteInput] = counts as number[]
-  const input = fresh! + cachedInput! + cacheWriteInput!,
-    output = visibleOutput! + reasoningOutput!
-  if (!Number.isSafeInteger(input) || !Number.isSafeInteger(output)) return null
+  const observed = counts.map((count) => (typeof count === 'number' && count > 0 ? count : null))
+  if (observed.every((count) => count === null)) return null
+  const [freshInput, visibleOutput, reasoningOutput, cachedInput, cacheWriteInput] = observed
+  const sum = (...values: Array<number | null | undefined>): number | null => {
+    if (values.some((value) => value === null || value === undefined)) return null
+    const total = values.reduce<number>((total, value) => total + value!, 0)
+    return Number.isSafeInteger(total) ? total : null
+  }
   return {
-    input,
-    output,
+    input: sum(freshInput, cachedInput, cacheWriteInput),
+    output: sum(visibleOutput, reasoningOutput),
+    freshInput: freshInput!,
     visibleOutput: visibleOutput!,
     reasoningOutput: reasoningOutput!,
     cachedInput: cachedInput!,

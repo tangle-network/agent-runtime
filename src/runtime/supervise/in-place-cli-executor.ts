@@ -167,10 +167,21 @@ export function createInPlaceCliExecutor(
           ...(nativeUsage
             ? {
                 tokens: {
-                  input: nativeUsage.input,
-                  output: nativeUsage.output,
-                  cacheRead: nativeUsage.cachedInput,
-                  cacheWrite: nativeUsage.cacheWriteInput,
+                  // Unknown totals retain observed class subtotals as lower bounds.
+                  input:
+                    nativeUsage.input ??
+                    (nativeUsage.freshInput ?? 0) +
+                      (nativeUsage.cachedInput ?? 0) +
+                      (nativeUsage.cacheWriteInput ?? 0),
+                  output:
+                    nativeUsage.output ??
+                    (nativeUsage.visibleOutput ?? 0) + (nativeUsage.reasoningOutput ?? 0),
+                  ...(nativeUsage.cachedInput === null
+                    ? {}
+                    : { cacheRead: nativeUsage.cachedInput }),
+                  ...(nativeUsage.cacheWriteInput === null
+                    ? {}
+                    : { cacheWrite: nativeUsage.cacheWriteInput }),
                 },
                 tokensKnown: nativeSession.tokensKnown,
               }
@@ -193,11 +204,21 @@ export function createInPlaceCliExecutor(
               ...(nativeSession.finishReason ? { finishReason: nativeSession.finishReason } : {}),
               ...(nativeUsage
                 ? {
-                    reasoningTokens: nativeUsage.reasoningOutput,
-                    promptCache: {
-                      readTokens: nativeUsage.cachedInput,
-                      writeTokens: nativeUsage.cacheWriteInput,
-                    },
+                    ...(nativeUsage.reasoningOutput === null
+                      ? {}
+                      : { reasoningTokens: nativeUsage.reasoningOutput }),
+                    ...(nativeUsage.cachedInput === null && nativeUsage.cacheWriteInput === null
+                      ? {}
+                      : {
+                          promptCache: {
+                            ...(nativeUsage.cachedInput === null
+                              ? {}
+                              : { readTokens: nativeUsage.cachedInput }),
+                            ...(nativeUsage.cacheWriteInput === null
+                              ? {}
+                              : { writeTokens: nativeUsage.cacheWriteInput }),
+                          },
+                        }),
                   }
                 : {}),
             }

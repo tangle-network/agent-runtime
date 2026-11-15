@@ -2003,43 +2003,50 @@ Native V2 session evidence, captured by the shared profile-to-process operation.
 
 **`Experimental`**
 
-Native session tokens with disjoint cache and output classes.
+Native session tokens with disjoint cache and output classes. A normalized zero
+cannot distinguish absent provider usage from measured zero and remains null.
 
 #### Properties
 
 ##### input
 
-> `readonly` **input**: `number`
+> `readonly` **input**: `number` \| `null`
 
 **`Experimental`**
 
 ##### output
 
-> `readonly` **output**: `number`
+> `readonly` **output**: `number` \| `null`
+
+**`Experimental`**
+
+##### freshInput
+
+> `readonly` **freshInput**: `number` \| `null`
 
 **`Experimental`**
 
 ##### visibleOutput
 
-> `readonly` **visibleOutput**: `number`
+> `readonly` **visibleOutput**: `number` \| `null`
 
 **`Experimental`**
 
 ##### reasoningOutput
 
-> `readonly` **reasoningOutput**: `number`
+> `readonly` **reasoningOutput**: `number` \| `null`
 
 **`Experimental`**
 
 ##### cachedInput
 
-> `readonly` **cachedInput**: `number`
+> `readonly` **cachedInput**: `number` \| `null`
 
 **`Experimental`**
 
 ##### cacheWriteInput
 
-> `readonly` **cacheWriteInput**: `number`
+> `readonly` **cacheWriteInput**: `number` \| `null`
 
 **`Experimental`**
 
@@ -3811,13 +3818,13 @@ Normalized response fields only when native-session output was explicitly reques
 
 > `optional` **promptCache?**: `object`
 
-###### readTokens
+###### readTokens?
 
-> **readTokens**: `number`
+> `optional` **readTokens?**: `number`
 
-###### writeTokens
+###### writeTokens?
 
-> **writeTokens**: `number`
+> `optional` **writeTokens?**: `number`
 
 ##### nativeSession?
 
