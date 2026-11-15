@@ -31,6 +31,7 @@ import {
   jitteredMs,
   RATE_LIMIT_SIGNALS,
   reportedResetAt,
+  SAME_CAUSE_LIMIT,
   unavailablePauseMs,
   unavailableResumeAt,
 } from './upstream-unavailable'
@@ -59,8 +60,6 @@ function barrenPauseMs(streak: number, maxBarren: number): number {
 
 /** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
 const SAME_PENDING_LIMIT = 2
-/** No unchanged no-progress failure earns a fourth drive, including root pauses and capacity. */
-const SAME_CAUSE_LIMIT = 3
 
 /** Deterministic failures without progress stop on their second identical cause. */
 const SAME_DETERMINISTIC_LIMIT = 2

@@ -15,6 +15,7 @@ import { bestDelivered, runFinalizer, runTree } from './finalizer'
 import { isRuntimeFlowBrain } from './flow-brain'
 import { createInbox, type Inbox } from './inbox'
 import { createRouterTranscript } from './router-transcript'
+import { isRunParked } from './run-parking'
 import type { Agent, Scope } from './types'
 
 /**
@@ -82,6 +83,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         },
       }).catch((error: unknown) => {
         turns.releaseLeases()
+        // The run's park hands this root off; it settles nothing.
+        if (isRunParked(error, scope)) throw error
         return analysisFailed(error)
       })
       // This manager takes no further turn: report anything still held as failed.
