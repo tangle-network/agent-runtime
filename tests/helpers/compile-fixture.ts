@@ -12,7 +12,11 @@ export async function compileFixture(entry: string) {
   const directory = await mkdtemp(join(resolve('node_modules'), '.runtime-fixture-'))
   await build({
     config: false,
-    entry: { fixture: resolve(entry) },
+    // The durable writer starts its thread from the entry beside the bundle.
+    entry: {
+      fixture: resolve(entry),
+      'durable-writer-thread': resolve('src/durable/durable-writer-thread.ts'),
+    },
     outDir: directory,
     format: ['esm'],
     platform: 'node',

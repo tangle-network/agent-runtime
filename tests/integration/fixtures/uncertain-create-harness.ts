@@ -34,6 +34,8 @@ export async function prepareExecutables(): Promise<{ bundle: string; executable
       'json-worker': resolve('tests/integration/fixtures/provider-json-worker.ts'),
       coordinator: resolve('tests/integration/fixtures/uncertain-create-coordinator.ts'),
       credential: resolve('tests/integration/fixtures/uncertain-create-credential.ts'),
+      // The durable writer starts its thread from the entry beside the bundle.
+      'durable-writer-thread': resolve('src/durable/durable-writer-thread.ts'),
     },
     outDir: bundle,
     format: ['esm'],

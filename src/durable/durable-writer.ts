@@ -19,6 +19,7 @@
  * @internal
  */
 
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { isMainThread, MessageChannel, receiveMessageOnPort, Worker } from 'node:worker_threads'
@@ -147,20 +148,30 @@ export function registerDurableErrorClass(name: string, errorClass: { prototype:
   errorClasses.set(name, errorClass)
 }
 
+/**
+ * The writer's entry beside this module: TypeScript in a source checkout, JavaScript in a built
+ * package. A tool that bundles Runtime again must emit `src/durable/durable-writer-thread.ts` as
+ * `durable-writer-thread.js` (or `.mjs`) beside the bundle; without it, writes fail with this cause.
+ */
 function threadUrl(): URL {
   const here = import.meta.url
-  return new URL(
-    here.endsWith('.ts') ? './durable-writer-thread.ts' : './durable-writer-thread.js',
-    here,
+  if (here.endsWith('.ts')) return new URL('./durable-writer-thread.ts', here)
+  for (const name of ['./durable-writer-thread.js', './durable-writer-thread.mjs']) {
+    const candidate = new URL(name, here)
+    if (existsSync(candidate)) return candidate
+  }
+  throw new Error(
+    `durable writer entry durable-writer-thread.js is not beside ${fileURLToPath(here)}; a bundle of Runtime must emit it there`,
   )
 }
 
 function start(): Writer {
   const url = threadUrl()
   // Source checkouts (tests) load the TypeScript entry through tsx; a built package ships JavaScript.
+  // Only what the entry needs: some of the parent's flags (--expose-gc) are refused in a worker.
   const execArgv = url.pathname.endsWith('.ts')
-    ? [...process.execArgv, '--import', createRequire(import.meta.url).resolve('tsx')]
-    : process.execArgv
+    ? ['--import', createRequire(import.meta.url).resolve('tsx')]
+    : []
   const syncReplies = new MessageChannel()
   const signal = new Int32Array(new SharedArrayBuffer(4))
   const worker = new Worker(fileURLToPath(url), {
