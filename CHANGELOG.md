@@ -1,3 +1,11 @@
+## 10.0.2
+
+On the Bridge transport, a turn whose usage frame carries only a producer estimate (`cost_known: false` with `estimated_cost`) now reports that estimate as `spent.usdEstimated`, inside `usd` and with `usdKnown: false`, as the provider path does; the producer's estimate replaces Runtime's catalog price for that turn instead of adding to it.
+
+The kernel entry exports `profileBridgeWireModel`, the `harness/provider/model` string Runtime sends to cli-bridge for a profile, so a caller that talks to cli-bridge itself sends the same model, including for a provider named like its harness (`opencode/opencode/glm-5.3-flash-free`).
+
+A spawn that names no budget reserves at most what the pool can admit: when its default slice does not fit, each short channel is lowered to the pool's free plus held amount instead of refusing. With one worker slot the default slice is the whole pool, so the second node of a `maps` item flow (for example a reader, then its verify) was refused once the first had spent from the item's `itemBudget`. A spawn that names its budget keeps the refusal.
+
 ## 10.0.1
 
 Provider executors select file output from `outputFile` alone; `ProviderExecutorOptions.outputFormat` stays `'json'` as in 10.0.0.
