@@ -18,8 +18,9 @@
  * The profile inputs this path materializes are removed before it returns, so the workspace the
  * caller reads holds the harness's own edits and nothing else.
  *
- * Token accounting: a harness CLI run reports no usage receipt, so this leaf is `budgetExempt` and
- * its `Spend` marks `tokensKnown: false` — the `{0,0}` is a floor, never a measured-free run.
+ * Ordinary CLI output is unmetered. Explicit native-session output captures the qualified native
+ * session's reported tokens and preserves incomplete accounting as unknown. The leaf remains
+ * `budgetExempt`: a per-completion output ceiling is not a live whole-session budget.
  *
  * @experimental
  */
@@ -35,6 +36,7 @@ import {
   runInPlaceHarness,
   worktreeProfileExecutionPlan,
 } from '../../mcp/worktree-harness'
+import { observedModelMatchesDeclared } from '../model-identity'
 import { unmeteredSpend } from '../util'
 import { linkAbort } from './abortable'
 import { errMessage } from './error-message'
@@ -63,6 +65,8 @@ export interface InPlaceCliExecutorOptions {
   taskPrompt?: string
   /** Optional wall-clock cap per harness subprocess (ms). Omit it for no timer. */
   harnessTimeoutMs?: number
+  /** Return a validated OpenCode 2.3.0 native response alongside the execution artifact. */
+  outputFormat?: 'native-session'
   /** Variables set (a string) or removed (`undefined`) for this executor's harness process only,
    *  e.g. the account a seat rotation selected (`CODEX_HOME`, `CLAUDE_CODE_OAUTH_TOKEN`).
    *  `process.env` is never mutated, and no value reaches a receipt or the result. */
@@ -98,6 +102,14 @@ export function createInPlaceCliExecutor(
   }
   const profile = executableAgentProfileSnapshot(options.profile, 'createInPlaceCliExecutor')
   const harness = localHarnessFromProfile(profile)
+  if (options.outputFormat !== undefined && options.outputFormat !== 'native-session') {
+    throw new ValidationError('createInPlaceCliExecutor: unsupported outputFormat')
+  }
+  if (options.outputFormat === 'native-session' && harness !== 'opencode') {
+    throw new ValidationError(
+      'createInPlaceCliExecutor: native-session output requires OpenCode 2.3.0',
+    )
+  }
   if (
     options.taskPrompt !== undefined &&
     (typeof options.taskPrompt !== 'string' || options.taskPrompt.length === 0)
@@ -112,7 +124,11 @@ export function createInPlaceCliExecutor(
   let artifact: ExecutorResult<InPlaceHarnessResult> | undefined
   let running: Promise<InPlaceHarnessResult> | undefined
 
-  const profilePlan = worktreeProfileExecutionPlan(profile, harness)
+  const profilePlan = worktreeProfileExecutionPlan(
+    profile,
+    harness,
+    options.outputFormat === 'native-session',
+  )
   const profileModel = concreteProfileModel(profile)
   if (!profileModel) {
     throw new ValidationError('createInPlaceCliExecutor: exact profile model unexpectedly missing')
@@ -130,6 +146,7 @@ export function createInPlaceCliExecutor(
           profile,
           harness,
           taskPrompt,
+          ...(options.outputFormat === 'native-session' ? { nativeSession: true } : {}),
           harnessTimeoutMs:
             options.harnessTimeoutMs !== undefined ? options.harnessTimeoutMs : undefined,
           signal: linkAbort(signal, controller.signal).signal,
@@ -138,24 +155,65 @@ export function createInPlaceCliExecutor(
         })
         const result = await running
 
+        const nativeSession = result.harness.nativeSession
+        const nativeUsage = nativeSession?.usage
+        const nativeRouteMismatch =
+          nativeSession?.nativeModel !== undefined &&
+          nativeSession.nativeModel !== null &&
+          !observedModelMatchesDeclared(nativeSession.nativeModel, profileModel)
         const spent: Spend = {
           ...unmeteredSpend(Date.now() - started),
           iterations: 1,
+          ...(nativeUsage
+            ? {
+                tokens: {
+                  input: nativeUsage.input,
+                  output: nativeUsage.output,
+                  cacheRead: nativeUsage.cachedInput,
+                  cacheWrite: nativeUsage.cacheWriteInput,
+                },
+                tokensKnown: nativeSession.tokensKnown,
+              }
+            : {}),
         }
         // A harness that exited nonzero, timed out or was cancelled did not do the work, even when
         // it wrote nothing wrong: report it in the executor envelope so the node settles down
         // instead of done, and no flow counts it a winner (a 1 s acct refusal settled `done`).
         const exit = result.harness
-        const failed = exit.exitCode !== 0 || exit.timedOut
+        const failed =
+          exit.exitCode !== 0 ||
+          exit.timedOut ||
+          nativeRouteMismatch ||
+          (options.outputFormat === 'native-session' && nativeSession?.status !== 'completed')
+        const output = nativeSession
+          ? {
+              ...result,
+              nativeSession,
+              content: nativeSession.finalText,
+              ...(nativeSession.finishReason ? { finishReason: nativeSession.finishReason } : {}),
+              ...(nativeUsage
+                ? {
+                    reasoningTokens: nativeUsage.reasoningOutput,
+                    promptCache: {
+                      readTokens: nativeUsage.cachedInput,
+                      writeTokens: nativeUsage.cacheWriteInput,
+                    },
+                  }
+                : {}),
+            }
+          : result
         artifact = {
-          outRef: contentAddress(result),
-          out: result,
+          outRef: contentAddress(output),
+          out: output,
           spent,
           ...(failed
             ? {
                 outcome: {
                   success: false,
-                  error: `${harness} exited ${exit.exitCode ?? exit.killedBySignal}${exit.timedOut ? ' after its timeout' : ''}: ${exit.stderr.trim().slice(-300)}`,
+                  error: nativeRouteMismatch
+                    ? `OpenCode native route ${nativeSession?.nativeModel} differs from profile ${profileModel}`
+                    : (nativeSession?.error ??
+                      `${harness} exited ${exit.exitCode ?? exit.killedBySignal}${exit.timedOut ? ' after its timeout' : ''}: ${exit.stderr.trim().slice(-300)}`),
                 },
               }
             : {}),
@@ -191,6 +249,7 @@ export function createInPlaceCliExecutor(
         profilePlan,
         harness,
         harnessTimeoutMs: options.harnessTimeoutMs ?? null,
+        outputFormat: options.outputFormat ?? null,
       },
     },
     {

@@ -932,7 +932,7 @@ False marks work that happened with an unreported count. `tokens` is then a floo
 
 ###### Inherited from
 
-[`Spend`](runtime.md#spend-1).[`tokensKnown`](runtime.md#tokensknown-3)
+[`Spend`](runtime.md#spend-1).[`tokensKnown`](runtime.md#tokensknown-4)
 
 ##### usdKnown?
 
@@ -1107,7 +1107,7 @@ False marks work that happened with an unreported count. `tokens` is then a floo
 
 ###### Inherited from
 
-[`Spend`](runtime.md#spend-1).[`tokensKnown`](runtime.md#tokensknown-3)
+[`Spend`](runtime.md#spend-1).[`tokensKnown`](runtime.md#tokensknown-4)
 
 ##### usdKnown?
 

@@ -16,6 +16,8 @@ import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import type { NativeHarnessSessionEvidence } from '../mcp/native-harness-session'
+import { worktreeProfileExecutionPlan } from '../mcp/worktree-harness'
 import { observedModelMatchesDeclared } from './model-identity'
 import { type CollectedAgentTurn, collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
@@ -36,7 +38,8 @@ import { errorMessage } from './util'
  * Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
  * behavioral field is checked against the exact AgentProfile before any transport runs.
  * Optional `headers` are forwarded on every Router request. Runtime's own content-type,
- * authorization, idempotency-key, and x-correlation-id keep precedence. */
+ * authorization, idempotency-key, and x-correlation-id keep precedence. The explicit native-session
+ * lane attributes OpenCode's selected route while leaving provider-served identity unknown. */
 export function profileChatClient(args: {
   profile: AgentProfile
   executor: ExecutorConfig
@@ -154,6 +157,11 @@ function bindProfileChat(args: {
   const headers = callerRequestHeaders(args.headers, args.context)
   const executor = captureReusableExecutorConfig(args.executor, args.context)
   assertProfileChatResponseEvidence(executor, args.context)
+  if (executor.backend === 'cli-in-place' && executor.outputFormat === 'native-session') {
+    if (profile.harness !== 'opencode')
+      throw new Error(`${args.context}: native-session requires OpenCode 2.3.0`)
+    worktreeProfileExecutionPlan(profile, 'opencode', true)
+  }
   return {
     profile,
     executor,
@@ -168,7 +176,8 @@ function bindProfileChat(args: {
   }
 }
 
-/** Refuse output contracts that cannot supply observed response identity before paid dispatch.
+/** Refuse opaque artifact output before paid dispatch. The explicit native-session lane supplies
+ * its own validated execution binding and keeps provider-served identity unknown.
  * Native process/worktree results remain valid execution artifacts; they are not chat envelopes.
  * In particular, Codex JSONL token usage does not report which model answered. */
 function assertProfileChatResponseEvidence(executor: ExecutorConfig, context: string): void {
@@ -181,6 +190,7 @@ function assertProfileChatResponseEvidence(executor: ExecutorConfig, context: st
       reason = 'worktree artifacts, including Bridge worktrees, have no response model envelope'
       break
     case 'cli-in-place':
+      if (executor.outputFormat === 'native-session') return
       reason = 'in-place harness artifacts have no response model envelope'
       break
     case 'bridge':
@@ -241,17 +251,32 @@ async function runBoundProfileChat(
     }
   }
   const observedModel = turn.usage.model
-  if (observedModel === undefined) {
+  const nativeSession = nativeSessionOf(turn)
+  const nativeResponse =
+    binding.executor.backend === 'cli-in-place' &&
+    binding.executor.outputFormat === 'native-session'
+  if (
+    nativeResponse &&
+    (nativeSession?.status !== 'completed' || nativeSession.nativeModel === null)
+  ) {
+    return {
+      succeeded: false,
+      error: `${binding.context}: native response omitted its validated session binding`,
+      turn,
+    }
+  }
+  const attributedModel = observedModel ?? (nativeResponse ? nativeSession?.nativeModel : undefined)
+  if (attributedModel === undefined || attributedModel === null) {
     return {
       succeeded: false,
       error: `${binding.context}: Runtime turn did not report the model actually used; refusing to label the response with the requested model`,
       turn,
     }
   }
-  if (!observedModelMatchesDeclared(observedModel, binding.model)) {
+  if (!observedModelMatchesDeclared(attributedModel, binding.model)) {
     return {
       succeeded: false,
-      error: `${binding.context}: Runtime reported model ${JSON.stringify(observedModel)} but AgentProfile requires ${JSON.stringify(binding.model)}`,
+      error: `${binding.context}: Runtime reported model ${JSON.stringify(attributedModel)} but AgentProfile requires ${JSON.stringify(binding.model)}`,
       turn,
     }
   }
@@ -267,7 +292,12 @@ async function runBoundProfileChat(
     name: call.name,
     argumentsJson: call.arguments,
   }))
-  const promptTokens = turn.usage.input
+  // Runtime's prompt total includes cache writes. Eval bills those as a separate class;
+  // its response prompt count is fresh input plus cache reads.
+  const writes = optimizerTokenCount(turn.usage.promptCache?.writeTokens, 'cache write tokens') ?? 0
+  const promptTokens = turn.usage.input - writes
+  if (promptTokens < 0)
+    return { succeeded: false, error: `${binding.context}: cache writes exceed prompt total`, turn }
   const completionTokens = turn.usage.output
   return {
     succeeded: true,
@@ -292,7 +322,8 @@ async function runBoundProfileChat(
         turn.usage.usdKnown === false || turn.usage.costUsd === undefined
           ? null
           : turn.usage.costUsd,
-      model: observedModel,
+      model: attributedModel,
+      servedModel: observedModel ?? null,
       durationMs: terminalDurationMs(turn.events, performance.now() - startedAt),
       // The OpenAI wire spells a tool stop `tool_calls`; the canonical vocabulary spells it
       // `tool_use`. Normalizing here keeps one stop cause across transports.
@@ -301,6 +332,7 @@ async function runBoundProfileChat(
       ...(toolCalls.length > 0 ? { toolCalls } : {}),
       contentEmpty: turn.finalText.trim().length === 0,
       raw: {
+        ...(nativeSession ? { nativeSession } : {}),
         ...(turn.usage.estimatedCostUsd !== undefined
           ? { estimatedCostUsd: turn.usage.estimatedCostUsd }
           : {}),
@@ -530,13 +562,9 @@ function optimizerReceipt(
   }
   const cachedTokens = optimizerTokenCount(usage.promptCache?.readTokens, 'cache read tokens')
   const cacheWriteTokens = optimizerTokenCount(usage.promptCache?.writeTokens, 'cache write tokens')
-  const inputTokens = usage.input - (cachedTokens ?? 0)
+  const inputTokens = usage.input - (cachedTokens ?? 0) - (cacheWriteTokens ?? 0)
   if (inputTokens < 0) {
-    throw new Error('profile optimizer cache reads exceed total input tokens')
-  }
-  // A cache write annotates fresh input. It is not a third, disjoint prompt-token class.
-  if ((cacheWriteTokens ?? 0) > inputTokens) {
-    throw new Error('profile optimizer cache writes exceed non-cached input tokens')
+    throw new Error('profile optimizer cache classes exceed total input tokens')
   }
   return {
     model,
@@ -580,6 +608,7 @@ function optimizerExecution(
   request: ExternalOptimizerModelCallRequest,
   run: ProfileChatRun,
 ): Record<string, unknown> {
+  const terminal = run.turn.events.at(-1)
   return {
     kind: 'agent-runtime-profile-model-call',
     profileDigest,
@@ -590,9 +619,27 @@ function optimizerExecution(
     succeeded: run.succeeded,
     status: run.turn.status,
     model: run.turn.usage.model ?? null,
+    requestedModel: request.request.model,
+    servedModel: run.turn.usage.model ?? null,
+    ...(nativeSessionOf(run.turn)
+      ? {
+          nativeSession: nativeSessionOf(run.turn),
+          materialization:
+            terminal && 'metadata' in terminal
+              ? (terminal.metadata?.materialization ?? null)
+              : null,
+        }
+      : {}),
     transportAttempts: run.turn.transportAttempts ?? null,
     eventTypes: run.turn.events.map((event) => event.type),
   }
+}
+
+function nativeSessionOf(turn: CollectedAgentTurn): NativeHarnessSessionEvidence | undefined {
+  const output = turn.output as { nativeSession?: NativeHarnessSessionEvidence } | undefined
+  return output?.nativeSession?.kind === 'opencode-native-session'
+    ? output.nativeSession
+    : undefined
 }
 
 function unknownOptimizerReceipt(model: string): CostReceiptInput {

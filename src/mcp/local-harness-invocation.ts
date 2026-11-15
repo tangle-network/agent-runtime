@@ -45,6 +45,8 @@ interface HarnessInvocationOptions {
   /** Run Codex with benchmark-safe process controls and JSONL usage output.
    *  Valid only for the Codex harness. */
   codexReproducible?: boolean
+  /** Capture the validated native OpenCode 2.3.0 session contract. */
+  nativeSession?: boolean
 }
 
 interface HarnessInvocationSpec {
@@ -76,6 +78,8 @@ interface HarnessInvocationSpec {
    * reports the loss.
    */
   profileMcp?: true
+  /** Native session output and private-server controls, where supported. */
+  nativeSessionArgs?: () => string[]
 }
 
 /**
@@ -132,6 +136,7 @@ export const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = 
     permissionBypassArgs: () => ['--auto'],
     // The materializer's generated `opencode.json` `mcp` block, which opencode auto-loads.
     profileMcp: true,
+    nativeSessionArgs: () => ['--standalone', '--format', 'json', '--title', 'Tangle Runtime'],
   },
   pi: {
     command: 'pi',
@@ -223,6 +228,12 @@ export function buildHarnessArgs(
 ): string[] {
   const invocation = HARNESS_INVOCATIONS[harness]
   const args = invocation.buildArgs(taskPrompt)
+  if (options.nativeSession) {
+    if (invocation.nativeSessionArgs === undefined) {
+      throw new Error(`harnessInvocation: ${harness} has no native-session response contract`)
+    }
+    args.push(...invocation.nativeSessionArgs())
+  }
   // Reproducible mode pins `approval_policy="never"` inside its own controlled config, which is
   // the same non-interactive guarantee with the sandbox left INTACT. Emitting a blanket bypass
   // flag on top would tear that sandbox down and break the exact-argv reproducibility contract,
@@ -283,12 +294,17 @@ export function harnessInvocation(
   const args = buildHarnessArgs(harness, composedPrompt, options)
 
   const model = harnessProfileModel(harness, profile)
-  if (model) {
+  if (model && !options.nativeSession) {
     args.push(...invocation.modelArgs(model))
   }
 
   const reasoningEffort = profile.model?.reasoningEffort
-  if (reasoningEffort !== undefined) {
+  if (options.nativeSession) {
+    // OpenCode 2.3.0 accepts the variant in its model selector, not a --variant flag.
+    const variant =
+      reasoningEffort === undefined ? null : nativeReasoningControl(harness, reasoningEffort, model)
+    if (model) args.push(...invocation.modelArgs(variant === null ? model : `${model}#${variant}`))
+  } else if (reasoningEffort !== undefined) {
     args.push(...harnessReasoningArgs(harness, reasoningEffort, model))
   }
 

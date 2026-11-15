@@ -108,7 +108,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('keeps cache writes inside non-cached input in an optimizer receipt', async () => {
+  it('keeps cache writes separate from fresh input in an optimizer receipt', async () => {
     const call = profileOptimizerModelCall({
       profile,
       context: 'profile optimizer cache write test',
@@ -139,7 +139,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(result.succeeded).toBe(true)
     if (!result.succeeded) throw new Error(result.error)
     expect(result.receipt).toMatchObject({
-      inputTokens: 9,
+      inputTokens: 0,
       cachedTokens: 3,
       cacheWriteTokens: 9,
     })

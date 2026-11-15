@@ -14,6 +14,7 @@ import {
   HARNESS_INVOCATIONS,
   type LocalHarness,
 } from './local-harness-invocation'
+import type { NativeHarnessSessionEvidence } from './native-harness-session'
 
 /** @experimental */
 export interface RunLocalHarnessOptions {
@@ -87,6 +88,8 @@ export interface LocalHarnessResult {
   usage?: CodexTokenUsage
   /** Present for reproducible Codex runs; generated and checked before model execution. */
   evidence?: CodexExecutionEvidence
+  /** Native V2 session evidence, captured by the shared profile-to-process operation. */
+  nativeSession?: NativeHarnessSessionEvidence
 }
 
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024

@@ -60,6 +60,8 @@ export const cliInPlaceExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     profile: effectiveProfile,
     ...(seam.taskPrompt !== undefined ? { taskPrompt: seam.taskPrompt } : {}),
     ...(seam.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: seam.harnessTimeoutMs } : {}),
+    ...(seam.outputFormat ? { outputFormat: seam.outputFormat } : {}),
+    ...(seam.env ? { env: seam.env } : {}),
     ...(seam.runHarness ? { runHarness: seam.runHarness } : {}),
     ...(ctx.node?.attemptId !== undefined ? { executionAttemptId: ctx.node.attemptId } : {}),
   }) as Executor<unknown>

@@ -171,6 +171,12 @@ export const worktreeCliProfileMaterialization = defineProfileMaterializationCon
   ],
 })
 
+/** The version-qualified native path carries the primary description and a visible completion cap. */
+export const nativeSessionCliProfileMaterialization = defineProfileMaterializationContract({
+  name: 'native-session-cli-execution',
+  axes: [...worktreeCliProfileMaterialization.axes, 'description', 'modelMaxVisibleOutputTokens'],
+})
+
 /** Materialization contract for a raw process path that carries only control/identity fields. */
 export const controlProfileMaterialization = defineProfileMaterializationContract({
   name: 'control-only-execution',

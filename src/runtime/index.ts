@@ -72,6 +72,10 @@ export type { CodexExecutionEvidence } from '../mcp/codex-execution-evidence'
 export type { CodexExecutionPolicy } from '../mcp/codex-execution-policy'
 export type { CodexTokenUsage } from '../mcp/codex-token-usage'
 export type { LocalHarnessResult } from '../mcp/local-harness-process'
+export type {
+  NativeHarnessSessionEvidence,
+  NativeSessionUsage,
+} from '../mcp/native-harness-session'
 // The typed coordination-bus event (up: settled/question/finding; authorized instruction receipt;
 // down: steer/answer delivery outcome) — surfaced here so a host folding the bus onto its own timeline can
 // type its `onEvent` subscriber without reaching into the `/mcp` subpath. `MakeWorkerAgent` rides

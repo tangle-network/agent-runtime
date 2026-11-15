@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -969,6 +969,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 1071 exports.
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
 | `NativeContextContinuationHandle` | interface | Admission once the next exact reference is durable, and the terminal result. |
+| `NativeHarnessSessionEvidence` | interface | A bound OpenCode 2.3.0 response with raw native records and explicit evidence limits. |
+| `NativeSessionUsage` | interface | Native session tokens with disjoint cache and output classes. |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
 | `NoWinnerError` | interface | Serializable act() rejection; non-Errors retain name NonError and their message. |
 | `ObservedSessionFacts` | interface | Structural projection of traces' SessionFacts. The trace reader owns all |

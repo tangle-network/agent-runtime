@@ -13,6 +13,7 @@ import {
   controlProfileMaterialization,
   defineProfileMaterializationContract,
   fullProfileMaterialization,
+  nativeSessionCliProfileMaterialization,
   type ProfileMaterializationContract,
   profileMaterializationAxes,
   promptModelProfileMaterialization,
@@ -45,7 +46,9 @@ export function backendProfileMaterialization(
     case 'cli-worktree':
       return backend.bridge ? fullProfileMaterialization : worktreeCliProfileMaterialization
     case 'cli-in-place':
-      return worktreeCliProfileMaterialization
+      return backend.outputFormat === 'native-session'
+        ? nativeSessionCliProfileMaterialization
+        : worktreeCliProfileMaterialization
     case 'router':
       return promptModelProfileMaterialization
     case 'router-tools':

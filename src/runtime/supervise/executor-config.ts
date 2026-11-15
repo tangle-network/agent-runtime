@@ -110,7 +110,15 @@ export function snapshotExecutorConfig(
     case 'cli-in-place': {
       assertExactConfigKeys(
         config as unknown as Readonly<Record<string, unknown>>,
-        new Set(['backend', 'harnessTimeoutMs', 'runHarness', 'taskPrompt', 'workspacePath']),
+        new Set([
+          'backend',
+          'env',
+          'harnessTimeoutMs',
+          'outputFormat',
+          'runHarness',
+          'taskPrompt',
+          'workspacePath',
+        ]),
         'createExecutor cli-in-place config',
       )
       const { runHarness, ...decisionData } = config

@@ -40,6 +40,7 @@ import {
 import { nativeSystemPrompt } from '../agent/native-system-prompt'
 import {
   assertProfileMaterialization,
+  nativeSessionCliProfileMaterialization,
   profileMaterializationAxes,
   worktreeCliProfileMaterialization,
 } from '../agent/profile-materialization'
@@ -53,6 +54,13 @@ import {
   type LocalHarness,
 } from './local-harness-invocation'
 import { type LocalHarnessResult, runLocalHarness } from './local-harness-process'
+import {
+  assertNativeSessionVersion,
+  captureNativeSession,
+  type NativeHarnessSessionEvidence,
+  nativeSessionModelPlan,
+  nativeSessionSkillBindings,
+} from './native-harness-session'
 import {
   captureWorktreeDiff,
   createWorktree,
@@ -124,6 +132,8 @@ export interface WorktreeHarnessResult {
     stderr: string
     /** Exact Codex JSONL usage when reproducible mode is enabled. */
     usage?: CodexTokenUsage
+    /** Validated OpenCode 2.3.0 response and opaque native records, when requested. */
+    nativeSession?: NativeHarnessSessionEvidence
     /** Installed CLI version captured immediately before execution. */
     cliVersion?: string
     /** SHA-256 of the native Codex executable staged read-only in the candidate worktree. */
@@ -356,6 +366,8 @@ interface RunInPlaceHarnessOptions {
   taskPrompt: string
   /** Wall-clock cap per harness subprocess (ms). */
   harnessTimeoutMs?: number
+  /** Capture OpenCode 2.3.0's native-session response contract. */
+  nativeSession?: boolean
   /** Abort signal — linked into the harness subprocess. */
   signal?: AbortSignal
   /** Resource fetch options. GitHub-backed profile resources resolve before the harness launches. */
@@ -376,6 +388,12 @@ export interface InPlaceHarnessResult {
   profileMaterialization: WorktreeProfileMaterializationReceipt
   /** The harness subprocess outcome. */
   harness: WorktreeHarnessResult['harness']
+  /** Normalized response fields only when native-session output was explicitly requested. */
+  content?: string
+  finishReason?: string
+  reasoningTokens?: number
+  promptCache?: { readTokens: number; writeTokens: number }
+  nativeSession?: NativeHarnessSessionEvidence
 }
 
 /**
@@ -403,14 +421,18 @@ export async function runInPlaceHarness(
 
   // Admission is a pure decision, taken before the workspace is touched and before any external
   // process starts, so a refused profile leaves the caller's directory exactly as it was.
-  assertSupportedWorktreeProfile(opts.profile, opts.harness)
+  assertSupportedWorktreeProfile(opts.profile, opts.harness, opts.nativeSession)
   assertSafeProfileResourcePaths(opts.profile)
   const profile = await resolveAgentProfileResources(
     opts.profile,
     resourceResolutionOptions(opts.resourceResolution, opts.signal),
   )
   opts.signal?.throwIfAborted()
-  const { plan, resourceInstructions } = prepareWorktreeProfile(profile, opts.harness)
+  const { plan, resourceInstructions } = prepareWorktreeProfile(
+    profile,
+    opts.harness,
+    opts.nativeSession,
+  )
 
   const workspace = await stat(opts.workspacePath).catch(() => undefined)
   if (!workspace?.isDirectory()) {
@@ -436,6 +458,7 @@ export async function runInPlaceHarness(
       // commits and pushes its tree needs both (Codex's sandbox keeps `.git` read-only).
       dangerouslySkipPermissions: true,
       fullAccess: true,
+      ...(opts.nativeSession ? { nativeSession: true } : {}),
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: opts.harnessTimeoutMs } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
@@ -456,8 +479,9 @@ export async function runInPlaceHarness(
 export function worktreeProfileExecutionPlan(
   profile: AgentProfile,
   harness: LocalHarness,
+  nativeSession = false,
 ): WorktreeProfileExecutionPlan {
-  const { plan, resourceInstructions } = prepareWorktreeProfile(profile, harness)
+  const { plan, resourceInstructions } = prepareWorktreeProfile(profile, harness, nativeSession)
   return Object.freeze({
     workspacePlanDigest: hashWorkspacePlan(plan),
     harness: plan.harness,
@@ -508,6 +532,7 @@ async function spawnProfiledHarness(args: {
   harnessTimeoutMs?: number
   codexReproducible?: boolean
   codexReadDeniedPaths?: ReadonlyArray<string>
+  nativeSession?: boolean
   signal?: AbortSignal
   runHarness: typeof runLocalHarness
   context: string
@@ -520,7 +545,35 @@ async function spawnProfiledHarness(args: {
     dangerouslySkipPermissions: args.dangerouslySkipPermissions,
     ...(args.fullAccess ? { fullAccess: true } : {}),
     ...(args.codexReproducible ? { codexReproducible: true } : {}),
+    ...(args.nativeSession ? { nativeSession: true } : {}),
   })
+  const env = { ...callerEnv(args.env), ...resolvePublicPlanEnv(args.applied.env) }
+  const nativeFlags = args.applied.flags.map(publicPlanString)
+  const nativeAgentIndex = nativeFlags.indexOf('--agent')
+  const nativeModelIndex = invocation.args.findIndex((arg) => arg === '-m' || arg === '--model')
+  const nativeVariant =
+    nativeModelIndex < 0 ? undefined : invocation.args[nativeModelIndex + 1]?.split('#')[1]
+  const nativeContext = {
+    cwd: args.workspacePath,
+    env,
+    runHarness: args.runHarness,
+    ...(nativeAgentIndex < 0 ? {} : { expectedAgent: nativeFlags[nativeAgentIndex + 1] }),
+    ...(nativeVariant === undefined ? {} : { expectedVariant: nativeVariant }),
+    ...(args.profile.model?.maxVisibleOutputTokens === undefined
+      ? {}
+      : { maxVisibleOutputTokens: args.profile.model.maxVisibleOutputTokens }),
+    ...(args.nativeSession
+      ? {
+          skills: await nativeSessionSkillBindings(
+            args.workspacePath,
+            args.profile,
+            args.applied.written,
+          ),
+        }
+      : {}),
+    ...(args.signal ? { signal: args.signal } : {}),
+  }
+  if (args.nativeSession) await assertNativeSessionVersion(nativeContext)
   const harnessResult: LocalHarnessResult = await args.runHarness({
     harness: args.harness,
     cwd: args.workspacePath,
@@ -529,12 +582,14 @@ async function spawnProfiledHarness(args: {
       ...invocation,
       args: [...invocation.args, ...args.applied.flags.map(publicPlanString)],
     },
-    env: { ...callerEnv(args.env), ...resolvePublicPlanEnv(args.applied.env) },
+    env,
     ...(args.codexReproducible ? { codexReproducible: true } : {}),
     ...(args.codexReadDeniedPaths ? { codexReadDeniedPaths: args.codexReadDeniedPaths } : {}),
     ...(args.harnessTimeoutMs !== undefined ? { timeoutMs: args.harnessTimeoutMs } : {}),
     ...(args.signal ? { signal: args.signal } : {}),
   })
+  if (args.nativeSession)
+    harnessResult.nativeSession = await captureNativeSession(nativeContext, harnessResult)
   if (harnessResult.aborted || args.signal?.aborted) {
     throw new Error(`${args.context}: harness was cancelled by the caller`, {
       cause: args.signal?.reason,
@@ -558,6 +613,7 @@ function harnessRunRecord(
     stdout: harnessResult.stdout,
     stderr: harnessResult.stderr,
     ...(harnessResult.usage ? { usage: harnessResult.usage } : {}),
+    ...(harnessResult.nativeSession ? { nativeSession: harnessResult.nativeSession } : {}),
     ...(harnessResult.evidence
       ? {
           cliVersion: harnessResult.evidence.cliVersion,
@@ -609,13 +665,14 @@ async function removeAppliedPlanFiles(
 function prepareWorktreeProfile(
   profile: AgentProfile,
   harness: LocalHarness,
+  nativeSession = false,
 ): {
   readonly plan: WorkspacePlan
   readonly resourceInstructions: string | undefined
 } {
   const resourceInstructions = resolveResourceInstructions(profile)
   const workspaceProfile = materializationOnlyProfile(profile)
-  assertSupportedWorktreeProfile(profile, harness)
+  assertSupportedWorktreeProfile(profile, harness, nativeSession)
   assertSafeProfileResourcePaths(profile)
   const structural = materializeProfile(
     harness === 'opencode'
@@ -638,11 +695,12 @@ function prepareWorktreeProfile(
       throw new Error(`profile conflicts with reserved ${file.relPath}`)
     }
   }
-  const plan = {
+  const combined = {
     ...structural,
     files: [...structural.files, ...native.files],
     flags: [...structural.flags, ...native.flags],
   }
+  const plan = nativeSession ? nativeSessionModelPlan(combined, profile) : combined
   assertSafeMaterializedPaths(plan)
   return { plan, resourceInstructions }
 }
@@ -720,9 +778,17 @@ function materializationOnlyProfile(profile: AgentProfile): AgentProfile {
   }
 }
 
-function assertSupportedWorktreeProfile(profile: AgentProfile, harness: LocalHarness): void {
+function assertSupportedWorktreeProfile(
+  profile: AgentProfile,
+  harness: LocalHarness,
+  nativeSession = false,
+): void {
+  if (nativeSession && harness !== 'opencode')
+    throw new Error('native-session requires OpenCode 2.3.0')
   assertProfileMaterialization({
-    contract: worktreeCliProfileMaterialization,
+    contract: nativeSession
+      ? nativeSessionCliProfileMaterialization
+      : worktreeCliProfileMaterialization,
     changedAxes: profileMaterializationAxes(profile),
     context: 'runWorktreeHarness',
   })

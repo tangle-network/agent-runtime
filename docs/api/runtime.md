@@ -1274,7 +1274,7 @@ Typed terminal diagnosis, beside status and never a replacement for lifecycle re
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-18)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-19)
 
 ##### runtime
 
@@ -1988,6 +1988,240 @@ Present for a reproducible Codex run; parsed from the real terminal JSONL event.
 **`Experimental`**
 
 Present for reproducible Codex runs; generated and checked before model execution.
+
+##### nativeSession?
+
+> `optional` **nativeSession?**: [`NativeHarnessSessionEvidence`](#nativeharnesssessionevidence)
+
+**`Experimental`**
+
+Native V2 session evidence, captured by the shared profile-to-process operation.
+
+***
+
+### NativeSessionUsage
+
+**`Experimental`**
+
+Native session tokens with disjoint cache and output classes.
+
+#### Properties
+
+##### input
+
+> `readonly` **input**: `number`
+
+**`Experimental`**
+
+##### output
+
+> `readonly` **output**: `number`
+
+**`Experimental`**
+
+##### visibleOutput
+
+> `readonly` **visibleOutput**: `number`
+
+**`Experimental`**
+
+##### reasoningOutput
+
+> `readonly` **reasoningOutput**: `number`
+
+**`Experimental`**
+
+##### cachedInput
+
+> `readonly` **cachedInput**: `number`
+
+**`Experimental`**
+
+##### cacheWriteInput
+
+> `readonly` **cacheWriteInput**: `number`
+
+**`Experimental`**
+
+***
+
+### NativeHarnessSessionEvidence
+
+**`Experimental`**
+
+A bound OpenCode 2.3.0 response with raw native records and explicit evidence limits.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"opencode-native-session"`
+
+**`Experimental`**
+
+##### cliVersion
+
+> `readonly` **cliVersion**: `"2.3.0"`
+
+**`Experimental`**
+
+##### sessionId
+
+> `readonly` **sessionId**: `string` \| `null`
+
+**`Experimental`**
+
+##### workspacePath
+
+> `readonly` **workspacePath**: `string`
+
+**`Experimental`**
+
+##### nativeModel
+
+> `readonly` **nativeModel**: `string` \| `null`
+
+**`Experimental`**
+
+##### nativeAgent
+
+> `readonly` **nativeAgent**: `string` \| `null`
+
+**`Experimental`**
+
+##### nativeVariant
+
+> `readonly` **nativeVariant**: `string` \| `null`
+
+**`Experimental`**
+
+##### modelSource
+
+> `readonly` **modelSource**: `"turn-context"`
+
+**`Experimental`**
+
+##### servedModel
+
+> `readonly` **servedModel**: `null`
+
+**`Experimental`**
+
+##### status
+
+> `readonly` **status**: `"completed"` \| `"failed"` \| `"unavailable"`
+
+**`Experimental`**
+
+##### finishReason
+
+> `readonly` **finishReason**: `string` \| `null`
+
+**`Experimental`**
+
+##### finalText
+
+> `readonly` **finalText**: `string`
+
+**`Experimental`**
+
+##### usage
+
+> `readonly` **usage**: [`NativeSessionUsage`](#nativesessionusage) \| `null`
+
+**`Experimental`**
+
+##### usageScope
+
+> `readonly` **usageScope**: `"exported-native-session"`
+
+**`Experimental`**
+
+##### tokensKnown
+
+> `readonly` **tokensKnown**: `boolean`
+
+**`Experimental`**
+
+##### billedCostUsd
+
+> `readonly` **billedCostUsd**: `null`
+
+**`Experimental`**
+
+##### reportedCostUsd
+
+> `readonly` **reportedCostUsd**: `number` \| `null`
+
+**`Experimental`**
+
+Native amount has no provider-versus-catalog attribution; never a bill.
+
+##### visibleOutputLimit?
+
+> `readonly` `optional` **visibleOutputLimit?**: `object`
+
+**`Experimental`**
+
+###### tokens
+
+> `readonly` **tokens**: `number`
+
+###### wireField
+
+> `readonly` **wireField**: `"max_tokens"`
+
+###### scope
+
+> `readonly` **scope**: `"per-completion"`
+
+###### observed
+
+> `readonly` **observed**: `"unknown"` \| `"within-limit"` \| `"exceeded"`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+**`Experimental`**
+
+##### nativeError?
+
+> `readonly` `optional` **nativeError?**: `unknown`
+
+**`Experimental`**
+
+##### skillInvocations
+
+> `readonly` **skillInvocations**: readonly `object`[]
+
+**`Experimental`**
+
+##### toolNames
+
+> `readonly` **toolNames**: readonly `string`[]
+
+**`Experimental`**
+
+##### events
+
+> `readonly` **events**: `object`
+
+**`Experimental`**
+
+###### sha256
+
+> `readonly` **sha256**: `string`
+
+###### text
+
+> `readonly` **text**: `string`
+
+##### sessionExport
+
+> `readonly` **sessionExport**: \{ `sha256`: `string`; `text`: `string`; \} \| `null`
+
+**`Experimental`**
 
 ***
 
@@ -3352,6 +3586,12 @@ The harness subprocess outcome.
 
 Exact Codex JSONL usage when reproducible mode is enabled.
 
+###### nativeSession?
+
+> `optional` **nativeSession?**: [`NativeHarnessSessionEvidence`](#nativeharnesssessionevidence)
+
+Validated OpenCode 2.3.0 response and opaque native records, when requested.
+
 ###### cliVersion?
 
 > `optional` **cliVersion?**: `string`
@@ -3487,6 +3727,12 @@ The harness subprocess outcome.
 
 Exact Codex JSONL usage when reproducible mode is enabled.
 
+###### nativeSession?
+
+> `optional` **nativeSession?**: [`NativeHarnessSessionEvidence`](#nativeharnesssessionevidence)
+
+Validated OpenCode 2.3.0 response and opaque native records, when requested.
+
 ###### cliVersion?
 
 > `optional` **cliVersion?**: `string`
@@ -3546,6 +3792,36 @@ Number of normalized caller-supplied host read-denial paths.
 > `optional` **executionPolicy?**: [`CodexExecutionPolicy`](#codexexecutionpolicy)
 
 Explicit isolation claims checked before model execution.
+
+##### content?
+
+> `optional` **content?**: `string`
+
+Normalized response fields only when native-session output was explicitly requested.
+
+##### finishReason?
+
+> `optional` **finishReason?**: `string`
+
+##### reasoningTokens?
+
+> `optional` **reasoningTokens?**: `number`
+
+##### promptCache?
+
+> `optional` **promptCache?**: `object`
+
+###### readTokens
+
+> **readTokens**: `number`
+
+###### writeTokens
+
+> **writeTokens**: `number`
+
+##### nativeSession?
+
+> `optional` **nativeSession?**: [`NativeHarnessSessionEvidence`](#nativeharnesssessionevidence)
 
 ***
 
@@ -24069,6 +24345,14 @@ Default instruction for direct `execute(undefined, signal)` calls. An execution-
 
 Optional wall-clock cap per harness subprocess (ms). Omit it for no timer.
 
+##### outputFormat?
+
+> `optional` **outputFormat?**: `"native-session"`
+
+**`Experimental`**
+
+Return a validated OpenCode 2.3.0 native response alongside the execution artifact.
+
 ##### env?
 
 > `optional` **env?**: `Readonly`\<`Record`\<`string`, `string` \| `undefined`\>\>
@@ -26837,6 +27121,19 @@ Absolute path to the EXISTING directory the harness edits. Runtime never creates
 ##### harnessTimeoutMs?
 
 > `optional` **harnessTimeoutMs?**: `number`
+
+##### outputFormat?
+
+> `optional` **outputFormat?**: `"native-session"`
+
+OpenCode 2.3.0 native response with selected-route evidence; never claims provider-served identity.
+A visible per-completion ceiling is qualified for opencode/glm-5.3-flash-free only.
+
+##### env?
+
+> `optional` **env?**: `Readonly`\<`Record`\<`string`, `string` \| `undefined`\>\>
+
+Per-process environment overrides. Values are never copied into receipts.
 
 ##### runHarness?
 
@@ -42736,7 +43033,8 @@ Profile-exact adapter for packages that consume agent-eval's ChatClient contract
 Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
 behavioral field is checked against the exact AgentProfile before any transport runs.
 Optional `headers` are forwarded on every Router request. Runtime's own content-type,
-authorization, idempotency-key, and x-correlation-id keep precedence.
+authorization, idempotency-key, and x-correlation-id keep precedence. The explicit native-session
+lane attributes OpenCode's selected route while leaving provider-served identity unknown.
 
 #### Parameters
 

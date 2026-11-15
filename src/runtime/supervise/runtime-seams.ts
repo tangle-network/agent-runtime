@@ -169,6 +169,11 @@ export interface CliInPlaceSeam {
   workspacePath: string
   taskPrompt?: string
   harnessTimeoutMs?: number
+  /** OpenCode 2.3.0 native response with selected-route evidence; never claims provider-served identity.
+   * A visible per-completion ceiling is qualified for opencode/glm-5.3-flash-free only. */
+  outputFormat?: 'native-session'
+  /** Per-process environment overrides. Values are never copied into receipts. */
+  env?: Readonly<Record<string, string | undefined>>
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
   runHarness?: typeof runLocalHarness
 }
