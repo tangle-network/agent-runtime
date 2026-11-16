@@ -278,8 +278,8 @@ describe('hosted graph seat parking over a SQL run context', () => {
   it('parks a far seat wait only once the root has no request of its own open', async () => {
     const dir = await directory()
     const parked = await host(dir, 'root-act', 'park')
-    expect(parked.kind).toBe('parked')
-    expect(parked.parking.reason).toBe('seat-wait')
+    // A settled run prints its result and nodes, so a miss names where the run went instead.
+    expect(parked).toMatchObject({ kind: 'parked', parking: { reason: 'seat-wait' } })
     const rows = parkedRows(parked.events) as Array<{ kind: string; at: string }>
     expect(rows).toHaveLength(1)
     const requests = (await readFile(join(dir, 'root-requests.jsonl'), 'utf8'))
@@ -294,17 +294,17 @@ describe('hosted graph seat parking over a SQL run context', () => {
   it('keeps the coordinator while its flow root answers a gate beside a far seat wait', async () => {
     const dir = await directory()
     const outcome = await host(dir, 'gate-held', 'park')
+    // The gate's reject answer stops the flow; a miss prints the nodes it ended on.
+    expect(outcome).toMatchObject({ kind: 'settled', reason: 'stopped' })
     const requests = (await readFile(join(dir, 'root-requests.jsonl'), 'utf8'))
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as { reachedAt: number; answeredAt: number })
     expect(requests).toHaveLength(1)
-    // No handoff while the gate's request was open; its reject answer then stops the flow.
+    // No handoff while the gate's request was open.
     for (const row of parkedRows(outcome.events) as Array<{ at: string }>) {
       expect(Date.parse(row.at)).toBeGreaterThanOrEqual(requests[0]!.answeredAt)
     }
-    expect(outcome.kind).toBe('settled')
-    expect(outcome.reason).toBe('stopped')
   })
 
   it('keeps a run whose seat resets within the park floor in its process', async () => {

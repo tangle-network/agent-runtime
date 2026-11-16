@@ -127,7 +127,9 @@ const graph =
             { id: 'work', profile },
             {
               id: 'build',
+              // Seatless, on the same retained provider: it settles at once and routes to the gate.
               profile: testAgentProfile('build', {
+                harness: 'opencode',
                 model: { provider: 'anthropic', default: 'claude-opus-4-1' },
               }),
             },
@@ -161,8 +163,8 @@ try {
       budget: { maxIterations: 20, maxTokens: 10_000, deadlineMs: 3_600_000 },
     },
     {
-      // A rooted graph drives its harness nodes only on an explicit driver backend.
-      ...(mode === 'root-act' ? { brain: rootBrain, driverBackend: backend } : {}),
+      // The caller brain drives the cli-base root; `backend` below places the seated node.
+      ...(mode === 'root-act' ? { brain: rootBrain } : {}),
       // The gate's answer is the flow root's own outside request, made while it settles `build`.
       ...(mode === 'gate-held'
         ? {
