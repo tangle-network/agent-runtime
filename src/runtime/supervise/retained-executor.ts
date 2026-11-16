@@ -41,6 +41,8 @@ export interface RetainedExecutorContext {
   readonly priorSpent?: Spend
   /** Keep the retained provider environment alive across deliberate invocations. */
   readonly preserveEnvironment?: boolean
+  /** The run's absolute deadline: a create refused for placement waits for room until it. */
+  readonly deadlineMs?: number
   /** Asked once when a turn settles with a result: `true` keeps the environment for a keyed
    *  continuation (`Executor.heldForContinuation`), as the scope answers for a keyed leaf whose
    *  turn ended over its budget or past its deadline. */

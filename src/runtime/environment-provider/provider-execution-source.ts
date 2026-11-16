@@ -176,7 +176,7 @@ async function retainedExecution(
   }
   // A reconnect after a planned host restart reattaches through what this attempt admitted.
   const admissions = [...retention.admissions]
-  const restart = hostRestartReconnect(signal)
+  const restart = hostRestartReconnect(signal, retention.deadlineMs)
   let reattach = false
   const onAdmission = async (admission: RetentionAdmission) => {
     if (admission.phase === 'dispatched') proof.executionAdmitted = true
@@ -219,9 +219,13 @@ async function retainedExecution(
       const session = exactSession(environment, handle.controlRef).session
       const events = new RetainedObservation(handle, signal, retention).observe(session)
       return { environment, events, retained: true }
-    } catch (error) {
+    } catch (thrown) {
       // The same execution id is resent or reattached, never a second run.
-      if ((reattach = await restart.retry(error))) continue
+      if ((reattach = await restart.retry(thrown))) continue
+      // A wait for room that the signal cut before any environment ends on the refusal it waited
+      // for, not on the abort.
+      const placing = admissions.every((admission) => admission.phase === 'intent')
+      const error = signal.aborted && placing ? (restart.refused ?? thrown) : thrown
       // A durable dispatch or exact reattachment proves execution admission before observation starts.
       if (error instanceof RetainedMaterializationTimeoutError) throw error
       if (proof.admitted && !retainedSessionReplaced(error))

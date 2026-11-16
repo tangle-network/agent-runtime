@@ -3,6 +3,21 @@ import { causeChain } from './error-message'
 import { turnFailureOf, turnFailurePolicy } from './executor-outcome'
 /** Shared capacity recognition and pause policy for drivers and retained leaves. */
 
+/** Sandbox: no host can place a box now (the SDK's `sandboxFailureKind` reads them as capacity).
+ *  Acquisition and the driver both wait for room on these, within the run's deadline. */
+export const PLACEMENT_SIGNALS: ReadonlySet<string> = new Set([
+  'capacity_exhausted',
+  'host_pressure',
+  'placement_warming',
+  'provisioning_paused',
+])
+
+/** The cause in `error`'s chain whose own code is a placement refusal, if any. */
+export const placementRefusal = (error: unknown): object | undefined =>
+  causeChain(error).find((cause) =>
+    PLACEMENT_SIGNALS.has(String(Reflect.get(cause, 'code')).toLowerCase()),
+  )
+
 /** Legacy capacity codes for producers without the canonical failure contract. */
 export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'provider_quota_exhausted', // router: the upstream account has no remaining quota (429)
@@ -17,10 +32,7 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   'rate_limit_exceeded', // OpenAI-shaped 429
   'rate_limit_error', // Anthropic-shaped 429
   'overloaded_error', // Anthropic-shaped 529
-  // Sandbox: no host can place a box now (the SDK's `sandboxFailureKind` reads them as capacity).
-  'capacity_exhausted',
-  'host_pressure',
-  'provisioning_paused',
+  ...PLACEMENT_SIGNALS,
 ])
 
 /** Rate limits and overload: a wait clears them, so they never end a run as a repeated failure. */
@@ -80,7 +92,8 @@ export function unavailableSignalOfFailure(failure: {
   return unavailableSignalInText(failure.error)
 }
 
-/** No unchanged no-progress failure earns a fourth drive, including root pauses and capacity. */
+/** No unchanged no-progress failure earns a fourth drive, including root pauses and capacity,
+ *  except a rate limit or placement refusal on a run with a deadline. */
 export const SAME_CAUSE_LIMIT = 3
 
 const DEFAULT_UNAVAILABLE_PAUSE_MS = 15_000

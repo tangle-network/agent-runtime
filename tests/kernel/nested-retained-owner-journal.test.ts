@@ -80,18 +80,8 @@ const shapeRefusal = (reason: string) =>
       code: 'NO_HOST_FITS_SHAPE',
     }),
   )
-// What Sandbox answered magnetar-rust-sandbox-20261101b's :s1:s3 and :s2:s1 while eu1 was braked.
-const NO_HOSTS = parseErrorResponse(
-  503,
-  JSON.stringify({
-    error:
-      'Provision failed — (container) — Provision failed during container phase: No available hosts with capacity: production-host-agent-02: cpu brake: pressure 57.6% at the 40% pressure brake',
-    code: 'CAPACITY_EXHAUSTED',
-  }),
-)
 // The signal each waiting mode's two paused attempts carry, before the attempt that completes.
 const WAITS: Partial<Record<string, string>> = {
-  'capacity-503': 'capacity_exhausted',
   // :s2:s2 and :s1:s1 of the same run settled down on this preflight's `timed out`.
   'preflight-waits': 'coordination-unreachable',
 }
@@ -125,7 +115,6 @@ describe('nested retained owner journal isolation', () => {
     'file-conflict-409',
     'file-duplicate',
     'shape-refused',
-    'capacity-503',
     'preflight-waits',
     'preflight-refused',
     'replayed',
@@ -266,7 +255,6 @@ describe('nested retained owner journal isolation', () => {
               { code: `observation-${creates}` },
             )
           }
-          if (mode === 'capacity-503' && creates < 3) throw NO_HOSTS
           if (mode === 'shape-refused')
             throw shapeRefusal(
               'No cpx62 host can hold 32000m / 16384 MiB, and none would be bought: 32000m > 16000m placeable on cpx62',
@@ -592,8 +580,8 @@ describe('nested retained owner journal isolation', () => {
         ])
       expect(tokens(nested)).toBe(5 * passed)
       expect(tokens(parent)).toBe(5 * passed)
+      expect(creates).toBe(1)
       // The manager waited it out: two paused attempts, then the one that completed.
-      expect(creates).toBe(mode.startsWith('capacity-') ? 3 : 1)
       const signal = WAITS[mode]
       if (signal !== undefined)
         expect(nested.filter((event) => event.kind === 'driver-attempt')).toMatchObject([

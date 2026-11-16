@@ -394,6 +394,18 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
       error: { code: 'VALIDATION_ERROR', message: 'requested CPU 16 exceeds tenant ceiling 8' },
     })
   }
+  // Sandbox's real refusal of a create when no host has room: for 8 minutes, or always.
+  if (scenario.startsWith('json-observation-long-create-capacity-')) {
+    capacitySince ??= Date.now()
+    if (scenario.endsWith('-deadline') || Date.now() - capacitySince < 480_000) {
+      note('capacity-create-refused', { key, status: 503 })
+      response.setHeader('Retry-After', '2')
+      return jsonError(response, 503, {
+        code: 'CAPACITY_EXHAUSTED',
+        message: 'Provision failed — (container) — No host has room for this sandbox now.',
+      })
+    }
+  }
   const prior = state.boxes.find((box) => box.key === key)
   const mustFail =
     scenario.startsWith('create-') ||
