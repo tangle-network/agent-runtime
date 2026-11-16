@@ -126,7 +126,7 @@ export function aggregateProviderModelEvidence(
         base = identity.base
         snapshot ??= identity.snapshot
         if (identity.snapshot !== undefined) {
-          canonicalModels.add(`${identity.base}@${identity.snapshot}`)
+          canonicalModels.add(identity.canonical)
           if (canonicalModels.size > 1) markConflict()
         }
       }

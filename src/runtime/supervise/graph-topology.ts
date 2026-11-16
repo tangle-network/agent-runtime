@@ -135,6 +135,11 @@ export function validateGraphTopology(
         `runGraph: edge kind ${JSON.stringify(kind)} is not 'delegates', 'analyzes', 'maps' or 'routes'`,
       )
     }
+    const cap = edge.kind === 'maps' ? undefined : edge.maxTraversals
+    if (cap !== undefined && !isPositiveInteger(cap))
+      throw new ValidationError(
+        `runGraph: ${edgeId(edge)} needs maxTraversals as a positive integer`,
+      )
   }
   const delegates = edges.filter((edge): edge is DelegatesEdge => edge.kind === 'delegates')
   const analyzes = edges.filter((edge): edge is AnalyzesEdge => edge.kind === 'analyzes')

@@ -25,6 +25,12 @@ belong to the consumer.
 
 ## The model
 
+`runEvidence(runDir)` reads bounded node evidence through `projectPursuit`.
+Its token counters include the node's settled descendant work and its own inference.
+An unreported subtotal carries `tokensKnown: false`; absent usage stays absent, and measured zero stays zero.
+Fresh-input counts and cache-breakdown completeness follow the same canonical token accounting.
+Nested nodes overlap, so use a run's `totals.inclusive` or `totals.exclusiveByNode` for run-wide totals.
+
 Durable work breaks into six separate questions. Each has one owner.
 
 | Question | Owner | Primitive |

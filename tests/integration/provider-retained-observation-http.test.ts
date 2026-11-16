@@ -81,6 +81,7 @@ async function observeInProcess(fixture: ProcessFixture) {
 it.each<Scenario>([
   'json-observation-429',
   'json-observation-long-success',
+  'json-observation-long-result-retry-success',
   'json-observation-long-capacity-success',
   'json-observation-long-failed',
 ])(
@@ -163,8 +164,18 @@ it.each<Scenario>([
           spent: { tokensKnown: false },
         })
         expect(object(delivered)).toMatchObject({ kind: 'down', retainedExecution: 'pending' })
+        const failureText = JSON.stringify(delivered)
+        expect(failureText).toContain('retained provider exact-result read failed')
+        expect(failureText).toContain('exact observation temporarily unavailable')
+        expect(failureText).not.toContain('stream remained open after its exact result')
         expect(JSON.stringify(events)).not.toContain('provider_quota_exhausted')
       } else {
+        if (scenario === 'json-observation-long-result-retry-success') {
+          expect(
+            state.requests.filter((row) => row.kind === 'exact-result-http-error'),
+          ).toHaveLength(1)
+          expect(JSON.stringify(delivered)).not.toContain('exact-result read failed')
+        }
         const bytes = await readFile(
           join(fixture.directory, nativeEventFile(run.executionId)),
           'utf8',

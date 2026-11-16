@@ -705,7 +705,13 @@ async function runtime(
     if (exactResult && scenario.startsWith('json-observation-')) {
       durableBytes(join(directory, `${nativeEventFile(run.executionId)}.exact`), 'ready')
       note('exact-result-handshake', { executionId: run.executionId, sessionId: run.sessionId })
-      if (scenario === 'json-observation-429') {
+      if (
+        scenario === 'json-observation-429' ||
+        (scenario === 'json-observation-long-result-retry-success' &&
+          !state.requests.some(
+            (row) => row.kind === 'exact-result-http-error' && row.executionId === run.executionId,
+          ))
+      ) {
         note('exact-result-http-error', { executionId: run.executionId, status: 429 })
         return jsonError(response, 429, {
           code: 'FIXTURE_OBSERVATION_THROTTLED',

@@ -9,6 +9,7 @@ export type Scenario =
   | `trace-tree-${number}`
   | 'json-observation-429'
   | 'json-observation-long-success'
+  | 'json-observation-long-result-retry-success'
   | `json-observation-long-auth-${401 | 403 | 500}-success`
   | 'json-observation-long-capacity-success'
   | `json-observation-long-transport-${'chunk' | 'header'}-${'success' | 'caller' | 'untyped'}`
@@ -19,6 +20,10 @@ export type Scenario =
   | 'json-output'
   | 'json-fenced'
   | 'json-fence-then-text'
+  | 'json-prose-then-object'
+  | 'json-object-then-fence'
+  | 'json-object-then-text'
+  | 'json-fence-then-object'
   | 'json-authority'
   | 'json-overflow'
   | 'json-no-terminal'
