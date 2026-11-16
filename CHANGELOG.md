@@ -1,3 +1,11 @@
+## 10.0.5
+
+Use one topology admission path for root and nested graphs, rejecting malformed delegation and analysis traversal limits before execution. Omitted limits keep the existing default.
+
+Local OpenCode execution uses the shared model qualification rule, preserving the selected provider for nested model routes while leaving IDs already prefixed by that provider unchanged.
+
+Parking no longer hands off a run whose root is still acting. A child's far seat wait parks the run only while the root sleeps in its own wait, or awaits its workers' events with no settlement handling (analysts, maps, route gates), tool receipt or lead message of its own in flight; the park then ends that event wait. A park whose journal write fails now ends the run on that failure instead of leaving its waits hanging. `acquireSandbox` treats a ready budget in which every create was refused as placement capacity: it pauses on the shared capacity schedule and tries again under the same name, up to three budgets. A box that came back and never ran still ends the acquire after one budget. Either miss throws an error carrying the canonical `failure: { kind: 'capacity', code: 'sandbox_acquire_timeout' }`, which the supervise driver classifies `unavailable`, with the last refusal in its message and `cause`.
+
 ## 10.0.4
 
 Steer admission, delivery claims, steer acknowledgements and worker interactive bindings no longer block the event loop on the disk: they run on the durable writer whether or not a run claim is held. New `writeWorkerSteerAsync` beside `writeWorkerSteer`, with the same admission, replay and conflict rules.
