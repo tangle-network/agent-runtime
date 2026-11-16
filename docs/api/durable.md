@@ -740,6 +740,10 @@ count no provider reported, which makes `input`/`output` a floor.
 
 > `readonly` **output**: `number`
 
+##### freshInput?
+
+> `readonly` `optional` **freshInput?**: `number`
+
 ##### cacheRead?
 
 > `readonly` `optional` **cacheRead?**: `number`
@@ -747,6 +751,12 @@ count no provider reported, which makes `input`/`output` a floor.
 ##### cacheWrite?
 
 > `readonly` `optional` **cacheWrite?**: `number`
+
+##### cacheBreakdownKnown?
+
+> `readonly` `optional` **cacheBreakdownKnown?**: `false`
+
+False when the observed prompt subtotal does not have a complete cache classification.
 
 ##### reasoning?
 
@@ -6123,6 +6133,9 @@ Finish unconfirmed teardowns named by a settled run's `result.json`.
 What each node of a run did, from the directory `superviseGraphPursuit` wrote: outcome and tokens
 from the observer journal, settled output from `blobs/`, tool calls and the final message from
 `streams/`. Over `totalChars` every cap halves, then the earliest nodes drop; size never throws.
+Tokens use the canonical node projection: settled descendant work plus the node's own
+inference. Missing accounting stays absent; an incomplete subtotal carries `tokensKnown: false`.
+Nested node totals overlap; use `projectPursuit().runs[].totals` for run-wide accounting.
 
 #### Parameters
 
