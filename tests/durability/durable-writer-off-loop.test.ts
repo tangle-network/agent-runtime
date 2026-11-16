@@ -10,6 +10,14 @@ import { acquireRunDirectoryLock, RUN_DIRECTORY_LOCK_FILE } from '../../src/dura
 import { FileResultBlobStore } from '../../src/durable/spawn-journal/result-blob-store'
 import { writeAtomicDurableFileAsync } from '../../src/runtime/supervise/durable-file'
 import {
+  applyRunCancellationAsync,
+  cancelRun,
+  cancelRunAsync,
+  readRunCancellation,
+  readRunCancelRequest,
+  writeRunCancellationAsync,
+} from '../../src/runtime/supervise/run-cancellation'
+import {
   claimWorkerSteerDelivery,
   readWorkerSteerAcknowledgement,
   writeWorkerSteerAcknowledgement,
@@ -126,6 +134,65 @@ it('steer and binding writes wait on the durable writer without blocking the eve
     expect(steer.replayed).toBe(false)
     expect(readWorkerSteerAcknowledgement(dir, 'steer-claimed')?.effect).toBe('delivered')
     expect(readWorkerInteractiveBinding(dir, 'run:s1')?.status).toBe('unavailable')
+  } finally {
+    await lock.release()
+  }
+}, 30_000)
+
+it('a run stop and its cancellation records wait on the durable writer without blocking the event loop', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'durable-writer-cancel-'))
+  const other = await mkdtemp(join(tmpdir(), 'durable-writer-cancel-other-'))
+  directories.push(dir, other)
+  // The stop request is already on disk, as a coordinator wrote it before the disk filled.
+  cancelRun(dir, 'stop-run', { operator: 'test-operator', reason: 'solved' })
+  const lock = await acquireRunDirectoryLock(dir, 'cancel-off-loop')
+  try {
+    const holder = await holdMutationLock(join(dir, RUN_DIRECTORY_LOCK_FILE), 3_000)
+    const worstGap = heartbeat()
+    await delay(50)
+    const began = performance.now()
+    let abortedMs: number | undefined
+    // The run's observer applies the stop under its claim: the abort is issued at once, and the
+    // `cancel_requested` record, then the settle record, wait on the writer behind the held lock.
+    const settled = lock.run(async () => {
+      const applied = await applyRunCancellationAsync(
+        dir,
+        () => {
+          abortedMs = performance.now() - began
+        },
+        () => new Date().toISOString(),
+        'observer',
+      )
+      await writeRunCancellationAsync(dir, {
+        ...applied!,
+        effect: 'cancelled',
+        detail: 'the run reached its terminal cancelled state',
+      })
+      return performance.now() - began
+    })
+    // Another run's coordinator stops it with no claim: its request queues behind the same writer.
+    const stopped = cancelRunAsync(other, 'stop-other', {
+      operator: 'test-operator',
+      reason: 'solved',
+    }).then((answer) => ({ answer, doneMs: performance.now() - began }))
+    // A second stop under another operation id, admitted against the same still-empty inbox, loses
+    // the exclusive publication and is refused against the first: one run carries one operation.
+    const rival = cancelRunAsync(other, 'stop-rival', { operator: 'test-operator' }).then(
+      () => 'admitted',
+      (error: Error) => error.message,
+    )
+    const [settledMs, outside, rivalOutcome] = await Promise.all([settled, stopped, rival])
+    const worstGapMs = worstGap()
+    holder.kill('SIGKILL')
+
+    expect(abortedMs).toBeLessThan(100)
+    expect(settledMs).toBeGreaterThan(2_500)
+    expect(outside.doneMs).toBeGreaterThan(2_500)
+    expect(worstGapMs).toBeLessThan(100)
+    expect(readRunCancellation(dir, 'stop-run')?.effect).toBe('cancelled')
+    expect(outside.answer.effect).toBe('unknown')
+    expect(readRunCancelRequest(other)?.operationId).toBe('stop-other')
+    expect(rivalOutcome).toMatch(/'stop-other' is already pending/)
   } finally {
     await lock.release()
   }

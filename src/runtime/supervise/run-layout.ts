@@ -789,6 +789,23 @@ export function appendWorkerControlEvent(
   }
 }
 
+/** `appendWorkerControlEvent` on the durable writer, claimed or not, without blocking the caller. */
+export async function appendWorkerControlEventAsync(
+  eventDir: string,
+  label: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  await runFencedAlways(
+    'appendRunLines',
+    appendRunLinesFenced,
+    workerControlLogFile(eventDir, label),
+    [`${JSON.stringify({ at: new Date().toISOString(), label, ...event })}\n`],
+    { directory: supervisorWorkersDir(eventDir) },
+  ).catch(() => {
+    // Control logging is best-effort; the inbox write is the durable part.
+  })
+}
+
 function workerSteerRequestDigest(value: {
   readonly operationId: string
   readonly worker: string

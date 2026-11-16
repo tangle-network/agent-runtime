@@ -16,7 +16,7 @@ describe('external run cancellation observation', () => {
       throw new Error('not bound')
     })
     try {
-      expect(() => observer.check()).toThrow('not bound')
+      await expect(observer.check()).rejects.toThrow('not bound')
       expect(readRunCancellation(dir, 'rejected')).toBeUndefined()
     } finally {
       observer.close()

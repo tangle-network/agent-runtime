@@ -26167,6 +26167,30 @@ The runtime's explanation of how it arrived at `effect`.
 
 ***
 
+### CancelRunOptions
+
+Options of [cancelRun](#cancelrun) and [cancelRunAsync](#cancelrunasync).
+
+#### Properties
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### deadlineMs?
+
+> `readonly` `optional` **deadlineMs?**: `number`
+
+##### operator?
+
+> `readonly` `optional` **operator?**: `string`
+
+***
+
 ### InMemoryRunContextOptions
 
 Options for a supervised run context.
@@ -45985,25 +46009,43 @@ or acknowledgement written before that rule is answered as it was.
 
 ##### options?
 
-###### reason?
-
-`string`
-
-###### source?
-
-`string`
-
-###### deadlineMs?
-
-`number`
-
-###### operator?
-
-`string`
+[`CancelRunOptions`](#cancelrunoptions) = `{}`
 
 #### Returns
 
 [`RunCancellation`](#runcancellation)
+
+***
+
+### cancelRunAsync()
+
+> **cancelRunAsync**(`eventDir`, `operationId`, `options?`): `Promise`\<[`RunCancellation`](#runcancellation)\>
+
+**`Stable`**
+
+Request the cancellation of the whole run like [cancelRun](#cancelrun), without blocking the calling
+thread on the disk. The request file is published by the durable writer whether or not the
+caller holds a run claim (a coordinator outside the run holds none), so an event loop that stops
+runs keeps running while the file and its directory reach disk. Same admission, replay and
+conflict rules.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+##### options?
+
+[`CancelRunOptions`](#cancelrunoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`RunCancellation`](#runcancellation)\>
 
 ***
 
