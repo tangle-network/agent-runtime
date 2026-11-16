@@ -135,46 +135,72 @@ describe('retained provider admission retry', () => {
     expect(fixture.counts).toEqual({ creates: 1, dispatches: 1 })
   })
 
-  it('stops at stage intent when create never materializes an environment', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'runtime-intent-timeout-'))
+  it('stops at stage intent after three creates that never materialize an environment', async () => {
+    const fixture = await createThenStart(() => new Promise(() => {}))
+    expect(fixture.admissions.map((admission) => admission.phase)).toEqual(['intent'])
+    expect(fixture.creates).toEqual([
+      'runtime:create-retry',
+      'runtime:create-retry',
+      'runtime:create-retry',
+    ])
+    expect(fixture.attempts).toEqual([1])
+    expect(fixture.records.at(-1)?.classification).toBe('terminal')
+    expect(fixture.records.at(-1)?.stop).toBe('terminal-error')
+    expect(fixture.failure).toBeInstanceOf(Error)
+    expect((fixture.failure as Error).message).toMatch(/stage intent .* after 3 creates/)
+  })
+
+  it('creates again with the same key when a create does not answer within its bound', async () => {
+    const fixture = await createThenStart(() => new Promise(() => {}), 1)
+    expect(fixture.failure).toBeUndefined()
+    expect(fixture.creates).toEqual(['runtime:create-retry', 'runtime:create-retry'])
+    expect(fixture.admissions.map((admission) => admission.phase)).toEqual([
+      'intent',
+      'environment',
+      'dispatched',
+    ])
+    expect(fixture.attempts).toEqual([1])
+  })
+
+  it('creates again with the same key when Sandbox answers OPERATION_FAILED', async () => {
+    const fixture = await createThenStart(async () => {
+      throw operationFailed()
+    }, 1)
+    expect(fixture.failure).toBeUndefined()
+    expect(fixture.creates).toEqual(['runtime:create-retry', 'runtime:create-retry'])
+    expect(fixture.admissions.map((admission) => admission.phase)).toEqual([
+      'intent',
+      'environment',
+      'dispatched',
+    ])
+    expect(fixture.attempts).toEqual([1])
+  })
+
+  it("stops with Sandbox's OPERATION_FAILED, named, after three creates", async () => {
+    // One start; the provider executor wraps this refusal and classifies it terminal (retryable false).
+    const root = await mkdtemp(join(tmpdir(), 'runtime-create-retry-'))
     roots.push(root)
     const base = durableRetainedProvider(join(root, 'provider.json'))
     const admissions: RetainedRunAdmission[] = []
-    const attempts: number[] = []
-    const records: DriverAttemptRecord[] = []
-    const provider: AgentEnvironmentProvider = {
-      ...base,
-      create: () => new Promise(() => {}),
-    }
-    const signal = new AbortController().signal
-    const failure: unknown = await runDriverWithRetry({
-      drive: async (attempt) => {
-        attempts.push(attempt)
-        await startRetainedRun({
-          provider,
-          environment: { profile, idempotencyKey: 'runtime:stuck-intent' },
-          turn: { prompt: 'produce result', turnId: 'stuck:turn:0' },
-          materializationTimeoutMs: 30,
-          async onAdmission(admission) {
-            admissions.push(admission)
-          },
-        })
+    let creates = 0
+    const failure = await startRetainedRun({
+      provider: {
+        ...base,
+        create: async () => {
+          creates += 1
+          throw operationFailed()
+        },
       },
-      progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
-      budget: () => budget,
-      signal,
-      policy: { maxAttempts: 5 },
-      sleep: async () => {},
-      onAttempt: (record) => {
-        records.push(record)
+      environment: { profile, idempotencyKey: 'runtime:create-retry' },
+      turn: { prompt: 'produce result', turnId: 'create-retry:turn:0' },
+      materializationTimeoutMs: 30,
+      async onAdmission(admission) {
+        admissions.push(admission)
       },
     }).catch((error: unknown) => error)
+    expect(creates).toBe(3)
     expect(admissions.map((admission) => admission.phase)).toEqual(['intent'])
-    expect(attempts).toEqual([1])
-    expect(records.at(-1)?.classification).toBe('terminal')
-    expect(records.at(-1)?.stop).toBe('terminal-error')
-    expect(failure).toBeInstanceOf(Error)
-    expect((failure as Error).message).toMatch(/stage intent/)
+    expect((failure as Error).message).toMatch(/Provision failed .* A server-side operation failed/)
   })
 
   it.each(['lookup', 'result'] as const)(
@@ -195,6 +221,60 @@ describe('retained provider admission retry', () => {
     },
   )
 })
+
+/** Sandbox SDK 1.0.404's ServerError for a create the API answered OPERATION_FAILED (catalog `500 final`). */
+const operationFailed = () =>
+  Object.assign(new Error('Provision failed — (container) — A server-side operation failed.'), {
+    name: 'ServerError',
+    status: 500,
+    code: 'OPERATION_FAILED',
+    catalogCode: 'OPERATION_FAILED',
+    retryable: false,
+  })
+
+/** One driven retained start whose first `failing` creates (all, when absent) fail as `fail` does; later ones create. */
+async function createThenStart(fail: () => Promise<AgentEnvironment>, failing = Infinity) {
+  const root = await mkdtemp(join(tmpdir(), 'runtime-create-retry-'))
+  roots.push(root)
+  const base = durableRetainedProvider(join(root, 'provider.json'))
+  const admissions: RetainedRunAdmission[] = []
+  const creates: string[] = []
+  const records: DriverAttemptRecord[] = []
+  const attempts: number[] = []
+  const provider: AgentEnvironmentProvider = {
+    ...base,
+    create: (input) => {
+      creates.push(String(input.idempotencyKey))
+      return creates.length <= failing ? fail() : base.create(input)
+    },
+  }
+  let failure: unknown
+  await runDriverWithRetry({
+    drive: async (attempt) => {
+      attempts.push(attempt)
+      await startRetainedRun({
+        provider,
+        environment: { profile, idempotencyKey: 'runtime:create-retry' },
+        turn: { prompt: 'produce result', turnId: 'create-retry:turn:0' },
+        materializationTimeoutMs: 30,
+        async onAdmission(admission) {
+          admissions.push(admission)
+        },
+      })
+    },
+    progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+    budget: () => budget,
+    signal: new AbortController().signal,
+    policy: { maxAttempts: 5 },
+    sleep: async () => {},
+    onAttempt: (record) => {
+      records.push(record)
+    },
+  }).catch((error: unknown) => {
+    failure = error
+  })
+  return { admissions, creates, records, attempts, failure }
+}
 
 async function refusedTurn(stage: 'dispatch' | 'lookup' | 'result', failure: Error) {
   const root = await mkdtemp(join(tmpdir(), 'runtime-admission-retry-'))
