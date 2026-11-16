@@ -73,6 +73,7 @@ export function createRouteRouting(deps: RouteDeps) {
     start: start.bind(null, state),
     route: route.bind(null, state),
     endInDoubt: endInDoubt.bind(null, state),
+    isEnded: () => state.ended,
   }
 }
 

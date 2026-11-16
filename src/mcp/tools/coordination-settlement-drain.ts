@@ -136,8 +136,13 @@ export function createSettlementDrain({
       for (const route of agentRoutes) await analysis.spawnAnalystRun(route, pending.worker)
     }
     if (advance) {
-      await maps.runMapStep(() => maps.expandMaps(pending.settled, pending.worker), pending.worker)
       await routes.route(pending.settled, pending.worker)
+      if (!routes.isEnded() && !analysis.isFinishing()) {
+        await maps.runMapStep(
+          () => maps.expandMaps(pending.settled, pending.worker),
+          pending.worker,
+        )
+      }
     }
     return true
   }
@@ -154,8 +159,12 @@ export function createSettlementDrain({
     const advance = !analysis.isFinishing()
     await maps.runMapStep(() => maps.settleMapMember(settled, worker, advance), worker)
     if (!advance) return
-    await maps.runMapStep(() => maps.expandMaps(settled, worker), worker)
+    // Committed map items can settle their join recursively. Record and route the source first
+    // so descendants read the same source evidence and derive the same task keys as the live run.
     await routes.route(settled, worker)
+    if (!routes.isEnded() && !analysis.isFinishing()) {
+      await maps.runMapStep(() => maps.expandMaps(settled, worker), worker)
+    }
   }
 
   const prepareSettlement = (

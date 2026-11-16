@@ -185,3 +185,180 @@ PY`,
     }),
   ).toThrow('not a maps item')
 }, 60_000)
+
+it('replays map-join repair routes with the same source evidence and no repeated checks', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'graph-map-check-repair-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const workspace = join(directory, 'work')
+  await mkdir(workspace)
+  const directive = { surface: 'delegates/worker-brief', version: 1 }
+  const source = {
+    graph: 'map-check-repair',
+    nodes: [
+      {
+        id: 'dispatch',
+        check: {
+          command: `python3 - <<'PYTHON'
+import json, os
+from pathlib import Path
+task = json.loads(Path(os.environ['GRAPH_INPUT']).read_text())['task']
+round = task['from']['result']['round'] if 'from' in task else task['round']
+print(json.dumps({'round': round, 'items': [{'round': round}]}))
+PYTHON`,
+        },
+      },
+      {
+        id: 'item',
+        profile: {
+          name: 'item',
+          harness: 'cli-base',
+          model: { provider: 'offline', default: 'offline/literal-result' },
+        },
+      },
+      {
+        id: 'gate',
+        check: {
+          command: `python3 - <<'PYTHON'
+import json, os
+from pathlib import Path
+task = json.loads(Path(os.environ['GRAPH_INPUT']).read_text())['task']
+round = task['results'][0]['result']['round']
+result = {'round': round, 'accepted': round == 2}
+Path('gate.json').write_text(json.dumps(result))
+with Path('gate-count').open('a') as count:
+    count.write(str(round) + chr(10))
+print(json.dumps(result))
+PYTHON`,
+          outputs: { paths: ['gate.json'], maxFileBytes: 8192, maxTotalBytes: 8192 },
+        },
+      },
+      {
+        id: 'repair',
+        profile: {
+          name: 'repair',
+          harness: 'cli-base',
+          model: { provider: 'offline', default: 'offline/literal-result' },
+        },
+      },
+    ],
+    entry: [{ node: 'dispatch', task: { round: 0 } }],
+    edges: [
+      { kind: 'routes', from: 'dispatch', to: { finish: 'source' }, directive },
+      {
+        kind: 'maps',
+        from: 'dispatch',
+        pointer: '/json/items',
+        to: 'item',
+        join: 'gate',
+        maxItems: 1,
+        concurrency: 1,
+        onItemFailure: 'all-or-refuse',
+        directive,
+      },
+      {
+        kind: 'routes',
+        from: 'gate',
+        to: { finish: 'accepted' },
+        directive,
+        when: { pointer: '/json/accepted', equals: true },
+      },
+      {
+        kind: 'routes',
+        from: 'gate',
+        to: 'repair',
+        directive,
+        evidence: ['dispatch', 'gate'],
+        maxTraversals: 2,
+      },
+      { kind: 'routes', from: 'repair', to: 'dispatch', directive },
+    ],
+    budget: { maxIterations: 32 },
+    check: { node: 'gate', pointer: '/json/accepted', equals: true },
+  }
+  const loaded = await loadGraphFile(join(directory, 'graph.json'), {
+    source: JSON.stringify(source),
+  })
+  const graph = graphFromStored(loaded.graph)
+  const artifacts = createPrivateCasArtifactPort(join(directory, 'cas'), 'repair-replay')
+  const executed: string[] = []
+  const options = {
+    backend: { backend: 'cli-in-place' as const, workspacePath: workspace },
+    runDir: join(directory, 'run'),
+    runId: 'map-check-repair',
+    checkArtifacts: artifacts,
+    driverRetry: { enabled: false },
+    makeLeafAgent: (profile: AgentProfile) => {
+      let artifact: ExecutorResult<unknown> | undefined
+      const executorSpec: AgentSpec = {
+        profile,
+        harness: null,
+        executor: {
+          runtime: 'literal-repair',
+          async execute(task: unknown) {
+            executed.push(profile.name ?? 'unknown')
+            const value = task as {
+              from: { result: { json: { round: number } } }
+              evidence: { dispatch: { json: { round: number } } }
+            }
+            if (profile.name === 'repair') {
+              expect(value.evidence.dispatch.json.round).toBe(value.from.result.json.round)
+            }
+            const out =
+              profile.name === 'repair' ? { round: value.from.result.json.round + 1 } : task
+            artifact = {
+              out,
+              outRef: contentAddress(out),
+              verdict: { valid: true, score: 1 },
+              spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+            }
+            return artifact
+          },
+          async teardown() {
+            return { destroyed: true }
+          },
+          resultArtifact() {
+            if (!artifact) throw new Error('literal repair has not executed')
+            return artifact
+          },
+        },
+      }
+      return { name: profile.name ?? 'literal', act: async () => '', executorSpec }
+    },
+  }
+  const initial = await runGraph(graph, options)
+  expect(initial.result.kind, JSON.stringify(initial.stopped)).toBe('winner')
+  expect(executed).toEqual(['item', 'repair', 'item', 'repair', 'item'])
+  const counts = await readFile(join(workspace, 'gate-count'), 'utf8')
+  expect(counts).toBe('0\n1\n2\n')
+  const receiptPath = join(options.runDir, 'command-checks.jsonl')
+  const receipts = await readFile(receiptPath, 'utf8')
+  const replay = await runGraph(graph, { ...options, resume: true })
+  expect(replay.result.kind, JSON.stringify(replay.stopped)).toBe('winner')
+  if (replay.result.kind === 'winner' && initial.result.kind === 'winner') {
+    expect(replay.result.out).toEqual(initial.result.out)
+    expect(replay.result.spentTotal.iterations).toBe(initial.result.spentTotal.iterations)
+  }
+  expect(executed).toEqual(['item', 'repair', 'item', 'repair', 'item'])
+  expect(await readFile(join(workspace, 'gate-count'), 'utf8')).toBe(counts)
+  expect(await readFile(receiptPath, 'utf8')).toBe(receipts)
+
+  const stoppedSource = {
+    ...source,
+    edges: [
+      { kind: 'routes', from: 'dispatch', to: { stop: 'source-refused' }, directive },
+      ...source.edges.slice(1),
+    ],
+  }
+  const stoppedGraph = await loadGraphFile(join(directory, 'stopped.json'), {
+    source: JSON.stringify(stoppedSource),
+  })
+  const stopped = await runGraph(graphFromStored(stoppedGraph.graph), {
+    ...options,
+    runDir: join(directory, 'stopped-run'),
+    runId: 'map-source-stopped',
+  })
+  expect(stopped.result.kind).toBe('no-winner')
+  expect(stopped.stopped?.reason).toBe('source-refused')
+  expect(executed).toEqual(['item', 'repair', 'item', 'repair', 'item'])
+  expect(stopped.ledger.filter((row) => row.kind === 'maps')).toEqual([])
+}, 60_000)
