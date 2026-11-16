@@ -5,7 +5,12 @@ import { join } from 'node:path'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { parse } from 'yaml'
-import { FileObserverJournal, runEvidence, superviseGraphPursuit } from '../../src/durable'
+import {
+  FileObserverJournal,
+  projectPursuit,
+  runEvidence,
+  superviseGraphPursuit,
+} from '../../src/durable'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination-contracts'
 import { readGraphStrings, setGraphStrings } from '../../src/runtime'
 import type { UsageEvent } from '../../src/runtime/supervise/types'
@@ -39,6 +44,112 @@ const leaf: MakeWorkerAgent = (profile, context) => {
 }
 
 describe('runEvidence', () => {
+  it('retains canonical nested and resumed usage, including unknown subtotals and measured zero', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-evidence-accounting-'))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const journal = new FileObserverJournal(join(dir, 'observer.jsonl'), 'accounting')
+    let sequence = 0
+    const append = (
+      target: 'agent.spawn' | 'agent.child' | 'agent.turn' | 'agent.run',
+      parentId: string,
+      payload: Record<string, unknown>,
+      phase: 'before' | 'after' = 'after',
+    ) =>
+      journal.appendEvent({
+        id: `event-${++sequence}`,
+        pursuitId: 'accounting',
+        runId: 'root',
+        target,
+        phase,
+        timestamp: sequence,
+        parentId,
+        payload,
+      })
+    const partial = {
+      iterations: 1,
+      tokens: { input: 7, output: 3, freshInput: 4, cacheRead: 3, cacheWrite: 0 },
+      tokensKnown: false,
+      usd: 0,
+      usdKnown: false,
+      ms: 1,
+    }
+    const metered = { iterations: 1, tokens: { input: 5, output: 1 }, usd: 0, ms: 1 }
+    await append('agent.run', 'root', {}, 'before')
+    for (const [childId, parentId] of [
+      ['manager', 'root'],
+      ['leaf', 'manager'],
+      ['zero', 'root'],
+      ['live', 'root'],
+    ]) {
+      await append('agent.spawn', parentId!, { childId })
+    }
+    await append('agent.child', 'manager', { childId: 'leaf', status: 'down', spent: partial })
+    await append('agent.child', 'root', {
+      childId: 'manager',
+      status: 'down',
+      retainedExecution: 'pending',
+      settledAt: sequence,
+      spent: partial,
+      metered,
+    })
+    await append('agent.child', 'root', {
+      childId: 'zero',
+      status: 'done',
+      spent: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+    })
+    await append('agent.turn', 'live', {
+      spend: {
+        iterations: 1,
+        tokens: { input: 2, output: 1, freshInput: 0, cacheRead: 2, cacheWrite: 0 },
+        usd: 0,
+        ms: 1,
+      },
+    })
+
+    const before = await runEvidence(dir)
+    expect(before.nodes.find((node) => node.id === 'manager')).toMatchObject({
+      outcome: 'down',
+      tokens: {
+        input: 12,
+        output: 4,
+        tokensKnown: false,
+        freshInput: 4,
+        cacheRead: 3,
+        cacheWrite: 0,
+        cacheBreakdownKnown: false,
+      },
+    })
+    expect(before.nodes.find((node) => node.id === 'zero')?.tokens).toEqual({ input: 0, output: 0 })
+    expect(before.nodes.find((node) => node.id === 'live')?.tokens).toEqual({
+      input: 2,
+      output: 1,
+      freshInput: 0,
+      cacheRead: 2,
+      cacheWrite: 0,
+    })
+    await append('agent.run', 'root', {}, 'before')
+    await append('agent.child', 'root', {
+      childId: 'manager',
+      status: 'down',
+      retainedExecution: 'released',
+      spent: partial,
+    })
+    const after = await runEvidence(dir)
+    const manager = after.nodes.find((node) => node.id === 'manager')!
+    expect(manager.outcome).toBe('down')
+    expect(manager.tokens).toEqual(before.nodes.find((node) => node.id === 'manager')?.tokens)
+    const projection = projectPursuit(await journal.read())
+    expect(projection.runs[0]?.resumeCount).toBe(1)
+    for (const node of after.nodes) {
+      expect(projection.nodes.find((entry) => entry.id === node.id)?.usage).toMatchObject({
+        ...node.tokens,
+        tokensKnown: node.tokens?.tokensKnown !== false,
+      })
+    }
+    expect(after).toStrictEqual(JSON.parse(JSON.stringify(after)))
+    expect(() => canonicalCandidateDigest(after)).not.toThrow()
+  })
+
   it('keeps failed evidence canonical JSON without inventing output or usage', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'run-evidence-failed-'))
     onTestFinished(() => rm(dir, { recursive: true, force: true }))

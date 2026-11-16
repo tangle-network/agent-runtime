@@ -46,6 +46,13 @@ replaces the harness prompt, `appendSystemPrompt` keeps it and adds privileged g
 and `instructions` remains caller guidance. Prefer addition for coding personas. Local
 workspace inputs are included in the execution plan and removed after the process exits.
 
+Local OpenCode execution qualifies `model.default` with the exact `model.provider`.
+For example, `{ provider: 'openrouter', default: 'vendor/model:free' }` selects
+`openrouter/vendor/model:free`; a value already prefixed by that provider stays unchanged.
+Nested model routes keep their upstream segments. The native provider owns model
+availability and credentials. Native CLI version compatibility is qualified separately
+from this routing rule.
+
 ### Bridge implementation ownership
 
 `src/runtime/supervise/runtime.ts` keeps backend configuration, factory selection, and the existing public exports.

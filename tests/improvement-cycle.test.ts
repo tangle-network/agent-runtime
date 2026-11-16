@@ -305,7 +305,17 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
   it('seals one resolved model treatment and preserves incomplete HTTP measurements without a proposal', async () => {
     // The HTTP peer is a deterministic process boundary, not a model service.
     const template = createProfileImprovementFixture()
-    const { digest: _taskDigest, ...task } = template.evaluation.experiment.benchmark.tasks[0]!
+    const { digest: _taskDigest, ...fixture } = template.evaluation.experiment.benchmark.tasks[0]!
+    // This case proves a served snapshot of a moving alias is accepted. Claude 4.6 and later ids
+    // are fixed, so an appended snapshot would be a substituted build; 4.5 is still an alias.
+    const task = {
+      ...fixture,
+      model: {
+        ...fixture.model,
+        requested: 'anthropic/claude-sonnet-4-5',
+        model: 'claude-sonnet-4-5',
+      },
+    }
     const baselineModel = task.model
     const baseline: AgentProfile = {
       name: 'support-agent',

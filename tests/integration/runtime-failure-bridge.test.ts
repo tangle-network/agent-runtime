@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { modelHasSnapshot } from '@tangle-network/agent-eval'
 import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
@@ -10,11 +11,13 @@ import {
 import { createCliBridgeProvider } from '@tangle-network/agent-provider-cli-bridge'
 import { describe, expect, it } from 'vitest'
 import { FileObserverJournal, projectPursuit, superviseGraphPursuit } from '../../src/durable/index'
+import { aggregateProviderModelEvidence } from '../../src/durable/spawn-journal/provider-model-evidence'
 import type { RuntimeFailureCause } from '../../src/index'
 import {
   type Agent,
   type AgentGraph,
   type BridgeSeam,
+  canonicalObservedModelParts,
   captureBoundHarnessTranscript,
   connectRemoteSupervisor,
   createExecutor,
@@ -24,13 +27,17 @@ import {
   FileResultBlobStore,
   FileSpawnJournal,
   harnessTranscriptArtifact,
+  loadSpawnForest,
   materializeTreeView,
+  observedModelHasSnapshot,
   promptHandle,
   replaySpawnTree,
   type SpawnEvent,
   serveCoordinationMcp,
   workerFromBackend,
 } from '../../src/runtime/index'
+import { supervisedTreeModelForDispatch } from '../../src/runtime/loop-dispatch'
+import { mergeObservedModelIdentity } from '../../src/runtime/model-identity'
 import { bridgeUpstreamError } from '../../src/runtime/supervise/bridge-protocol'
 import { testContinuation } from '../helpers/continuation'
 
@@ -106,6 +113,33 @@ async function paired(kind: string, scenario: Record<string, unknown> = {}) {
     await rm(directory, { recursive: true, force: true })
     throw error
   }
+}
+
+function providerIdentityWorker(
+  fixture: Awaited<ReturnType<typeof paired>>,
+  requested: string,
+  tap?: typeof fetch,
+): Agent<unknown, unknown> {
+  return Object.assign(
+    { name: 'native-worker', act: async () => 'unused' },
+    {
+      executorSpec: {
+        profile: { ...profile, model: { provider: 'anthropic', default: requested } },
+        harness: null,
+        executorFactory: createExecutor({
+          backend: 'provider',
+          provider: createCliBridgeProvider({
+            baseUrl: fixture.backend.bridgeUrl,
+            bearerToken: fixture.backend.bridgeBearer,
+            defaultModel: `claude-code/anthropic/${requested}`,
+            ...(tap ? { fetch: tap } : {}),
+          }),
+          defaults: { workspace: { cwd: { base: 'host', path: fixture.directory } } },
+          destroyOnSettle: false,
+        }),
+      },
+    },
+  )
 }
 
 async function waitForPid(directory: string): Promise<number> {
@@ -937,88 +971,212 @@ describe('bridge executor capacity refusals', () => {
   })
 })
 
+it('exposes fixed identities without a new public snapshot kind and rejects a model-less date', () => {
+  expect(canonicalObservedModelParts('anthropic/claude-sonnet-4-6')).toEqual({
+    base: 'claude-sonnet-4-6',
+    snapshot: 'claude-sonnet-4-6',
+    fixed: true,
+    canonical: 'claude-sonnet-4-6',
+  })
+  expect(observedModelHasSnapshot('openai/-2024-08-06')).toBe(false)
+  expect(canonicalObservedModelParts('openai/-2024-08-06')).toBeUndefined()
+})
+
 describe.skipIf(!bridgeEntry)(
   'provider served-model evidence through an installed real Bridge server',
   () => {
-    it('records the snapshot model the native stream served, never the Bridge transport name', async () => {
-      const served = 'fixture-model-20261028'
-      const fixture = await paired('served', { model: served })
-      const servedProfile = { ...profile, model: { provider: 'anthropic', default: served } }
-      // Tap the provider's own HTTP reads to prove the stream also carried a `cli-bridge` frame.
-      const reads: Promise<unknown>[] = []
-      const bodies: string[] = []
-      const tap: typeof fetch = async (input, init) => {
-        const response = await fetch(input, init)
-        if (!response.body) return response
-        const [own, copy] = response.body.tee()
-        const read = new Response(copy).text().catch(() => '')
-        reads.push(read.then((text) => bodies.push(text)))
-        return new Response(own, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        })
-      }
-      const worker: Agent<unknown, unknown> = Object.assign(
-        { name: 'native-worker', act: async () => 'unused' },
-        {
-          executorSpec: {
-            profile: servedProfile,
-            harness: null,
-            executorFactory: createExecutor({
-              backend: 'provider',
-              provider: createCliBridgeProvider({
-                baseUrl: fixture.backend.bridgeUrl,
-                bearerToken: fixture.backend.bridgeBearer,
-                defaultModel: `claude-code/anthropic/${served}`,
-                fetch: tap,
-              }),
-              defaults: { workspace: { cwd: { base: 'host', path: fixture.directory } } },
-              destroyOnSettle: false,
-            }),
-          },
-        },
-      )
-      const root: Agent<unknown, unknown> = {
-        name: 'served-owner',
-        act: async (_task, scope) => {
-          const child = scope.spawn(worker, 'Return the protocol fixture result.', {
-            key: 'only',
-            label: 'native-worker',
-            budget: { maxIterations: 2, maxTokens: 1000 },
+    it.each([
+      ['dated snapshot', 'fixture-model-20261028', 'fixture-model-20261028', 'known'],
+      ['fixed Sonnet', 'claude-sonnet-4-6', 'claude-sonnet-4-6', 'known'],
+      ['fixed Opus', 'claude-opus-4-6', 'claude-opus-4-6', 'known'],
+      ['different family', 'claude-sonnet-4-6', 'claude-opus-4-6', 'conflict'],
+      ['different fixed version', 'claude-sonnet-4-6', 'claude-sonnet-4-7', 'conflict'],
+      ['appended date', 'claude-sonnet-4-6', 'claude-sonnet-4-6-20261112', 'conflict'],
+      [
+        'appended opaque token',
+        'claude-sonnet-4-6',
+        'claude-sonnet-4-6@claude-sonnet-4-6',
+        'conflict',
+      ],
+      ['no native observation', 'claude-sonnet-4-6', undefined, 'missing'],
+      ['moving pre-4.6 alias', 'claude-sonnet-4-5', 'claude-sonnet-4-5', 'missing'],
+      ['opaque snapshot', 'fixture-model@releaseA', 'fixture-model@releaseA', 'known'],
+      ['opaque case mismatch', 'fixture-model@releaseA', 'fixture-model@releasea', 'conflict'],
+    ] as const)(
+      'projects the native served identity through the provider and journal: %s',
+      async (_label, requested, served, verdict) => {
+        const fixture = await paired('served', { model: served })
+        const servedProfile = { ...profile, model: { provider: 'anthropic', default: requested } }
+        // Tap the real HTTP reads to distinguish native evidence from the request's route metadata.
+        const reads: Promise<unknown>[] = []
+        const bodies: string[] = []
+        const tap: typeof fetch = async (input, init) => {
+          const response = await fetch(input, init)
+          if (!response.body) return response
+          const [own, copy] = response.body.tee()
+          const read = new Response(copy).text().catch(() => '')
+          reads.push(read.then((text) => bodies.push(text)))
+          return new Response(own, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
           })
-          if (!child.ok) throw new Error('native worker was not admitted')
-          const settled = await scope.next()
-          if (settled?.kind !== 'done') throw new Error('native worker did not settle')
-          return settled.out
-        },
-      }
-      const runId = 'provider-served-model'
-      const context = createFileRunContext(join(fixture.directory, 'served-run'))
-      try {
-        const result = await createSupervisor<unknown, unknown>().run(root, 'served-task', {
-          ...context,
-          runId,
-          budget,
-          rootIdentity: {
-            profileDigest: canonicalCandidateDigest({ name: root.name }),
-            taskDigest: canonicalCandidateDigest('served-task'),
+        }
+        const worker = providerIdentityWorker(fixture, requested, tap)
+        const root: Agent<unknown, unknown> = {
+          name: 'served-owner',
+          act: async (_task, scope) => {
+            const child = scope.spawn(worker, 'Return the protocol fixture result.', {
+              key: 'only',
+              label: 'native-worker',
+              budget: { maxIterations: 2, maxTokens: 1000 },
+            })
+            if (!child.ok) throw new Error('native worker was not admitted')
+            const settled = await scope.next()
+            if (settled?.kind !== 'done') throw new Error('native worker did not settle')
+            return settled.out
           },
-        })
-        expect(result.kind).toBe('winner')
-        const events = (await context.journal.loadTree(runId)) ?? []
-        const leaf = events.find((event) => event.kind === 'settled' && event.id !== runId)
-        if (leaf?.kind !== 'settled') throw new Error('native child has no Scope settlement')
-        expect(leaf.providerModel).toEqual({
-          status: 'known',
-          attempts: [{ observations: [served] }],
-          models: [served],
-        })
-        await Promise.race([Promise.allSettled(reads), sleep(2000)])
-        expect(bodies.join('\n')).toMatch(/"model":\s*"cli-bridge"/u)
-      } finally {
-        await fixture.close()
-      }
-    }, 60000)
+        }
+        const runId = 'provider-served-model'
+        const context = createFileRunContext(join(fixture.directory, 'served-run'))
+        try {
+          const result = await createSupervisor<unknown, unknown>().run(root, 'served-task', {
+            ...context,
+            runId,
+            budget,
+            rootIdentity: {
+              profileDigest: canonicalCandidateDigest({ name: root.name }),
+              taskDigest: canonicalCandidateDigest('served-task'),
+            },
+          })
+          expect(result.kind).toBe('winner')
+          const events = (await context.journal.loadTree(runId)) ?? []
+          const leaf = events.find((event) => event.kind === 'settled' && event.id !== runId)
+          if (leaf?.kind !== 'settled') throw new Error('native child has no Scope settlement')
+          const forest = await loadSpawnForest(context.journal, runId)
+          const aggregate = aggregateProviderModelEvidence(forest)
+          const dispatchIdentity = supervisedTreeModelForDispatch(
+            { ...result, providerModel: aggregate },
+            servedProfile,
+          )
+          if (verdict === 'known') {
+            expect(leaf.providerModel).toEqual({
+              status: 'known',
+              attempts: [{ observations: [served] }],
+              models: [served],
+            })
+            expect(aggregate).toMatchObject({ status: 'known', models: [served] })
+            expect(dispatchIdentity).toEqual({ kind: 'known', model: served })
+            expect(modelHasSnapshot(served!)).toBe(true)
+            if (served === 'claude-sonnet-4-6' || served === 'claude-opus-4-6') {
+              expect(canonicalObservedModelParts(`anthropic/${served}`)).toEqual({
+                base: served,
+                snapshot: served,
+                fixed: true,
+                canonical: served,
+              })
+              expect(mergeObservedModelIdentity(served, `${served}@${served}`)).toBeUndefined()
+              expect(mergeObservedModelIdentity(served, `${served}-20261112`)).toBeUndefined()
+            }
+          } else {
+            const expected = { status: 'unknown', reason: `provider-model-${verdict}` }
+            expect(leaf.providerModel).toMatchObject(expected)
+            expect(aggregate).toMatchObject(expected)
+            expect(dispatchIdentity).toEqual({ kind: 'unknown' })
+          }
+          await Promise.race([Promise.allSettled(reads), sleep(2000)])
+          const frames = bodies.flatMap((body) =>
+            body
+              .split('\n')
+              .filter((line) => line.startsWith('data: {'))
+              .map((line) => JSON.parse(line.slice(6))),
+          )
+          expect(frames.some((frame) => frame.model === `claude-code/anthropic/${requested}`)).toBe(
+            true,
+          )
+          expect([...new Set(frames.flatMap((frame) => frame.provider_models ?? []))]).toEqual(
+            served === undefined ? [] : [served],
+          )
+        } finally {
+          await fixture.close()
+        }
+      },
+      60000,
+    )
+
+    it.each([
+      ['equivalent numeric dates', 'gpt-4o-20240806', 'known'],
+      ['a date and an opaque token', 'gpt-4o@2024-08-06', 'conflict'],
+    ] as const)(
+      'preserves %s across independently known children and cold journal reduction',
+      async (_label, secondModel, verdict) => {
+        const models = ['gpt-4o-2024-08-06', secondModel]
+        const fixtures: Awaited<ReturnType<typeof paired>>[] = []
+        try {
+          for (const model of models) fixtures.push(await paired('served', { model }))
+          const runId = 'provider-served-model-replay'
+          const runDir = join(fixtures[0]!.directory, 'served-run')
+          const context = createFileRunContext(runDir)
+          const root: Agent<unknown, unknown> = {
+            name: 'served-replay-owner',
+            act: async (_task, scope) => {
+              for (const [index, fixture] of fixtures.entries()) {
+                const child = scope.spawn(
+                  providerIdentityWorker(fixture, 'gpt-4o'),
+                  'Return the protocol fixture result.',
+                  { key: `child-${index}`, budget: { maxIterations: 2, maxTokens: 1000 } },
+                )
+                if (!child.ok) throw new Error('native worker was not admitted')
+                const settled = await scope.next()
+                if (settled?.kind !== 'done') throw new Error('native worker did not settle')
+              }
+              return true
+            },
+          }
+          const result = await createSupervisor<unknown, unknown>().run(root, 'served-task', {
+            ...context,
+            runId,
+            budget,
+            rootIdentity: {
+              profileDigest: canonicalCandidateDigest({ name: root.name }),
+              taskDigest: canonicalCandidateDigest('served-task'),
+            },
+          })
+          expect(result.kind).toBe('winner')
+          const retained = await context.journal.loadTree(runId)
+          const children = retained?.filter(
+            (event) => event.kind === 'settled' && event.id !== runId,
+          )
+          expect(children?.map((event) => event.providerModel)).toEqual(
+            models.map((model) => ({
+              status: 'known',
+              attempts: [{ observations: [model] }],
+              models: [model],
+            })),
+          )
+          const cold = createFileRunContext(runDir)
+          const aggregate = aggregateProviderModelEvidence(
+            await loadSpawnForest(cold.journal, runId),
+          )
+          expect(aggregate).toEqual({
+            status: verdict === 'known' ? 'known' : 'unknown',
+            ...(verdict === 'conflict' ? { reason: 'provider-model-conflict' } : {}),
+            attempts: models.map((model) => ({ observations: [model] })),
+            models,
+          })
+          expect(
+            supervisedTreeModelForDispatch({ ...result, providerModel: aggregate }, profile),
+          ).toEqual(
+            verdict === 'known'
+              ? { kind: 'known', model: models[0] }
+              : { kind: 'mixed', models: ['gpt-4o-2024-08-06', 'gpt-4o@2024-08-06'] },
+          )
+          expect(await cold.journal.loadTree(runId)).toEqual(retained)
+        } finally {
+          await Promise.all(fixtures.map((fixture) => fixture.close()))
+        }
+      },
+      60000,
+    )
   },
 )

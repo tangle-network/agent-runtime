@@ -14,7 +14,7 @@ import type {
   SpendGap,
   WorkerTraceEvidence,
 } from '../runtime/supervise/types'
-import { addSpend, cloneSpend, zeroSpend } from '../runtime/util'
+import { addSpend, cloneSpend, cloneTokenUsage, zeroSpend } from '../runtime/util'
 import type { RuntimeDecisionKind, RuntimeHookTarget } from '../runtime-hooks'
 import { type ObserverRecord, verifyObserverRecords } from './observer-journal'
 
@@ -40,8 +40,11 @@ export type PursuitCostProvenance = 'reported' | 'estimated' | 'partial' | 'unkn
 export interface PursuitNodeUsage {
   readonly input: number
   readonly output: number
+  readonly freshInput?: number
   readonly cacheRead?: number
   readonly cacheWrite?: number
+  /** False when the observed prompt subtotal does not have a complete cache classification. */
+  readonly cacheBreakdownKnown?: false
   readonly reasoning?: number
   readonly tokensKnown: boolean
 }
@@ -806,10 +809,7 @@ function runSpendGaps(nodes: readonly MutableNode[]): SpendGap[] {
 
 function usageOf(total: Spend, reasoning: number | undefined): PursuitNodeUsage {
   return {
-    input: total.tokens.input,
-    output: total.tokens.output,
-    ...(total.tokens.cacheRead !== undefined ? { cacheRead: total.tokens.cacheRead } : {}),
-    ...(total.tokens.cacheWrite !== undefined ? { cacheWrite: total.tokens.cacheWrite } : {}),
+    ...cloneTokenUsage(total.tokens),
     ...(reasoning !== undefined ? { reasoning } : {}),
     tokensKnown: total.tokensKnown !== false && total.tokens.tokensKnown !== false,
   }
