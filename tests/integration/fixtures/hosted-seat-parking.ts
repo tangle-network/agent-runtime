@@ -3,7 +3,7 @@
  * entry node is a seated manager. `long` mode's seat resets 6 min out (past Runtime's seat park
  * floor); `short` mode's resets within the chain's 2 min recheck, so its node waits in place until
  * the caller cancels it. The clock is the only fake: `resume` reads it 10 min on.
- * `root-act` mode roots the graph in a caller brain that spawns the seated node and then holds one
+ * `root-act` mode supervises a caller-brain root that spawns the seated node and then holds one
  * real HTTP request open while that node waits on its far reset; `root-requests.jsonl` records
  * when the request reached and left the server.
  *
@@ -22,6 +22,8 @@ import {
   runGraph,
   type ToolLoopChat,
 } from '../../../src/runtime/index'
+import type { SelectSeat } from '../../../src/runtime/supervise/seat-chain'
+import { superviseWithTestBrain } from '../../../src/testing/index'
 import { openSql, TEST_LEASE } from '../../helpers/durability/sql-adapter'
 import { durableRetainedProvider } from '../../helpers/durable-retained-provider'
 import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-agent-profile'
@@ -89,7 +91,7 @@ const rootBrain: ToolLoopChat = async () => {
         {
           id: 'spawn-work',
           name: 'spawn_worker',
-          arguments: JSON.stringify({ profile: { name: 'work' }, task: 'Finish the seated work.' }),
+          arguments: JSON.stringify({ profile, task: 'Finish the seated work.', key: 'work' }),
         },
       ],
     }
@@ -97,114 +99,101 @@ const rootBrain: ToolLoopChat = async () => {
   if (rootTurns === 2) await heldRequest()
   return { content: 'waiting for the seated work', toolCalls: [] }
 }
+// A caller-brain root under `supervise`: a rooted graph places a harness child only on a
+// driverBackend, which a caller brain excludes.
+const lead = testAgentProfile('lead', {
+  harness: 'cli-base',
+  tools: runtimeToolDeclarations('spawn_worker'),
+})
 const directive = promptHandle('delegates/worker-brief/v1')
 const graph =
-  mode === 'root-act'
+  mode === 'gate-held'
     ? {
         nodes: [
-          {
-            id: 'lead',
-            profile: testAgentProfile('lead', {
-              harness: 'cli-base',
-              tools: runtimeToolDeclarations('spawn_worker'),
-            }),
-          },
           { id: 'work', profile },
+          // Seated like `work` but ready at once: a seat runs on the fixture's own backend,
+          // while a seatless graph node is held to JSON output the retained provider lacks.
+          { id: 'build', profile: { ...profile, name: 'build' } },
+        ],
+        entry: [
+          { node: 'work', task: 'Finish the seated work.' },
+          { node: 'build', task: 'Build it.' },
         ],
         edges: [
-          {
-            kind: 'delegates' as const,
-            from: 'lead',
-            to: 'work',
+          { kind: 'routes' as const, from: 'build', to: 'review', directive },
+          ...['approve', 'reject'].map((choice) => ({
+            kind: 'routes' as const,
+            from: 'review',
+            to: { stop: choice },
             directive,
-            maxTraversals: 1,
-          },
+            when: { pointer: '/choice', equals: choice },
+          })),
         ],
+        gates: [{ id: 'review', question: 'Ship it?', choices: ['approve', 'reject'] }],
       }
-    : mode === 'gate-held'
-      ? {
-          nodes: [
-            { id: 'work', profile },
-            {
-              id: 'build',
-              // Seatless, on the same retained provider: it settles at once and routes to the gate.
-              profile: testAgentProfile('build', {
-                harness: 'opencode',
-                model: { provider: 'anthropic', default: 'claude-opus-4-1' },
-              }),
-            },
-          ],
-          entry: [
-            { node: 'work', task: 'Finish the seated work.' },
-            { node: 'build', task: 'Build it.' },
-          ],
-          edges: [
-            { kind: 'routes' as const, from: 'build', to: 'review', directive },
-            ...['approve', 'reject'].map((choice) => ({
-              kind: 'routes' as const,
-              from: 'review',
-              to: { stop: choice },
-              directive,
-              when: { pointer: '/choice', equals: choice },
-            })),
-          ],
-          gates: [{ id: 'review', question: 'Ship it?', choices: ['approve', 'reject'] }],
-        }
-      : {
-          nodes: [{ id: 'work', profile }],
-          edges: [],
-          entry: [{ node: 'work', task: 'Finish the seated work.' }],
-        }
+    : {
+        nodes: [{ id: 'work', profile }],
+        edges: [],
+        entry: [{ node: 'work', task: 'Finish the seated work.' }],
+      }
+const selectSeat: SelectSeat = async ({ profile: seated }) => {
+  selections += 1
+  if (phase === 'resume' || seated.name === 'build') return { seat: 'ready-seat', backend }
+  return { resumeAt: new Date(now() + (mode === 'short' ? 300 : 360_000)).toISOString() }
+}
+const shared = {
+  runId: RUN_ID,
+  runContext: context,
+  ...(phase === 'park' ? {} : { resume: true }),
+  parking: { afterMs: 30 },
+  now,
+  backend,
+  selectSeat,
+  coordination: {
+    authentication: {
+      signingKeys: { activeKeyId: 'fixture', keys: { fixture: 'fixture-signing-key-'.repeat(4) } },
+    },
+    publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager`,
+  },
+  perWorker: { maxIterations: 2, maxTokens: 500 },
+  childSettleGraceMs: 0,
+  signal: abort.signal,
+}
+const deliverable = { describe: 'the seated work', check: () => true }
+const budget = { maxIterations: 20, maxTokens: 10_000, deadlineMs: 3_600_000 }
 try {
-  const outcome = await runGraph(
-    {
-      ...graph,
-      deliverable: { describe: 'the seated work', check: () => true },
-      budget: { maxIterations: 20, maxTokens: 10_000, deadlineMs: 3_600_000 },
-    },
-    {
-      // The caller brain drives the cli-base root; `backend` below places the seated node.
-      ...(mode === 'root-act' ? { brain: rootBrain } : {}),
-      // The gate's answer is the flow root's own outside request, made while it settles `build`.
-      ...(mode === 'gate-held'
-        ? {
-            decideGate: async () => {
-              await heldRequest()
-              return { kind: 'choose' as const, choice: 'reject', by: 'fixture' }
+  const result =
+    mode === 'root-act'
+      ? await superviseWithTestBrain(lead, 'Finish the seated work.', {
+          ...shared,
+          deliverable,
+          budget,
+          brain: rootBrain,
+        })
+      : (
+          await runGraph(
+            { ...graph, deliverable, budget },
+            {
+              ...shared,
+              // The gate's answer is the flow root's own outside request, made while it settles
+              // `build`.
+              ...(mode === 'gate-held'
+                ? {
+                    decideGate: async () => {
+                      await heldRequest()
+                      return { kind: 'choose' as const, choice: 'reject', by: 'fixture' }
+                    },
+                  }
+                : {}),
             },
-          }
-        : {}),
-      runId: RUN_ID,
-      runContext: context,
-      ...(phase === 'park' ? {} : { resume: true }),
-      parking: { afterMs: 30 },
-      now,
-      backend,
-      selectSeat: async () => {
-        selections += 1
-        if (phase === 'resume') return { seat: 'ready-seat', backend }
-        return { resumeAt: new Date(now() + (mode === 'short' ? 300 : 360_000)).toISOString() }
-      },
-      coordination: {
-        authentication: {
-          signingKeys: {
-            activeKeyId: 'fixture',
-            keys: { fixture: 'fixture-signing-key-'.repeat(4) },
-          },
-        },
-        publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager`,
-      },
-      perWorker: { maxIterations: 2, maxTokens: 500 },
-      childSettleGraceMs: 0,
-      signal: abort.signal,
-    },
-  )
+          )
+        ).result
   process.stdout.write(
     `${JSON.stringify({
       kind: 'settled',
-      result: outcome.result.kind,
-      reason: 'reason' in outcome.result ? outcome.result.reason : undefined,
-      nodes: outcome.result.tree.nodes.map((node) => ({ label: node.label, status: node.status })),
+      result: result.kind,
+      reason: 'reason' in result ? result.reason : undefined,
+      nodes: result.tree.nodes.map((node) => ({ label: node.label, status: node.status })),
       events: await journal(),
     })}\n`,
   )
