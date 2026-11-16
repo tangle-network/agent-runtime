@@ -46287,8 +46287,9 @@ and control log are readable projections written only by the admission winner.
 **`Stable`**
 
 Admit one steer like `writeWorkerSteer`, without blocking the calling thread on the disk.
-The request file is published by the durable writer, so an event loop that admits steers keeps
-running while the file and its directory reach disk. Same admission, replay and conflict rules.
+The request file is published by the durable writer whether or not the caller holds a run claim
+(a coordinator outside the run holds none), so an event loop that admits steers keeps running
+while the file and its directory reach disk. Same admission, replay and conflict rules.
 
 #### Parameters
 
