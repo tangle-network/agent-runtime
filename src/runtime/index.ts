@@ -688,7 +688,9 @@ export * from './supervise/reentry'
 export * from './supervise/remote-supervisor'
 export type { EvidencePendingEvent } from './supervise/retained-executor'
 export {
+  type CancelRunOptions,
   cancelRun,
+  cancelRunAsync,
   type RunCancellation,
   type RunCancelRequest,
   readRunCancellation,

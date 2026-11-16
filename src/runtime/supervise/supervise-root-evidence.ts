@@ -1,5 +1,9 @@
 import { resolve } from 'node:path'
-import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-cancellation'
+import {
+  readRunCancellation,
+  readRunCancelRequest,
+  writeRunCancellationAsync,
+} from './run-cancellation'
 import type { RootProviderModelEvidence, SupervisedResult } from './types'
 
 /**
@@ -12,11 +16,11 @@ import type { RootProviderModelEvidence, SupervisedResult } from './types'
  * never a success. A request the run ended before applying is expired here too, so a reader can
  * tell run-over from in-progress and a stale request cannot outlive its run.
  */
-export function recordRunCancellationOutcome(
+export async function recordRunCancellationOutcome(
   runDir: string | undefined,
   result: SupervisedResult<unknown>,
   now: () => number,
-): void {
+): Promise<void> {
   if (runDir === undefined) return
   const dir = resolve(runDir)
   const request = readRunCancelRequest(dir)
@@ -41,7 +45,7 @@ export function recordRunCancellationOutcome(
     ...(request.operator === undefined ? {} : { operator: request.operator }),
   }
   if (record === undefined) {
-    writeRunCancellation(dir, {
+    await writeRunCancellationAsync(dir, {
       ...base,
       effect: 'not_live',
       detail: 'run ended before the request was applied',
@@ -49,7 +53,7 @@ export function recordRunCancellationOutcome(
     return
   }
   if (aborted && result.teardownUnconfirmed?.length) {
-    writeRunCancellation(dir, {
+    await writeRunCancellationAsync(dir, {
       ...base,
       effect: 'unknown',
       detail: `run aborted but teardown remains unconfirmed for: ${result.teardownUnconfirmed
@@ -62,7 +66,7 @@ export function recordRunCancellationOutcome(
     })
     return
   }
-  writeRunCancellation(
+  await writeRunCancellationAsync(
     dir,
     aborted
       ? { ...base, effect: 'cancelled', detail: 'the run reached its terminal cancelled state' }
