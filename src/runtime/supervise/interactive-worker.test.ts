@@ -213,7 +213,9 @@ describe('workerFromInteractiveProvider', () => {
     expect(fixture.stats.destroyCalls).toBe(0)
   })
 
-  it('creates a durable supervisor root, spawns a live worker, and attaches through the public API', async () => {
+  it('creates a durable supervisor root, spawns a live worker, and attaches through the public API', async ({
+    signal,
+  }) => {
     const fixture = interactiveProviderFixture()
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-supervisor-interactive-'))
     const workerProfile: AgentProfile = {
@@ -221,6 +223,8 @@ describe('workerFromInteractiveProvider', () => {
       harness: 'codex',
       model: { provider: 'openai', default: 'openai/gpt-5' },
     }
+    const controller = new AbortController()
+    let run: ReturnType<typeof superviseWithTestBrain> | undefined
     let turn = 0
     const brain: ToolLoopChat = async () => {
       turn += 1
@@ -245,7 +249,7 @@ describe('workerFromInteractiveProvider', () => {
       return { content: 'worker stopped', toolCalls: [] }
     }
     try {
-      const run = superviseWithTestBrain(
+      run = superviseWithTestBrain(
         {
           name: 'interactive supervisor',
           harness: 'cli-base',
@@ -259,13 +263,23 @@ describe('workerFromInteractiveProvider', () => {
           budget: { maxIterations: 20, maxTokens: 1_000 },
           runDir: root,
           runId: 'interactive-supervisor',
+          signal: AbortSignal.any([signal, controller.signal]),
           makeWorkerAgent: workerFromInteractiveProvider(fixture.provider, {
             pollIntervalMs: 1,
           }),
           brain,
         },
       )
+      // Spawn admission can return before durable preparation enters the provider.
+      // Observe the real process first, then prove Runtime's persisted public binding.
+      const started = await Promise.race([
+        fixture.processStarted,
+        run.then((result) => {
+          throw new Error(`supervisor settled before interactive provider start: ${result.kind}`)
+        }),
+      ])
       const attached = await waitForAttached(root, 'interactive-supervisor:s0', fixture.provider)
+      expect(attached.handle.ref).toEqual(started)
       const control = await claimControl(attached.handle, 'external-controller')
       const terminal = await attached.handle.attach({ control })
       await terminal.input({ data: 'status\n' })
@@ -289,7 +303,12 @@ describe('workerFromInteractiveProvider', () => {
         JSON.stringify(readWorkerInteractiveAdmissions(root, 'interactive-supervisor:s0')),
       ).not.toContain('secret')
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      controller.abort(new Error('interactive supervisor test cleanup'))
+      try {
+        await run
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
     }
   })
 })
@@ -645,6 +664,7 @@ interface FixtureProcess {
 
 function interactiveProviderFixture(): {
   provider: AgentEnvironmentProvider
+  processStarted: Promise<AgentInteractiveSessionRef>
   stats: {
     readonly prompts: FixturePrompt[]
     readonly stops: FixtureStop[]
@@ -657,6 +677,10 @@ function interactiveProviderFixture(): {
 } {
   const environments = new Map<string, AgentEnvironment>()
   const processes = new Map<string, FixtureProcess>()
+  let reportProcessStarted!: (ref: AgentInteractiveSessionRef) => void
+  const processStarted = new Promise<AgentInteractiveSessionRef>((resolve) => {
+    reportProcessStarted = resolve
+  })
   const stats = {
     prompts: [] as FixturePrompt[],
     stops: [] as FixtureStop[],
@@ -680,6 +704,7 @@ function interactiveProviderFixture(): {
         provider,
         processes,
         stats,
+        reportProcessStarted,
       )
       environments.set(key, environment)
       stats.createEffects += 1
@@ -690,7 +715,7 @@ function interactiveProviderFixture(): {
       return [...environments.values()].find((environment) => environment.id === id) ?? null
     },
   }
-  return { provider, stats }
+  return { provider, stats, processStarted }
 }
 
 const fixtureCapabilities: AgentEnvironmentCapabilities = {
@@ -744,6 +769,7 @@ function makeEnvironment(
     readonly stops: FixtureStop[]
     destroyCalls: number
   },
+  reportProcessStarted: (ref: AgentInteractiveSessionRef) => void,
 ): AgentEnvironment {
   return {
     id,
@@ -770,6 +796,7 @@ function makeEnvironment(
         stops: new Map(),
       }
       processes.set(request.run.executionId, process)
+      reportProcessStarted(ref)
       return ref
     },
     interactive(ref) {
