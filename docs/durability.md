@@ -84,7 +84,10 @@ Durable `supervise`, `supervisePursuit` and `runGraph` callers (a `runDir` or a 
 with an existing keeper can opt into `parking: {}`. `RunParkingPolicy.afterMs` changes the idle
 threshold; its default belongs to the Runtime implementation. A run may park when every live node
 only waits: the root on a retry/stop pause or its deadline, and any node, children included, on a
-subscription seat reset at least `SEAT_PARK_MIN_MS` (5 min) away. It also needs no unconfirmed
+subscription seat reset at least `SEAT_PARK_MIN_MS` (5 min) away. The root counts as waiting
+only in its own pause, or while it awaits its workers' events with no settlement handling
+(analysts, maps, route gates), tool receipt or lead message of its own in flight. A root with a
+model call or outside request open keeps its coordinator, and a park ends the root's event wait. It also needs no unconfirmed
 child cleanup, no uncertain retained invocation, and no pending coordination effects or unread
 authority. Committed child settlement notifications remain replayable. Active work keeps its
 coordinator. This deliberately does not suspend working children or move workflow timers into

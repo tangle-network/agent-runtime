@@ -2,6 +2,7 @@ import type { Settled } from '../../runtime'
 import { createEventBus, type EventBus } from '../../runtime/supervise/event-bus'
 import type { InboxReceipt } from '../../runtime/supervise/inbox'
 import { createPeerMailbox, type PeerMailbox } from '../../runtime/supervise/peer-mail'
+import { bindScopeParkingDrain } from '../../runtime/supervise/run-parking'
 import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import type { McpToolDescriptor } from '../server'
 import { createCoordinationAnalysis } from './coordination-analysis'
@@ -168,6 +169,13 @@ export function createCoordinationToolsForManager(
     leadPublishing: () => intake.leadPublishing(),
     openReceiptCount: () => intake.openReceiptCount(),
   })
+  // A driver awaiting its wake still owns settlement handling (analysts, maps, route gates), tool
+  // receipts and lead publishes; parking waits for them. A harness manager binds its own later.
+  bindScopeParkingDrain(
+    opts.scope,
+    async () => {},
+    () => !settlements.isBusy() && intake.openReceiptCount() === 0 && intake.leadPublishing() === 0,
+  )
 
   const parts: ManagerParts = {
     opts,

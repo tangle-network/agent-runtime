@@ -4,6 +4,7 @@ import {
   nativeReasoningControl,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
+import { qualifyModelId } from '@tangle-network/agent-profile-materialize'
 import { concreteProfileModel } from '../runtime/supervise/model-policy'
 import { CODEX_REPRODUCIBLE_ARGS } from './codex-execution-policy'
 
@@ -301,9 +302,7 @@ function harnessProfileModel(harness: LocalHarness, profile: AgentProfile): stri
   if (!model) return undefined
   const provider = profile.model?.provider?.trim()
   if (!provider) return model
-  if (harness === 'opencode') {
-    return model.includes('/') ? model : `${provider}/${model}`
-  }
+  if (harness === 'opencode') return qualifyModelId(provider, model)
   // kimi's `-m` resolves an alias against the user's OWN kimi config, whose providers the
   // operator defines (`kimi provider …`); there is no single native provider to enforce, and
   // the CLI refuses an unknown alias itself. The qualified id passes through whole.

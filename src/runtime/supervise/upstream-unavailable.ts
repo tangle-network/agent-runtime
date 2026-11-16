@@ -80,6 +80,9 @@ export function unavailableSignalOfFailure(failure: {
   return unavailableSignalInText(failure.error)
 }
 
+/** No unchanged no-progress failure earns a fourth drive, including root pauses and capacity. */
+export const SAME_CAUSE_LIMIT = 3
+
 const DEFAULT_UNAVAILABLE_PAUSE_MS = 15_000
 const DEFAULT_MAX_UNAVAILABLE_PAUSE_MS = 300_000
 
