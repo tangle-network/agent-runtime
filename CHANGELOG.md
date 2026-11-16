@@ -1,5 +1,7 @@
 ## 10.0.5
 
+Preserve failed graph runs' measured cost in designer history and tool results, and keep incomplete usage out of measured-cost replay comparisons.
+
 Read bounded run evidence from the canonical node usage projection, including manager inference and incomplete-token flags; retain fresh-input and cache-completeness evidence in pursuit projections.
 
 Retain observed fixed provider model IDs, including Claude Sonnet and Opus 4.6 and Claude Opus 5, as exact identities through provider execution, spawn journals, and Eval receipts. Recognition follows Eval's immutable-model policy, including Router month/day IDs such as `gpt-4-0613` and `deepseek-chat-v3-0324`, and Vertex `:date-<token>` IDs. `observedModelHasSnapshot('claude-sonnet-4-6')` now returns true. Keep the public `SnapshotKind` union unchanged; `canonicalObservedModelParts` reports fixed identities with optional `fixed: true`, a nonempty snapshot, and the unchanged provider id as `canonical`.
