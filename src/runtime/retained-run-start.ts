@@ -68,6 +68,7 @@ import type {
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
+import { sleep } from './util'
 
 /** Mint the same session and execution from `(idempotencyKey, turnId)` in every process. */
 export function mintRetainedIdentity(
@@ -86,25 +87,62 @@ export function mintRetainedIdentity(
 
 /** Bound from a durable intent until `provider.create` resolves. */
 const RETAINED_ENVIRONMENT_MATERIALIZATION_MS = 120_000
+/**
+ * Creates per admission. A create that does not answer within the bound, or that Sandbox answers
+ * `OPERATION_FAILED`, is tried again with the same idempotency key after a pause of an eighth of
+ * the bound (at most 15 s). The last failure stops the driver, named. Nothing was dispatched.
+ * (#2670)
+ */
+const RETAINED_CREATE_TRIES = 3
 
-/** Create never reached an environment. The message names the stage; the driver stops. */
+/** Create never reached an environment. The message names the stage and creates; driver stops. */
 export class RetainedMaterializationTimeoutError extends Error {
   readonly stage = 'intent' as const
-  constructor() {
-    super('retained run reached stage intent and did not materialize an environment')
+  constructor(readonly creates = 1) {
+    const tried = creates > 1 ? ` after ${creates} creates` : ''
+    super(`retained run reached stage intent and did not materialize an environment${tried}`)
     this.name = 'RetainedMaterializationTimeoutError'
   }
 }
 
-function createRetainedEnvironment(
+/** Sandbox's catalogued server failure (`OPERATION_FAILED`, 500): a keyed create may run again. */
+function operationFailed(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  try {
+    const codes = [Reflect.get(error, 'code'), Reflect.get(error, 'catalogCode')]
+    return codes.includes('OPERATION_FAILED')
+  } catch {
+    return false
+  }
+}
+
+async function createRetainedEnvironment(
   options: StartRetainedRunOptions,
   parent: AbortSignal | undefined,
 ): Promise<AgentEnvironment> {
-  const timeout = AbortSignal.timeout(
-    options.materializationTimeoutMs ?? RETAINED_ENVIRONMENT_MATERIALIZATION_MS,
-  )
+  const bound = options.materializationTimeoutMs ?? RETAINED_ENVIRONMENT_MATERIALIZATION_MS
+  const aborted = () => parent?.aborted === true
+  for (let create = 1; ; create += 1) {
+    try {
+      return await createRetainedEnvironmentOnce(options, parent, bound, create)
+    } catch (error) {
+      const again = error instanceof RetainedMaterializationTimeoutError || operationFailed(error)
+      if (!again || create === RETAINED_CREATE_TRIES || aborted()) throw error
+      await sleep(Math.min(15_000, Math.ceil(bound / 8)), parent)
+      if (aborted()) throw parent?.reason instanceof Error ? parent.reason : error
+    }
+  }
+}
+
+function createRetainedEnvironmentOnce(
+  options: StartRetainedRunOptions,
+  parent: AbortSignal | undefined,
+  bound: number,
+  create: number,
+): Promise<AgentEnvironment> {
+  const timeout = AbortSignal.timeout(bound)
   const signal = parent === undefined ? timeout : AbortSignal.any([parent, timeout])
-  const create = options.provider.create({
+  const created = options.provider.create({
     ...options.environment,
     signal,
     metadata: retainedEnvironmentMetadata(
@@ -117,7 +155,7 @@ function createRetainedEnvironment(
     const fail = () => {
       reject(
         timedOut()
-          ? new RetainedMaterializationTimeoutError()
+          ? new RetainedMaterializationTimeoutError(create)
           : parent?.reason instanceof Error
             ? parent.reason
             : new Error('retained run materialization aborted'),
@@ -128,14 +166,14 @@ function createRetainedEnvironment(
       return
     }
     signal.addEventListener('abort', fail, { once: true })
-    create.then(
+    created.then(
       (environment) => {
         signal.removeEventListener('abort', fail)
         resolve(environment)
       },
       (error: unknown) => {
         signal.removeEventListener('abort', fail)
-        reject(timedOut() ? new RetainedMaterializationTimeoutError() : error)
+        reject(timedOut() ? new RetainedMaterializationTimeoutError(create) : error)
       },
     )
   })
