@@ -4,9 +4,9 @@ import { runFencedAlways } from '../../durable/durable-writer'
 import type { RetainedRunEffect } from '../retained-run-types'
 import {
   assertNoSymlinkDescendant,
+  publishExclusiveFenced,
   writeAtomicDurableFile,
   writeAtomicDurableFileAsync,
-  writeAtomicFenced,
 } from './durable-file'
 import {
   appendWorkerControlEvent,
@@ -112,7 +112,9 @@ export function watchRunCancellation(
       () => {
         if (inFlight === settled) inFlight = undefined
       },
-      () => {
+      (error: unknown) => {
+        // Kept even after close, so the settle path's check() throws it instead of reading no record.
+        failure ??= error
         if (inFlight === settled) inFlight = undefined
       },
     )
@@ -351,13 +353,16 @@ export async function cancelRunAsync(
   const admission = admitRunCancel(eventDir, operationId, options)
   if ('answer' in admission) return admission.answer
   if (admission.file !== undefined) {
-    await runFencedAlways(
-      'writeAtomicDurableFile',
-      writeAtomicFenced,
+    // Published only if no request is there yet: an overlapping call admitted against the same empty
+    // inbox loses here, and is admitted again against the winner, which it replays or conflicts with.
+    const published = await runFencedAlways(
+      'publishExclusiveDurableFile',
+      publishExclusiveFenced,
       admission.file,
       recordText(admission.request),
       { mode: 0o600 },
     )
+    if (!published) return cancelRunAsync(eventDir, operationId, options)
     await appendWorkerControlEventAsync(eventDir, 'run', admission.event)
   }
   return queuedRunCancellation(admission.request)

@@ -175,7 +175,13 @@ it('a run stop and its cancellation records wait on the durable writer without b
       operator: 'test-operator',
       reason: 'solved',
     }).then((answer) => ({ answer, doneMs: performance.now() - began }))
-    const [settledMs, outside] = await Promise.all([settled, stopped])
+    // A second stop under another operation id, admitted against the same still-empty inbox, loses
+    // the exclusive publication and is refused against the first: one run carries one operation.
+    const rival = cancelRunAsync(other, 'stop-rival', { operator: 'test-operator' }).then(
+      () => 'admitted',
+      (error: Error) => error.message,
+    )
+    const [settledMs, outside, rivalOutcome] = await Promise.all([settled, stopped, rival])
     const worstGapMs = worstGap()
     holder.kill('SIGKILL')
 
@@ -186,6 +192,7 @@ it('a run stop and its cancellation records wait on the durable writer without b
     expect(readRunCancellation(dir, 'stop-run')?.effect).toBe('cancelled')
     expect(outside.answer.effect).toBe('unknown')
     expect(readRunCancelRequest(other)?.operationId).toBe('stop-other')
+    expect(rivalOutcome).toMatch(/'stop-other' is already pending/)
   } finally {
     await lock.release()
   }
