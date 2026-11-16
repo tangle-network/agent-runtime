@@ -326,7 +326,14 @@ function runCancellationTarget(eventDir: string): string {
 export function cancelRun(
   eventDir: string,
   operationId: string,
-  options: CancelRunOptions = {},
+  // Inline, as published through 10.0.5: the archive admission reads a named type here as a new
+  // shape, which would make this patch a major.
+  options: {
+    readonly reason?: string
+    readonly source?: string
+    readonly deadlineMs?: number
+    readonly operator?: string
+  } = {},
 ): RunCancellation {
   const admission = admitRunCancel(eventDir, operationId, options)
   if ('answer' in admission) return admission.answer
