@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -762,6 +762,7 @@ it('stores an authored root policy and continues a real driver process after its
         from: 'lead',
         to: 'worker',
         directive: { surface: 'delegates/worker-brief', version: 1 },
+        maxTraversals: 1,
       },
     ],
     budget: { maxIterations: 12, maxTokens: 10000, deadlineMs: 10000 },
@@ -853,6 +854,22 @@ fetch(url,{method:'POST',headers:{'content-type':'application/json',...JSON.pars
         if (child.exitCode !== 0) throw new Error(child.stderr)
       },
     }
+    for (const axis of ['nodes', 'edges'] as const)
+      for (const value of [[], {}])
+        expect(() => runGraph({ ...graph, [axis]: value } as typeof graph, options)).toThrow(
+          `graph.${axis} must be a non-empty array`,
+        )
+    for (const maxTraversals of [Number.NaN, Number.POSITIVE_INFINITY])
+      await expect(
+        Promise.resolve().then(() =>
+          runGraph(
+            { ...graph, edges: graph.edges.map((edge) => ({ ...edge, maxTraversals })) },
+            { ...options, runId: 'invalid-cap', runDir: join(directory, 'invalid-cap') },
+          ),
+        ),
+      ).rejects.toThrow('maxTraversals as a positive integer')
+    for (const runDir of [options.runDir, join(directory, 'invalid-cap')])
+      await expect(stat(runDir)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(() => runGraph(graph, { ...options, continuation: policy })).toThrow('two policy owners')
     expect(() =>
       runGraph(

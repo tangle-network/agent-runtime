@@ -40,6 +40,29 @@ const rpc = async (method, params, authenticated = true) => {
   const listed = await rpc('tools/list')
   assert.equal(listed.status, 200)
   assert.deepEqual(listed.body.result.tools.map(tool => tool.name).sort(), ['observe_agent', 'read_journal', 'run_graph', 'spawn_worker', 'submit_result'])
+  const nodes = ['lead', 'worker', 'critic'].map(id => ({ id, profile: {
+    name: id, harness: 'cli-base', model: { provider: 'fixture', default: 'fixture/graph' },
+    ...(id === 'lead' ? { tools: { agent_runtime_coordination_spawn_worker: true } } : {}),
+  } }))
+  const edges = [
+    { kind: 'delegates', from: 'lead', to: 'worker', directive: 'delegates/worker-brief/v1' },
+    { kind: 'analyzes', analyst: 'critic', over: ['worker'], to: 'lead', directive: 'analyzes/findings-report/v1' },
+  ]
+  for (const index of [0, 1]) {
+    for (const maxTraversals of ['unlimited', '1', null, 0, -1, 0.5, Number.MAX_SAFE_INTEGER + 1, 1, undefined]) {
+      const response = await rpc('tools/call', { name: 'run_graph', arguments: {
+        graph: { nodes, edges: edges.map((edge, i) => i === index ? { ...edge, maxTraversals } : edge) },
+        deliverable: 'An independently checked answer',
+      } })
+      const outcome = JSON.parse(response.body.result.content.find(part => part.type === 'text').text)
+      if (maxTraversals === 1 || maxTraversals === undefined) {
+        assert.equal(outcome.error, 'depth-exceeded', JSON.stringify(outcome))
+      } else {
+        assert.equal(outcome.error, 'invalid-graph', JSON.stringify(outcome))
+        assert.match(outcome.reason, /maxTraversals as a positive integer/u)
+      }
+    }
+  }
   const early = await rpc('tools/call', { name: 'submit_result', arguments: { result: { pid: 0 } } })
   const refused = JSON.parse(early.body.result.content.find(part => part.type === 'text').text)
   assert.equal(refused.accepted, false)
@@ -117,6 +140,7 @@ it.each(['driveHarness', 'resolveDriveHarness'] as const)(
     ).toThrow('AgentProfile.seats requires selectSeat before execution')
     let observed: { pid: number; sha256: string } | undefined
     let nativeTurns = 0
+    let nativeError = ''
     const driveHarness: DriveHarness = async (driver) => {
       expect(++nativeTurns).toBe(1)
       expect(driver.reentry).toBeUndefined()
@@ -140,7 +164,10 @@ it.each(['driveHarness', 'resolveDriveHarness'] as const)(
             SEAT_TEST_MCP_HEADERS: JSON.stringify(driver.coordinationMcpHeaders),
           },
         },
-      )
+      ).catch((error) => {
+        nativeError = String(error)
+        throw error
+      })
       observed = JSON.parse(child.stdout.trim())
     }
     const driverOption =
@@ -169,7 +196,7 @@ it.each(['driveHarness', 'resolveDriveHarness'] as const)(
         },
       },
     })
-    expect(result.kind).toBe('winner')
+    expect(result.kind, nativeError).toBe('winner')
     expect(nativeTurns).toBe(1)
     expect(profile).toEqual(original)
     expect(JSON.parse(await readFile(join(directory, 'observation.json'), 'utf8')).seats).toEqual(

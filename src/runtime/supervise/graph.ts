@@ -681,14 +681,6 @@ function validateGraph(
   registry: PromptRegistry,
   analysts: AnalystRegistry | undefined,
 ): ValidatedGraph {
-  if (graph.entry === undefined) {
-    if (!Array.isArray(graph.nodes) || graph.nodes.length === 0) {
-      throw new ValidationError('runGraph: graph.nodes must be a non-empty array')
-    }
-    if (!Array.isArray(graph.edges) || graph.edges.length === 0) {
-      throw new ValidationError('runGraph: graph.edges must be a non-empty array')
-    }
-  }
   if (typeof graph.deliverable?.check !== 'function') {
     throw new ValidationError('runGraph: graph.deliverable is mandatory (termination oracle)')
   }
