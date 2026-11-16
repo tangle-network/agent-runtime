@@ -1,3 +1,13 @@
+## 10.0.6
+
+Run cancellation no longer blocks the event loop on the disk. New `cancelRunAsync` beside `cancelRun`, with the same admission, replay and conflict rules: the request file reaches disk on the durable writer whether or not the caller holds a run claim. Inside a run, the cancellation observer, the manager's turn boundary and the settle record write the acknowledgement on the durable writer under the run's claim; the abort itself is issued at once.
+
+Allow flow graph map joins to run deterministic command checks over ordered item results, retain output artifacts and replay their receipts without a model turn. Do not invent an empty profile connections axis for graph nodes whose needs list is empty, so local CLI execution can admit them without dropping authored capabilities.
+
+Preserve a map source's evidence before advancing its items, so resumed flow graphs can replay map-join repair routes without task-identity conflicts or repeating settled work. Honor a source route's stop before starting its map.
+
+A Sandbox create refused because no host has room (`CAPACITY_EXHAUSTED`, `HOST_PRESSURE`, `PLACEMENT_WARMING`, `PROVISIONING_PAUSED`, the Sandbox SDK's capacity codes) no longer ends a run as `repeated-failure` after three drives. A retained manager waits for room inside the same drive and under the same create key, until the run's deadline when it has one and for ten minutes when it has none; the refusal is recognized by its code, not its message. On a run with a deadline, a placement refusal that reaches the driver pauses without the unchanged-cause ceiling, as rate limits do. When the deadline ends the wait, the run settles `deadline` and its last driver attempt records `classification: 'unavailable'`, the refusal's `unavailableSignal` and `stop: 'deadline'`, instead of a driver failure.
+
 ## 10.0.5
 
 A retained start no longer ends the run at its first failed Sandbox create. When a create does not answer within the materialization bound, or Sandbox answers `OPERATION_FAILED`, it is tried again with the same idempotency key: three creates in all, with a short pause between them. The last failure still stops the driver, named.

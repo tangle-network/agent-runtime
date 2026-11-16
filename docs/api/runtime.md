@@ -46009,7 +46009,21 @@ or acknowledgement written before that rule is answered as it was.
 
 ##### options?
 
-[`CancelRunOptions`](#cancelrunoptions) = `{}`
+###### reason?
+
+`string`
+
+###### source?
+
+`string`
+
+###### deadlineMs?
+
+`number`
+
+###### operator?
+
+`string`
 
 #### Returns
 
