@@ -8,6 +8,7 @@ import { turnFailureOf, turnFailurePolicy } from './executor-outcome'
 export const PLACEMENT_SIGNALS: ReadonlySet<string> = new Set([
   'capacity_exhausted',
   'host_pressure',
+  'placement_warming',
   'provisioning_paused',
 ])
 
