@@ -32,16 +32,18 @@ import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import { sha256 } from '../../content-digest'
+import { runFencedAlways } from '../../durable/durable-writer'
 import type { EscalateQuestion } from '../../mcp/tools/coordination-questions'
 import type { RetainedRunEffect } from '../retained-run-types'
 import type { DriverAttemptStop } from './driver-attempt-evidence'
 import {
   appendDurableFile,
   appendRunLines,
-  appendRunLinesAsync,
+  appendRunLinesFenced,
   assertNoSymlinkDescendant,
   publishExclusiveDurableFile,
   publishExclusiveDurableFileAsync,
+  publishExclusiveFenced,
   writeAtomicDurableFile,
   writeAtomicDurableFileAsync,
 } from './durable-file'
@@ -287,8 +289,9 @@ export function writeWorkerSteer(
 
 /**
  * Admit one steer like `writeWorkerSteer`, without blocking the calling thread on the disk.
- * The request file is published by the durable writer, so an event loop that admits steers keeps
- * running while the file and its directory reach disk. Same admission, replay and conflict rules.
+ * The request file is published by the durable writer whether or not the caller holds a run claim
+ * (a coordinator outside the run holds none), so an event loop that admits steers keeps running
+ * while the file and its directory reach disk. Same admission, replay and conflict rules.
  * @stable
  */
 export async function writeWorkerSteerAsync(
@@ -301,7 +304,13 @@ export async function writeWorkerSteerAsync(
   const admitted = await admitSteerRequestAsync(steer.file, steer.request)
   if (admitted.replayed) return replayedSteer(steer, admitted)
   for (const projection of steerProjections(steer)) {
-    await appendRunLinesAsync(projection.file, projection.lines, projection.options).catch(() => {
+    await runFencedAlways(
+      'appendRunLines',
+      appendRunLinesFenced,
+      projection.file,
+      projection.lines,
+      projection.options,
+    ).catch(() => {
       // The atomic operation file is the queue. Its projections do not control admission.
     })
   }
@@ -817,7 +826,12 @@ async function admitSteerRequestAsync(
     steerAdmission(
       file,
       request,
-      await publishExclusiveDurableFileAsync(file, steerRequestText(request)),
+      await runFencedAlways(
+        'publishExclusiveDurableFile',
+        publishExclusiveFenced,
+        file,
+        steerRequestText(request),
+      ),
     )
   )
 }

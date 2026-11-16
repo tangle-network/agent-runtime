@@ -1,11 +1,10 @@
 import {
   assertNoSymlinkDescendant,
-  publishExclusiveFenced,
+  publishExclusiveDurableFileAsync,
 } from '../../runtime/supervise/durable-file'
 import { detachedSnapshot } from '../../runtime/supervise/snapshot'
 import type { ResultBlobStore } from '../../runtime/supervise/types'
 import { contentAddress } from '../content-address'
-import { runFencedAsync } from '../durable-writer'
 import { isNoEntError } from '../jsonl-file'
 import { captureRunWriteContext } from '../run-fence'
 
@@ -29,16 +28,7 @@ export class FileResultBlobStore implements ResultBlobStore {
       const fs = await import('node:fs/promises')
       await fs.mkdir(this.dir, { recursive: true })
       assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
-      // A put under a run claim goes to the durable writer; an unclaimed put keeps its caller's
-      // single-writer contract and runs here, as it did before the writer existed.
-      const published = await runFencedAsync(
-        'publishExclusiveDurableFile',
-        publishExclusiveFenced,
-        filePath,
-        text,
-        { mode: 0o600 },
-      )
-      if (!published) {
+      if (!(await publishExclusiveDurableFileAsync(filePath, text, { mode: 0o600 }))) {
         const existing = await this.get(outRef)
         assertContentAddress(outRef, existing)
       }
