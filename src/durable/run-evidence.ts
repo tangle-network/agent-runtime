@@ -7,6 +7,7 @@ import {
   ASSISTANT_TEXT_SPAN,
   rootStreamToolSpans,
 } from '../runtime/supervise/run-traces'
+import { cloneTokenUsage } from '../runtime/util'
 import { FileObserverJournal } from './observer-journal'
 import { projectPursuit } from './observer-projection'
 import { FileResultBlobStore } from './spawn-journal/result-blob-store'
@@ -35,6 +36,9 @@ const json = (value: unknown) =>
  * What each node of a run did, from the directory `superviseGraphPursuit` wrote: outcome and tokens
  * from the observer journal, settled output from `blobs/`, tool calls and the final message from
  * `streams/`. Over `totalChars` every cap halves, then the earliest nodes drop; size never throws.
+ * Tokens use the canonical node projection: settled descendant work plus the node's own
+ * inference. Missing accounting stays absent; an incomplete subtotal carries `tokensKnown: false`.
+ * Nested node totals overlap; use `projectPursuit().runs[].totals` for run-wide accounting.
  */
 export async function runEvidence(runDir: string, bounds: RunEvidenceBounds = {}) {
   const run = await discoverDurableSupervisionRun(runDir)
@@ -62,7 +66,14 @@ export async function runEvidence(runDir: string, bounds: RunEvidenceBounds = {}
               : [{ name: strip(span.name), args: json(span.args) }],
           ),
           message: final === undefined ? '' : (JSON.parse(json(final)) as string),
-          ...(node.spent?.tokens === undefined ? {} : { tokens: node.spent.tokens }),
+          ...(node.usage === undefined
+            ? {}
+            : {
+                tokens: cloneTokenUsage({
+                  ...node.usage,
+                  tokensKnown: node.usage.tokensKnown ? undefined : false,
+                }),
+              }),
         }
       }),
   )
