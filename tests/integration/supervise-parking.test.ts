@@ -275,12 +275,17 @@ describe('hosted graph seat parking over a SQL run context', () => {
     3 * CHILD_TIMEOUT_MS + 5_000,
   )
 
-  // Skipped until #2663: neither case has reached its parking state yet (the run settles first).
-  it.skip('parks a far seat wait only once the root has no request of its own open', async () => {
+  /** Where a run ended, for an assertion message: a miss names it instead of only the field. */
+  const ended = (outcome: { result?: string; reason?: string; nodes?: unknown }) =>
+    JSON.stringify({ result: outcome.result, reason: outcome.reason, nodes: outcome.nodes })
+  const seatWaitOpened = (events: Array<{ kind: string; gate?: string }>) =>
+    events.some((event) => event.kind === 'admission-queued' && event.gate === 'seat')
+
+  it('parks a far seat wait only once the root has no request of its own open', async () => {
     const dir = await directory()
     const parked = await host(dir, 'root-act', 'park')
-    // A settled run prints its result and nodes, so a miss names where the run went instead.
-    expect(parked).toMatchObject({ kind: 'parked', parking: { reason: 'seat-wait' } })
+    expect(parked.kind, ended(parked)).toBe('parked')
+    expect(parked.parking.reason).toBe('seat-wait')
     const rows = parkedRows(parked.events) as Array<{ kind: string; at: string }>
     expect(rows).toHaveLength(1)
     const requests = (await readFile(join(dir, 'root-requests.jsonl'), 'utf8'))
@@ -292,11 +297,12 @@ describe('hosted graph seat parking over a SQL run context', () => {
     expect(requests[0]!.answeredAt).toBeLessThanOrEqual(Date.parse(rows[0]!.at))
   })
 
-  it.skip('keeps the coordinator while a flow root answers a gate by a far seat wait', async () => {
+  it('keeps the coordinator while a flow root answers a gate by a far seat wait', async () => {
     const dir = await directory()
     const outcome = await host(dir, 'gate-held', 'park')
-    // The gate's reject answer stops the flow; a miss prints the nodes it ended on.
-    expect(outcome).toMatchObject({ kind: 'settled', reason: 'stopped' })
+    // The gate's reject answer stops the flow while `work` still waits on its far seat reset.
+    expect([outcome.kind, outcome.reason], ended(outcome)).toEqual(['settled', 'stopped'])
+    expect(seatWaitOpened(outcome.events)).toBe(true)
     const requests = (await readFile(join(dir, 'root-requests.jsonl'), 'utf8'))
       .trim()
       .split('\n')
