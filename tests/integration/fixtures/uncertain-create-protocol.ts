@@ -12,6 +12,7 @@ export type Scenario =
   | 'json-observation-long-result-retry-success'
   | `json-observation-long-auth-${401 | 403 | 500}-success`
   | 'json-observation-long-capacity-success'
+  | `json-observation-long-create-capacity-${'success' | 'deadline'}`
   | `json-observation-long-transport-${'chunk' | 'header'}-${'success' | 'caller' | 'untyped'}`
   | 'json-observation-long-failed'
   | 'json-incomplete'
