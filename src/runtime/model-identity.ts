@@ -1,3 +1,4 @@
+import { modelHasSnapshot } from '@tangle-network/agent-eval'
 import { harnessTypeSchema } from '@tangle-network/agent-interface'
 
 const SNAPSHOT_TOKEN = /^[A-Za-z0-9._-]+$/u
@@ -10,13 +11,15 @@ export type SnapshotKind = 'date' | 'opaque'
 interface ModelIdentityParts {
   readonly base: string
   readonly snapshot?: string
-  readonly snapshotKind?: SnapshotKind
+  readonly snapshotKind?: SnapshotKind | 'fixed'
 }
 
 export interface CanonicalObservedModelParts {
   readonly base: string
   readonly snapshot?: string
   readonly snapshotKind?: SnapshotKind
+  /** The complete provider model id is immutable without a separate snapshot suffix. */
+  readonly fixed?: true
   readonly canonical: string
 }
 
@@ -62,7 +65,7 @@ export function canonicalObservedModelParts(
   if (!identity) return undefined
   const base = identity.base.slice(identity.base.lastIndexOf('/') + 1)
   const canonical =
-    identity.snapshot === undefined
+    identity.snapshot === undefined || identity.snapshotKind === 'fixed'
       ? base
       : identity.snapshotKind === 'date'
         ? `${base}-${identity.snapshot}`
@@ -70,7 +73,11 @@ export function canonicalObservedModelParts(
   return {
     base,
     ...(identity.snapshot !== undefined ? { snapshot: identity.snapshot } : {}),
-    ...(identity.snapshotKind !== undefined ? { snapshotKind: identity.snapshotKind } : {}),
+    ...(identity.snapshotKind === 'fixed'
+      ? { fixed: true as const }
+      : identity.snapshotKind !== undefined
+        ? { snapshotKind: identity.snapshotKind }
+        : {}),
     canonical,
   }
 }
@@ -101,7 +108,13 @@ function modelIdentityParts(model: string): ModelIdentityParts | null {
   if (at < 0) {
     const dated = datedModelIdentity(model)
     if (dated !== undefined) return dated
-    return modelLeaf(model).length === 0 ? null : { base: model }
+    const leaf = modelLeaf(model)
+    if (leaf.length === 0) return null
+    // Eval owns which provider model ids are immutable without a separate build suffix.
+    // Their exact id is the snapshot; keep it distinct from an appended opaque token.
+    return modelHasSnapshot(model)
+      ? { base: model, snapshot: leaf, snapshotKind: 'fixed' }
+      : { base: model }
   }
   const base = model.slice(0, at)
   const snapshot = model.slice(at + 1)
@@ -226,8 +239,8 @@ function buildDatedIdentity(
   snapshot: string,
   valid: boolean,
 ): ModelIdentityParts | null | undefined {
-  // A date that is the entire model segment is not a snapshot suffix.
-  if (base === undefined || base.length === 0 || base.endsWith('/')) return undefined
+  // A dated shape needs a model name; do not reinterpret a bare suffix as a fixed id.
+  if (base === undefined || base.length === 0 || base.endsWith('/')) return null
   return valid ? { base, snapshot, snapshotKind: 'date' } : null
 }
 
