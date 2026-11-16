@@ -1,5 +1,9 @@
 ## 10.0.5
 
+A retained start no longer ends the run at its first failed Sandbox create. When a create does not answer within the materialization bound, or Sandbox answers `OPERATION_FAILED`, it is tried again with the same idempotency key: three creates in all, with a short pause between them. The last failure still stops the driver, named.
+
+Only steer admission (`writeWorkerSteerAsync`) sends an unclaimed write to the durable writer. Since 10.0.4 every unclaimed result-blob put, interactive binding, steer delivery claim and acknowledgement waited on the writer as well; they run inline again, as before 10.0.4, and a claimed one still runs on the writer without blocking the event loop.
+
 Preserve failed graph runs' measured cost in designer history and tool results, and keep incomplete usage out of measured-cost replay comparisons.
 
 Read bounded run evidence from the canonical node usage projection, including manager inference and incomplete-token flags; retain fresh-input and cache-completeness evidence in pursuit projections.
