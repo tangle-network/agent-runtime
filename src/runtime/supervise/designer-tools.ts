@@ -89,7 +89,15 @@ export function graphDesignerExtraTools(env: DesignerToolsEnv): GraphDesignerExt
     const startedAt = new Date().toISOString()
     const result = await env.runGraph(graph)
     const winner = result.result.kind === 'winner'
-    const spent = winner ? result.result.spentTotal : undefined
+    const spent = result.result.spentTotal
+    const cost = {
+      ...(spent.iterationsKnown === false ? {} : { iterations: spent.iterations }),
+      ...(spent.tokensKnown === false || spent.tokens.tokensKnown === false
+        ? {}
+        : { tokens: spent.tokens.input + spent.tokens.output }),
+      ...(spent.usdKnown === false ? {} : { usd: spent.usd }),
+      ms: spent.ms,
+    }
     await recordGraphRun(registry, graph, {
       graphDigest: digest,
       taskDigest: taskShapeDigest(taskShape),
@@ -98,15 +106,7 @@ export function graphDesignerExtraTools(env: DesignerToolsEnv): GraphDesignerExt
       outcome: winner
         ? { kind: 'delivered' }
         : { kind: 'no-winner', reason: `mode=${mode} result=${result.result.kind}` },
-      cost: {
-        ...(spent?.iterations !== undefined ? { iterations: spent.iterations } : {}),
-        ...(spent?.tokens && typeof spent.tokens === 'object' && 'input' in spent.tokens
-          ? {
-              tokens: (spent.tokens.input ?? 0) + (spent.tokens.output ?? 0),
-            }
-          : {}),
-        ...(spent?.usd !== undefined ? { usd: spent.usd } : {}),
-      },
+      cost,
       traversals: result.ledger.length,
       ...(result.exhaustedEdges.length > 0 ? { exhaustedEdges: result.exhaustedEdges } : {}),
     })
@@ -115,10 +115,7 @@ export function graphDesignerExtraTools(env: DesignerToolsEnv): GraphDesignerExt
       outcome: winner ? 'delivered' : `no-winner (${result.result.kind})`,
       graphDigest: digest,
       traversals: result.ledger.length,
-      ...(spent?.iterations !== undefined ? { iterations: spent.iterations } : {}),
-      ...(spent?.tokens && typeof spent.tokens === 'object' && 'input' in spent.tokens
-        ? { tokens: (spent.tokens.input ?? 0) + (spent.tokens.output ?? 0) }
-        : {}),
+      ...cost,
     }
   }
 
