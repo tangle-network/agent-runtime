@@ -51,12 +51,17 @@ async function runPhase(directory: string, phase: string) {
     stdout: string
     stderr: string
   }>((resolve, reject) => {
-    let stdout = '', stderr = ''
+    let stdout = '',
+      stderr = ''
     child.on('message', (message) => {
       if ((message as { type?: string }).type === 'checkpoint') child.kill('SIGKILL')
     })
-    child.stdout!.on('data', (chunk) => { stdout += chunk })
-    child.stderr!.on('data', (chunk) => { stderr += chunk })
+    child.stdout!.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr!.on('data', (chunk) => {
+      stderr += chunk
+    })
     child.once('error', reject)
     child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }))
   })

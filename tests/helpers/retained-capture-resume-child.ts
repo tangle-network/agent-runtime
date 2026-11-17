@@ -46,7 +46,7 @@ const seat = phase.startsWith('seat-')
 const operator = new AbortController()
 async function checkpoint(): Promise<never> {
   await new Promise<void>((resolve, reject) =>
-    process.send!({ type: 'checkpoint' }, (error) => error ? reject(error) : resolve()),
+    process.send!({ type: 'checkpoint' }, (error) => (error ? reject(error) : resolve())),
   )
   return new Promise(() => {})
 }
@@ -87,8 +87,7 @@ try {
         async appendEvent(root, event) {
           await context.journal.appendEvent(root, event)
           if (event.kind === 'execution-result') {
-            if (['kill', 'kill-failed', 'seat-kill'].includes(phase))
-              await checkpoint()
+            if (['kill', 'kill-failed', 'seat-kill'].includes(phase)) await checkpoint()
             operator.abort(new RunCancellationReason('operator', 'cold receipt proof complete'))
           }
           if (
@@ -140,8 +139,6 @@ try {
     `${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n`,
   )
   process.exitCode = 1
-}
-
-finally {
+} finally {
   process.disconnect?.()
 }

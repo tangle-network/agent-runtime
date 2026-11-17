@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { contentAddress } from '../../src/durable/content-address'
 import type { SpawnEvent } from '../../src/runtime'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
+import { compileFixture } from '../helpers/compile-fixture'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
 import { isSqlOwnershipDenial, openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
 import {
@@ -13,7 +14,6 @@ import {
   ProcessFixture,
   prepareExecutables,
 } from '../integration/fixtures/uncertain-create-harness'
-import { compileFixture } from '../helpers/compile-fixture'
 import { readRecords } from '../integration/fixtures/uncertain-create-protocol'
 
 let childFixture: Awaited<ReturnType<typeof compileFixture>>
@@ -116,9 +116,15 @@ async function start(shared: string, cwd: string, mode = 'run', checkpoint = '')
         }
         const received = () => {
           const found = find()
-          if (found) { clean(); resolve(found) }
+          if (found) {
+            clean()
+            resolve(found)
+          }
         }
-        const failed = (error: Error) => { clean(); reject(error) }
+        const failed = (error: Error) => {
+          clean()
+          reject(error)
+        }
         const ended = () => failed(new Error(`child exited before ${type}: ${stderr}\n${stdout}`))
         child.on('message', received)
         child.once('exit', ended)

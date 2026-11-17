@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { runFixtureProcess } from '../../helpers/fixture-process'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
+import { runFixtureProcess } from '../../helpers/fixture-process'
 import {
   attachments,
   digest,
@@ -626,7 +626,9 @@ async function runtime(
     }
     if (scenario === 'sql-conformance') {
       let observed!: () => void
-      const received = new Promise<void>((resolve) => { observed = resolve })
+      const received = new Promise<void>((resolve) => {
+        observed = resolve
+      })
       observedResults.set(run.executionId, { received, observed })
     }
     note('dispatch', {

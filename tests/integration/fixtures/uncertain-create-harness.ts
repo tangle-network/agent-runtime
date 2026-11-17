@@ -6,8 +6,8 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { build } from 'tsdown'
 import { onTestFinished } from 'vitest'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
-import { waitForState } from '../../helpers/observable-state'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
+import { waitForState } from '../../helpers/observable-state'
 import {
   type Configuration,
   durableBytes,
@@ -279,7 +279,9 @@ export class ProcessFixture {
       if (await predicate()) return true
       const owner = this.coordinator ?? this.children[0]?.process
       if (owner && (owner.exitCode !== null || owner.signalCode !== null))
-        throw new Error(`${label}: owner ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`)
+        throw new Error(
+          `${label}: owner ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`,
+        )
       return false
     })
   }

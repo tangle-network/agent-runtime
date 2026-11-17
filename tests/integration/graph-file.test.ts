@@ -474,15 +474,23 @@ it('reopens a gracefully cancelled durable graph and retries only its interrupte
     }
     pending = superviseGraphPursuit(graph, { ...options, signal: stop.signal })
     let pid: number | undefined
-    await waitFor('review subprocess actual wait', waitForState(directory, async () => {
-      try {
-        const value = Number(await readFile(join(directory, 'review-waiting'), 'utf8'))
-        if (Number.isSafeInteger(value) && value > 0) pid = value
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
-      return pid !== undefined
-    }, stop.signal), pending)
+    await waitFor(
+      'review subprocess actual wait',
+      waitForState(
+        directory,
+        async () => {
+          try {
+            const value = Number(await readFile(join(directory, 'review-waiting'), 'utf8'))
+            if (Number.isSafeInteger(value) && value > 0) pid = value
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          }
+          return pid !== undefined
+        },
+        stop.signal,
+      ),
+      pending,
+    )
     process.kill(pid!, 0)
     stop.abort('consumer SIGINT')
     const cancelled = await pending
