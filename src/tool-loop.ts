@@ -465,7 +465,8 @@ export async function* streamToolLoop<Raw>(
     let batchDone = false
     let batchFailed = false
     let batchError: unknown
-    executeBatch(pending, width, overBudget, async (call, callIndex) => {
+    let closed = false
+    executeBatch(pending, width, () => closed || overBudget(), async (call, callIndex) => {
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let done = false
       const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
@@ -499,34 +500,40 @@ export async function* streamToolLoop<Raw>(
       },
     )
     const outcomes: ExecutedToolCall[] = []
-    while (outcomes.length < pending.length) {
-      const update = progress.shift()
-      if (update !== undefined) {
-        yield update
-        continue
-      }
-      const outcome = settled[outcomes.length]
-      if (outcome !== undefined) {
-        const call = pending[outcomes.length]!
-        const label = labelFor(call)
-        yield {
-          kind: 'tool_result',
-          toolName: call.toolName,
-          toolCallId: call.toolCallId,
-          label,
-          outcome,
+    try {
+      while (outcomes.length < pending.length) {
+        const update = progress.shift()
+        if (update !== undefined) {
+          yield update
+          continue
         }
-        const rendered = render(label, outcome)
-        outcomes.push({ call, label, outcome, rendered })
-        // One role:'tool' message per result, keyed to its call by tool_call_id.
-        messages.push(toolResultMessage(call, rendered))
-        continue
+        const outcome = settled[outcomes.length]
+        if (outcome !== undefined) {
+          const call = pending[outcomes.length]!
+          const label = labelFor(call)
+          yield {
+            kind: 'tool_result',
+            toolName: call.toolName,
+            toolCallId: call.toolCallId,
+            label,
+            outcome,
+          }
+          const rendered = render(label, outcome)
+          outcomes.push({ call, label, outcome, rendered })
+          // One role:'tool' message per result, keyed to its call by tool_call_id.
+          messages.push(toolResultMessage(call, rendered))
+          continue
+        }
+        if (batchDone) break
+        await new Promise<void>((resolve) => {
+          wake = resolve
+        })
+        wake = undefined
       }
-      if (batchDone) break
-      await new Promise<void>((resolve) => {
-        wake = resolve
-      })
-      wake = undefined
+    } finally {
+      // A consumer that stops reading here (break, `return()` or a throw) closes the generator:
+      // the calls already started finish, and no queued call starts after it.
+      closed = true
     }
     if (batchFailed) throw batchError
     if (overBudget()) {

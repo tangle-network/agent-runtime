@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { expect, it } from 'vitest'
 import { streamRouterChatWithTools } from '../../src/runtime/router-client'
 import type { ToolSpec } from '../../src/runtime/router-request-body'
@@ -195,5 +196,66 @@ it("runs a turn's calls at once when opted in, keeps call order, defaults to ser
         expect(progressAt).toBeLessThan(run.steps.indexOf(`tool_result:${id}`))
       }
     }
+  }
+})
+
+it('starts no queued call once the stream consumer stops reading', async () => {
+  // Call a settles first. Width 1 stops on a's progress; width 2 stops on a's result.
+  const sleepMs: Record<string, number> = { a: 20, b: 60, c: 60, d: 60 }
+  const cases = [
+    { width: 1, queries: ['a', 'b', 'c'], stopOn: 'tool_progress' },
+    { width: 2, queries: ['a', 'b', 'c', 'd'], stopOn: 'tool_result' },
+  ]
+  for (const { width, queries, stopOn } of cases) {
+    const model = await loopbackModel((request) =>
+      request === 0
+        ? { calls: queries.map((query) => JSON.stringify({ query })) }
+        : { text: 'Done.' },
+    )
+    const ran: string[] = []
+    const hookEvents: string[] = []
+    let ranAtStop: string[] = []
+    try {
+      for await (const step of streamToolLoop<ToolLoopEvent>({
+        systemPrompt: 'You design hardware.',
+        userMessage: 'Design a solar chicken coop door.',
+        streamTurn: model.streamTurn,
+        extractText: (event) => (event.type === 'text' ? event.text : ''),
+        extractToolCall: (event) => (event.type === 'tool_call' ? event.call : null),
+        isExecutableTool: (name) => name === 'web_search',
+        maxConcurrentToolCalls: width,
+        executeToolCall: async (call, context) => {
+          const query = String(call.args.query)
+          ran.push(query)
+          context.progress({ message: `searching ${query}` })
+          await sleep(sleepMs[query])
+          return { ok: true, result: `results for ${query}` }
+        },
+        hooks: {
+          onEvent: (event) => {
+            if (event.target !== 'agent.tool_call') return
+            const { toolCallId } = event.payload as { toolCallId: string }
+            hookEvents.push(`${event.phase}:${toolCallId}`)
+          },
+        },
+      })) {
+        if (step.kind === stopOn) {
+          ranAtStop = [...ran]
+          break
+        }
+      }
+      // Longer than the queued calls would take if the batch kept starting them.
+      await sleep(400)
+    } finally {
+      await model.close()
+    }
+    console.log(`width=${width} stop on ${stopOn}: started at stop ${ranAtStop}, ran ${ran}`)
+    expect(ran).toEqual(ranAtStop)
+    expect(ran).not.toContain(queries.at(-1))
+    if (width === 1) expect(ran).toEqual(['a'])
+    // One before and one after event per call that ran; none for a call that never started.
+    const ids = ran.map((query) => `call_1_${queries.indexOf(query)}`)
+    const expected = ids.flatMap((id) => [`after:${id}`, `before:${id}`])
+    expect([...hookEvents].sort()).toEqual(expected.sort())
   }
 })
