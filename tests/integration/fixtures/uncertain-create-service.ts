@@ -594,7 +594,10 @@ async function runtime(
         sessionId: existing.sessionId,
         requestDigest: existing.runControlRef.requestDigest,
       })
-      await replay(existing, response)
+      // Dispatch admits the original execution before Runtime opens result/observation reads.
+      // Waiting for result consumption here would make idempotent replay wait on itself.
+      if (scenario === 'sql-conformance') sse(response, terminal(existing, scenario).slice(0, 1))
+      else await replay(existing, response)
       return
     }
     // The SDK may omit backend overrides to use the environment's creation defaults.
