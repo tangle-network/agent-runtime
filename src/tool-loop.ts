@@ -12,10 +12,12 @@
  * whatever backend / `runAgentTaskStream` it uses) and `executeToolCall`
  * (routing to its executors). This module owns the LOOP; the caller owns the
  * model and the executors. `Raw` (streaming variant) is the caller's own
- * event type. The only imported contract is the runtime hook type: hooks are
- * execution-scoped observers, not part of the agent profile.
+ * event type. The only imported contracts are the runtime hook type (hooks are
+ * execution-scoped observers, not part of the agent profile) and the task queue
+ * a turn's calls run on.
  */
 
+import { runTaskQueue } from './runtime/task-queue'
 import type { RuntimeDecisionEvidenceRef, RuntimeHooks } from './runtime-hooks'
 import { notifyRuntimeDecisionPoint, notifyRuntimeHookEvent } from './runtime-hooks'
 
@@ -218,7 +220,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
     opts.maxCostUsd !== undefined &&
     opts.costOf !== undefined &&
     accumulatedCostUsd >= opts.maxCostUsd
-  const width = concurrencyOf(opts.maxConcurrentToolCalls)
+  const width = opts.maxConcurrentToolCalls ?? DEFAULT_CONCURRENT_TOOL_CALLS
   const isStuck = stuckLoopDetector()
 
   observer.loopBefore(backstop, messages.length)
@@ -273,7 +275,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
     // The assistant turn that emitted the calls, carrying its tool_calls array,
     // so a strict model reads its own tool use back in OpenAI shape.
     messages.push(assistantToolCallMessage(turnText, pending))
-    const executed = await executeBatch(pending, width, overBudget, async (call, callIndex) => {
+    const queue = turnCalls(pending, width, overBudget, async (call, callIndex) => {
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let settled = false
       const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
@@ -286,6 +288,11 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       observer.toolCallAfter(toolTurn, callEventId, call, outcome)
       return outcome
     })
+    const executed: ToolCallOutcome[] = []
+    for await (const settlement of queue) {
+      if (settlement.status === 'rejected') throw settlement.reason
+      executed[settlement.task.value] = settlement.value
+    }
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, outcome] of executed.entries()) {
       const call = pending[callIndex]!
@@ -404,7 +411,7 @@ export async function* streamToolLoop<Raw>(
     opts.maxCostUsd !== undefined &&
     opts.costOf !== undefined &&
     accumulatedCostUsd >= opts.maxCostUsd
-  const width = concurrencyOf(opts.maxConcurrentToolCalls)
+  const width = opts.maxConcurrentToolCalls ?? DEFAULT_CONCURRENT_TOOL_CALLS
   const isStuck = stuckLoopDetector()
 
   observer.loopBefore(backstop, messages.length)
@@ -462,12 +469,7 @@ export async function* streamToolLoop<Raw>(
     const progress: StreamToolLoopYield<Raw>[] = []
     const settled: ToolCallOutcome[] = []
     let wake: (() => void) | undefined
-    let batchDone = false
-    let batchFailed = false
-    let batchError: unknown
-    let closed = false
-    const stop = () => closed || overBudget()
-    executeBatch(pending, width, stop, async (call, callIndex) => {
+    const queue = turnCalls(pending, width, overBudget, async (call, callIndex) => {
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let done = false
       const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
@@ -485,22 +487,12 @@ export async function* streamToolLoop<Raw>(
         accumulatedCostUsd += opts.costOf(call, outcome)
       }
       observer.toolCallAfter(toolTurn, callEventId, call, outcome)
-      settled[callIndex] = outcome
-      wake?.()
       return outcome
-    }).then(
-      () => {
-        batchDone = true
-        wake?.()
-      },
-      (error: unknown) => {
-        batchFailed = true
-        batchError = error
-        batchDone = true
-        wake?.()
-      },
-    )
+    })
     const outcomes: ExecutedToolCall[] = []
+    // The queue admits a call only while this generator pulls it, which it does only when it has
+    // nothing to yield: call k+1 starts after the consumer has taken result k at width 1.
+    let pull: ReturnType<typeof queue.next> | undefined
     try {
       while (outcomes.length < pending.length) {
         const update = progress.shift()
@@ -525,18 +517,22 @@ export async function* streamToolLoop<Raw>(
           messages.push(toolResultMessage(call, rendered))
           continue
         }
-        if (batchDone) break
-        await new Promise<void>((resolve) => {
-          wake = resolve
+        pull ??= queue.next()
+        const woke = new Promise<null>((resolve) => {
+          wake = () => resolve(null)
         })
+        const step = await Promise.race([pull, woke])
         wake = undefined
+        if (step === null) continue
+        pull = undefined
+        if (step.done) break
+        if (step.value.status === 'rejected') throw step.value.reason
+        settled[step.value.task.value] = step.value.value
       }
     } finally {
-      // A consumer that stops reading here (break, `return()` or a throw) closes the generator:
-      // the calls already started finish, and no queued call starts after it.
-      closed = true
+      // Closing early (break, `return()` or a throw) stops admission and settles the started calls.
+      await queue.return(undefined)
     }
-    if (batchFailed) throw batchError
     if (overBudget()) {
       observer.turnAfter(toolTurn, turnEventId, {
         pendingToolCalls: pending.length,
@@ -581,33 +577,24 @@ async function executeGuarded(
   }
 }
 
-/** Runs one model turn's calls at most `width` at a time, starting them in call order, and
- *  starts none once `stop()` holds. Resolves with the started calls' outcomes, a prefix of
- *  `calls` in call order. */
-async function executeBatch(
+/** One model turn's calls as a task queue keyed by call index: admitted in call order, at most
+ *  `width` at once, each only when the queue is pulled. The turn's first call always starts and
+ *  no later one starts once the budget is spent, so width 1 checks it after each call. */
+function turnCalls(
   calls: ToolLoopCall[],
   width: number,
-  stop: () => boolean,
+  spent: () => boolean,
   run: (call: ToolLoopCall, callIndex: number) => Promise<ToolCallOutcome>,
-): Promise<ToolCallOutcome[]> {
-  const outcomes: ToolCallOutcome[] = []
+) {
   let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < calls.length && !stop()) {
-      const callIndex = next++
-      outcomes[callIndex] = await run(calls[callIndex]!, callIndex)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(width, calls.length) }, worker))
-  return outcomes
-}
-
-function concurrencyOf(value: number | undefined): number {
-  const width = value ?? DEFAULT_CONCURRENT_TOOL_CALLS
-  if (!Number.isInteger(width) || width < 1) {
-    throw new RangeError(`maxConcurrentToolCalls must be a positive integer, got ${value}`)
-  }
-  return width
+  return runTaskQueue<number, ToolCallOutcome>({
+    concurrency: width,
+    take: () =>
+      next < calls.length && (next === 0 || !spent())
+        ? { id: String(next), value: next++ }
+        : undefined,
+    execute: ({ value }) => run(calls[value]!, value),
+  })
 }
 
 interface ExecutedToolCall {
