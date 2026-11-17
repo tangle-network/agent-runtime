@@ -1,3 +1,7 @@
+## 10.0.7
+
+The tool loop's stuck-loop guard counts repeats across model turns only. Identical calls inside one model turn's parallel batch no longer stop the loop: each runs and the model reads every result, a tool error included, on its next turn. A model turn whose calls are the same set as the previous turn's counts once, and three such turns in a row still stop with `stuck-loop`. Both `runToolLoop` and `streamToolLoop` share the rule.
+
 ## 10.0.6
 
 Run cancellation no longer blocks the event loop on the disk. New `cancelRunAsync` beside `cancelRun`, with the same admission, replay and conflict rules: the request file reaches disk on the durable writer whether or not the caller holds a run claim. Inside a run, the cancellation observer, the manager's turn boundary and the settle record write the acknowledgement on the durable writer under the run's claim; the abort itself is issued at once.
