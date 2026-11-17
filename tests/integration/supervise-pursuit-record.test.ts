@@ -595,6 +595,20 @@ describe('supervisePursuit root stream', () => {
     const base = durableRetainedProvider(join(directory, 'provider.json'))
     const stream = rootStreamEventSource(directory, { pursuitId: 'pursuit:root-stream' })
     let observed: Promise<void> | undefined
+    const capture = () => {
+      if (!seen) return Promise.resolve()
+      return (observed ??= (async () => {
+        await waitForState(
+          directory,
+          async () => {
+            seen.duringTurn = (await stream.read()).length
+            return seen.duringTurn >= rootProgress.length
+          },
+          signal,
+        )
+        await seen.midTurn?.()
+      })())
+    }
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
       ...environment,
       session: (id, options) => {
@@ -603,21 +617,12 @@ describe('supervisePursuit root stream', () => {
           ...session,
           async *events(eventOptions) {
             for (const part of rootParts) yield structuredClone(part)
-            if (seen) {
-              observed ??= (async () => {
-                await waitForState(
-                  directory,
-                  async () => {
-                    seen.duringTurn = (await stream.read()).length
-                    return seen.duringTurn >= rootProgress.length
-                  },
-                  signal,
-                )
-                await seen.midTurn?.()
-              })()
-              await awaitAbortable(observed, eventOptions?.signal)
-            }
+            if (seen) await awaitAbortable(capture(), eventOptions?.signal)
             yield* session.events(eventOptions)
+          },
+          async result() {
+            if (seen) await awaitAbortable(capture(), signal)
+            return session.result()
           },
         }
       },
@@ -708,8 +713,8 @@ describe('supervisePursuit root stream', () => {
       backend: { backend: 'provider', provider: rootProvider(seen) },
     })
 
-    // Every part the root had streamed was on disk once the event loop turned, before the turn
-    // continued: a root killed at that instant keeps what it thought, said, and called.
+    // Every part is committed before the native turn continues: a root killed at that
+    // checkpoint keeps what it thought, said, and called.
     expect(seen.duringTurn).toBe(rootProgress.length)
 
     const lines = await readStreamLines()
