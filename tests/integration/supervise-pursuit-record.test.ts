@@ -37,6 +37,7 @@ import {
   rootStreamEventSource,
 } from '../../src/mcp/tools/events'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
+import { awaitAbortable } from '../../src/runtime/retained-run-binding'
 import {
   type RetainedExecutorContext,
   retainedExecutorSeamKey,
@@ -527,6 +528,7 @@ describe('supervisePursuit durable terminal records', () => {
  */
 describe('supervisePursuit root stream', () => {
   let runDir: string
+  let fixtureStop: AbortController
   const streamPath = () => join(runDir, 'root-stream.jsonl')
   const rootParts: AgentEnvironmentEvent[] = [
     {
@@ -561,9 +563,11 @@ describe('supervisePursuit root stream', () => {
   ]
 
   beforeEach(async () => {
+    fixtureStop = new AbortController()
     runDir = await mkdtemp(join(tmpdir(), 'pursuit-root-stream-'))
   })
   afterEach(async () => {
+    fixtureStop.abort('root stream fixture cleanup')
     await rm(runDir, { recursive: true, force: true })
   })
 
@@ -582,11 +586,12 @@ describe('supervisePursuit root stream', () => {
    * parts are committed to Runtime's stream, the observer captures them before any session reader
    * continues to native events. Repeated observations share that same capture barrier.
    */
-  function rootProvider(seen: {
+  function rootProvider(seen?: {
     duringTurn?: number
     midTurn?: () => Promise<void>
   }): AgentEnvironmentProvider {
     const directory = runDir
+    const signal = fixtureStop.signal
     const base = durableRetainedProvider(join(directory, 'provider.json'))
     const stream = rootStreamEventSource(directory, { pursuitId: 'pursuit:root-stream' })
     let observed: Promise<void> | undefined
@@ -598,18 +603,20 @@ describe('supervisePursuit root stream', () => {
           ...session,
           async *events(eventOptions) {
             for (const part of rootParts) yield structuredClone(part)
-            observed ??= (async () => {
-              await waitForState(
-                directory,
-                async () => {
-                  seen.duringTurn = (await stream.read()).length
-                  return seen.duringTurn >= rootProgress.length
-                },
-                eventOptions?.signal,
-              )
-              await seen.midTurn?.()
-            })()
-            await observed
+            if (seen) {
+              observed ??= (async () => {
+                await waitForState(
+                  directory,
+                  async () => {
+                    seen.duringTurn = (await stream.read()).length
+                    return seen.duringTurn >= rootProgress.length
+                  },
+                  signal,
+                )
+                await seen.midTurn?.()
+              })()
+              await awaitAbortable(observed, eventOptions?.signal)
+            }
             yield* session.events(eventOptions)
           },
         }
@@ -668,7 +675,7 @@ describe('supervisePursuit root stream', () => {
         await writeFile(accepted, JSON.stringify(result))
       },
     }
-    const executor = providerAsExecutor(rootProvider({}), { requireTerminalEvent: false })(
+    const executor = providerAsExecutor(rootProvider(), { requireTerminalEvent: false })(
       { profile: testAgentProfile('slow-consumer', { harness: 'codex' }), harness: 'codex' },
       { signal, seams: { [retainedExecutorSeamKey]: retention } },
     )
