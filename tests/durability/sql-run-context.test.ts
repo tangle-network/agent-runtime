@@ -1,13 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import type { SpawnEvent } from '../../src/runtime'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
+import { compileFixture } from '../helpers/compile-fixture'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
 import { isSqlOwnershipDenial, openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
 import {
@@ -17,23 +16,21 @@ import {
 } from '../integration/fixtures/uncertain-create-harness'
 import { readRecords } from '../integration/fixtures/uncertain-create-protocol'
 
+let childFixture: Awaited<ReturnType<typeof compileFixture>>
 let bundle: string
 let executables: Executables
 const services = new Map<string, ProcessFixture>()
 beforeAll(async () => {
   ;({ bundle, executables } = await prepareExecutables())
+  childFixture = await compileFixture('tests/helpers/durability/sql-run-context-child.ts')
 })
 afterAll(async () => {
+  await childFixture?.dispose()
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 const roots: string[] = []
 const children = new Set<ChildProcess>()
 const leaseOptions = TEST_LEASE
-const childFile = fileURLToPath(
-  new URL('../helpers/durability/sql-run-context-child.ts', import.meta.url),
-)
-const tsx = createRequire(import.meta.url).resolve('tsx')
-const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 // A resumed graph run takes seconds idle and many times that under load. Waits end on the child's
 // own messages and exit; this one bound only stops a hung child.
 vi.setConfig({ testTimeout: 180_000 })
@@ -81,7 +78,7 @@ async function start(shared: string, cwd: string, mode = 'run', checkpoint = '')
     )
   const child = spawn(
     process.execPath,
-    ['--experimental-sqlite', '--import', tsx, childFile, shared, mode, checkpoint],
+    ['--experimental-sqlite', childFixture.path, shared, mode, checkpoint],
     {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -109,13 +106,32 @@ async function start(shared: string, cwd: string, mode = 'run', checkpoint = '')
     child,
     exit,
     async message(type: string) {
-      for (;;) {
-        const found = messages.find((message) => message.type === type)
-        if (found) return found
-        if (child.exitCode !== null || child.signalCode !== null)
-          throw new Error(`child exited before ${type}: ${stderr}\n${stdout}`)
-        await delay(20)
-      }
+      const find = () => messages.find((message) => message.type === type)
+      if (find()) return find()!
+      return new Promise<(typeof messages)[number]>((resolve, reject) => {
+        const clean = () => {
+          child.off('message', received)
+          child.off('exit', ended)
+          child.off('error', failed)
+        }
+        const received = () => {
+          const found = find()
+          if (found) {
+            clean()
+            resolve(found)
+          }
+        }
+        const failed = (error: Error) => {
+          clean()
+          reject(error)
+        }
+        const ended = () => failed(new Error(`child exited before ${type}: ${stderr}\n${stdout}`))
+        child.on('message', received)
+        child.once('exit', ended)
+        child.once('error', failed)
+        if (child.exitCode !== null || child.signalCode !== null) ended()
+        else received()
+      })
     },
     async report() {
       const result = await exit

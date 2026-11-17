@@ -3,11 +3,11 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSyn
 import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import { build } from 'tsdown'
 import { onTestFinished } from 'vitest'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
+import { waitForState } from '../../helpers/observable-state'
 import {
   type Configuration,
   durableBytes,
@@ -273,19 +273,17 @@ export class ProcessFixture {
   outcomes() {
     return readRecords(join(this.directory, 'outcome.jsonl'))
   }
-  /** Poll until `predicate` holds. No clock: it fails once the process that would make it hold
-   *  (the live coordinator, else the service) has exited; the test's own timeout guards a hang. */
+  /** Observe durable fixture writes; process exit wakes the same read before failing. */
   async wait(label: string, predicate: () => Promise<boolean>): Promise<void> {
-    for (;;) {
+    await waitForState(this.directory, async () => {
+      if (await predicate()) return true
       const owner = this.coordinator ?? this.children[0]?.process
-      const ended = owner !== undefined && (owner.exitCode !== null || owner.signalCode !== null)
-      if (await predicate()) return
-      if (ended)
+      if (owner && (owner.exitCode !== null || owner.signalCode !== null))
         throw new Error(
-          `${label}: ${this.coordinator ? 'coordinator' : 'service'} ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`,
+          `${label}: owner ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`,
         )
-      await delay(20)
-    }
+      return false
+    })
   }
   async captureCheckedFrontier(phase = 'assertions-checked-before-cleanup'): Promise<void> {
     const failures: unknown[] = []
@@ -315,15 +313,11 @@ export class ProcessFixture {
   }
   async close(): Promise<void> {
     const failures: unknown[] = []
-    // Stop the coordinator before its independent service; on failure SIGKILL still joins both.
+    // Join coordinators first; the service aborts and joins its native workers on SIGTERM.
     for (const child of [...this.children].reverse()) {
       try {
-        if (child.process.exitCode === null && child.process.signalCode === null) {
-          child.process.kill('SIGTERM')
-          await Promise.race([child.closed, delay(2000)])
-          if (child.process.exitCode === null && child.process.signalCode === null)
-            child.process.kill('SIGKILL')
-        }
+        if (child.process.exitCode === null && child.process.signalCode === null)
+          child.process.kill(child === this.children[0] ? 'SIGTERM' : 'SIGKILL')
         await child.closed
       } catch (error) {
         failures.push(error)

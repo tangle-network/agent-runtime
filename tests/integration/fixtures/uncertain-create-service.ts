@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { runSettledCommand } from '../../../src/mcp/worktree-harness'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
+import { runFixtureProcess } from '../../helpers/fixture-process'
 import {
   attachments,
   digest,
@@ -26,6 +26,7 @@ const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
 let capacitySince: number | undefined
 const ledger = join(directory, 'service-ledger.jsonl')
+const stopping = new AbortController()
 const state: ServiceState = {
   scenario,
   createStatus: scenario === 'create-503' ? 503 : 408,
@@ -56,12 +57,8 @@ const sessions = new Map<
   { backend: Record<string, unknown>; receipt?: string; publicDigest?: unknown }
 >()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
-// A real provider streams a turn's frames before its result is readable. The fixture serves the
-// exact-result read this long after the observation stream's terminal frames, so Runtime's quiet
-// stream never closes on the result before it reads done (RETAINED_TAIL_FLOW_MS is 100).
-const EXACT_RESULT_AFTER_STREAM_MS = 250
 const exactSubscribers = new WeakSet<ServerResponse>()
-const streamFlushedAt = new Map<string, number>()
+const observedResults = new Map<string, { received: Promise<void>; observed: () => void }>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run)
@@ -156,8 +153,8 @@ function flushAccepted(run: NativeRun): void {
   }
   const exact = [...subscribers].filter((response) => exactSubscribers.has(response))
   for (const response of subscribers) if (!exactSubscribers.has(response)) finish(response)
-  streamFlushedAt.set(run.executionId, Date.now())
-  if (exact.length > 0) setTimeout(() => exact.forEach(finish), EXACT_RESULT_AFTER_STREAM_MS)
+  // The coordinator acknowledges the consumer advancing past done, not elapsed socket time.
+  void observedReplays.get(run.executionId)!.received.then(() => exact.forEach(finish))
   acceptedSubscribers.delete(run.executionId)
   note('healthy-stream-completed', {
     executionId: run.executionId,
@@ -186,19 +183,12 @@ async function replay(
     subscribeAccepted(run, response, exactResult)
     return
   }
-  const flushedAt = streamFlushedAt.get(run.executionId)
-  if (exactResult && flushedAt !== undefined) {
-    const wait = flushedAt + EXACT_RESULT_AFTER_STREAM_MS - Date.now()
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
-  }
   if (scenario === 'json-observation-429' && !exactResult)
     return sse(response, terminal(run, scenario).slice(0, 1))
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
-  // Let the independently requested exact result win before this connection's first frame.
-  // The actual closed worker already supplied the terminal data; no observation is fabricated.
-  if (scenario === 'sql-conformance' && !exactResult)
-    await new Promise<void>((resolve) => setTimeout(resolve, 40))
+  // SQL's observation starts only once the exact-result client has consumed the real result.
+  if (!exactResult) await observedResults.get(run.executionId)?.received
   run.terminalReads += 1
   sse(
     response,
@@ -290,8 +280,7 @@ async function act(run: NativeRun): Promise<void> {
     scenario === 'sql-conformance'
   ) {
     const startedAt = Date.now()
-    const worker = await runSettledCommand({
-      command: process.execPath,
+    const worker = await runFixtureProcess({
       args: [
         join(import.meta.dirname, 'json-worker.mjs'),
         String(profile.name),
@@ -299,8 +288,7 @@ async function act(run: NativeRun): Promise<void> {
         JSON.stringify({ executionId: run.executionId, sessionId: run.sessionId }),
       ],
       cwd: directory,
-      timeoutMs: 15_000,
-      signal: new AbortController().signal,
+      signal: stopping.signal,
     })
     run.processResult = {
       output: worker.stdout,
@@ -606,7 +594,10 @@ async function runtime(
         sessionId: existing.sessionId,
         requestDigest: existing.runControlRef.requestDigest,
       })
-      await replay(existing, response)
+      // Dispatch admits the original execution before Runtime opens result/observation reads.
+      // Waiting for result consumption here would make idempotent replay wait on itself.
+      if (scenario === 'sql-conformance') sse(response, terminal(existing, scenario).slice(0, 1))
+      else await replay(existing, response)
       return
     }
     // The SDK may omit backend overrides to use the environment's creation defaults.
@@ -625,6 +616,7 @@ async function runtime(
     state.runs.push(run)
     if (
       scenario.startsWith('create-') ||
+      scenario === 'accepted' ||
       ((scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
         !scenario.endsWith('-incomplete') &&
         !scenario.startsWith('json-observation-'))
@@ -634,6 +626,13 @@ async function runtime(
         observed = resolve
       })
       observedReplays.set(run.executionId, { received, observed })
+    }
+    if (scenario === 'sql-conformance') {
+      let observed!: () => void
+      const received = new Promise<void>((resolve) => {
+        observed = resolve
+      })
+      observedResults.set(run.executionId, { received, observed })
     }
     note('dispatch', {
       environmentId,
@@ -759,6 +758,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   }
   if (url.pathname === '/fixture/control') {
     const control = await body(request)
+    if (typeof control.nativeExactResultObserved === 'string') {
+      const result = observedResults.get(control.nativeExactResultObserved)
+      if (!result) throw new Error('exact result acknowledgement requires admitted SQL execution')
+      result.observed()
+      note('exact-result-consumed', { executionId: control.nativeExactResultObserved })
+    }
     if (typeof control.nativeReplayObserved === 'string') {
       const replay = observedReplays.get(control.nativeReplayObserved)
       if (!replay) throw new Error('native replay acknowledgement requires an admitted execution')
@@ -927,6 +932,7 @@ server.listen(0, '127.0.0.1', () => {
   note('service-ready', { url: origin, pid: process.pid })
 })
 process.on('SIGTERM', () => {
+  stopping.abort('fixture shutdown')
   server.closeAllConnections()
   server.close()
 })

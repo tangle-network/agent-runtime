@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { AgentExactRunControlRef } from '@tangle-network/agent-interface'
+import type { AgentEnvironment } from '@tangle-network/agent-interface/environment-provider'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { createCommandModelCredentialResolver } from '@tangle-network/agent-provider-tangle/node'
 import { Sandbox } from '@tangle-network/sandbox'
@@ -23,7 +24,7 @@ import { type Configuration, localUrl, object, record } from './uncertain-create
 const config = JSON.parse(readFileSync(process.argv[2]!, 'utf8')) as Configuration
 const directory = config.directory
 localUrl(config.url)
-const provider = createTangleProvider({
+const baseProvider = createTangleProvider({
   client: new Sandbox({
     apiKey: 'local-fixture-not-a-secret',
     baseUrl: config.url,
@@ -41,6 +42,42 @@ const provider = createTangleProvider({
     timeoutMs: 5000,
   }),
 })
+// Returning from yield proves the real consumer processed done before its exact result
+// may close observation. Journal spend can be deferred until that result, so it is not a barrier.
+function acknowledgeTerminal(environment: AgentEnvironment): AgentEnvironment {
+  if (!config.scenario.startsWith('create-') && config.scenario !== 'accepted') return environment
+  return {
+    ...environment,
+    session(id, options) {
+      const session = environment.session!(id, options)
+      return {
+        ...session,
+        async *events(options) {
+          for await (const event of session.events(options)) {
+            yield event
+            if (event.type === 'done') {
+              const response = await fetch(`${config.url}/fixture/control`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ nativeReplayObserved: session.controlRef!.executionId }),
+              })
+              if (!response.ok) throw new Error('terminal consumption acknowledgement refused')
+            }
+          }
+        },
+      }
+    },
+  }
+}
+const provider = {
+  ...baseProvider,
+  create: async (input: Parameters<typeof baseProvider.create>[0]) =>
+    acknowledgeTerminal(await baseProvider.create(input)),
+  get: async (id: string) => {
+    const environment = await baseProvider.get!(id)
+    return environment ? acknowledgeTerminal(environment) : null
+  },
+}
 const artifacts = createPrivateCasArtifactPort(join(directory, 'workspace-cas'), 'provider-json')
 const legacyCapture =
   config.scenario === 'json-owner-capture' || config.scenario === 'trace-owner-evidence'

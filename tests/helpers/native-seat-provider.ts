@@ -4,9 +4,9 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { runSettledCommand } from '../../src/mcp/worktree-harness'
 import { sameControlCoordinates } from '../../src/runtime/retained-run-binding'
 import { durableRetainedProvider } from './durable-retained-provider'
+import { runFixtureProcess } from './fixture-process'
 
 /** Offline retained provider backed by durable control state and a native process per dispatch. */
 export function nativeSeatProvider(
@@ -14,7 +14,7 @@ export function nativeSeatProvider(
   fixtureOptions: { success?: boolean; recordOutput?: boolean } = {},
 ): AgentEnvironmentProvider {
   const base = durableRetainedProvider(join(directory, 'provider.json'))
-  const runs = new Map<string, ReturnType<typeof runSettledCommand>>()
+  const runs = new Map<string, ReturnType<typeof runFixtureProcess>>()
   const recorded = new Set<string>()
   const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
     ...environment,
@@ -32,11 +32,9 @@ process.stdout.write(JSON.stringify({ text: success ? 'native completed' : 'nati
 `
       runs.set(
         control.executionId!,
-        runSettledCommand({
-          command: process.execPath,
+        runFixtureProcess({
           args: ['-e', program, JSON.stringify(control), String(fixtureOptions.success ?? true)],
           cwd: directory,
-          timeoutMs: 5000,
         }),
       )
       return admitted
@@ -45,6 +43,11 @@ process.stdout.write(JSON.stringify({ text: success ? 'native completed' : 'nati
       const session = environment.session!(id, options)
       return {
         ...session,
+        async *events(options) {
+          // A terminal provider frame cannot precede the real native process closing.
+          await runs.get(session.controlRef!.executionId!)
+          yield* session.events!(options)
+        },
         async result() {
           const run = runs.get(session.controlRef!.executionId!)
           if (!run && !fixtureOptions.recordOutput)
