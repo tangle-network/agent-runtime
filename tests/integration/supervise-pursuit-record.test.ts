@@ -56,6 +56,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { waitForState } from '../helpers/observable-state'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
@@ -578,14 +579,17 @@ describe('supervisePursuit root stream', () => {
   /**
    * The durable test provider, advertising the coordination attachment a provider-placed root
    * needs, with the root's session prepending the three parts to its retained events. After the
-   * parts are handed to Runtime and the event loop turns once, the session reads the run directory
-   * before yielding anything else, so `seenDuringTurn` is what was on disk while the turn was open.
+   * parts are committed to Runtime's stream, the observer captures them before any session reader
+   * continues to native events. Repeated observations share that same capture barrier.
    */
   function rootProvider(seen: {
     duringTurn?: number
     midTurn?: () => Promise<void>
   }): AgentEnvironmentProvider {
-    const base = durableRetainedProvider(join(runDir, 'provider.json'))
+    const directory = runDir
+    const base = durableRetainedProvider(join(directory, 'provider.json'))
+    const stream = rootStreamEventSource(directory, { pursuitId: 'pursuit:root-stream' })
+    let observed: Promise<void> | undefined
     const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
       ...environment,
       session: (id, options) => {
@@ -594,14 +598,18 @@ describe('supervisePursuit root stream', () => {
           ...session,
           async *events(eventOptions) {
             for (const part of rootParts) yield structuredClone(part)
-            // After a quiet second, appends land together when the event loop turns.
-            await new Promise((resolve) => setImmediate(resolve))
-            seen.duringTurn = existsSync(streamPath())
-              ? readFileSync(streamPath(), 'utf8')
-                  .split('\n')
-                  .filter((line) => line.length > 0).length
-              : 0
-            await seen.midTurn?.()
+            observed ??= (async () => {
+              await waitForState(
+                directory,
+                async () => {
+                  seen.duringTurn = (await stream.read()).length
+                  return seen.duringTurn >= rootProgress.length
+                },
+                eventOptions?.signal,
+              )
+              await seen.midTurn?.()
+            })()
+            await observed
             yield* session.events(eventOptions)
           },
         }
