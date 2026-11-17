@@ -6,9 +6,12 @@ import { streamRouterChatWithTools } from '../../src/runtime/router-client'
 import type { ToolSpec } from '../../src/runtime/router-request-body'
 import {
   runToolLoop,
+  type RunToolLoopOptions,
   streamToolLoop,
+  type StreamToolLoopYield,
   type ToolCallExecutor,
   type ToolCallOutcome,
+  type ToolLoopCall,
   type ToolLoopEvent,
   type ToolLoopMessage,
 } from '../../src/tool-loop'
@@ -258,3 +261,147 @@ for (const { width, queries, stopOn } of [
     expect([...hookEvents].sort()).toEqual(expected.sort())
   })
 }
+
+const loops = ['runToolLoop', 'streamToolLoop'] as const
+
+/** One model turn with a `web_search` call per query, through one loop. Each call sleeps
+ *  `durations[query]` and logs its start and finish. `consume` sees each streamed step and may
+ *  stop reading. A loop that rejects returns its error and the log as it stood then. */
+async function oneTurn(
+  loop: (typeof loops)[number],
+  queries: string[],
+  durations: Record<string, number>,
+  options: Partial<RunToolLoopOptions> = {},
+  consume?: (step: StreamToolLoopYield<ToolLoopEvent>, log: string[]) => unknown,
+) {
+  const model = await loopbackModel((request) =>
+    request === 0
+      ? { calls: queries.map((query) => JSON.stringify({ query })) }
+      : { text: 'Done.' },
+  )
+  const log: string[] = []
+  const logged: ToolCallExecutor = async (call) => {
+    const query = String(call.args.query)
+    log.push(`start:${query}`)
+    await sleep(durations[query])
+    log.push(`finish:${query}`)
+    return { ok: true, result: query }
+  }
+  const shared = {
+    systemPrompt: 'You design hardware.',
+    userMessage: 'Design a solar chicken coop door.',
+    streamTurn: model.streamTurn,
+    isExecutableTool: (name: string) => name === 'web_search',
+    executeToolCall: logged,
+    ...options,
+  }
+  const answer = (outcome: ToolCallOutcome) => (outcome.ok ? outcome.result : outcome.code)
+  let stopReason = 'completed'
+  const results: unknown[] = []
+  let failure: { error: unknown; log: string[] } | undefined
+  try {
+    if (loop === 'runToolLoop') {
+      const run = await runToolLoop(shared)
+      stopReason = run.stopReason
+      results.push(...run.toolResults.map((item) => answer(item.outcome)))
+    } else {
+      for await (const step of streamToolLoop<ToolLoopEvent>({
+        ...shared,
+        extractText: (event) => (event.type === 'text' ? event.text : ''),
+        extractToolCall: (event) => (event.type === 'tool_call' ? event.call : null),
+      })) {
+        if (step.kind === 'capped') stopReason = step.stopReason
+        if (step.kind === 'tool_result') results.push(answer(step.outcome))
+        if ((await consume?.(step, log)) === 'stop') break
+      }
+    }
+  } catch (error) {
+    failure = { error, log: [...log] }
+  } finally {
+    await model.close()
+  }
+  return { log, stopReason, results, failure }
+}
+
+it("starts the stream's next call only after its consumer takes the previous result", async () => {
+  const atResult: string[][] = []
+  // A slow consumer: the next call waits for it instead of running meanwhile.
+  const consume = async (step: StreamToolLoopYield<ToolLoopEvent>, log: string[]) => {
+    if (step.kind !== 'tool_result') return
+    atResult.push([...log])
+    await sleep(50)
+  }
+  const turn = await oneTurn('streamToolLoop', ['a', 'b'], { a: 20, b: 20 }, {}, consume)
+  expect(turn.results).toEqual(['a', 'b'])
+  expect(atResult).toEqual([
+    ['start:a', 'finish:a'],
+    ['start:a', 'finish:a', 'start:b', 'finish:b'],
+  ])
+})
+
+it("streams the refused call's result before a tool-limited consumer stops", async () => {
+  // A chat turn with its own limit of one tool call: the executor refuses later calls, and the
+  // consumer ends the turn at the result that follows the refusal.
+  let ran = 0
+  let limitReached = false
+  const executeToolCall: ToolCallExecutor = async (call) => {
+    if (ran >= 1) {
+      limitReached = true
+      return { ok: false, code: 'tool_limit', message: 'The turn reached its tool-call limit.' }
+    }
+    ran++
+    await sleep(20)
+    return { ok: true, result: String(call.args.query) }
+  }
+  const stop = (step: StreamToolLoopYield<ToolLoopEvent>) =>
+    step.kind === 'tool_result' && limitReached ? 'stop' : undefined
+  const turn = await oneTurn('streamToolLoop', ['a', 'b'], {}, { executeToolCall }, stop)
+  expect(turn.results).toEqual(['a', 'tool_limit'])
+})
+
+it('settles in-flight calls, then rethrows a costOf throw, in both loops', async () => {
+  const durations = { a: 10, b: 60, c: 10, d: 10 }
+  const costOf = (call: ToolLoopCall) => {
+    if (call.args.query === 'a') throw new Error('meter unavailable')
+    return 0
+  }
+  for (const loop of loops) {
+    const turn = await oneTurn(loop, Object.keys(durations), durations, {
+      maxConcurrentToolCalls: 2,
+      maxCostUsd: 10,
+      costOf,
+    })
+    // Long enough for c and d to run if anything still admitted them.
+    await sleep(200)
+    console.log(`${loop} costOf throw: at rejection ${turn.failure?.log}; later ${turn.log}`)
+    expect(turn.failure?.error).toMatchObject({ message: 'meter unavailable' })
+    expect(turn.failure?.log).toEqual(['start:a', 'start:b', 'finish:a', 'finish:b'])
+    expect(turn.log).toEqual(turn.failure?.log)
+  }
+})
+
+it('stops a turn at its budget in both loops, with the serial rule at width 1', async () => {
+  // Every call costs 1. Before concurrency the budget was checked after each call, so a budget of
+  // 0 still ran the turn's first call.
+  const durations = { a: 10, b: 20, c: 30, d: 40, e: 50 }
+  for (const loop of loops) {
+    for (const [width, maxCostUsd, ran] of [
+      [1, 2, 'a,b'],
+      // a settles at 1 of 2 spent and frees its slot, so d starts; b then spends the rest.
+      [3, 2, 'a,b,c,d'],
+      [1, 0, 'a'],
+      [3, 0, 'a'],
+    ] as const) {
+      const turn = await oneTurn(loop, Object.keys(durations), durations, {
+        maxConcurrentToolCalls: width,
+        maxCostUsd,
+        costOf: () => 1,
+      })
+      console.log(`${loop} width=${width} maxCostUsd=${maxCostUsd}: ${turn.stopReason}`, turn.log)
+      expect(turn.stopReason).toBe('budget')
+      expect(turn.results.join(',')).toBe(ran)
+      const started = turn.log.filter((entry) => entry.startsWith('start:'))
+      expect(started.map((entry) => entry.slice('start:'.length)).join(',')).toBe(ran)
+    }
+  }
+})
