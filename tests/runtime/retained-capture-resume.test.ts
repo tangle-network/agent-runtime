@@ -36,33 +36,31 @@ const rows = async (directory: string, name: string): Promise<any[]> =>
     .split('\n')
     .map((line) => JSON.parse(line))
 async function runPhase(directory: string, phase: string) {
-  return await new Promise<{
+  const child = spawn(process.execPath, [fixture.path, directory, phase], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  })
+  const closed = new Promise<{
     code: number | null
     signal: NodeJS.Signals | null
     stdout: string
     stderr: string
   }>((resolve, reject) => {
-    const child = spawn(process.execPath, [fixture.path, directory, phase], {
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    })
-    let stdout = '',
-      stderr = ''
+    let stdout = '', stderr = ''
     child.on('message', (message) => {
       if ((message as { type?: string }).type === 'checkpoint') child.kill('SIGKILL')
     })
-    child.stdout!.on('data', (chunk) => {
-      stdout += chunk
-    })
-    child.stderr!.on('data', (chunk) => {
-      stderr += chunk
-    })
-    onTestFinished(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-    })
+    child.stdout!.on('data', (chunk) => { stdout += chunk })
+    child.stderr!.on('data', (chunk) => { stderr += chunk })
     child.once('error', reject)
     child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }))
   })
+  onTestFinished(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await closed
+  })
+  return closed
 }
+
 async function killedRun(phase = 'kill') {
   const directory = await mkdtemp(join(tmpdir(), 'retained-native-restart-'))
   directories.push(directory)
