@@ -1,0 +1,3 @@
+type: patch
+---
+`runToolLoop` and `streamToolLoop` run one model turn's tool calls concurrently, at most `maxConcurrentToolCalls` at a time (default 6; 1 runs them one at a time as before). Calls start in call order; results, `tool_result` yields and tool messages keep call order, and each `tool_progress` names its own call and streams before that call's result. Hook events stay one before and one after per call. Once `maxCostUsd` is spent no further call starts, and the turn stops with `budget` after the calls already started settle; at width 1 that is the previous rule exactly. An executor that relies on its turn's earlier calls having finished should set `maxConcurrentToolCalls: 1`.

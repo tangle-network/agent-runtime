@@ -78,7 +78,10 @@ async function loopbackModel(reply: (request: number) => Reply) {
 }
 
 /** The same scripted model through `runToolLoop` and `streamToolLoop`. */
-async function bothLoops(reply: (request: number) => Reply) {
+async function bothLoops(
+  reply: (request: number) => Reply,
+  overrides: { executeToolCall?: ToolCallExecutor; maxConcurrentToolCalls?: number } = {},
+) {
   const runs = []
   for (const loop of ['runToolLoop', 'streamToolLoop'] as const) {
     const model = await loopbackModel(reply)
@@ -89,10 +92,14 @@ async function bothLoops(reply: (request: number) => Reply) {
       executeToolCall,
       isExecutableTool: (name: string) => name === 'web_search',
       maxToolTurns: 6,
+      ...overrides,
     }
     let stopReason = 'completed'
     let text = ''
     const results: ToolCallOutcome[] = []
+    // The streamed tool steps, as `kind:toolCallId`, to check progress attribution and order.
+    const steps: string[] = []
+    const started = Date.now()
     try {
       if (loop === 'runToolLoop') {
         const run = await runToolLoop(options)
@@ -107,14 +114,18 @@ async function bothLoops(reply: (request: number) => Reply) {
         })) {
           if (step.kind === 'capped') stopReason = step.stopReason
           if (step.kind === 'tool_result') results.push(step.outcome)
+          if (step.kind === 'tool_result' || step.kind === 'tool_progress') {
+            steps.push(`${step.kind}:${step.toolCallId}`)
+          }
           if (step.kind === 'event' && step.event.type === 'text') text += step.event.text
         }
       }
     } finally {
       await model.close()
     }
+    const elapsedMs = Date.now() - started
     console.log(`${loop}: stopReason=${stopReason} toolResults=${results.length}`, { text })
-    runs.push({ loop, stopReason, results, text, requests: model.requests })
+    runs.push({ loop, stopReason, results, text, requests: model.requests, steps, elapsedMs })
   }
   return runs
 }
@@ -139,5 +150,49 @@ it('still stops a model that repeats the same call across three model turns', as
     expect(run.stopReason).toBe('stuck-loop')
     expect(run.results).toHaveLength(2)
     expect(run.requests).toHaveLength(3)
+  }
+})
+
+it("runs one turn's calls at once under the width cap and keeps their call order", async () => {
+  // Call a sleeps longest, so the calls settle in the reverse of call order.
+  const sleepMs: Record<string, number> = { a: 1000, b: 950, c: 900 }
+  const sleepingSearch: ToolCallExecutor = async (call, context) => {
+    const query = String(call.args.query)
+    context.progress({ message: `searching ${query}` })
+    await new Promise((resolve) => setTimeout(resolve, sleepMs[query]))
+    return { ok: true, result: `results for ${query}` }
+  }
+  const reply = (request: number): Reply =>
+    request === 0
+      ? { calls: ['{"query":"a"}', '{"query":"b"}', '{"query":"c"}'] }
+      : { text: 'Found all three.' }
+  const inOrder = ['a', 'b', 'c'].map((query) => `results for ${query}`)
+  for (const [width, atLeastMs, underMs] of [
+    [6, 900, 2_000],
+    [1, 2_800, 5_000],
+  ] as const) {
+    const runs = await bothLoops(reply, {
+      executeToolCall: sleepingSearch,
+      maxConcurrentToolCalls: width,
+    })
+    for (const run of runs) {
+      console.log(`${run.loop} width=${width}: ${run.elapsedMs} ms`, run.steps)
+      expect(run.elapsedMs).toBeGreaterThanOrEqual(atLeastMs)
+      expect(run.elapsedMs).toBeLessThan(underMs)
+      expect(run).toMatchObject({ stopReason: 'completed', text: 'Found all three.' })
+      expect(run.results.map((outcome) => outcome.ok && outcome.result)).toEqual(inOrder)
+      const toolMessages = run.requests[1]!.messages.filter((message) => message.role === 'tool')
+      expect(toolMessages.map((message) => message.content)).toEqual(
+        inOrder.map((result) => expect.stringContaining(result)),
+      )
+      if (run.loop !== 'streamToolLoop') continue
+      const results = run.steps.filter((step) => step.startsWith('tool_result:'))
+      expect(results).toEqual(['call_1_0', 'call_1_1', 'call_1_2'].map((id) => `tool_result:${id}`))
+      for (const id of ['call_1_0', 'call_1_1', 'call_1_2']) {
+        const progressAt = run.steps.indexOf(`tool_progress:${id}`)
+        expect(progressAt).toBeGreaterThanOrEqual(0)
+        expect(progressAt).toBeLessThan(run.steps.indexOf(`tool_result:${id}`))
+      }
+    }
   }
 })
