@@ -45,11 +45,13 @@ export async function createEventLoopHeartbeat() {
       if (closed || timer) throw new Error('heartbeat is closed or already measuring')
       const beats = [stamp()]
       timer = setInterval(() => beats.push(stamp()), PERIOD_MS)
-      let stopped: Promise<{
-        worstGapMs: number
-        maxObservedGapMs: number
-        gaps: Array<{ mainMs: number; sentinelMs: number; sentinelKeptBeating: boolean }>
-      }> | undefined
+      let stopped:
+        | Promise<{
+            worstGapMs: number
+            maxObservedGapMs: number
+            gaps: Array<{ mainMs: number; sentinelMs: number; sentinelKeptBeating: boolean }>
+          }>
+        | undefined
       return () =>
         (stopped ??= (async () => {
           clearInterval(timer)

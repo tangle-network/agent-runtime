@@ -28,10 +28,7 @@ import {
   writeWorkerInteractiveBindingAsync,
 } from '../../src/runtime/supervise/worker-interactive'
 
-import {
-  createEventLoopHeartbeat,
-  MAX_EVENT_LOOP_GAP_MS,
-} from '../helpers/event-loop-heartbeat'
+import { createEventLoopHeartbeat, MAX_EVENT_LOOP_GAP_MS } from '../helpers/event-loop-heartbeat'
 
 let heartbeat: Awaited<ReturnType<typeof createEventLoopHeartbeat>>
 beforeEach(async () => {

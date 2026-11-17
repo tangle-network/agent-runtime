@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { createEventLoopHeartbeat } from '../../helpers/event-loop-heartbeat'
 
@@ -30,7 +30,9 @@ try {
   const stop = heartbeat.start()
   if (mode === 'busy') {
     const began = performance.now()
-    while (performance.now() - began < durationMs) {}
+    while (performance.now() - began < durationMs) {
+      // Deliberately occupy this real event loop for the positive control.
+    }
   } else if (mode === 'sync-wait') {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs)
   } else if (mode === 'stopped') {
