@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { captureAgentCandidateWorkspace } from '../../src/candidate-execution'
 import { contentAddress } from '../../src/durable/content-address'
 import type { ProviderWorkspaceCaptureReceipt } from '../../src/runtime/provider-workspace-retention'
@@ -19,7 +19,13 @@ afterAll(async () => {
   await fixture?.dispose()
 })
 const directories: string[] = []
+const children = new Map<ChildProcess, Promise<unknown>>()
 afterEach(async () => {
+  for (const [child, closed] of children) {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await closed
+  }
+  children.clear()
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   )
@@ -54,10 +60,7 @@ async function runPhase(directory: string, phase: string) {
     child.once('error', reject)
     child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }))
   })
-  onTestFinished(async () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-    await closed
-  })
+  children.set(child, closed)
   return closed
 }
 
