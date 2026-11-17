@@ -372,6 +372,32 @@ it('accepts the exact result that arrives while a live-status read is outstandin
   }
 })
 
+it('holds the exact native result behind final replay consumer backpressure', async () => {
+  const fixture = await nativeRun('replay')
+  const first = fixture.session.events({ since: 'event-0' })[Symbol.asyncIterator]()
+  expect((await first.next()).value).toMatchObject({ id: 'event-1' })
+  await first.return?.()
+  const final = fixture.session.events({ since: 'event-1' })[Symbol.asyncIterator]()
+  expect((await final.next()).value).toMatchObject({ id: 'event-2' })
+  // The native write succeeded; completion must wait until the consumer advances past it.
+  const written = (await readFile(join(fixture.directory, 'events.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((row) => JSON.parse(row).id)
+  expect(written).toEqual(['event-0', 'event-1', 'event-2'])
+  expect(
+    await access(join(fixture.directory, 'result')).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(false)
+  const advanced = final.next()
+  void advanced.catch(() => {})
+  expect(await fixture.session.result()).toMatchObject({ success: true })
+  fixture.stop.abort()
+  await advanced.catch(() => undefined)
+})
+
 it.each(['replay', 'replay-closed', 'replay-cold'] as const)(
   'replays advancing native cursors inside one driver attempt (%s)',
   async (mode) => {
