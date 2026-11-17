@@ -752,10 +752,12 @@ describe('supervisePursuit root stream', () => {
         provider: rootProvider({
           midTurn: async () => {
             midTurn = await fetchPage()
+            console.info('ROOT_PAGE_PROBE', JSON.stringify({ phase: 'during', page: midTurn }))
           },
         }),
       },
     })
+    console.info('ROOT_PAGE_PROBE', JSON.stringify({ phase: 'settled-unacked', page: await fetchPage() }))
     expect(midTurn?.records.map((r) => (r.payload as { event: unknown }).event)).toEqual(
       rootProgress,
     )
