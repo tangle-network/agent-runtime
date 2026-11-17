@@ -44,8 +44,8 @@ export type ToolCallOutcome =
 const RUNAWAY_BACKSTOP_TURNS = 200
 const DEFAULT_DECISION_CONTEXT_CHARS = 12_000
 const FAILURE_RECOVERY_ACTIONS = ['retry', 'verify', 'continue', 'stop']
-/** Consecutive identical calls (same tool + canonical-JSON args) that trigger
- *  stuck-loop detection. The window resets on any different call. */
+/** Consecutive model turns issuing the same call set (tool + canonical-JSON args)
+ *  that trigger stuck-loop detection. The window resets on any different set. */
 const STUCK_LOOP_THRESHOLD = 3
 
 /** One OpenAI-shaped tool-call entry carried on an assistant message, plus any
@@ -149,7 +149,7 @@ export type ToolLoopEvent =
   | { type: 'other'; event: unknown }
 
 /** Why the loop stopped. `completed` = model finished naturally; `stuck-loop` =
- *  ≥3 consecutive identical tool calls (same tool + args); `backstop` = hit the
+ *  ≥3 consecutive model turns issuing the same calls (tool + args); `backstop` = hit the
  *  runaway-backstop cap (200 by default); `deadline` = wall-clock deadlineMs
  *  exceeded; `budget` = maxCostUsd exhausted. Non-`completed` stops are infra /
  *  resource outcomes — eval scoring must distinguish them from capability failure. */
@@ -208,10 +208,7 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
   let finalText = ''
   let turns = 0
   let accumulatedCostUsd = 0
-  // Stuck-loop detection: track the last canonical-JSON call signature and how
-  // many consecutive times we've seen it.
-  let lastCallHash: string | null = null
-  let consecutiveCount = 0
+  const isStuck = stuckLoopDetector()
 
   observer.loopBefore(backstop, messages.length)
 
@@ -253,29 +250,20 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
       return { finalText, toolResults, turns, stopReason: 'backstop', cappedOut: true }
     }
 
+    if (isStuck(pending)) {
+      observer.turnAfter(toolTurn, turnEventId, {
+        pendingToolCalls: pending.length,
+        stopReason: 'stuck-loop',
+      })
+      observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'stuck-loop' })
+      return { finalText, toolResults, turns, stopReason: 'stuck-loop', cappedOut: true }
+    }
+
     // The assistant turn that emitted the calls, carrying its tool_calls array,
     // so a strict model reads its own tool use back in OpenAI shape.
     messages.push(assistantToolCallMessage(turnText, pending))
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, call] of pending.entries()) {
-      // Stuck-loop detection: hash the first pending call each turn (a model
-      // stuck in a loop re-issues the same call repeatedly, not alternating calls).
-      const callHash = canonicalCallHash(call)
-      if (callHash === lastCallHash) {
-        consecutiveCount++
-      } else {
-        lastCallHash = callHash
-        consecutiveCount = 1
-      }
-      if (consecutiveCount >= STUCK_LOOP_THRESHOLD) {
-        observer.turnAfter(toolTurn, turnEventId, {
-          pendingToolCalls: pending.length,
-          stopReason: 'stuck-loop',
-        })
-        observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'stuck-loop' })
-        return { finalText, toolResults, turns, stopReason: 'stuck-loop', cappedOut: true }
-      }
-
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let settled = false
       const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
@@ -399,8 +387,7 @@ export async function* streamToolLoop<Raw>(
   ]
   const observer = createToolLoopObserver(opts.hooks, runId, opts.scenarioId)
   let accumulatedCostUsd = 0
-  let lastCallHash: string | null = null
-  let consecutiveCount = 0
+  const isStuck = stuckLoopDetector()
 
   observer.loopBefore(backstop, messages.length)
 
@@ -439,29 +426,21 @@ export async function* streamToolLoop<Raw>(
       return
     }
 
+    if (isStuck(pending)) {
+      observer.turnAfter(toolTurn, turnEventId, {
+        pendingToolCalls: pending.length,
+        stopReason: 'stuck-loop',
+      })
+      observer.loopAfter({ turns: toolTurn + 1, stopReason: 'stuck-loop' })
+      yield { kind: 'capped', pending: pending.length, stopReason: 'stuck-loop' }
+      return
+    }
+
     // The assistant turn that emitted the calls, carrying its tool_calls array,
     // so a strict model reads its own tool use back in OpenAI shape.
     messages.push(assistantToolCallMessage(turnText, pending))
     const outcomes: ExecutedToolCall[] = []
     for (const [callIndex, call] of pending.entries()) {
-      // Stuck-loop detection.
-      const callHash = canonicalCallHash(call)
-      if (callHash === lastCallHash) {
-        consecutiveCount++
-      } else {
-        lastCallHash = callHash
-        consecutiveCount = 1
-      }
-      if (consecutiveCount >= STUCK_LOOP_THRESHOLD) {
-        observer.turnAfter(toolTurn, turnEventId, {
-          pendingToolCalls: pending.length,
-          stopReason: 'stuck-loop',
-        })
-        observer.loopAfter({ turns: toolTurn + 1, stopReason: 'stuck-loop' })
-        yield { kind: 'capped', pending: pending.length, stopReason: 'stuck-loop' }
-        return
-      }
-
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       // Progress arrives while the call is in flight; yield it as it lands, in order,
       // and stop accepting it once the call settles so it never trails the result.
@@ -820,6 +799,20 @@ function renderDecisionContext(
     [...recent, ...assistant, ...toolResults].join('\n\n'),
     DEFAULT_DECISION_CONTEXT_CHARS,
   )
+}
+
+/** Stuck-loop detection across model turns: true once {@link STUCK_LOOP_THRESHOLD}
+ *  consecutive turns issue the same call set. Repeats inside one parallel batch
+ *  are not a loop; each runs and its result reaches the model. */
+function stuckLoopDetector(): (batch: ToolLoopCall[]) => boolean {
+  let last: string | undefined
+  let count = 0
+  return (batch) => {
+    const signature = [...new Set(batch.map(canonicalCallHash))].sort().join('\n')
+    count = signature === last ? count + 1 : 1
+    last = signature
+    return count >= STUCK_LOOP_THRESHOLD
+  }
 }
 
 /** Canonical identifier for a tool call used by stuck-loop detection.

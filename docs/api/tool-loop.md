@@ -566,7 +566,7 @@ Executes one tool call. Implementations that take only the call stay valid.
 > **ToolLoopStopReason** = `"completed"` \| `"stuck-loop"` \| `"backstop"` \| `"deadline"` \| `"budget"`
 
 Why the loop stopped. `completed` = model finished naturally; `stuck-loop` =
- ≥3 consecutive identical tool calls (same tool + args); `backstop` = hit the
+ ≥3 consecutive model turns issuing the same calls (tool + args); `backstop` = hit the
  runaway-backstop cap (200 by default); `deadline` = wall-clock deadlineMs
  exceeded; `budget` = maxCostUsd exhausted. Non-`completed` stops are infra /
  resource outcomes — eval scoring must distinguish them from capability failure.
