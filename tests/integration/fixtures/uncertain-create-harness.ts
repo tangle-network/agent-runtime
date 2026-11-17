@@ -311,11 +311,11 @@ export class ProcessFixture {
   }
   async close(): Promise<void> {
     const failures: unknown[] = []
-    // Cleanup follows captured assertions: kill and join each owner before its service.
+    // Join coordinators first; the service aborts and joins its native workers on SIGTERM.
     for (const child of [...this.children].reverse()) {
       try {
         if (child.process.exitCode === null && child.process.signalCode === null)
-          child.process.kill('SIGKILL')
+          child.process.kill(child === this.children[0] ? 'SIGTERM' : 'SIGKILL')
         await child.closed
       } catch (error) {
         failures.push(error)
