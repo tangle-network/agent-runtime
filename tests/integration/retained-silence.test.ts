@@ -23,6 +23,7 @@ import {
   type RetainedObservedPosition,
 } from '../../src/runtime/supervise/retained-executor'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { waitForState } from '../helpers/observable-state'
 
 const quietMs = 300
 const cleanups: Array<() => Promise<void>> = []
@@ -47,7 +48,6 @@ async function nativeRun(
     stdio: ['pipe', 'pipe', 'inherit'],
   })
   const stop = new AbortController()
-  const deadline = setTimeout(() => stop.abort(new Error('proof deadline')), 5_000)
   const pending = new Map<number, (value: unknown) => void>()
   let sequence = 0
   const lines = createInterface({ input: child.stdout })
@@ -63,7 +63,6 @@ async function nativeRun(
       child.stdin.write(`${JSON.stringify({ id, op, ...input })}\n`)
     })
   cleanups.push(async () => {
-    clearTimeout(deadline)
     stop.abort()
     const exited =
       child.exitCode !== null || child.signalCode !== null
@@ -93,6 +92,9 @@ async function nativeRun(
             ? 'failed'
             : ((await command('status')) as AgentSessionStatus),
         async *events(options): AsyncIterable<AgentEnvironmentEvent> {
+          const signal = options?.signal
+            ? AbortSignal.any([stop.signal, options.signal])
+            : stop.signal
           const initial = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
             .trim()
             .split('\n')
@@ -100,28 +102,44 @@ async function nativeRun(
             ? initial.findIndex((row) => JSON.parse(row).id === options.since) + 1
             : 0
           await command('observe', { since: options?.since ?? null })
-          while (!stop.signal.aborted && !options?.signal?.aborted) {
-            const rows = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
-              .trim()
-              .split('\n')
-            for (const row of rows.slice(offset)) yield JSON.parse(row)
-            offset = rows.length
-            if (mode === 'closed' || mode === 'replay-closed') return
-            await delay(10, undefined, { signal: stop.signal })
+          try {
+            while (!signal.aborted) {
+              const rows = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
+                .trim()
+                .split('\n')
+              for (const row of rows.slice(offset)) {
+                const event: AgentEnvironmentEvent = JSON.parse(row)
+                yield event
+                // Advancing the iterator proves Runtime accepted the cursor and its consumer
+                // finished persistence; publishing the result earlier races a separate read.
+                if (mode.startsWith('replay') && event.id === 'event-2')
+                  await command('consumed', { cursor: event.id })
+              }
+              offset = rows.length
+              if (mode === 'closed' || mode === 'replay-closed') return
+              await waitForState(
+                directory,
+                async () =>
+                  (await readFile(join(directory, 'events.jsonl'), 'utf8')).trim().split('\n').length >
+                  offset,
+                signal,
+              )
+            }
+          } catch (error) {
+            if (!signal.aborted) throw error
           }
         },
         async result() {
-          while (!stop.signal.aborted) {
-            if (
-              await access(join(directory, 'result')).then(
+          await waitForState(
+            directory,
+            () =>
+              access(join(directory, 'result')).then(
                 () => true,
                 () => false,
-              )
-            )
-              return session.result()
-            await delay(10, undefined, { signal: stop.signal })
-          }
-          throw stop.signal.reason
+              ),
+            stop.signal,
+          )
+          return session.result()
         },
       }
     },
