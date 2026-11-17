@@ -466,7 +466,8 @@ export async function* streamToolLoop<Raw>(
     let batchFailed = false
     let batchError: unknown
     let closed = false
-    executeBatch(pending, width, () => closed || overBudget(), async (call, callIndex) => {
+    const stop = () => closed || overBudget()
+    executeBatch(pending, width, stop, async (call, callIndex) => {
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let done = false
       const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
