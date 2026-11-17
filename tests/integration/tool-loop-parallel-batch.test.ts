@@ -5,10 +5,10 @@ import { expect, it } from 'vitest'
 import { streamRouterChatWithTools } from '../../src/runtime/router-client'
 import type { ToolSpec } from '../../src/runtime/router-request-body'
 import {
-  runToolLoop,
   type RunToolLoopOptions,
-  streamToolLoop,
+  runToolLoop,
   type StreamToolLoopYield,
+  streamToolLoop,
   type ToolCallExecutor,
   type ToolCallOutcome,
   type ToolLoopCall,
