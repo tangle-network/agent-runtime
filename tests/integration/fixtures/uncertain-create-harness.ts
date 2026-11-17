@@ -3,7 +3,6 @@ import { appendFileSync, closeSync, existsSync, fsyncSync, openSync, readFileSyn
 import { cp, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
 import { build } from 'tsdown'
 import { onTestFinished } from 'vitest'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
@@ -312,15 +311,11 @@ export class ProcessFixture {
   }
   async close(): Promise<void> {
     const failures: unknown[] = []
-    // Stop the coordinator before its independent service; on failure SIGKILL still joins both.
+    // Cleanup follows captured assertions: kill and join each owner before its service.
     for (const child of [...this.children].reverse()) {
       try {
-        if (child.process.exitCode === null && child.process.signalCode === null) {
-          child.process.kill('SIGTERM')
-          await Promise.race([child.closed, delay(2000)])
-          if (child.process.exitCode === null && child.process.signalCode === null)
-            child.process.kill('SIGKILL')
-        }
+        if (child.process.exitCode === null && child.process.signalCode === null)
+          child.process.kill('SIGKILL')
         await child.closed
       } catch (error) {
         failures.push(error)
