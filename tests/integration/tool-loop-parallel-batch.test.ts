@@ -199,14 +199,13 @@ it("runs a turn's calls at once when opted in, keeps call order, defaults to ser
   }
 })
 
-it('starts no queued call once the stream consumer stops reading', async () => {
-  // Call a settles first. Width 1 stops on a's progress; width 2 stops on a's result.
-  const sleepMs: Record<string, number> = { a: 20, b: 60, c: 60, d: 60 }
-  const cases = [
-    { width: 1, queries: ['a', 'b', 'c'], stopOn: 'tool_progress' },
-    { width: 2, queries: ['a', 'b', 'c', 'd'], stopOn: 'tool_result' },
-  ]
-  for (const { width, queries, stopOn } of cases) {
+// Call a settles first. Width 1 stops on a's progress; width 2 stops on a's result.
+const sleepMs: Record<string, number> = { a: 20, b: 60, c: 60, d: 60 }
+for (const { width, queries, stopOn } of [
+  { width: 1, queries: ['a', 'b', 'c'], stopOn: 'tool_progress' },
+  { width: 2, queries: ['a', 'b', 'c', 'd'], stopOn: 'tool_result' },
+]) {
+  it(`starts no queued call after the consumer stops reading at width ${width}`, async () => {
     const model = await loopbackModel((request) =>
       request === 0
         ? { calls: queries.map((query) => JSON.stringify({ query })) }
@@ -257,5 +256,5 @@ it('starts no queued call once the stream consumer stops reading', async () => {
     const ids = ran.map((query) => `call_1_${queries.indexOf(query)}`)
     const expected = ids.flatMap((id) => [`after:${id}`, `before:${id}`])
     expect([...hookEvents].sort()).toEqual(expected.sort())
-  }
-})
+  })
+}
