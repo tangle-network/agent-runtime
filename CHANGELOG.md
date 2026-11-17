@@ -1,5 +1,7 @@
 ## 10.0.7
 
+Raise the `@tangle-network/agent-interface` peer floor to ^5.10.27. Runtime depends on `@tangle-network/agent-profile-materialize` ^1.1.64, and materialize 1.1.127 (2026-11-17) raised its own Interface peer to ^5.10.27, so a consumer that met Runtime's old ^5.10.25 floor got an unmet peer once npm resolved the newest materialize; a strict-peer install refused it. The development pin, the workspace catalog and the release cohort move to Interface 5.10.27.
+
 The tool loop's stuck-loop guard counts repeats across model turns only. Identical calls inside one model turn's parallel batch no longer stop the loop: each runs and the model reads every result, a tool error included, on its next turn. A model turn whose calls are the same set as the previous turn's counts once, and three such turns in a row still stop with `stuck-loop`. Both `runToolLoop` and `streamToolLoop` share the rule.
 
 ## 10.0.6
