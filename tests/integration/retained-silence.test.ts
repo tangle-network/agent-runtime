@@ -207,21 +207,29 @@ async function observeWithRetry(
   })
 }
 
-it.each(['duplicate', 'closed'] as const)(
-  'keeps a quiet running native invocation in one driver attempt (%s)',
+it.each(['held', 'duplicate', 'closed'] as const)(
+  'bounds silent native observation even while the provider reports running (%s)',
   async (mode) => {
     const fixture = await nativeRun(mode)
     const original = structuredClone(fixture.handle.controlRef)
-    const records: DriverAttemptRecord[] = []
-    const finish = setTimeout(() => {
-      void fixture.command('finish')
-    }, quietMs * 5)
-    try {
-      await observeWithRetry(fixture, records)
-    } finally {
-      clearTimeout(finish)
-    }
-    expect(records).toMatchObject([{ attempt: 1, stop: 'completed' }])
+    const started = Date.now()
+    const observing = (async () => {
+      for await (const event of new RetainedObservation(
+        fixture.handle,
+        fixture.stop.signal,
+        undefined,
+        quietMs,
+      ).observe(fixture.session))
+        await appendCommittedJsonLine(fixture.journal, event)
+    })()
+    await expect(observing).rejects.toMatchObject({
+      name: 'RetainedStreamError',
+      code: 'RETAINED_STREAM_STALLED',
+      message: expect.stringContaining('exact execution remains pending'),
+    })
+    const elapsedMs = Date.now() - started
+    console.log(`retained silence ${mode}: observation failed after ${elapsedMs} ms`)
+    expect(elapsedMs).toBeGreaterThanOrEqual(quietMs * 2)
     expect(fixture.child.exitCode).toBeNull()
     expect(fixture.dispatches()).toBe(1)
     expect(fixture.handle.controlRef).toEqual(original)
@@ -232,9 +240,7 @@ it.each(['duplicate', 'closed'] as const)(
     const observed = []
     for await (const row of readCommittedJsonLines<AgentEnvironmentEvent>(fixture.journal))
       observed.push(row)
-    expect(observed.filter((row) => row.type === 'result')).toMatchObject([
-      { data: { success: true, finalText: 'durable result' } },
-    ])
+    expect(observed.filter((row) => row.type === 'result')).toHaveLength(0)
     expect(JSON.stringify(observed)).toContain('awaitingResultSince')
     const protocol = await readFile(join(fixture.directory, 'protocol.jsonl'), 'utf8')
     expect(protocol).toContain('"op":"status"')
@@ -255,7 +261,7 @@ it('cancels observation without redispatching a quiet running native invocation'
   })()
   const cancel = setTimeout(() => {
     fixture.stop.abort(new Error('original observation cancelled'))
-  }, quietMs * 3)
+  }, quietMs * 1.5)
   try {
     await expect(observing).rejects.toThrow('original observation cancelled')
   } finally {
