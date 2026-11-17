@@ -5214,6 +5214,7 @@ Maturity now renders in the generated reference: `tsdoc.json` extends TypeDoc's 
 - Require `driverChild(profile, ...)` and `worktreeLoopRunner({ rootProfile, ... })`; remove name-only driver and personified-root shortcuts.
 - Remove the public `runLocalHarness` process shortcut; use `createWorktreeCliExecutor({ profile, ... })` directly or `createExecutor({ backend: 'cli-worktree', ... })` inside a supervised run so the CLI and model derive from one exact `AgentProfile`.
 - Keep missing token usage and billed cost unknown, and report reasoning-token usage when the provider supplies it.
+- Remove the `below-runtime-floor` member of `ReservationRejection` and `SpawnRejection` and the per-harness worker token floor behind it (aafd2a1b). The floor was one profile's lowest cumulative settlement on one model, applied to every `pi` child; Runtime now admits any child budget the pool can reserve and enforces it after measured spend ([budget accounting](docs/agent-managed-compute/reliability.md#caller-named-resource-accounting)). This entry was added on 2026-11-17 (#2694); 0.129.0 shipped without it.
 
 ### Removed public execution shortcuts
 
