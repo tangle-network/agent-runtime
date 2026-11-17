@@ -270,6 +270,14 @@ Return the USD cost of one outcome. Required for `maxCostUsd` to work.
 
 `number`
 
+##### maxConcurrentToolCalls?
+
+> `optional` **maxConcurrentToolCalls?**: `number`
+
+How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+ Above 1, results and tool messages still keep call order; once `maxCostUsd` is spent no
+ further call starts, and the turn stops with `budget` after the started calls settle.
+
 ##### renderResult?
 
 > `optional` **renderResult?**: (`label`, `outcome`) => `string`
@@ -437,6 +445,15 @@ Return the USD cost of one outcome. Required for `maxCostUsd` to work.
 ###### Returns
 
 `number`
+
+##### maxConcurrentToolCalls?
+
+> `optional` **maxConcurrentToolCalls?**: `number`
+
+How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+ Above 1, each call's `tool_progress` streams as it lands; `tool_result`s and tool messages
+ keep call order. Once `maxCostUsd` is spent no further call starts, and the turn stops
+ with `budget` after the started calls settle.
 
 ##### renderResult?
 

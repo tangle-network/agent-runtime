@@ -47,6 +47,8 @@ const FAILURE_RECOVERY_ACTIONS = ['retry', 'verify', 'continue', 'stop']
 /** Consecutive model turns issuing the same call set (tool + canonical-JSON args)
  *  that trigger stuck-loop detection. The window resets on any different set. */
 const STUCK_LOOP_THRESHOLD = 3
+/** Calls of one model turn that run at once unless `maxConcurrentToolCalls` says otherwise. */
+const DEFAULT_CONCURRENT_TOOL_CALLS = 1
 
 /** One OpenAI-shaped tool-call entry carried on an assistant message, plus any
  *  provider-specific fields the model attached to the call (`ToolLoopCall.providerFields`). */
@@ -183,6 +185,10 @@ export interface RunToolLoopOptions {
   maxCostUsd?: number
   /** Return the USD cost of one outcome. Required for `maxCostUsd` to work. */
   costOf?: (call: ToolLoopCall, outcome: ToolCallOutcome) => number
+  /** How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+   *  Above 1, results and tool messages still keep call order; once `maxCostUsd` is spent no
+   *  further call starts, and the turn stops with `budget` after the started calls settle. */
+  maxConcurrentToolCalls?: number
   renderResult?: (label: string, outcome: ToolCallOutcome) => string
   labelFor?: (call: ToolLoopCall) => string
   runId?: string
@@ -208,6 +214,11 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
   let finalText = ''
   let turns = 0
   let accumulatedCostUsd = 0
+  const overBudget = () =>
+    opts.maxCostUsd !== undefined &&
+    opts.costOf !== undefined &&
+    accumulatedCostUsd >= opts.maxCostUsd
+  const width = concurrencyOf(opts.maxConcurrentToolCalls)
   const isStuck = stuckLoopDetector()
 
   observer.loopBefore(backstop, messages.length)
@@ -262,39 +273,36 @@ export async function runToolLoop(opts: RunToolLoopOptions): Promise<ToolLoopRes
     // The assistant turn that emitted the calls, carrying its tool_calls array,
     // so a strict model reads its own tool use back in OpenAI shape.
     messages.push(assistantToolCallMessage(turnText, pending))
-    const outcomes: ExecutedToolCall[] = []
-    for (const [callIndex, call] of pending.entries()) {
+    const executed = await executeBatch(pending, width, overBudget, async (call, callIndex) => {
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
       let settled = false
       const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
         if (!settled) opts.onToolProgress?.(call, update)
       })
       settled = true
-
-      // Budget check after each tool call.
       if (opts.maxCostUsd !== undefined && opts.costOf !== undefined) {
         accumulatedCostUsd += opts.costOf(call, outcome)
-        if (accumulatedCostUsd >= opts.maxCostUsd) {
-          const label = labelFor(call)
-          toolResults.push({ call, label, outcome })
-          messages.push(toolResultMessage(call, render(label, outcome)))
-          observer.toolCallAfter(toolTurn, callEventId, call, outcome)
-          observer.turnAfter(toolTurn, turnEventId, {
-            pendingToolCalls: pending.length,
-            stopReason: 'budget',
-          })
-          observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'budget' })
-          return { finalText, toolResults, turns, stopReason: 'budget', cappedOut: true }
-        }
       }
-
+      observer.toolCallAfter(toolTurn, callEventId, call, outcome)
+      return outcome
+    })
+    const outcomes: ExecutedToolCall[] = []
+    for (const [callIndex, outcome] of executed.entries()) {
+      const call = pending[callIndex]!
       const label = labelFor(call)
       const rendered = render(label, outcome)
       toolResults.push({ call, label, outcome })
       outcomes.push({ call, label, outcome, rendered })
       // One role:'tool' message per result, keyed to its call by tool_call_id.
       messages.push(toolResultMessage(call, rendered))
-      observer.toolCallAfter(toolTurn, callEventId, call, outcome)
+    }
+    if (overBudget()) {
+      observer.turnAfter(toolTurn, turnEventId, {
+        pendingToolCalls: pending.length,
+        stopReason: 'budget',
+      })
+      observer.loopAfter({ turns, toolResults: toolResults.length, stopReason: 'budget' })
+      return { finalText, toolResults, turns, stopReason: 'budget', cappedOut: true }
     }
     observer.failureRecovery({
       toolTurn,
@@ -360,6 +368,11 @@ export interface StreamToolLoopOptions<Raw> {
   maxCostUsd?: number
   /** Return the USD cost of one outcome. Required for `maxCostUsd` to work. */
   costOf?: (call: ToolLoopCall, outcome: ToolCallOutcome) => number
+  /** How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+   *  Above 1, each call's `tool_progress` streams as it lands; `tool_result`s and tool messages
+   *  keep call order. Once `maxCostUsd` is spent no further call starts, and the turn stops
+   *  with `budget` after the started calls settle. */
+  maxConcurrentToolCalls?: number
   renderResult?: (label: string, outcome: ToolCallOutcome) => string
   labelFor?: (call: ToolLoopCall) => string
   runId?: string
@@ -387,6 +400,11 @@ export async function* streamToolLoop<Raw>(
   ]
   const observer = createToolLoopObserver(opts.hooks, runId, opts.scenarioId)
   let accumulatedCostUsd = 0
+  const overBudget = () =>
+    opts.maxCostUsd !== undefined &&
+    opts.costOf !== undefined &&
+    accumulatedCostUsd >= opts.maxCostUsd
+  const width = concurrencyOf(opts.maxConcurrentToolCalls)
   const isStuck = stuckLoopDetector()
 
   observer.loopBefore(backstop, messages.length)
@@ -439,78 +457,86 @@ export async function* streamToolLoop<Raw>(
     // The assistant turn that emitted the calls, carrying its tool_calls array,
     // so a strict model reads its own tool use back in OpenAI shape.
     messages.push(assistantToolCallMessage(turnText, pending))
-    const outcomes: ExecutedToolCall[] = []
-    for (const [callIndex, call] of pending.entries()) {
+    // Progress streams as it lands, attributed to its call; results stream in call order,
+    // each after its own call's progress, and no update is accepted once its call settles.
+    const progress: StreamToolLoopYield<Raw>[] = []
+    const settled: ToolCallOutcome[] = []
+    let wake: (() => void) | undefined
+    let batchDone = false
+    let batchFailed = false
+    let batchError: unknown
+    executeBatch(pending, width, overBudget, async (call, callIndex) => {
       const callEventId = observer.toolCallBefore(toolTurn, turnEventId, callIndex, call)
-      // Progress arrives while the call is in flight; yield it as it lands, in order,
-      // and stop accepting it once the call settles so it never trails the result.
-      const progress: ToolProgressUpdate[] = []
-      let wake: (() => void) | undefined
-      let settled = false
-      const running = executeGuarded(opts.executeToolCall, call, (update) => {
-        if (settled) return
-        progress.push(update)
-        wake?.()
-      }).then((result) => {
-        settled = true
-        wake?.()
-        return result
-      })
-      while (!settled || progress.length > 0) {
-        const update = progress.shift()
-        if (update !== undefined) {
-          yield {
-            kind: 'tool_progress',
-            toolName: call.toolName,
-            toolCallId: call.toolCallId,
-            update,
-          }
-          continue
-        }
-        await new Promise<void>((resolve) => {
-          wake = resolve
+      let done = false
+      const outcome = await executeGuarded(opts.executeToolCall, call, (update) => {
+        if (done) return
+        progress.push({
+          kind: 'tool_progress',
+          toolName: call.toolName,
+          toolCallId: call.toolCallId,
+          update,
         })
-        wake = undefined
-      }
-      const outcome = await running
-
-      // Budget check after each tool call.
+        wake?.()
+      })
+      done = true
       if (opts.maxCostUsd !== undefined && opts.costOf !== undefined) {
         accumulatedCostUsd += opts.costOf(call, outcome)
-        if (accumulatedCostUsd >= opts.maxCostUsd) {
-          const label = labelFor(call)
-          yield {
-            kind: 'tool_result',
-            toolName: call.toolName,
-            toolCallId: call.toolCallId,
-            label,
-            outcome,
-          }
-          messages.push(toolResultMessage(call, render(label, outcome)))
-          observer.toolCallAfter(toolTurn, callEventId, call, outcome)
-          observer.turnAfter(toolTurn, turnEventId, {
-            pendingToolCalls: pending.length,
-            stopReason: 'budget',
-          })
-          observer.loopAfter({ turns: toolTurn + 1, stopReason: 'budget' })
-          yield { kind: 'capped', pending: pending.length, stopReason: 'budget' }
-          return
-        }
       }
-
-      const label = labelFor(call)
-      yield {
-        kind: 'tool_result',
-        toolName: call.toolName,
-        toolCallId: call.toolCallId,
-        label,
-        outcome,
-      }
-      const rendered = render(label, outcome)
-      outcomes.push({ call, label, outcome, rendered })
-      // One role:'tool' message per result, keyed to its call by tool_call_id.
-      messages.push(toolResultMessage(call, rendered))
       observer.toolCallAfter(toolTurn, callEventId, call, outcome)
+      settled[callIndex] = outcome
+      wake?.()
+      return outcome
+    }).then(
+      () => {
+        batchDone = true
+        wake?.()
+      },
+      (error: unknown) => {
+        batchFailed = true
+        batchError = error
+        batchDone = true
+        wake?.()
+      },
+    )
+    const outcomes: ExecutedToolCall[] = []
+    while (outcomes.length < pending.length) {
+      const update = progress.shift()
+      if (update !== undefined) {
+        yield update
+        continue
+      }
+      const outcome = settled[outcomes.length]
+      if (outcome !== undefined) {
+        const call = pending[outcomes.length]!
+        const label = labelFor(call)
+        yield {
+          kind: 'tool_result',
+          toolName: call.toolName,
+          toolCallId: call.toolCallId,
+          label,
+          outcome,
+        }
+        const rendered = render(label, outcome)
+        outcomes.push({ call, label, outcome, rendered })
+        // One role:'tool' message per result, keyed to its call by tool_call_id.
+        messages.push(toolResultMessage(call, rendered))
+        continue
+      }
+      if (batchDone) break
+      await new Promise<void>((resolve) => {
+        wake = resolve
+      })
+      wake = undefined
+    }
+    if (batchFailed) throw batchError
+    if (overBudget()) {
+      observer.turnAfter(toolTurn, turnEventId, {
+        pendingToolCalls: pending.length,
+        stopReason: 'budget',
+      })
+      observer.loopAfter({ turns: toolTurn + 1, stopReason: 'budget' })
+      yield { kind: 'capped', pending: pending.length, stopReason: 'budget' }
+      return
     }
     observer.failureRecovery({
       toolTurn,
@@ -545,6 +571,35 @@ async function executeGuarded(
       message: err instanceof Error ? err.message : String(err),
     }
   }
+}
+
+/** Runs one model turn's calls at most `width` at a time, starting them in call order, and
+ *  starts none once `stop()` holds. Resolves with the started calls' outcomes, a prefix of
+ *  `calls` in call order. */
+async function executeBatch(
+  calls: ToolLoopCall[],
+  width: number,
+  stop: () => boolean,
+  run: (call: ToolLoopCall, callIndex: number) => Promise<ToolCallOutcome>,
+): Promise<ToolCallOutcome[]> {
+  const outcomes: ToolCallOutcome[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < calls.length && !stop()) {
+      const callIndex = next++
+      outcomes[callIndex] = await run(calls[callIndex]!, callIndex)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(width, calls.length) }, worker))
+  return outcomes
+}
+
+function concurrencyOf(value: number | undefined): number {
+  const width = value ?? DEFAULT_CONCURRENT_TOOL_CALLS
+  if (!Number.isInteger(width) || width < 1) {
+    throw new RangeError(`maxConcurrentToolCalls must be a positive integer, got ${value}`)
+  }
+  return width
 }
 
 interface ExecutedToolCall {
