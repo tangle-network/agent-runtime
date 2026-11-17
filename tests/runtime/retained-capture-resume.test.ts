@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished } from 'vitest'
 import { captureAgentCandidateWorkspace } from '../../src/candidate-execution'
 import { contentAddress } from '../../src/durable/content-address'
 import type { ProviderWorkspaceCaptureReceipt } from '../../src/runtime/provider-workspace-retention'
@@ -43,17 +43,21 @@ async function runPhase(directory: string, phase: string) {
     stderr: string
   }>((resolve, reject) => {
     const child = spawn(process.execPath, [fixture.path, directory, phase], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 20_000,
-      killSignal: 'SIGKILL',
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     })
     let stdout = '',
       stderr = ''
-    child.stdout.on('data', (chunk) => {
+    child.on('message', (message) => {
+      if ((message as { type?: string }).type === 'checkpoint') child.kill('SIGKILL')
+    })
+    child.stdout!.on('data', (chunk) => {
       stdout += chunk
     })
-    child.stderr.on('data', (chunk) => {
+    child.stderr!.on('data', (chunk) => {
       stderr += chunk
+    })
+    onTestFinished(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
     })
     child.once('error', reject)
     child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }))

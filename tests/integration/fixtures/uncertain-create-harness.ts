@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { build } from 'tsdown'
 import { onTestFinished } from 'vitest'
 import { FileSpawnJournal, loadSpawnForest, type SpawnEvent } from '../../../src/runtime'
+import { waitForState } from '../../helpers/observable-state'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
 import {
   type Configuration,
@@ -273,19 +274,15 @@ export class ProcessFixture {
   outcomes() {
     return readRecords(join(this.directory, 'outcome.jsonl'))
   }
-  /** Poll until `predicate` holds. No clock: it fails once the process that would make it hold
-   *  (the live coordinator, else the service) has exited; the test's own timeout guards a hang. */
+  /** Observe durable fixture writes; process exit wakes the same read before failing. */
   async wait(label: string, predicate: () => Promise<boolean>): Promise<void> {
-    for (;;) {
+    await waitForState(this.directory, async () => {
+      if (await predicate()) return true
       const owner = this.coordinator ?? this.children[0]?.process
-      const ended = owner !== undefined && (owner.exitCode !== null || owner.signalCode !== null)
-      if (await predicate()) return
-      if (ended)
-        throw new Error(
-          `${label}: ${this.coordinator ? 'coordinator' : 'service'} ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`,
-        )
-      await delay(20)
-    }
+      if (owner && (owner.exitCode !== null || owner.signalCode !== null))
+        throw new Error(`${label}: owner ended first; retained ${this.directory}; outcomes=${JSON.stringify(this.outcomes())}`)
+      return false
+    })
   }
   async captureCheckedFrontier(phase = 'assertions-checked-before-cleanup'): Promise<void> {
     const failures: unknown[] = []

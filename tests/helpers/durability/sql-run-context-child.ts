@@ -88,6 +88,22 @@ function graphProvider(): AgentEnvironmentProvider {
   function wrappedEnvironment(environment: AgentEnvironment): AgentEnvironment {
     return {
       ...environment,
+      session(id, options) {
+        const session = environment.session!(id, options)
+        return {
+          ...session,
+          async result() {
+            const result = await session.result()
+            const acknowledged = await fetch(`${url}/fixture/control`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ nativeExactResultObserved: session.controlRef!.executionId }),
+            })
+            if (!acknowledged.ok) throw new Error('exact-result acknowledgement refused')
+            return result
+          },
+        }
+      },
       async dispatch(input) {
         await hit('provider:dispatch:before')
         if (!environment.dispatch) throw new Error('fixture environment must support dispatch')

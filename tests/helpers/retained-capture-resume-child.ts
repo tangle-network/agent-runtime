@@ -44,6 +44,12 @@ const provider: AgentEnvironmentProvider = {
 const backend = { backend: 'provider' as const, provider }
 const seat = phase.startsWith('seat-')
 const operator = new AbortController()
+async function checkpoint(): Promise<never> {
+  await new Promise<void>((resolve, reject) =>
+    process.send!({ type: 'checkpoint' }, (error) => error ? reject(error) : resolve()),
+  )
+  return new Promise(() => {})
+}
 try {
   const result = await supervisePursuit(
     testAgentProfile('root', {
@@ -82,7 +88,7 @@ try {
           await context.journal.appendEvent(root, event)
           if (event.kind === 'execution-result') {
             if (['kill', 'kill-failed', 'seat-kill'].includes(phase))
-              process.kill(process.pid, 'SIGKILL')
+              await checkpoint()
             operator.abort(new RunCancellationReason('operator', 'cold receipt proof complete'))
           }
           if (
@@ -93,7 +99,7 @@ try {
           ) {
             const events = (await context.journal.loadTree(root)) ?? []
             if (events.filter((next) => next.kind === 'execution-input').length > 1)
-              process.kill(process.pid, 'SIGKILL')
+              await checkpoint()
           }
         },
       },
@@ -108,7 +114,7 @@ try {
                 : { seat: 'test-seat', backend },
           }
         : {}),
-      budget: { maxIterations: 8, maxTokens: 1000, deadlineMs: 10_000 },
+      budget: { maxIterations: 8, maxTokens: 1000 },
       driverRetry: {
         maxAttempts: 3,
         maxConsecutiveFailures: 2,
@@ -134,4 +140,8 @@ try {
     `${JSON.stringify({ error: error instanceof Error ? error.message : String(error) })}\n`,
   )
   process.exitCode = 1
+}
+
+finally {
+  process.disconnect?.()
 }

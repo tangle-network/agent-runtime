@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import {
   agentProfileSeatSchema,
@@ -44,6 +43,10 @@ import type {
   Spend,
 } from '../../src/runtime/supervise/types'
 
+import { runFixtureProcess } from '../helpers/fixture-process'
+import { waitForState } from '../helpers/observable-state'
+import { waitFor } from '../helpers/runtime-live-trace'
+
 /** Caller-owned deterministic process execution. The canonical profile remains identity data;
  * this seam proves graph plumbing, not native prompt/model/resource materialization. */
 function processStages(
@@ -65,11 +68,9 @@ function processStages(
       execute(task, signal) {
         started = performance.now()
         executionSignal = AbortSignal.any([signal, stop.signal])
-        pending = runSettledCommand({
-          command: process.execPath,
+        pending = runFixtureProcess({
           args: ['-e', script, profile.name, JSON.stringify(task), JSON.stringify(profile)],
           cwd,
-          timeoutMs: 10000,
           signal: executionSignal,
         }).then((child) => {
           // A stage that prints a JSON object hands it on as its output (a maps source's items).
@@ -473,18 +474,16 @@ it('reopens a gracefully cancelled durable graph and retries only its interrupte
     }
     pending = superviseGraphPursuit(graph, { ...options, signal: stop.signal })
     let pid: number | undefined
-    const until = Date.now() + 5000
-    while (Date.now() < until && pid === undefined) {
+    await waitFor('review subprocess actual wait', waitForState(directory, async () => {
       try {
         const value = Number(await readFile(join(directory, 'review-waiting'), 'utf8'))
         if (Number.isSafeInteger(value) && value > 0) pid = value
       } catch (error) {
-        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
-      if (pid === undefined) await sleep(20)
-    }
-    if (pid === undefined) throw new Error('review subprocess did not reach its actual wait')
-    process.kill(pid, 0)
+      return pid !== undefined
+    }, stop.signal), pending)
+    process.kill(pid!, 0)
     stop.abort('consumer SIGINT')
     const cancelled = await pending
     expect(cancelled.result.result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
