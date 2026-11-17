@@ -67,12 +67,14 @@ function processStages(
       runtime: 'graph-file-process',
       execute(task, signal) {
         started = performance.now()
+        console.info('GRAPH_TIMEOUT_PROBE', JSON.stringify({ phase: 'process-start', stage: profile.name, at: Date.now() }))
         executionSignal = AbortSignal.any([signal, stop.signal])
         pending = runFixtureProcess({
           args: ['-e', script, profile.name, JSON.stringify(task), JSON.stringify(profile)],
           cwd,
           signal: executionSignal,
         }).then((child) => {
+          console.info('GRAPH_TIMEOUT_PROBE', JSON.stringify({ phase: 'process-close', stage: profile.name, ms: performance.now() - started!, at: Date.now() }))
           // A stage that prints a JSON object hands it on as its output (a maps source's items).
           const text = child.stdout.trim()
           const out = text.startsWith('{') ? JSON.parse(text) : { content: text }
@@ -491,9 +493,11 @@ it('reopens a gracefully cancelled durable graph and retries only its interrupte
       ),
       pending,
     )
+    console.info('GRAPH_TIMEOUT_PROBE', JSON.stringify({ phase: 'review-ready', pid, at: Date.now() }))
     process.kill(pid!, 0)
     stop.abort('consumer SIGINT')
     const cancelled = await pending
+    console.info('GRAPH_TIMEOUT_PROBE', JSON.stringify({ phase: 'cancelled', at: Date.now() }))
     expect(cancelled.result.result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
     expect(() => process.kill(pid!, 0)).toThrow()
     const prior = await readFile(join(options.runDir, 'result.json'), 'utf8')
@@ -513,6 +517,7 @@ it('reopens a gracefully cancelled durable graph and retries only its interrupte
       },
     })
     const resumed = await pending
+    console.info('GRAPH_TIMEOUT_PROBE', JSON.stringify({ phase: 'resumed', at: Date.now() }))
     expect(resumed.result.result.kind, JSON.stringify(resumed.result.result)).toBe('winner')
     expect(resumed.result.runId).toBe(options.runId)
     expect(await readFile(join(options.runDir, 'settles', '1.json'), 'utf8')).toBe(prior)
