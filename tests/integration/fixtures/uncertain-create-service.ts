@@ -153,7 +153,7 @@ function flushAccepted(run: NativeRun): void {
   }
   const exact = [...subscribers].filter((response) => exactSubscribers.has(response))
   for (const response of subscribers) if (!exactSubscribers.has(response)) finish(response)
-  // The test acknowledges Runtime's journaled terminal usage, not a delay after socket write.
+  // The coordinator acknowledges the consumer advancing past done, not elapsed socket time.
   void observedReplays.get(run.executionId)!.received.then(() => exact.forEach(finish))
   acceptedSubscribers.delete(run.executionId)
   note('healthy-stream-completed', {

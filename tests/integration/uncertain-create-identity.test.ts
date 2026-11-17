@@ -269,9 +269,6 @@ describe('actual Tangle SDK uncertain root create identities', () => {
           expect((await fixture.events()).some((event) => event.kind === 'root-reentered')).toBe(
             true,
           )
-          // Usage exists only on done in this fixture, so acknowledgement proves terminal
-          // consumption before the independent exact-result response can close observation.
-          await fixture.acknowledgeNativeReplay(0, true)
           await fixture.wait('original provision resolves to its exact native result', async () => {
             const state = await fixture.state()
             return (
@@ -740,7 +737,6 @@ describe('typed real command credential refusal and accepted evidence', () => {
 describe('accepted native recovery and historical identities', () => {
   it('UC7 accepted native result, descendant accounting and delivered-only finalizer survive process recovery', async () => {
     await withFixture('accepted', executables, async (fixture) => {
-      await fixture.acknowledgeNativeReplay(0, true)
       await fixture.wait(
         'child admission durable',
         async () =>
@@ -786,7 +782,6 @@ describe('accepted native recovery and historical identities', () => {
       // The original native execution stays held until its replacement owner has restored
       // coordination authority and actually rejoined that exact child execution.
       await fixture.control({ finish: true })
-      await fixture.acknowledgeNativeReplay(1, true)
       await fixture.wait('recovered child native result and settlement committed', async () => {
         const events = await fixture.events()
         return (

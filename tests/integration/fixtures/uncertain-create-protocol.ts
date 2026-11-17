@@ -344,10 +344,7 @@ export function terminal(run: NativeRun, scenario: Scenario) {
         success: true,
         status: 'success',
         response: '{"answer":"delivered"}',
-        // These recovery proofs acknowledge usage to show Runtime consumed done, not result.
-        ...(scenario === 'accepted' || scenario.startsWith('create-')
-          ? {}
-          : { usage: { inputTokens: 3, outputTokens: 2 } }),
+        usage: { inputTokens: 3, outputTokens: 2 },
       },
     },
     {
