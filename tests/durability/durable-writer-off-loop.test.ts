@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import { appendCommittedJsonLine } from '../../src/durable/jsonl-file'
 import { acquireRunDirectoryLock, RUN_DIRECTORY_LOCK_FILE } from '../../src/durable/run-lock'
@@ -28,10 +28,21 @@ import {
   writeWorkerInteractiveBindingAsync,
 } from '../../src/runtime/supervise/worker-interactive'
 
+import {
+  createEventLoopHeartbeat,
+  MAX_EVENT_LOOP_GAP_MS,
+} from '../helpers/event-loop-heartbeat'
+
+let heartbeat: Awaited<ReturnType<typeof createEventLoopHeartbeat>>
+beforeEach(async () => {
+  heartbeat = await createEventLoopHeartbeat()
+})
+
 const children = new Set<ChildProcess>()
 const directories: string[] = []
 
 afterEach(async () => {
+  await heartbeat?.close()
   for (const child of children) if (child.exitCode === null) child.kill('SIGKILL')
   children.clear()
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
@@ -60,28 +71,13 @@ function holdMutationLock(lockFile: string, holdMs: number): Promise<ChildProces
   })
 }
 
-/** A 5 ms heartbeat: the largest gap between beats is the longest time this loop was blocked. */
-function heartbeat(): () => number {
-  let last = performance.now()
-  let worst = 0
-  const beat = setInterval(() => {
-    const now = performance.now()
-    worst = Math.max(worst, now - last)
-    last = now
-  }, 5)
-  return () => {
-    clearInterval(beat)
-    return Math.max(worst, performance.now() - last)
-  }
-}
-
 it('steer and binding writes wait on the durable writer without blocking the event loop, claimed or not', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'durable-writer-steer-'))
   directories.push(dir)
   const lock = await acquireRunDirectoryLock(dir, 'steer-off-loop')
   try {
     const holder = await holdMutationLock(join(dir, RUN_DIRECTORY_LOCK_FILE), 3_000)
-    const worstGap = heartbeat()
+    const worstGap = heartbeat.start()
     await delay(50)
     const began = performance.now()
     // This claimed write reaches the durable writer as it is called and waits there for the other
@@ -123,13 +119,13 @@ it('steer and binding writes wait on the durable writer without blocking the eve
     })
     const [, admitted, steer] = await Promise.all([blocked, unclaimed, claimed])
     const waitedMs = performance.now() - began
-    const worstGapMs = worstGap()
+    const { worstGapMs } = await worstGap()
     holder.kill('SIGKILL')
 
     // Every write waited for the other process's lock (about 3 s) while this loop kept running.
     expect(waitedMs).toBeGreaterThan(2_500)
     expect(admitted.doneMs).toBeGreaterThan(2_500)
-    expect(worstGapMs).toBeLessThan(100)
+    expect(worstGapMs).toBeLessThan(MAX_EVENT_LOOP_GAP_MS)
     expect(admitted.steer.replayed).toBe(false)
     expect(steer.replayed).toBe(false)
     expect(readWorkerSteerAcknowledgement(dir, 'steer-claimed')?.effect).toBe('delivered')
@@ -148,7 +144,7 @@ it('a run stop and its cancellation records wait on the durable writer without b
   const lock = await acquireRunDirectoryLock(dir, 'cancel-off-loop')
   try {
     const holder = await holdMutationLock(join(dir, RUN_DIRECTORY_LOCK_FILE), 3_000)
-    const worstGap = heartbeat()
+    const worstGap = heartbeat.start()
     await delay(50)
     const began = performance.now()
     let abortedMs: number | undefined
@@ -182,13 +178,13 @@ it('a run stop and its cancellation records wait on the durable writer without b
       (error: Error) => error.message,
     )
     const [settledMs, outside, rivalOutcome] = await Promise.all([settled, stopped, rival])
-    const worstGapMs = worstGap()
+    const { worstGapMs } = await worstGap()
     holder.kill('SIGKILL')
 
     expect(abortedMs).toBeLessThan(100)
     expect(settledMs).toBeGreaterThan(2_500)
     expect(outside.doneMs).toBeGreaterThan(2_500)
-    expect(worstGapMs).toBeLessThan(100)
+    expect(worstGapMs).toBeLessThan(MAX_EVENT_LOOP_GAP_MS)
     expect(readRunCancellation(dir, 'stop-run')?.effect).toBe('cancelled')
     expect(outside.answer.effect).toBe('unknown')
     expect(readRunCancelRequest(other)?.operationId).toBe('stop-other')
@@ -210,14 +206,7 @@ it('claimed writes wait on a held run lock without blocking the event loop, in t
       text: 'x'.repeat(64 * 1024),
     }))
     const holder = await holdMutationLock(join(dir, RUN_DIRECTORY_LOCK_FILE), 3_000)
-    // A 5 ms heartbeat: the largest gap between beats is the longest time this loop was blocked.
-    let last = performance.now()
-    let worstGapMs = 0
-    const beat = setInterval(() => {
-      const now = performance.now()
-      worstGapMs = Math.max(worstGapMs, now - last)
-      last = now
-    }, 5)
+    const worstGap = heartbeat.start()
     await delay(50)
     const began = performance.now()
     // Issued without awaiting each: blob, journal line naming it, next blob, next line, ...
@@ -232,13 +221,12 @@ it('claimed writes wait on a held run lock without blocking the event loop, in t
     )
     await Promise.all(writes)
     const waitedMs = performance.now() - began
-    worstGapMs = Math.max(worstGapMs, performance.now() - last)
-    clearInterval(beat)
+    const { worstGapMs } = await worstGap()
     holder.kill('SIGKILL')
 
     // The writes waited for the other process's lock (about 3 s) while this loop kept running.
     expect(waitedMs).toBeGreaterThan(2_500)
-    expect(worstGapMs).toBeLessThan(100)
+    expect(worstGapMs).toBeLessThan(MAX_EVENT_LOOP_GAP_MS)
     const lines = (await readFile(journal, 'utf8'))
       .trim()
       .split('\n')
