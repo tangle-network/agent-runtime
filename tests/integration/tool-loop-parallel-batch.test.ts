@@ -153,7 +153,7 @@ it('still stops a model that repeats the same call across three model turns', as
   }
 })
 
-it("runs one turn's calls at once under the width cap and keeps their call order", async () => {
+it("runs a turn's calls at once when opted in, keeps call order, defaults to serial", async () => {
   // Call a sleeps longest, so the calls settle in the reverse of call order.
   const sleepMs: Record<string, number> = { a: 1000, b: 950, c: 900 }
   const sleepingSearch: ToolCallExecutor = async (call, context) => {
@@ -167,16 +167,17 @@ it("runs one turn's calls at once under the width cap and keeps their call order
       ? { calls: ['{"query":"a"}', '{"query":"b"}', '{"query":"c"}'] }
       : { text: 'Found all three.' }
   const inOrder = ['a', 'b', 'c'].map((query) => `results for ${query}`)
+  // Width 6 is opted in; no option keeps the default of one call at a time.
   for (const [width, atLeastMs, underMs] of [
     [6, 900, 2_000],
-    [1, 2_800, 5_000],
+    [undefined, 2_800, 5_000],
   ] as const) {
     const runs = await bothLoops(reply, {
       executeToolCall: sleepingSearch,
       maxConcurrentToolCalls: width,
     })
     for (const run of runs) {
-      console.log(`${run.loop} width=${width}: ${run.elapsedMs} ms`, run.steps)
+      console.log(`${run.loop} width=${width ?? 'default'}: ${run.elapsedMs} ms`, run.steps)
       expect(run.elapsedMs).toBeGreaterThanOrEqual(atLeastMs)
       expect(run.elapsedMs).toBeLessThan(underMs)
       expect(run).toMatchObject({ stopReason: 'completed', text: 'Found all three.' })

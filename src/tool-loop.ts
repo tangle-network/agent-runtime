@@ -48,7 +48,7 @@ const FAILURE_RECOVERY_ACTIONS = ['retry', 'verify', 'continue', 'stop']
  *  that trigger stuck-loop detection. The window resets on any different set. */
 const STUCK_LOOP_THRESHOLD = 3
 /** Calls of one model turn that run at once unless `maxConcurrentToolCalls` says otherwise. */
-const DEFAULT_CONCURRENT_TOOL_CALLS = 6
+const DEFAULT_CONCURRENT_TOOL_CALLS = 1
 
 /** One OpenAI-shaped tool-call entry carried on an assistant message, plus any
  *  provider-specific fields the model attached to the call (`ToolLoopCall.providerFields`). */
@@ -185,9 +185,9 @@ export interface RunToolLoopOptions {
   maxCostUsd?: number
   /** Return the USD cost of one outcome. Required for `maxCostUsd` to work. */
   costOf?: (call: ToolLoopCall, outcome: ToolCallOutcome) => number
-  /** How many of one model turn's calls run at once. Default 6; 1 runs them one at a time.
-   *  Results and tool messages keep call order; once `maxCostUsd` is spent no further call
-   *  starts, and the turn stops with `budget` after the started calls settle. */
+  /** How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+   *  Above 1, results and tool messages still keep call order; once `maxCostUsd` is spent no
+   *  further call starts, and the turn stops with `budget` after the started calls settle. */
   maxConcurrentToolCalls?: number
   renderResult?: (label: string, outcome: ToolCallOutcome) => string
   labelFor?: (call: ToolLoopCall) => string
@@ -368,10 +368,10 @@ export interface StreamToolLoopOptions<Raw> {
   maxCostUsd?: number
   /** Return the USD cost of one outcome. Required for `maxCostUsd` to work. */
   costOf?: (call: ToolLoopCall, outcome: ToolCallOutcome) => number
-  /** How many of one model turn's calls run at once. Default 6; 1 runs them one at a time.
-   *  Each call's `tool_progress` streams as it lands; `tool_result`s and tool messages keep
-   *  call order. Once `maxCostUsd` is spent no further call starts, and the turn stops with
-   *  `budget` after the started calls settle. */
+  /** How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+   *  Above 1, each call's `tool_progress` streams as it lands; `tool_result`s and tool messages
+   *  keep call order. Once `maxCostUsd` is spent no further call starts, and the turn stops
+   *  with `budget` after the started calls settle. */
   maxConcurrentToolCalls?: number
   renderResult?: (label: string, outcome: ToolCallOutcome) => string
   labelFor?: (call: ToolLoopCall) => string
