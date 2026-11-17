@@ -120,8 +120,8 @@ async function nativeRun(
               await waitForState(
                 directory,
                 async () =>
-                  (await readFile(join(directory, 'events.jsonl'), 'utf8')).trim().split('\n').length >
-                  offset,
+                  (await readFile(join(directory, 'events.jsonl'), 'utf8')).trim().split('\n')
+                    .length > offset,
                 signal,
               )
             }
