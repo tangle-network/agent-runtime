@@ -119,6 +119,7 @@
     "dev": "pnpm run build --watch",
     "prepublishOnly": "pnpm run build",
     "test": "pnpm run build && pnpm run typecheck && pnpm run lint && vitest run",
+    "test:affected": "base=$(git merge-base \"${AFFECTED_BASE:-origin/main}\" HEAD) && pnpm run build && pnpm run typecheck && pnpm run lint && vitest run --changed \"$base\" --passWithNoTests",
     "test:watch": "vitest",
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
