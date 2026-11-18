@@ -20,6 +20,7 @@ import {
   type ImproveTrainingOptions,
   type TrainingDatasetDocument,
 } from '../src/improvement/training'
+import { waitForState } from './helpers/observable-state'
 
 // A CPU-only learned scalar fixture. This proves training execution, not agent quality.
 const TRAIN = `
@@ -264,7 +265,7 @@ describe('checkpoint training through improve', () => {
     })
   }
 
-  it('cancels the command process group including descendants', async () => {
+  it('cancels the command process group including descendants', async ({ onTestFinished }) => {
     await withFixture(
       async (options, dir) => {
         const checkpointPath = join(dir, 'cancel-checkpoint')
@@ -282,20 +283,34 @@ describe('checkpoint training through improve', () => {
           },
           controller.signal,
         )
+        onTestFinished(async () => {
+          controller.abort()
+          await pending.catch(() => undefined)
+        })
+        void pending.then(
+          (outcome) =>
+            controller.abort(
+              new Error('trainer ended before descendant readiness', { cause: outcome }),
+            ),
+          (error) => controller.abort(error),
+        )
         type ProcessIdentity = { pid: number; pgid?: number; startTime?: string }
         type Ready = { parent: ProcessIdentity; descendant: ProcessIdentity }
         let identities: Ready | undefined
         const failures: unknown[] = []
         try {
-          let ready = false
-          for (let i = 0; i < 100 && !ready; i++) {
-            ready = await readFile(`${checkpointPath}.ready`).then(
-              () => true,
-              () => false,
-            )
-            if (!ready) await sleep(20)
-          }
-          assert(ready, 'the descendant must have installed its arm poll before cancellation')
+          await waitForState(
+            dir,
+            () =>
+              readFile(`${checkpointPath}.ready`).then(
+                () => true,
+                (error: NodeJS.ErrnoException) => {
+                  if (error.code === 'ENOENT') return false
+                  throw error
+                },
+              ),
+            controller.signal,
+          )
           identities = JSON.parse(await readFile(`${checkpointPath}.ready`, 'utf8')) as Ready
           for (const identity of [identities.parent, identities.descendant])
             assert(Number.isSafeInteger(identity.pid) && identity.pid > 0)
