@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { on } from 'node:events'
 import { appendFile, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,25 +31,22 @@ function start(dir: string, mode: string) {
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   })
   children.add(child)
-  const messages: Array<{ type: string; generation?: number; outcomes?: Record<string, string> }> =
-    []
-  let error = ''
+  const messages = on(child, 'message', { close: ['close'] })
+  let stderr = ''
   child.stderr!.on('data', (chunk) => {
-    error += String(chunk)
+    stderr += String(chunk)
   })
-  child.on('message', (message) => messages.push(message as (typeof messages)[number]))
   return {
     child,
     async message(type: string) {
-      const deadline = Date.now() + 30_000
-      while (Date.now() < deadline) {
-        const found = messages.find((message) => message.type === type)
-        if (found) return found
-        if (child.exitCode !== null || child.signalCode !== null)
-          throw new Error(`child exited: ${error}`)
-        await new Promise((resolve) => setTimeout(resolve, 20))
-      }
-      throw new Error(`child did not report ${type}: ${error}`)
+      const next = await messages.next()
+      if (next.done) throw new Error(`child closed before ${type}: ${stderr}`)
+      const [reply] = next.value as [
+        { type: string; generation?: number; outcomes?: Record<string, string>; error?: string },
+      ]
+      if (reply.type !== type)
+        throw new Error(`expected ${type}, received ${reply.type}: ${reply.error ?? stderr}`)
+      return reply
     },
   }
 }
