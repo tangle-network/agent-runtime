@@ -170,6 +170,11 @@ export function assertBridgeProfileMaterializes(
   context: string,
 ): void {
   if (backend.backend !== 'bridge') return
+  const refusal = bridgeProfileRefusal(profile)
+  if (refusal) throw new ValidationError(`${context}: ${refusal}`)
+}
+
+export function bridgeProfileRefusal(profile: AgentProfile): string | undefined {
   const harness = agentHarness(profile.harness)
   if (harness === undefined || !isMaterializerHarness(harness)) return
   const unsupported = unsupportedProfileDimensions(
@@ -179,9 +184,7 @@ export function assertBridgeProfileMaterializes(
     bridgeMaterializationSkip(harness),
   )
   if (unsupported.length === 0) return
-  throw new ValidationError(
-    `${context}: ${harness} cannot materialize the profile: ${renderUnsupported(unsupported)}`,
-  )
+  return `${harness} cannot materialize the profile: ${renderUnsupported(unsupported)}`
 }
 
 /**
