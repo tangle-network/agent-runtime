@@ -15,7 +15,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { expect, it } from 'vitest'
+import { it } from 'vitest'
 import { loadSpawnForest } from '../../src/durable/spawn-journal/spawn-forest'
 import { RunCancellationReason } from '../../src/runtime/supervise/abortable'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
@@ -289,66 +289,76 @@ async function cancelRun(
   return { ...fixture, result, cancelToResultMs, destroyedBoxes }
 }
 
-it('returns a cancelled 28-box run within one release wait and keeps every held box', async () => {
-  const run = await cancelRun(RECORDED, ROOT_BOX)
-  const firstAnswer = new Map(RECORDED.map(([box, , answers]) => [box, answers[0]]))
-  const boxesAnswered = (match: (answer: Answer) => boolean) =>
-    [...firstAnswer].filter(([, answer]) => match(answer)).map(([box]) => box)
-  const heldBoxes = boxesAnswered((answer) => answer?.startsWith('hold@') === true)
-  const unanswered = boxesAnswered((answer) => answer === NO_ANSWER)
-  const deleted = boxesAnswered((answer) => answer === DELETED)
-  expect([heldBoxes.length, unanswered.length, deleted.length]).toEqual([14, 12, 2])
+// Each case waits out its own wall-clock bound (one release wait; a capture longer than one) on its
+// own provider and journal, so the two run together.
+it.concurrent(
+  'returns a cancelled 28-box run within one release wait and keeps every held box',
+  async ({ expect }) => {
+    const run = await cancelRun(RECORDED, ROOT_BOX)
+    const firstAnswer = new Map(RECORDED.map(([box, , answers]) => [box, answers[0]]))
+    const boxesAnswered = (match: (answer: Answer) => boolean) =>
+      [...firstAnswer].filter(([, answer]) => match(answer)).map(([box]) => box)
+    const heldBoxes = boxesAnswered((answer) => answer?.startsWith('hold@') === true)
+    const unanswered = boxesAnswered((answer) => answer === NO_ANSWER)
+    const deleted = boxesAnswered((answer) => answer === DELETED)
+    expect([heldBoxes.length, unanswered.length, deleted.length]).toEqual([14, 12, 2])
 
-  // One release wait (90 s), where the recorded teardown took 1315 s.
-  const measured = `cancel-to-result ${run.cancelToResultMs} ms for ${RECORDED.length} boxes`
-  console.log(measured)
-  expect(run.cancelToResultMs, measured).toBeLessThan(120_000)
-  // Each box is asked once: a held box is never reconnected to, not even to stop its harness, and
-  // a delete still in flight is joined, not asked again.
-  expect(Object.fromEntries(run.destroys)).toEqual(
-    Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
-  )
-  expect(Object.fromEntries(run.connects)).toEqual(
-    Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
-  )
-  expect(Object.fromEntries(run.wakes)).toEqual({})
-
-  const unconfirmed = run.result.teardownUnconfirmed ?? []
-  const nodeOf = (box: string) =>
-    unconfirmed.find((node) =>
-      [...(node.environments ?? []), ...(node.kept ?? [])].some((ref) => ref.environmentId === box),
+    // One release wait (90 s), where the recorded teardown took 1315 s.
+    const measured = `cancel-to-result ${run.cancelToResultMs} ms for ${RECORDED.length} boxes`
+    console.log(measured)
+    expect(run.cancelToResultMs, measured).toBeLessThan(120_000)
+    // Each box is asked once: a held box is never reconnected to, not even to stop its harness, and
+    // a delete still in flight is joined, not asked again.
+    expect(Object.fromEntries(run.destroys)).toEqual(
+      Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
     )
-  // Every held box is kept as evidence, named with the provider's own refusal, and never left
-  // for a sweeper to delete.
-  for (const box of heldBoxes) {
-    const node = nodeOf(box)
-    expect(node?.kept, box).toContainEqual({
-      provider: PROVIDER,
-      environmentId: box,
-      keptFor: 'evidence',
-    })
-    expect(node?.detail, box).toContain(refusal(box, firstAnswer.get(box)!))
-  }
-  // A held box's unfinished harness is named as not stopped, never as stopped.
-  for (const [box, executionId] of UNFINISHED_RUNS) {
-    expect(heldBoxes, box).toContain(box)
-    const detail = nodeOf(box)?.detail ?? ''
-    expect(detail, box).toContain(`native execution ${executionId} stop not attempted`)
-    expect(detail, box).toContain('it may still be running')
-    expect(detail, box).not.toContain(`native execution ${executionId} stopped`)
-  }
-  // A delete that never answered is unconfirmed and named for a sweeper; none is kept.
-  expect(
-    unconfirmed
-      .flatMap((node) => node.environments ?? [])
-      .map((ref) => ref.environmentId)
-      .sort(),
-  ).toEqual([...unanswered].sort())
-  // Only a delete the provider confirmed is journaled as destroyed.
-  expect(run.destroyedBoxes).toEqual([...deleted].sort())
-}, 180_000)
+    expect(Object.fromEntries(run.connects)).toEqual(
+      Object.fromEntries(RECORDED.map(([box]) => [box, 1])),
+    )
+    expect(Object.fromEntries(run.wakes)).toEqual({})
 
-it('confirms a delete asked after a capture that outlasts the release wait', async () => {
+    const unconfirmed = run.result.teardownUnconfirmed ?? []
+    const nodeOf = (box: string) =>
+      unconfirmed.find((node) =>
+        [...(node.environments ?? []), ...(node.kept ?? [])].some(
+          (ref) => ref.environmentId === box,
+        ),
+      )
+    // Every held box is kept as evidence, named with the provider's own refusal, and never left
+    // for a sweeper to delete.
+    for (const box of heldBoxes) {
+      const node = nodeOf(box)
+      expect(node?.kept, box).toContainEqual({
+        provider: PROVIDER,
+        environmentId: box,
+        keptFor: 'evidence',
+      })
+      expect(node?.detail, box).toContain(refusal(box, firstAnswer.get(box)!))
+    }
+    // A held box's unfinished harness is named as not stopped, never as stopped.
+    for (const [box, executionId] of UNFINISHED_RUNS) {
+      expect(heldBoxes, box).toContain(box)
+      const detail = nodeOf(box)?.detail ?? ''
+      expect(detail, box).toContain(`native execution ${executionId} stop not attempted`)
+      expect(detail, box).toContain('it may still be running')
+      expect(detail, box).not.toContain(`native execution ${executionId} stopped`)
+    }
+    // A delete that never answered is unconfirmed and named for a sweeper; none is kept.
+    expect(
+      unconfirmed
+        .flatMap((node) => node.environments ?? [])
+        .map((ref) => ref.environmentId)
+        .sort(),
+    ).toEqual([...unanswered].sort())
+    // Only a delete the provider confirmed is journaled as destroyed.
+    expect(run.destroyedBoxes).toEqual([...deleted].sort())
+  },
+  180_000,
+)
+
+it.concurrent('confirms a delete asked after a capture that outlasts the release wait', async ({
+  expect,
+}) => {
   // The two boxes the recorded provider deleted at once: one manager's, and the root's, whose last
   // turn's capture outlasts one release wait. The capture spends no part of the delete's wait.
   const deletes = RECORDED.filter(([, , answers]) => answers[0] === DELETED)
