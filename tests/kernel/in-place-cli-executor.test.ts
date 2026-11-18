@@ -23,6 +23,7 @@ import type {
   LocalHarnessResult,
   RunLocalHarnessOptions,
 } from '../../src/mcp/local-harness-process'
+import { loadGraphFile } from '../../src/runtime/index'
 import { collectAgentTurn, streamAgentTurn } from '../../src/runtime/stream-agent-turn'
 import { createInPlaceCliExecutor } from '../../src/runtime/supervise/in-place-cli-executor'
 import {
@@ -89,7 +90,7 @@ function appendingHarness(line: string, seen: RunLocalHarnessOptions[] = []) {
 
 describe('createInPlaceCliExecutor', () => {
   it.each(['claude-code', 'codex'] as const)(
-    'delivers native %s prompt controls through a real subprocess',
+    'delivers native %s prompt controls from a graph with empty provider needs through a real subprocess',
     async (harness) => {
       const workspacePath = scaffoldWorkspace()
       const bin = join(workspacePath, 'bin')
@@ -117,21 +118,42 @@ console.log('done');
       const addition = 'Keep the native coding prompt.\nApply this persona exactly: "careful".'
       const replacement = 'Explicitly replace native defaults.\nSecond line.'
       for (const systemPrompt of [undefined, replacement]) {
+        const authoredProfile = {
+          name: 'native-prompt-proof',
+          harness,
+          model: {
+            provider: harness === 'codex' ? 'openai' : 'anthropic',
+            default: harness === 'codex' ? 'test-codex' : 'test-claude',
+          },
+          prompt: {
+            systemPrompt,
+            appendSystemPrompt: addition,
+            instructions: ['PROJECT_GUIDANCE'],
+          },
+        }
+        const loaded = await loadGraphFile(join(workspacePath, 'native.graph.json'), {
+          source: JSON.stringify({
+            graph: 'native-prompt-proof',
+            nodes: [{ id: 'author', needs: [], profile: authoredProfile }],
+            entry: [{ node: 'author', task: 'TASK_ONLY' }],
+            edges: [
+              {
+                kind: 'routes',
+                from: 'author',
+                to: { finish: 'done' },
+                directive: { surface: 'delegates/worker-brief', version: 1 },
+              },
+            ],
+            budget: { maxIterations: 1, maxTokens: 10000, deadlineMs: 30000 },
+            check: {
+              describe: 'The native process succeeds',
+              all: [{ node: 'author', pointer: '/harness/exitCode', equals: 0 }],
+            },
+          }),
+        })
         const result = await createInPlaceCliExecutor({
           workspacePath,
-          profile: {
-            name: 'native-prompt-proof',
-            harness,
-            model: {
-              provider: harness === 'codex' ? 'openai' : 'anthropic',
-              default: harness === 'codex' ? 'test-codex' : 'test-claude',
-            },
-            prompt: {
-              systemPrompt,
-              appendSystemPrompt: addition,
-              instructions: ['PROJECT_GUIDANCE'],
-            },
-          },
+          profile: loaded.graph.nodes[0]!.profile,
           taskPrompt: 'TASK_ONLY',
           env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
         }).execute(undefined, AbortSignal.timeout(30_000))
@@ -214,41 +236,53 @@ process.exit(1);
     }
   })
 
-  it('combines OpenCode native addition and MCP in the same materialized config', async () => {
-    const workspacePath = scaffoldWorkspace()
-    const bin = join(workspacePath, 'bin')
-    mkdirSync(bin)
-    pinCommonJs(bin)
-    writeFileSync(
-      join(bin, 'opencode'),
-      `#!${process.execPath}
+  it.each([
+    ['tangle', 'test-opencode', 'tangle/test-opencode'],
+    ['openrouter', 'vendor/model:free', 'openrouter/vendor/model:free'],
+    ['openrouter', 'openrouter/vendor/model:free', 'openrouter/vendor/model:free'],
+    ['openrouter', 'vendor/paid-model', 'openrouter/vendor/paid-model'],
+    ['opencode', 'free-model', 'opencode/free-model'],
+    ['opencode', 'opencode/free-model', 'opencode/free-model'],
+  ])(
+    'materializes OpenCode prompt and MCP with provider %s and model %s',
+    async (provider, model, expectedModel) => {
+      const workspacePath = scaffoldWorkspace()
+      const bin = join(workspacePath, 'bin')
+      mkdirSync(bin)
+      pinCommonJs(bin)
+      writeFileSync(
+        join(bin, 'opencode'),
+        `#!${process.execPath}
 const fs = require('node:fs');
 const config = JSON.parse(fs.readFileSync('opencode.json', 'utf8'));
 const instructions = config.instructions.map(path => fs.readFileSync(path, 'utf8'));
 fs.writeFileSync('session.json', JSON.stringify({ config, instructions, args: process.argv.slice(2) }));
 console.log('done');
 `,
-      { mode: 0o755 },
-    )
-    const result = await createInPlaceCliExecutor({
-      workspacePath,
-      profile: {
-        name: 'opencode-prompt-proof',
-        harness: 'opencode',
-        model: { provider: 'tangle', default: 'test-opencode' },
-        prompt: { appendSystemPrompt: 'NATIVE_ADDITION' },
-        mcp: { local: { command: 'node', args: [{ kind: 'public', value: 'server.mjs' }] } },
-      },
-      taskPrompt: 'TASK_ONLY',
-      env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
-    }).execute(undefined, AbortSignal.timeout(30_000))
-    const session = JSON.parse(readFileSync(join(workspacePath, 'session.json'), 'utf8'))
-    expect(result.out.harness.exitCode).toBe(0)
-    expect(session.instructions).toContain('NATIVE_ADDITION\n')
-    expect(JSON.stringify(session.config.mcp.local)).toContain('server.mjs')
-    expect(session.args).not.toContain('--agent')
-    expect(existsSync(join(workspacePath, 'opencode.json'))).toBe(false)
-  })
+        { mode: 0o755 },
+      )
+      const result = await createInPlaceCliExecutor({
+        workspacePath,
+        profile: {
+          name: 'opencode-prompt-proof',
+          harness: 'opencode',
+          model: { provider, default: model },
+          prompt: { appendSystemPrompt: 'NATIVE_ADDITION' },
+          mcp: { local: { command: 'node', args: [{ kind: 'public', value: 'server.mjs' }] } },
+        },
+        taskPrompt: 'TASK_ONLY',
+        env: { PATH: `${bin}:${process.env.PATH ?? ''}` },
+      }).execute(undefined, AbortSignal.timeout(30_000))
+      const session = JSON.parse(readFileSync(join(workspacePath, 'session.json'), 'utf8'))
+      expect(result.out.harness.exitCode).toBe(0)
+      expect(session.instructions).toContain('NATIVE_ADDITION\n')
+      expect(JSON.stringify(session.config.mcp.local)).toContain('server.mjs')
+      const modelIndex = session.args.indexOf('-m')
+      expect(session.args.slice(modelIndex, modelIndex + 2)).toEqual(['-m', expectedModel])
+      expect(session.args).not.toContain('--agent')
+      expect(existsSync(join(workspacePath, 'opencode.json'))).toBe(false)
+    },
+  )
 
   it('runs the harness in the supplied directory and leaves its edits there', async () => {
     const workspacePath = scaffoldWorkspace()

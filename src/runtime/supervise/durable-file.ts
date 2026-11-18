@@ -29,7 +29,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
-import { runFenced, runFencedAlways } from '../../durable/durable-writer'
+import { runFenced, runFencedAsync } from '../../durable/durable-writer'
 import { fenceRunWrite } from '../../durable/run-fence'
 
 interface DurableFileOptions {
@@ -59,15 +59,15 @@ export function publishExclusiveDurableFile(
 }
 
 /**
- * `publishExclusiveDurableFile` without blocking the calling thread on the disk: from the main
- * thread the write runs on the durable writer whether or not a run claim is held.
+ * `publishExclusiveDurableFile` without blocking the calling thread on the disk: a claimed write
+ * runs on the durable writer, an unclaimed one inline as its caller's own single write.
  */
 export function publishExclusiveDurableFileAsync(
   filePath: string,
   content: string,
   options: DurableFileOptions = {},
 ): Promise<boolean> {
-  return runFencedAlways(
+  return runFencedAsync(
     'publishExclusiveDurableFile',
     publishExclusiveFenced,
     filePath,
@@ -150,15 +150,6 @@ export function appendRunLines(
   options: { readonly directory?: string; readonly mode?: number } = {},
 ): void {
   runFenced('appendRunLines', appendRunLinesFenced, filePath, lines, options)
-}
-
-/** `appendRunLines` without blocking the calling thread on the disk, claimed or not. */
-export function appendRunLinesAsync(
-  filePath: string,
-  lines: readonly string[],
-  options: { readonly directory?: string; readonly mode?: number } = {},
-): Promise<void> {
-  return runFencedAlways('appendRunLines', appendRunLinesFenced, filePath, lines, options)
 }
 
 /** The fenced line append the durable writer runs. @internal */
@@ -257,13 +248,13 @@ export function writeAtomicDurableFile(
   else writeAtomicFenced(filePath, content, options)
 }
 
-/** `writeAtomicDurableFile` without blocking the calling thread on the disk, claimed or not. */
+/** `writeAtomicDurableFile` off the calling thread when the write is claimed. */
 export function writeAtomicDurableFileAsync(
   filePath: string,
   content: string,
   options: DurableFileOptions & { readonly preserveMode?: boolean } = {},
 ): Promise<void> {
-  return runFencedAlways('writeAtomicDurableFile', writeAtomicFenced, filePath, content, options)
+  return runFencedAsync('writeAtomicDurableFile', writeAtomicFenced, filePath, content, options)
 }
 
 /** The fenced atomic replacement the durable writer runs. @internal */

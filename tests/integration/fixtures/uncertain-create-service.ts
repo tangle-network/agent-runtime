@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
-import { runSettledCommand } from '../../../src/mcp/worktree-harness'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
+import { runFixtureProcess } from '../../helpers/fixture-process'
 import {
   attachments,
   digest,
@@ -25,7 +25,16 @@ import {
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
 let capacitySince: number | undefined
+// The capacity case's outage, set by its test through control before the first environment read.
+// Each phase it names is refused from that phase's own first read: acquisition's environment
+// reads, and observation's event-stream and exact-result reads. No frame reaches the run during an
+// observation outage, so none reopens its window.
+type CapacityPhase = 'acquisition' | 'observation'
+let capacityOutage: { ms: number; retryAfterSeconds: number; phases: CapacityPhase[] } | undefined
+const outageSince: Partial<Record<CapacityPhase, number>> = {}
+let observationStreamed = false
 const ledger = join(directory, 'service-ledger.jsonl')
+const stopping = new AbortController()
 const state: ServiceState = {
   scenario,
   createStatus: scenario === 'create-503' ? 503 : 408,
@@ -56,12 +65,8 @@ const sessions = new Map<
   { backend: Record<string, unknown>; receipt?: string; publicDigest?: unknown }
 >()
 const acceptedSubscribers = new Map<string, Set<ServerResponse>>()
-// A real provider streams a turn's frames before its result is readable. The fixture serves the
-// exact-result read this long after the observation stream's terminal frames, so Runtime's quiet
-// stream never closes on the result before it reads done (RETAINED_TAIL_FLOW_MS is 100).
-const EXACT_RESULT_AFTER_STREAM_MS = 250
 const exactSubscribers = new WeakSet<ServerResponse>()
-const streamFlushedAt = new Map<string, number>()
+const observedResults = new Map<string, { received: Promise<void>; observed: () => void }>()
 const observedReplays = new Map<string, { received: Promise<void>; observed: () => void }>()
 function startAction(run: NativeRun): void {
   const action = act(run)
@@ -156,8 +161,8 @@ function flushAccepted(run: NativeRun): void {
   }
   const exact = [...subscribers].filter((response) => exactSubscribers.has(response))
   for (const response of subscribers) if (!exactSubscribers.has(response)) finish(response)
-  streamFlushedAt.set(run.executionId, Date.now())
-  if (exact.length > 0) setTimeout(() => exact.forEach(finish), EXACT_RESULT_AFTER_STREAM_MS)
+  // The coordinator acknowledges the consumer advancing past done, not elapsed socket time.
+  void observedReplays.get(run.executionId)!.received.then(() => exact.forEach(finish))
   acceptedSubscribers.delete(run.executionId)
   note('healthy-stream-completed', {
     executionId: run.executionId,
@@ -186,19 +191,12 @@ async function replay(
     subscribeAccepted(run, response, exactResult)
     return
   }
-  const flushedAt = streamFlushedAt.get(run.executionId)
-  if (exactResult && flushedAt !== undefined) {
-    const wait = flushedAt + EXACT_RESULT_AFTER_STREAM_MS - Date.now()
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
-  }
   if (scenario === 'json-observation-429' && !exactResult)
     return sse(response, terminal(run, scenario).slice(0, 1))
   const replay = observedReplays.get(run.executionId)
   if (replay && exactResult) await replay.received
-  // Let the independently requested exact result win before this connection's first frame.
-  // The actual closed worker already supplied the terminal data; no observation is fabricated.
-  if (scenario === 'sql-conformance' && !exactResult)
-    await new Promise<void>((resolve) => setTimeout(resolve, 40))
+  // SQL's observation starts only once the exact-result client has consumed the real result.
+  if (!exactResult) await observedResults.get(run.executionId)?.received
   run.terminalReads += 1
   sse(
     response,
@@ -290,8 +288,7 @@ async function act(run: NativeRun): Promise<void> {
     scenario === 'sql-conformance'
   ) {
     const startedAt = Date.now()
-    const worker = await runSettledCommand({
-      command: process.execPath,
+    const worker = await runFixtureProcess({
       args: [
         join(import.meta.dirname, 'json-worker.mjs'),
         String(profile.name),
@@ -299,8 +296,7 @@ async function act(run: NativeRun): Promise<void> {
         JSON.stringify({ executionId: run.executionId, sessionId: run.sessionId }),
       ],
       cwd: directory,
-      timeoutMs: 15_000,
-      signal: new AbortController().signal,
+      signal: stopping.signal,
     })
     run.processResult = {
       output: worker.stdout,
@@ -393,6 +389,18 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
     return json(response, 400, {
       error: { code: 'VALIDATION_ERROR', message: 'requested CPU 16 exceeds tenant ceiling 8' },
     })
+  }
+  // Sandbox's real refusal of a create when no host has room: for 8 minutes, or always.
+  if (scenario.startsWith('json-observation-long-create-capacity-')) {
+    capacitySince ??= Date.now()
+    if (scenario.endsWith('-deadline') || Date.now() - capacitySince < 480_000) {
+      note('capacity-create-refused', { key, status: 503 })
+      response.setHeader('Retry-After', '2')
+      return jsonError(response, 503, {
+        code: 'CAPACITY_EXHAUSTED',
+        message: 'Provision failed — (container) — No host has room for this sandbox now.',
+      })
+    }
   }
   const prior = state.boxes.find((box) => box.key === key)
   const mustFail =
@@ -594,7 +602,10 @@ async function runtime(
         sessionId: existing.sessionId,
         requestDigest: existing.runControlRef.requestDigest,
       })
-      await replay(existing, response)
+      // Dispatch admits the original execution before Runtime opens result/observation reads.
+      // Waiting for result consumption here would make idempotent replay wait on itself.
+      if (scenario === 'sql-conformance') sse(response, terminal(existing, scenario).slice(0, 1))
+      else await replay(existing, response)
       return
     }
     // The SDK may omit backend overrides to use the environment's creation defaults.
@@ -613,6 +624,7 @@ async function runtime(
     state.runs.push(run)
     if (
       scenario.startsWith('create-') ||
+      scenario === 'accepted' ||
       ((scenario.startsWith('json-') || scenario.startsWith('trace-')) &&
         !scenario.endsWith('-incomplete') &&
         !scenario.startsWith('json-observation-'))
@@ -622,6 +634,13 @@ async function runtime(
         observed = resolve
       })
       observedReplays.set(run.executionId, { received, observed })
+    }
+    if (scenario === 'sql-conformance') {
+      let observed!: () => void
+      const received = new Promise<void>((resolve) => {
+        observed = resolve
+      })
+      observedResults.set(run.executionId, { received, observed })
     }
     note('dispatch', {
       environmentId,
@@ -684,6 +703,12 @@ async function runtime(
     const run = state.runs.filter((candidate) => candidate[key] === id).at(-1)
     // Only the independently requested exact result binds a session query.
     const exactResult = url.searchParams.has('sessionId')
+    if (!sessionMatch) {
+      // The exact result waits for the stream, so the frames reach the run before it settles.
+      const held = exactResult && !observationStreamed
+      if (capacityRefused(response, environmentId, 'observation', held)) return
+      if (!exactResult) observationStreamed = true
+    }
     note(sessionMatch ? 'session-status' : 'events', {
       environmentId,
       executionId: sessionMatch ? run?.executionId : id,
@@ -705,7 +730,13 @@ async function runtime(
     if (exactResult && scenario.startsWith('json-observation-')) {
       durableBytes(join(directory, `${nativeEventFile(run.executionId)}.exact`), 'ready')
       note('exact-result-handshake', { executionId: run.executionId, sessionId: run.sessionId })
-      if (scenario === 'json-observation-429') {
+      if (
+        scenario === 'json-observation-429' ||
+        (scenario === 'json-observation-long-result-retry-success' &&
+          !state.requests.some(
+            (row) => row.kind === 'exact-result-http-error' && row.executionId === run.executionId,
+          ))
+      ) {
         note('exact-result-http-error', { executionId: run.executionId, status: 429 })
         return jsonError(response, 429, {
           code: 'FIXTURE_OBSERVATION_THROTTLED',
@@ -716,6 +747,29 @@ async function runtime(
     return replay(run, response, exactResult)
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
+}
+/** In the capacity case, refuse placement on a phase's read while its outage lasts or `held`. */
+function capacityRefused(
+  response: ServerResponse,
+  environmentId: string,
+  phase: CapacityPhase,
+  held = false,
+) {
+  if (scenario !== 'json-observation-long-capacity-success') return false
+  if (capacityOutage === undefined) throw new Error('the capacity case sets no outage')
+  if (!capacityOutage.phases.includes(phase)) return false
+  const since = (outageSince[phase] ??= Date.now())
+  if (!held && Date.now() - since >= capacityOutage.ms) {
+    note('capacity-recovered', { environmentId, phase, elapsedMs: Date.now() - since })
+    return false
+  }
+  note('capacity-http-error', { environmentId, phase, status: 503 })
+  response.setHeader('Retry-After', String(capacityOutage.retryAfterSeconds))
+  jsonError(response, 503, {
+    code: 'CAPACITY_EXHAUSTED',
+    message: 'No host has capacity for this sandbox; retry later',
+  })
+  return true
 }
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url!, origin)
@@ -741,6 +795,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   }
   if (url.pathname === '/fixture/control') {
     const control = await body(request)
+    if (typeof control.nativeExactResultObserved === 'string') {
+      const result = observedResults.get(control.nativeExactResultObserved)
+      if (!result) throw new Error('exact result acknowledgement requires admitted SQL execution')
+      result.observed()
+      note('exact-result-consumed', { executionId: control.nativeExactResultObserved })
+    }
     if (typeof control.nativeReplayObserved === 'string') {
       const replay = observedReplays.get(control.nativeReplayObserved)
       if (!replay) throw new Error('native replay acknowledgement requires an admitted execution')
@@ -781,6 +841,15 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       })
     }
     if (typeof control.finish === 'boolean') state.finish = control.finish
+    if (control.capacityOutage !== undefined) {
+      const { ms, retryAfterSeconds, phases } = object(control.capacityOutage)
+      if (
+        !(Number(ms) > 0 && Number(retryAfterSeconds) > 0 && Array.isArray(phases)) ||
+        !phases.every((phase) => phase === 'acquisition' || phase === 'observation')
+      )
+        throw new Error('a capacity outage needs a positive length, Retry-After and its phases')
+      capacityOutage = { ms: Number(ms), retryAfterSeconds: Number(retryAfterSeconds), phases }
+    }
     if ((scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') && state.finish)
       for (const held of holds) json(held, 200, { ok: true })
     if (
@@ -867,18 +936,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         retryable: false,
       })
     }
-    if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
-      capacitySince ??= Date.now()
-      if (Date.now() - capacitySince < 600_000) {
-        note('capacity-http-error', { environmentId: id, status: 503 })
-        response.setHeader('Retry-After', '30')
-        return jsonError(response, 503, {
-          code: 'CAPACITY_EXHAUSTED',
-          message: 'No host has capacity for this sandbox; retry later',
-        })
-      }
-      note('capacity-recovered', { environmentId: id, elapsedMs: Date.now() - capacitySince })
-    }
+    if (request.method === 'GET' && capacityRefused(response, id, 'acquisition')) return
     note('get', { environmentId: id, absent: state.lost.includes(id) })
     return json(
       response,
@@ -909,6 +967,7 @@ server.listen(0, '127.0.0.1', () => {
   note('service-ready', { url: origin, pid: process.pid })
 })
 process.on('SIGTERM', () => {
+  stopping.abort('fixture shutdown')
   server.closeAllConnections()
   server.close()
 })

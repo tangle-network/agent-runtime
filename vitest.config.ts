@@ -64,6 +64,17 @@ export default defineConfig({
     ],
   },
   test: {
+    // `test:affected` runs `vitest run --changed <merge base>`. A change to any of these files can
+    // move every test without appearing in a test's import graph, so it runs the whole suite.
+    forceRerunTriggers: [
+      '**/package.json',
+      '**/pnpm-lock.yaml',
+      '**/pnpm-workspace.yaml',
+      '**/vitest.config.*',
+      '**/vite.config.*',
+      '**/tsconfig*.json',
+      '**/tsdown.config.*',
+    ],
     // Several suites drive real fixtures + canonical digests; in isolation each runs well under a
     // second, but the full parallel pool inflates their wall ~10x and brushes vitest's 5s default
     // (measured 3.6-4.1s) — pure CPU contention. 20s absorbs it; a genuine hang still trips. hookTimeout too.

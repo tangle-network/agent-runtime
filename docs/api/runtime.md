@@ -5772,6 +5772,19 @@ Applies to a retained execution under a Scope, the path a supervised leaf takes 
 that declares `retainedControl`.
 `false` ends the execution on the refused turn.
 
+##### capacityRetryWindowMs?
+
+> `optional` **capacityRetryWindowMs?**: `number`
+
+**`Experimental`**
+
+How long a retained execution waits for room, in ms, after Sandbox refuses it placement (a
+503 such as `CAPACITY_EXHAUSTED`) while it is acquired or observed, before the refusal counts
+as a failed attempt. The same execution is reattached after each wait, which honors
+Retry-After and lasts at most 30 s. Acquisition in a run with a deadline waits until the
+deadline instead. Default 10 min; a value that is not a non-negative number fails the
+executor's construction with a `ValidationError`.
+
 ***
 
 ### RetainedFileOutput
@@ -7493,6 +7506,12 @@ Restrict/order the server's tools per task (e.g. the task's selected_tools). Def
 ##### snapshotKind?
 
 > `readonly` `optional` **snapshotKind?**: [`SnapshotKind`](#snapshotkind)
+
+##### fixed?
+
+> `readonly` `optional` **fixed?**: `true`
+
+The complete provider model id is immutable without a separate snapshot suffix.
 
 ##### canonical
 
@@ -26161,6 +26180,30 @@ The runtime's explanation of how it arrived at `effect`.
 
 ***
 
+### CancelRunOptions
+
+Options of [cancelRun](#cancelrun) and [cancelRunAsync](#cancelrunasync).
+
+#### Properties
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### deadlineMs?
+
+> `readonly` `optional` **deadlineMs?**: `number`
+
+##### operator?
+
+> `readonly` `optional` **operator?**: `string`
+
+***
+
 ### InMemoryRunContextOptions
 
 Options for a supervised run context.
@@ -27153,6 +27196,21 @@ that declares `retainedControl`.
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`unavailablePause`](#unavailablepause)
+
+##### capacityRetryWindowMs?
+
+> `optional` **capacityRetryWindowMs?**: `number`
+
+How long a retained execution waits for room, in ms, after Sandbox refuses it placement (a
+503 such as `CAPACITY_EXHAUSTED`) while it is acquired or observed, before the refusal counts
+as a failed attempt. The same execution is reattached after each wait, which honors
+Retry-After and lasts at most 30 s. Acquisition in a run with a deadline waits until the
+deadline instead. Default 10 min; a value that is not a non-negative number fails the
+executor's construction with a `ValidationError`.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`capacityRetryWindowMs`](#capacityretrywindowms)
 
 ##### provider
 
@@ -46001,6 +46059,38 @@ or acknowledgement written before that rule is answered as it was.
 
 ***
 
+### cancelRunAsync()
+
+> **cancelRunAsync**(`eventDir`, `operationId`, `options?`): `Promise`\<[`RunCancellation`](#runcancellation)\>
+
+**`Stable`**
+
+Request the cancellation of the whole run like [cancelRun](#cancelrun), without blocking the calling
+thread on the disk. The request file is published by the durable writer whether or not the
+caller holds a run claim (a coordinator outside the run holds none), so an event loop that stops
+runs keeps running while the file and its directory reach disk. Same admission, replay and
+conflict rules.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+##### options?
+
+[`CancelRunOptions`](#cancelrunoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`RunCancellation`](#runcancellation)\>
+
+***
+
 ### withRunContext()
 
 > **withRunContext**\<`T`\>(`context`, `signal`, `run`): `Promise`\<`T`\>
@@ -46281,8 +46371,9 @@ and control log are readable projections written only by the admission winner.
 **`Stable`**
 
 Admit one steer like `writeWorkerSteer`, without blocking the calling thread on the disk.
-The request file is published by the durable writer, so an event loop that admits steers keeps
-running while the file and its directory reach disk. Same admission, replay and conflict rules.
+The request file is published by the durable writer whether or not the caller holds a run claim
+(a coordinator outside the run holds none), so an event loop that admits steers keeps running
+while the file and its directory reach disk. Same admission, replay and conflict rules.
 
 #### Parameters
 

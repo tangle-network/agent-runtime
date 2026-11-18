@@ -162,6 +162,7 @@ if (mode.startsWith('trace-tree-')) {
   )
 }
 const fence = `The answer follows.\n\n\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\`\n`
+const prose = 'No way to run it here, so I worked out the plan by reading the code path.'
 process.stdout.write(
   mode.startsWith('json-malformed')
     ? 'private-json-answer-canary'
@@ -171,8 +172,14 @@ process.stdout.write(
         ? fence
         : mode === 'json-fence-then-text'
           ? `${fence}\n- private-json-answer-canary\n`
-          : mode === 'json-prose-object'
-            ? `The answer follows.\n${JSON.stringify(output, null, 2)}\n`
-            : JSON.stringify(output),
+          : mode === 'json-prose-then-object'
+            ? `${prose}\n\n${JSON.stringify(output)}`
+            : mode === 'json-object-then-fence'
+              ? `${JSON.stringify(output)}\n\n\`\`\`json\n${JSON.stringify(output)}\n\`\`\``
+              : mode === 'json-object-then-text'
+                ? `${prose}\n\n${JSON.stringify(output)}\n\n- private-json-answer-canary {sic}\n`
+                : mode === 'json-fence-then-object'
+                  ? `${fence}\nprivate-json-answer-canary:\n${JSON.stringify(output)}`
+                  : JSON.stringify(output),
 )
 process.exitCode = mode === 'json-native-failed' || mode === 'json-observation-long-failed' ? 7 : 0

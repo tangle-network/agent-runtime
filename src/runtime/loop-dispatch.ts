@@ -43,7 +43,7 @@ import type {
 } from '@tangle-network/agent-eval/campaign'
 import type { PromptOptions } from '@tangle-network/sandbox'
 import { type RunAgentRoundsOptions, runAgentRounds } from './agent-rounds'
-import { canonicalObservedModelParts } from './model-identity'
+import { type CanonicalObservedModelParts, canonicalObservedModelParts } from './model-identity'
 import { type SuperviseOptions, supervise } from './supervise/supervise'
 import type { ProviderModelExecutionEvidence, SupervisedResult } from './supervise/types'
 import type { LoopResult, LoopTokenUsage, LoopTraceEmitter, SandboxClient } from './types'
@@ -335,57 +335,43 @@ function collectProviderModels(
     ) {
       return { kind: 'unknown' }
     }
-    let attemptBase: string | undefined
-    let attemptSnapshot: string | undefined
-    let attemptSnapshotKind: 'date' | 'opaque' | undefined
+    let attemptIdentity: CanonicalObservedModelParts | undefined
     let representative: string | undefined
     for (const model of attempt.observations) {
       if (typeof model !== 'string' || !validate(model)) return { kind: 'unknown' }
       const identity = canonicalObservedModelParts(model)
       if (identity === undefined) return { kind: 'unknown' }
-      const base = identity.base
-      const snapshot = identity.snapshot
-      if (attemptBase !== undefined && attemptBase !== base) {
+      if (attemptIdentity !== undefined && attemptIdentity.base !== identity.base) {
         return {
           kind: 'mixed',
-          models: [...new Set([...(attemptBase ? [attemptBase] : []), identity.canonical])],
+          models: [attemptIdentity.canonical, identity.canonical],
         }
       }
       if (
-        attemptSnapshot !== undefined &&
-        snapshot !== undefined &&
-        (attemptSnapshot !== snapshot || attemptSnapshotKind !== identity.snapshotKind)
+        attemptIdentity?.snapshot !== undefined &&
+        identity.snapshot !== undefined &&
+        (attemptIdentity.snapshot !== identity.snapshot ||
+          attemptIdentity.snapshotKind !== identity.snapshotKind)
       ) {
-        if (attemptBase === undefined || attemptSnapshotKind === undefined) {
-          return { kind: 'unknown' }
-        }
         return {
           kind: 'mixed',
-          models: [
-            attemptIdentityText(attemptBase, attemptSnapshot, attemptSnapshotKind),
-            identity.canonical,
-          ],
+          models: [attemptIdentity.canonical, identity.canonical],
         }
       }
-      attemptBase = base
-      attemptSnapshot ??= snapshot
-      attemptSnapshotKind ??= identity.snapshotKind
-      if (snapshot !== undefined) representative = model
+      attemptIdentity ??= identity
+      if (identity.snapshot !== undefined) {
+        attemptIdentity = identity
+        representative = model
+      }
       observedRaw.add(model)
     }
-    if (
-      attemptBase === undefined ||
-      attemptSnapshot === undefined ||
-      attemptSnapshotKind === undefined ||
-      representative === undefined
-    ) {
+    if (attemptIdentity?.snapshot === undefined || representative === undefined) {
       // A bare route name is useful only as a prefix observation. Exact identity still requires
       // one qualified snapshot from the same provider attempt.
       return { kind: 'unknown' }
     }
-    const attemptIdentity = attemptIdentityText(attemptBase, attemptSnapshot, attemptSnapshotKind)
-    observed.push({ raw: representative, canonical: attemptIdentity })
-    canonical.add(attemptIdentity)
+    observed.push({ raw: representative, canonical: attemptIdentity.canonical })
+    canonical.add(attemptIdentity.canonical)
   }
   if (observed.length === 0) return { kind: 'unknown' }
   const declaredRaw = new Set<string>()
@@ -402,10 +388,6 @@ function collectProviderModels(
   return canonical.size > 1
     ? { kind: 'mixed', models: [...canonical].sort() }
     : { kind: 'known', observed }
-}
-
-function attemptIdentityText(base: string, snapshot: string, kind: 'date' | 'opaque'): string {
-  return kind === 'date' ? `${base}-${snapshot}` : `${base}@${snapshot}`
 }
 
 /** The Eval receipt surface has no pre-admitted per-model recursive-tree receipt bundle yet. */

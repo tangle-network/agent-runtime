@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "10.0.4",
+  "version": "10.0.8",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -119,6 +119,7 @@
     "dev": "pnpm run build --watch",
     "prepublishOnly": "pnpm run build",
     "test": "pnpm run build && pnpm run typecheck && pnpm run lint && vitest run",
+    "test:affected": "base=$(git merge-base \"${AFFECTED_BASE:-origin/main}\" HEAD) && pnpm run build && pnpm run typecheck && pnpm run lint && vitest run --changed \"$base\" --passWithNoTests",
     "test:watch": "vitest",
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
@@ -159,7 +160,7 @@
     "@biomejs/biome": "^2.6.4",
     "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "1.0.32",
-    "@tangle-network/agent-interface": "5.10.25",
+    "@tangle-network/agent-interface": "5.10.27",
     "@tangle-network/agent-provider-cli-bridge": "2.0.10",
     "@tangle-network/agent-provider-daytona": "0.8.0",
     "@tangle-network/agent-provider-e2b": "0.7.0",
@@ -187,7 +188,7 @@
   "packageManager": "pnpm@12.15.0",
   "peerDependencies": {
     "@tangle-network/agent-eval": "^1.0.32",
-    "@tangle-network/agent-interface": "^5.10.25",
+    "@tangle-network/agent-interface": "^5.10.27",
     "@tangle-network/sandbox": "^1.0.265"
   },
   "dependencies": {

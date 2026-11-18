@@ -1,7 +1,6 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import {
   agentProfileSeatSchema,
@@ -23,6 +22,7 @@ import {
   type RouteFlowEvent,
 } from '../../src/runtime/index'
 import type { PortableContinuationPolicy } from '../../src/runtime/supervise/continuation-data'
+import { graphDesignerExtraTools } from '../../src/runtime/supervise/designer-tools'
 import { runGraph } from '../../src/runtime/supervise/graph'
 import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import {
@@ -35,11 +35,28 @@ import {
   taskShapeDigest,
 } from '../../src/runtime/supervise/graph-registry'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
-import type { Agent, AgentSpec, Executor, ExecutorResult } from '../../src/runtime/supervise/types'
+import type {
+  Agent,
+  AgentSpec,
+  Executor,
+  ExecutorResult,
+  Spend,
+} from '../../src/runtime/supervise/types'
+
+import { runFixtureProcess } from '../helpers/fixture-process'
+import { waitForState } from '../helpers/observable-state'
+import { waitFor } from '../helpers/runtime-live-trace'
 
 /** Caller-owned deterministic process execution. The canonical profile remains identity data;
  * this seam proves graph plumbing, not native prompt/model/resource materialization. */
-function processStages(cwd: string, script: string): MakeWorkerAgent {
+function processStages(
+  cwd: string,
+  script: string,
+  knowledge: Partial<Pick<Spend, 'tokens' | 'tokensKnown' | 'usdKnown' | 'iterationsKnown'>> = {
+    tokensKnown: true,
+    usdKnown: true,
+  },
+): MakeWorkerAgent {
   return (profile) => {
     const stop = new AbortController()
     let pending: Promise<ExecutorResult<unknown>> | undefined
@@ -51,11 +68,9 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
       execute(task, signal) {
         started = performance.now()
         executionSignal = AbortSignal.any([signal, stop.signal])
-        pending = runSettledCommand({
-          command: process.execPath,
+        pending = runFixtureProcess({
           args: ['-e', script, profile.name, JSON.stringify(task), JSON.stringify(profile)],
           cwd,
-          timeoutMs: 10000,
           signal: executionSignal,
         }).then((child) => {
           // A stage that prints a JSON object hands it on as its output (a maps source's items).
@@ -69,10 +84,9 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
             spent: {
               iterations: 1,
               tokens: { input: 0, output: 0 },
-              tokensKnown: true,
               usd: 0,
-              usdKnown: true,
               ms: performance.now() - started!,
+              ...knowledge,
             },
           }
           return artifact
@@ -99,10 +113,9 @@ function processStages(cwd: string, script: string): MakeWorkerAgent {
         const spent = artifact?.spent ?? {
           iterations: started === undefined ? 0 : 1,
           tokens: { input: 0, output: 0 },
-          tokensKnown: true,
           usd: 0,
-          usdKnown: true,
           ms: started === undefined ? 0 : performance.now() - started,
+          ...knowledge,
         }
         return { reported: spent, reservation: spent }
       },
@@ -334,6 +347,108 @@ it('loads one canonical file, persists its data check, and runs and resumes real
   }
 })
 
+it('records designer process costs on failure and omits unreported accounting from replay selection', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'designer-process-accounting-'))
+  const fixture = fileURLToPath(new URL('./fixtures/canonical.graph.yaml', import.meta.url))
+  const taskShape = { fixture: 'designer-process-accounting' }
+  const registry = { root: join(directory, 'registry') }
+  const runs: Array<{ name: string; output: unknown; spent: Spend }> = []
+  try {
+    for (const name of ['known', 'legacy', 'unreported', 'nested', 'failed']) {
+      const loaded = await loadGraphFile(fixture, { params: { message: name } })
+      const graph = graphFromStored(loaded.graph, { trigger: { event: 'opened' } })
+      // The child really executes; these flags exercise missing reports at the executor boundary.
+      const knowledge =
+        name === 'unreported'
+          ? { tokensKnown: false, usdKnown: false, iterationsKnown: false as const }
+          : name === 'nested'
+            ? { tokens: { input: 0, output: 0, tokensKnown: false as const } }
+            : name === 'legacy'
+              ? {}
+              : { tokensKnown: true, usdKnown: true }
+      const tools = graphDesignerExtraTools({
+        registryDir: registry.root,
+        bindCheck: () => graph,
+        runGraph: async (bound) => {
+          const result = await runGraph(bound, {
+            makeLeafAgent: processStages(
+              directory,
+              `require('node:fs').appendFileSync('executions', ${JSON.stringify(`${name}\n`)}); process.stdout.write(${JSON.stringify(`delivered:${name}`)}); process.exitCode = ${name === 'failed' ? 1 : 0}`,
+              knowledge,
+            ),
+            runDir: join(directory, name),
+            runId: name,
+            perWorker: { maxIterations: 1 },
+            driverRetry: { enabled: false },
+          })
+          expect(result.result.kind).toBe(name === 'failed' ? 'no-winner' : 'winner')
+          runs.push({ name, output: undefined, spent: result.result.spentTotal })
+          return result
+        },
+      })
+      const output = await tools.executeExtraTool('designer_run_graph', {
+        taskShape,
+        mode: 'authored',
+        graph,
+      })
+      runs.at(-1)!.output = output
+    }
+    // Reopen durable records rather than inspecting an in-memory projection.
+    const rows = await listGraphRuns(registry)
+    expect(rows).toHaveLength(runs.length)
+    for (const [index, { name, output, spent }] of runs.entries()) {
+      const cost = rows[index]!.cost
+      expect.soft(spent.iterations).toBeGreaterThan(0)
+      expect.soft(spent.ms).toBeGreaterThan(0)
+      if (name === 'unreported') {
+        expect.soft(spent).toMatchObject({
+          tokensKnown: false,
+          usdKnown: false,
+          iterationsKnown: false,
+        })
+        for (const channel of ['tokens', 'usd', 'iterations']) {
+          expect.soft(cost).not.toHaveProperty(channel)
+          expect.soft(output).not.toHaveProperty(channel)
+        }
+      } else {
+        expect.soft(cost).toMatchObject({ iterations: spent.iterations, usd: 0 })
+        if (name === 'nested') {
+          expect.soft(spent.tokensKnown).toBe(false)
+          expect.soft(cost).not.toHaveProperty('tokens')
+          expect.soft(output).not.toHaveProperty('tokens')
+        } else {
+          expect.soft(cost.tokens).toBe(0)
+        }
+      }
+      expect.soft(cost.ms).toBe(spent.ms)
+      expect.soft(output).toMatchObject(cost)
+    }
+    const tools = graphDesignerExtraTools({
+      registryDir: registry.root,
+      bindCheck: (graph) => graph,
+      runGraph: async () => {
+        throw new Error('lookup must not execute a graph')
+      },
+    })
+    const selection = await tools.executeExtraTool('designer_lookup_graph', { taskShape })
+    // The newer unreported delivery cannot outrank a measured zero-cost delivery.
+    expect.soft(selection).toMatchObject({ decision: 'replay', graphDigest: rows[1]!.graphDigest })
+    expect((await readFile(join(directory, 'executions'), 'utf8')).trim().split('\n')).toEqual([
+      'known',
+      'known',
+      'legacy',
+      'legacy',
+      'unreported',
+      'unreported',
+      'nested',
+      'nested',
+      'failed',
+    ])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 it('reopens a gracefully cancelled durable graph and retries only its interrupted real process', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'graph-file-reopen-'))
   const fixture = fileURLToPath(new URL('./fixtures/canonical.graph.yaml', import.meta.url))
@@ -359,18 +474,24 @@ it('reopens a gracefully cancelled durable graph and retries only its interrupte
     }
     pending = superviseGraphPursuit(graph, { ...options, signal: stop.signal })
     let pid: number | undefined
-    const until = Date.now() + 5000
-    while (Date.now() < until && pid === undefined) {
-      try {
-        const value = Number(await readFile(join(directory, 'review-waiting'), 'utf8'))
-        if (Number.isSafeInteger(value) && value > 0) pid = value
-      } catch (error) {
-        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error
-      }
-      if (pid === undefined) await sleep(20)
-    }
-    if (pid === undefined) throw new Error('review subprocess did not reach its actual wait')
-    process.kill(pid, 0)
+    await waitFor(
+      'review subprocess actual wait',
+      waitForState(
+        directory,
+        async () => {
+          try {
+            const value = Number(await readFile(join(directory, 'review-waiting'), 'utf8'))
+            if (Number.isSafeInteger(value) && value > 0) pid = value
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          }
+          return pid !== undefined
+        },
+        stop.signal,
+      ),
+      pending,
+    )
+    process.kill(pid!, 0)
     stop.abort('consumer SIGINT')
     const cancelled = await pending
     expect(cancelled.result.result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
@@ -762,6 +883,7 @@ it('stores an authored root policy and continues a real driver process after its
         from: 'lead',
         to: 'worker',
         directive: { surface: 'delegates/worker-brief', version: 1 },
+        maxTraversals: 1,
       },
     ],
     budget: { maxIterations: 12, maxTokens: 10000, deadlineMs: 10000 },
@@ -853,6 +975,22 @@ fetch(url,{method:'POST',headers:{'content-type':'application/json',...JSON.pars
         if (child.exitCode !== 0) throw new Error(child.stderr)
       },
     }
+    for (const axis of ['nodes', 'edges'] as const)
+      for (const value of [[], {}])
+        expect(() => runGraph({ ...graph, [axis]: value } as typeof graph, options)).toThrow(
+          `graph.${axis} must be a non-empty array`,
+        )
+    for (const maxTraversals of [Number.NaN, Number.POSITIVE_INFINITY])
+      await expect(
+        Promise.resolve().then(() =>
+          runGraph(
+            { ...graph, edges: graph.edges.map((edge) => ({ ...edge, maxTraversals })) },
+            { ...options, runId: 'invalid-cap', runDir: join(directory, 'invalid-cap') },
+          ),
+        ),
+      ).rejects.toThrow('maxTraversals as a positive integer')
+    for (const runDir of [options.runDir, join(directory, 'invalid-cap')])
+      await expect(stat(runDir)).rejects.toMatchObject({ code: 'ENOENT' })
     expect(() => runGraph(graph, { ...options, continuation: policy })).toThrow('two policy owners')
     expect(() =>
       runGraph(

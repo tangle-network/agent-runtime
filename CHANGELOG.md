@@ -1,3 +1,51 @@
+## 10.0.8
+
+The provider executor takes `capacityRetryWindowMs`: how long a retained execution waits for room after Sandbox refuses it placement (a 503 such as `CAPACITY_EXHAUSTED`) while it is acquired or observed, before the refusal counts as a failed attempt. The default stays 10 minutes, so every existing caller waits as before, and acquisition in a run with a deadline still waits until the deadline instead. A value that is not a non-negative number fails the executor's construction with a `ValidationError`, whatever the provider.
+
+`runToolLoop` and `streamToolLoop` take `maxConcurrentToolCalls`: a caller that sets it above 1 runs up to that many of one model turn's tool calls at once. The default stays 1, so every existing caller still runs a turn's calls one at a time. Calls start in call order; results, `tool_result` yields and tool messages keep call order, and each `tool_progress` names its own call and streams before that call's result. Hook events stay one before and one after per call. `streamToolLoop` starts a call only while its consumer is reading, so at width 1 a call starts after the consumer has taken the previous call's result. A turn's first call always starts; once `maxCostUsd` is spent no later call starts, and the turn stops with `budget` after the calls already started settle. At width 1 that is the previous rule exactly, including a budget of 0, which still runs one call. When `costOf` throws, no further call starts and the loop rethrows once the calls already started settle. A consumer that stops reading `streamToolLoop` early (`break`, `return()` or a throw) starts none of the turn's queued calls, and the stream closes once the calls already started settle. Opt in only where a turn's calls do not depend on each other finishing first.
+
+## 10.0.7
+
+Raise the `@tangle-network/agent-interface` peer floor to ^5.10.27. Runtime depends on `@tangle-network/agent-profile-materialize` ^1.1.64, and materialize 1.1.127 (2026-11-17) raised its own Interface peer to ^5.10.27, so a consumer that met Runtime's old ^5.10.25 floor got an unmet peer once npm resolved the newest materialize; a strict-peer install refused it. The development pin, the workspace catalog and the release cohort move to Interface 5.10.27.
+
+The tool loop's stuck-loop guard counts repeats across model turns only. Identical calls inside one model turn's parallel batch no longer stop the loop: each runs and the model reads every result, a tool error included, on its next turn. A model turn whose calls are the same set as the previous turn's counts once, and three such turns in a row still stop with `stuck-loop`. Both `runToolLoop` and `streamToolLoop` share the rule.
+
+## 10.0.6
+
+Run cancellation no longer blocks the event loop on the disk. New `cancelRunAsync` beside `cancelRun`, with the same admission, replay and conflict rules: the request file reaches disk on the durable writer whether or not the caller holds a run claim. Inside a run, the cancellation observer, the manager's turn boundary and the settle record write the acknowledgement on the durable writer under the run's claim; the abort itself is issued at once.
+
+Allow flow graph map joins to run deterministic command checks over ordered item results, retain output artifacts and replay their receipts without a model turn. Do not invent an empty profile connections axis for graph nodes whose needs list is empty, so local CLI execution can admit them without dropping authored capabilities.
+
+Preserve a map source's evidence before advancing its items, so resumed flow graphs can replay map-join repair routes without task-identity conflicts or repeating settled work. Honor a source route's stop before starting its map.
+
+A Sandbox create refused because no host has room (`CAPACITY_EXHAUSTED`, `HOST_PRESSURE`, `PLACEMENT_WARMING`, `PROVISIONING_PAUSED`, the Sandbox SDK's capacity codes) no longer ends a run as `repeated-failure` after three drives. A retained manager waits for room inside the same drive and under the same create key, until the run's deadline when it has one and for ten minutes when it has none; the refusal is recognized by its code, not its message. On a run with a deadline, a placement refusal that reaches the driver pauses without the unchanged-cause ceiling, as rate limits do. When the deadline ends the wait, the run settles `deadline` and its last driver attempt records `classification: 'unavailable'`, the refusal's `unavailableSignal` and `stop: 'deadline'`, instead of a driver failure.
+
+## 10.0.5
+
+A retained start no longer ends the run at its first failed Sandbox create. When a create does not answer within the materialization bound, or Sandbox answers `OPERATION_FAILED`, it is tried again with the same idempotency key: three creates in all, with a short pause between them. The last failure still stops the driver, named.
+
+Only steer admission (`writeWorkerSteerAsync`) sends an unclaimed write to the durable writer. Since 10.0.4 every unclaimed result-blob put, interactive binding, steer delivery claim and acknowledgement waited on the writer as well; they run inline again, as before 10.0.4, and a claimed one still runs on the writer without blocking the event loop.
+
+Preserve failed graph runs' measured cost in designer history and tool results, and keep incomplete usage out of measured-cost replay comparisons.
+
+Read bounded run evidence from the canonical node usage projection, including manager inference and incomplete-token flags; retain fresh-input and cache-completeness evidence in pursuit projections.
+
+Retain observed fixed provider model IDs, including Claude Sonnet and Opus 4.6 and Claude Opus 5, as exact identities through provider execution, spawn journals, and Eval receipts. Recognition follows Eval's immutable-model policy, including Router month/day IDs such as `gpt-4-0613` and `deepseek-chat-v3-0324`, and Vertex `:date-<token>` IDs. `observedModelHasSnapshot('claude-sonnet-4-6')` now returns true. Keep the public `SnapshotKind` union unchanged; `canonicalObservedModelParts` reports fixed identities with optional `fixed: true`, a nonempty snapshot, and the unchanged provider id as `canonical`.
+
+Fixed requests require the exact identity: an appended date or opaque token is a conflict, including `claude-sonnet-4-6-20261112` and `claude-sonnet-4-6@x`. Bridge turns, Router executor requests, Router Auto selections and profile chat client turns refuse those substitutions; missing provider observations remain unknown. Equivalent numeric date spellings still match, while a dated snapshot and an opaque token with the same date text (`gpt-4o-2024-08-06` and `gpt-4o@2024-08-06`) are different identities. An ISO, compact or month date suffix with no model name (`openai/-2024-08-06`) is no longer an identity: it matches no declared model and has no snapshot. A model-less Router `-MMDD` or Vertex `:date-<token>` id follows Eval's policy and is recorded as fixed.
+
+Existing journals are not rewritten, but on replay their evidence can reduce differently: a bare fixed-model observation previously reduced as unknown can become known; a retained attempt mixing the bare fixed id with a different dated or opaque build now reduces as a conflict, which `superviseDispatch` refuses; a tree holding both a dated snapshot and an opaque token with the same date text, previously one known identity, now reduces as unknown with `provider-model-conflict`; a tree holding a bare fixed id beside a different identity reports `provider-model-conflict` instead of `provider-model-missing`, and its dispatch identity becomes mixed instead of unknown; and a dispatch refusal for an attempt mixing model bases lists each full canonical id instead of the bare base. This changes evidence interpretation, not the retained observations.
+
+A provider JSON node now settles a final message that ends in a bare JSON object after prose, as the Bridge path does: when the message has no json fence, the last object that starts a line and ends the message is the answer, so of two bare objects the last one settles. Whole JSON and a fence that ends the message settle as before. An object or a json fence followed by more text stays refused with `RUNTIME_OUTPUT_FORMAT_INVALID`.
+
+Retained execution observation now reports a failed exact-result read with its provider cause instead of claiming the stream outlived a result that never arrived. The existing retry and reconciliation behavior is unchanged.
+
+Use one topology admission path for root and nested graphs, rejecting malformed delegation and analysis traversal limits before execution. Omitted limits keep the existing default.
+
+Local OpenCode execution uses the shared model qualification rule, preserving the selected provider for nested model routes while leaving IDs already prefixed by that provider unchanged.
+
+Parking no longer hands off a run whose root is still acting. A child's far seat wait parks the run only while the root sleeps in its own wait, or awaits its workers' events with no settlement handling (analysts, maps, route gates), tool receipt or lead message of its own in flight; the park then ends that event wait. A park whose journal write fails now ends the run on that failure instead of leaving its waits hanging. `acquireSandbox` treats a ready budget in which every create was refused as placement capacity: it pauses on the shared capacity schedule and tries again under the same name, up to three budgets. A box that came back and never ran still ends the acquire after one budget. Either miss throws an error carrying the canonical `failure: { kind: 'capacity', code: 'sandbox_acquire_timeout' }`, which the supervise driver classifies `unavailable`, with the last refusal in its message and `cause`.
+
 ## 10.0.4
 
 Steer admission, delivery claims, steer acknowledgements and worker interactive bindings no longer block the event loop on the disk: they run on the durable writer whether or not a run claim is held. New `writeWorkerSteerAsync` beside `writeWorkerSteer`, with the same admission, replay and conflict rules.
@@ -5168,6 +5216,7 @@ Maturity now renders in the generated reference: `tsdoc.json` extends TypeDoc's 
 - Require `driverChild(profile, ...)` and `worktreeLoopRunner({ rootProfile, ... })`; remove name-only driver and personified-root shortcuts.
 - Remove the public `runLocalHarness` process shortcut; use `createWorktreeCliExecutor({ profile, ... })` directly or `createExecutor({ backend: 'cli-worktree', ... })` inside a supervised run so the CLI and model derive from one exact `AgentProfile`.
 - Keep missing token usage and billed cost unknown, and report reasoning-token usage when the provider supplies it.
+- Remove the `below-runtime-floor` member of `ReservationRejection` and `SpawnRejection` and the per-harness worker token floor behind it (aafd2a1b). The floor was one profile's lowest cumulative settlement on one model, applied to every `pi` child; Runtime now admits any child budget the pool can reserve and enforces it after measured spend ([budget accounting](docs/agent-managed-compute/reliability.md#caller-named-resource-accounting)). This entry was added on 2026-11-17 (#2694); 0.129.0 shipped without it.
 
 ### Removed public execution shortcuts
 

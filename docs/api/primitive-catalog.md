@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@10.0.4` and `@tangle-network/agent-eval@1.0.32` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@10.0.8` and `@tangle-network/agent-eval@1.0.32` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -438,7 +438,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 149 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 1075 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -465,6 +465,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `cancelRun` | function | Request the cancellation of the WHOLE run, idempotently, and return the operation's current |
+| `cancelRunAsync` | function | Request the cancellation of the whole run like {@link cancelRun}, without blocking the calling |
 | `cancelWorker` | function | Request the cancellation of ONE worker, idempotently, and return the operation's current |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
 | `canonicalObservedModelParts` | function | Return the canonical model and its validated snapshot kind for runtime evidence reduction. |
@@ -817,6 +818,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 1073 exports.
 | `BudgetViolation` | interface | Measured spend past the reservation. The child stays done or down; unverifiable spend fails closed. |
 | `BusEvent` | interface | Every bus event is a discriminated union member keyed by `type`. |
 | `BusRecord` | interface | A published event stamped for ordering and observability. `seq` is the monotonic publish index; |
+| `CancelRunOptions` | interface | Options of {@link cancelRun} and {@link cancelRunAsync}. |
 | `ChatSessionStore` | interface | Conversation history keyed by the settled Runtime worker id. |
 | `ChatTransportExecutorOptions` | interface | Transport and session data for one exact profile-driven conversation. |
 | `ChatTransportTool` | interface | One profile-authorized function tool and its host implementation. |

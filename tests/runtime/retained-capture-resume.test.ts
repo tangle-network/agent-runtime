@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -19,7 +19,13 @@ afterAll(async () => {
   await fixture?.dispose()
 })
 const directories: string[] = []
+const children = new Map<ChildProcess, Promise<unknown>>()
 afterEach(async () => {
+  for (const [child, closed] of children) {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await closed
+  }
+  children.clear()
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
   )
@@ -36,29 +42,33 @@ const rows = async (directory: string, name: string): Promise<any[]> =>
     .split('\n')
     .map((line) => JSON.parse(line))
 async function runPhase(directory: string, phase: string) {
-  return await new Promise<{
+  const child = spawn(process.execPath, [fixture.path, directory, phase], {
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  })
+  const closed = new Promise<{
     code: number | null
     signal: NodeJS.Signals | null
     stdout: string
     stderr: string
   }>((resolve, reject) => {
-    const child = spawn(process.execPath, [fixture.path, directory, phase], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 20_000,
-      killSignal: 'SIGKILL',
-    })
     let stdout = '',
       stderr = ''
-    child.stdout.on('data', (chunk) => {
+    child.on('message', (message) => {
+      if ((message as { type?: string }).type === 'checkpoint') child.kill('SIGKILL')
+    })
+    child.stdout!.on('data', (chunk) => {
       stdout += chunk
     })
-    child.stderr.on('data', (chunk) => {
+    child.stderr!.on('data', (chunk) => {
       stderr += chunk
     })
     child.once('error', reject)
     child.once('close', (code, signal) => resolve({ code, signal, stdout, stderr }))
   })
+  children.set(child, closed)
+  return closed
 }
+
 async function killedRun(phase = 'kill') {
   const directory = await mkdtemp(join(tmpdir(), 'retained-native-restart-'))
   directories.push(directory)

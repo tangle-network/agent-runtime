@@ -66,12 +66,12 @@ function leafWorker(
 ): ReturnType<MakeWorkerAgent> {
   const { options, deliverable, runNamespace } = env.setup
   const { childDeliverable } = admitted
-  // A check node of the run's own flow runs its command: its route spawns, and their recovery.
+  // A check node of the run's own flow runs its command for routes, map joins and recovery.
   const name = admitted.authorized.name ?? ''
   if (
     options.checkNodes?.names.includes(name) &&
     seat.depth === 1 &&
-    (recovering || spawnContext.route?.node === name)
+    (recovering || spawnContext.route?.node === name || spawnContext.map?.role === 'join')
   )
     return options.checkNodes.leaf(admitted.authorized, admitted.authorizedContext)
   if (childDeliverable !== deliverable && !options.backend) {

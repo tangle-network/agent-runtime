@@ -89,6 +89,8 @@ export class RetainedObservation {
   // The awaiting mark starts the next bounded liveness check, never a native deadline.
   private silenceHandledAt: number | undefined
   private exactResult: Promise<AgentTurnResult> | undefined
+  // A final result-read failure survives the stream failure reset between replay attempts.
+  private exactResultFailure: { error: unknown } | undefined
   private exactResultSettled = false
   private exactResultSettledAt = 0
   private observedFrames = 0
@@ -106,8 +108,9 @@ export class RetainedObservation {
     private readonly signal: AbortSignal,
     private readonly position?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
     private readonly quietMs = RETAINED_AWAITING_RESULT_AFTER_MS,
+    capacityWindowMs?: number,
   ) {
-    this.restart = hostRestartReconnect(signal)
+    this.restart = hostRestartReconnect(signal, 0, capacityWindowMs)
     const observed = position?.observed
     if (observed?.executionId === handle.controlRef.executionId)
       this.lastReplayPosition = this.resumedFrom = observed.replayPosition
@@ -245,11 +248,22 @@ export class RetainedObservation {
       const settle = (...failed: [error?: unknown]) => {
         if (this.observedFrames === 0) this.lastObservedAt = Date.now()
         // One failed read is not the exact result: observation reads on while one more read runs.
-        const retry = !retried && failed.length > 0 && !exactQuotaRefusal(failed[0])
+        const rejected = failed.length > 0
+        const quotaRefused = rejected && exactQuotaRefusal(failed[0]) !== undefined
+        const retry = !retried && rejected && !quotaRefused
         if (retry) this.exactResult = undefined
         else {
           this.exactResultSettled = true
           this.exactResultSettledAt = Date.now()
+          // A rejected final read ends observation without proving an exact result arrived.
+          // Keep its cause apart from stream failures, which observation may clear to replay.
+          if (rejected && !quotaRefused)
+            this.exactResultFailure = {
+              error: new Error(
+                `retained provider exact-result read failed: ${observationFailureText({ error: failed[0] })}`,
+                { cause: failed[0] },
+              ),
+            }
         }
         for (const wake of [...this.exactWakers]) wake()
         if (retry) this.readExactResult(true)
@@ -387,7 +401,7 @@ export class RetainedObservation {
     try {
       while (true) {
         if (this.framesAfterResult >= RETAINED_OBSERVATION_BATCH_EVENTS) {
-          this.failure ??= {
+          this.failure ??= this.exactResultFailure ?? {
             error: streamFailure(
               `retained provider stream sent ${RETAINED_OBSERVATION_BATCH_EVENTS} frames after its exact result; the rest were not read`,
             ),
@@ -414,7 +428,7 @@ export class RetainedObservation {
           return false
         }
         if (observed.kind === 'exact-result') {
-          this.failure ??= {
+          this.failure ??= this.exactResultFailure ?? {
             error: streamFailure('retained provider stream remained open after its exact result'),
           }
           return true

@@ -232,7 +232,7 @@ function pendingCancellationRun(profile: SupervisorProfile, task: unknown, opts:
           : AbortSignal.any([controller.signal, options.signal]),
       interactiveBindingDir: runDir,
     })
-    recordRunCancellationOutcome(runDir, result, now)
+    await recordRunCancellationOutcome(runDir, result, now)
     return {
       ...result,
       rootProviderModel: rootProviderModelEvidence([]),
@@ -261,7 +261,7 @@ async function startSupervisedRun(run: SupervisedRun) {
       ? watchRunCancellation(runDir, cancelDurableRun)
       : undefined
   try {
-    cancellation?.check()
+    await cancellation?.check()
   } catch (error) {
     cancellation?.close()
     throw error
@@ -540,10 +540,10 @@ async function settleSupervisedRun(
       rootStream = await setup.rootStreamSink?.close()
     } finally {
       cancellation?.close()
-      cancellation?.check()
+      await cancellation?.check()
     }
   }
-  recordRunCancellationOutcome(options.runDir, result, setup.now)
+  await recordRunCancellationOutcome(options.runDir, result, setup.now)
   // A nested manager's session rides its settle record (#1359); the root has none, so 312 of 312
   // Discovery roots of 2026-09-23/24 settled without a session receipt (#1264). The result carries it.
   if (rootDriveHarness !== undefined) await settleHarnessTranscript(rootDriveHarness)

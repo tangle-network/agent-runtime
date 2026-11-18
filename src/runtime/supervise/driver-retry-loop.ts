@@ -29,8 +29,10 @@ import { RetainedExecutionPendingError } from './retained-executor'
 import {
   cappedDoublingMs,
   jitteredMs,
+  PLACEMENT_SIGNALS,
   RATE_LIMIT_SIGNALS,
   reportedResetAt,
+  SAME_CAUSE_LIMIT,
   unavailablePauseMs,
   unavailableResumeAt,
 } from './upstream-unavailable'
@@ -59,8 +61,6 @@ function barrenPauseMs(streak: number, maxBarren: number): number {
 
 /** Consecutive identical reconciliation failures of one pending invocation that resolve it. */
 const SAME_PENDING_LIMIT = 2
-/** No unchanged no-progress failure earns a fourth drive, including root pauses and capacity. */
-const SAME_CAUSE_LIMIT = 3
 
 /** Deterministic failures without progress stop on their second identical cause. */
 const SAME_DETERMINISTIC_LIMIT = 2
@@ -405,7 +405,12 @@ export class DriverRetryLoop {
     startedAt: number,
   ): Promise<void> {
     const durationMs = this.limits.now() - startedAt
-    const classification = classifyDriverFailure(error, this.run.signal, this.run.stopSignal)
+    const refusal = (upstreamUnavailableSignal(error) ?? '').toLowerCase()
+    // A deadline that cut a wait for placement ends as that wait: an unavailable stop, typed.
+    const classification =
+      PLACEMENT_SIGNALS.has(refusal) && isDeadlineAbortReason(this.run.signal.reason)
+        ? 'unavailable'
+        : classifyDriverFailure(error, this.run.signal, this.run.stopSignal)
     const after = this.run.progress()
     const progressed = madeProgress(before, after)
     if (progressed) {
@@ -426,18 +431,18 @@ export class DriverRetryLoop {
       pending,
     }
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
-    // A named rate limit or overload on a run with a deadline is never a repeated failure: the run
-    // pauses with growing waits until the upstream answers, its budget or its deadline
-    // (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM plan). Quota and
-    // billing 429s, credential and placement refusals, an in-doubt execution, and any refusal on a
-    // run without a deadline still settle after three unchanged drives.
+    // A named rate limit, overload or placement refusal on a run with a deadline is never a
+    // repeated failure: the run pauses with growing waits until the upstream answers, its budget
+    // or its deadline (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM
+    // plan). Quota and billing 429s, credential refusals, an in-doubt execution, and any refusal
+    // on a run without a deadline still settle after three unchanged drives.
     if (
       classification !== 'terminal' &&
       !(
         classification === 'unavailable' &&
         pending === undefined &&
         this.run.budget().deadlineMs > 0 &&
-        RATE_LIMIT_SIGNALS.has((upstreamUnavailableSignal(error) ?? '').toLowerCase())
+        (RATE_LIMIT_SIGNALS.has(refusal) || PLACEMENT_SIGNALS.has(refusal))
       ) &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
@@ -465,7 +470,7 @@ export class DriverRetryLoop {
     else await this.retry(failure)
   }
 
-  // Capacity waits charge no failure allowance; only rate limits are exempt from the unchanged-cause ceiling.
+  // Capacity waits charge no failure allowance; rate limits and placement skip the cause ceiling.
   private async pause(failure: DriverFailure): Promise<void> {
     const { run, limits } = this
     const { error, progressed } = failure

@@ -354,7 +354,11 @@ export function resultFromEvents(
   return { content: fallbackText, events }
 }
 
-/** The final message may end with a JSON fence or, like Bridge, a bare line-start object. */
+/**
+ * The JSON value that ends the final message settles it: the whole message, a fence ending it, or,
+ * when it has no json fence, a line-start object ending it (the Bridge's rule in cli-bridge
+ * src/runs/final-output.ts). Text after the value, including after a json fence, keeps it refused.
+ */
 function finalJsonValue(text: string | undefined): string {
   if (text === undefined) return ''
   try {
@@ -363,9 +367,12 @@ function finalJsonValue(text: string | undefined): string {
   } catch {}
   const fenced = /```(?:json)?[ \t]*\r?\n((?:(?!```)[\s\S])*)```\s*$/i.exec(text)?.[1]
   if (fenced !== undefined) return fenced
-  // A fence with trailing text remains invalid; only unfenced output uses the bare-object rule.
-  if (text.includes('```')) return text
-  for (let i = text.lastIndexOf('\n{'); i >= 0; i = i === 0 ? -1 : text.lastIndexOf('\n{', i - 1)) {
+  if (/```json[ \t]*\r?\n[\s\S]*?\r?\n```/i.test(text)) return text
+  // A candidate is a whole object, so none parses unless the message ends with `}`; checking that
+  // first keeps a long unclosed prefix from costing one full parse per line.
+  if (!text.trimEnd().endsWith('}')) return text
+  // Last line-start `{` first; index 0 is the whole message, tried above.
+  for (let i = text.lastIndexOf('\n{'); i > 0; i = text.lastIndexOf('\n{', i - 1)) {
     const candidate = text.slice(i + 1)
     try {
       JSON.parse(candidate)

@@ -1,7 +1,7 @@
 /**
  * One PHASE of the re-attach (session-backed worker) conformance run, as its own OS process.
  *
- * Usage: `node --import tsx session-child.ts <dir> <phase:1|2> [killAt]`
+ * Usage: `node --import tsx session-child.ts <dir> <phase:1|2> [killAt] [batched]`
  *
  * Identical to `graph-child.ts` except the three worker nodes execute as SESSION-BACKED leaves
  * (out-of-process doubles that journal retained admissions and re-attach after a coordinator
@@ -9,9 +9,15 @@
  * never restart it.
  */
 
-const [dir, phase, killAt] = process.argv.slice(2)
-if (dir === undefined || (phase !== '1' && phase !== '2')) {
-  throw new Error('usage: session-child.ts <dir> <phase:1|2> [killAt]')
+import type { WorkerNode } from './conformance-graph'
+
+const [dir, phase, killAt, settles] = process.argv.slice(2)
+if (
+  dir === undefined ||
+  (phase !== '1' && phase !== '2') ||
+  (settles !== undefined && settles !== 'batched')
+) {
+  throw new Error('usage: session-child.ts <dir> <phase:1|2> [killAt] [batched]')
 }
 if (phase === '2' && killAt !== undefined) {
   throw new Error('usage: phase 2 resumes; it never arms a kill')
@@ -33,8 +39,18 @@ const kill = armKillSwitch({
   killedFile: `${dir}/killed.log`,
 })
 const site = openSideEffectSite(dir)
-const seam = sessionBackedLeafSeam(dir, phase, kill)
 const planner = new ConductorPlanner()
+// Phase 1's labels form the case matrix, so it holds each finished session until the driver has
+// read every earlier settle: each settle gets its own wake and every run passes the same labels.
+// Phase 2's labels are not used, so its recovered sessions settle together and ride one wake, the
+// interleaving no other suite exercises. `batched` runs phase 1 that way too.
+const held = phase === '1' && settles === undefined
+const seam = sessionBackedLeafSeam(
+  dir,
+  phase,
+  kill,
+  held ? (label) => planner.maySettle(label as WorkerNode) : undefined,
+)
 let brainCalls = 0
 const brain = async (messages: ReadonlyArray<Record<string, unknown>>) => {
   brainCalls += 1
@@ -48,6 +64,9 @@ const result = await runGraph(conformanceGraph(), {
   runDir: dir,
   workerSlots: 3,
   maxTurns: 24,
+  // Held settles: nothing else can land in the debounce, and 20 ms still takes its branch.
+  // Otherwise 250 ms collects the settles of sessions that finish together into one wake.
+  wake: { debounceMs: held ? 20 : 250 },
   perWorker: { maxIterations: 60, maxTokens: 500_000 },
   brain,
   makeLeafAgent: seam.makeLeafAgent,
@@ -72,6 +91,7 @@ process.stdout.write(
     steps: seam.stepLog(phase),
     reattached: seam.reattachLog(phase),
     driverTurns: planner.report().turns,
+    settlesPerWake: planner.report().settlesPerWake,
     ...('fatal' in planner.report() ? { fatal: planner.report().fatal } : {}),
   })}\n`,
 )

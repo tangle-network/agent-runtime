@@ -685,8 +685,10 @@ export function bindGraphCheckNodes(
         `runGraph: node id ${JSON.stringify(node.id)} cannot name an evidence file; use letters, digits, '.', '_' and '-'`,
       )
   for (const edge of graph.edges)
-    if (edge.kind === 'maps' && [edge.to, edge.join].some((id) => id && checks.has(id)))
-      throw new ValidationError('runGraph: a check node runs from entry or routes, not a maps edge')
+    if (edge.kind === 'maps' && edge.to && checks.has(edge.to))
+      throw new ValidationError(
+        'runGraph: a check node runs from entry, routes or a maps join, not a maps item',
+      )
   const placement = options.checkPlacement
   for (const [id, check] of checks) {
     const timeoutMs = check.timeoutMs ?? CHECK_TIMEOUT_MS

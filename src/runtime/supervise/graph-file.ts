@@ -227,7 +227,7 @@ async function expandProfile(
         : { reasoningEffort: selected.reasoningEffort }),
     }
   }
-  if (node.needs) {
+  if (node.needs && (connections.length > 0 || node.profile?.connections !== undefined)) {
     // An exact duplicate reference, authored or resolved, collapses; distinct aliases, capabilities
     // and conflicting explicit aliases stay for the profile schema and the Hub resolver to judge.
     const seen = new Set<string>()

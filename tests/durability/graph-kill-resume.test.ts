@@ -39,6 +39,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RUN_DIRECTORY_LOCK_FILE } from '../../src/durable/run-lock'
 import { readSettleRecord } from '../../src/durable/settle-record'
+import { compileFixture } from '../helpers/compile-fixture'
 import {
   ARTIFACT_KEY,
   auditSpawnJournal,
@@ -57,9 +58,17 @@ import {
   readGateCalls,
 } from '../helpers/durability/flow-conformance-graph'
 
-const childScript = new URL('../helpers/durability/graph-child.ts', import.meta.url).pathname
-const flowChildScript = new URL('../helpers/durability/flow-graph-child.ts', import.meta.url)
-  .pathname
+// Every case starts two child processes. Compiled once here, each one loads JavaScript instead
+// of transpiling the source tree through tsx again.
+const [graphChild, flowGraphChild] = await Promise.all([
+  compileFixture('tests/helpers/durability/graph-child.ts'),
+  compileFixture('tests/helpers/durability/flow-graph-child.ts'),
+])
+afterAll(async () => {
+  await Promise.all([graphChild.dispose(), flowGraphChild.dispose()])
+})
+const childScript = graphChild.path
+const flowChildScript = flowGraphChild.path
 
 interface PhaseExit {
   readonly code: number | null
@@ -78,7 +87,7 @@ async function runPhase(
   return await new Promise<PhaseExit>((resolvePhase, rejectPhase) => {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', script, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
+      [script, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
       { cwd: process.cwd(), env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let stdout = ''

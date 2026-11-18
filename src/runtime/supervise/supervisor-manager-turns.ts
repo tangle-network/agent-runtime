@@ -27,7 +27,7 @@ import { composeReentryTask, type ReentryContinuity, UNPROVEN_CONTINUITY } from 
 import { owners } from './retained-owner-state'
 import { abandonScopeRetainedOwnerInvocation } from './retained-scope-owner'
 import { readRootStream } from './root-stream'
-import { applyRunCancellation } from './run-cancellation'
+import { applyRunCancellationAsync } from './run-cancellation'
 import { bindScopeParkingDrain, isRunParked, sleepScopeWait } from './run-parking'
 import { runTraceAnalysisStore } from './run-traces'
 import {
@@ -418,7 +418,7 @@ async function driveManagerTurn(
       reentry?.reason === 'driver-failure' && harnessProcessDied(reentry.failure)
   loop.candidate = undefined
   if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
-    applyRunCancellation(deps.controlDir, deps.abortRun, () => new Date().toISOString())
+    await applyRunCancellationAsync(deps.controlDir, deps.abortRun, () => new Date().toISOString())
   }
   scope.signal.throwIfAborted()
   beginScopeOwnerAttempt(scope, attempt)

@@ -124,7 +124,7 @@ export async function executeDriverAttempt(input: DriverAttemptInput): Promise<v
     seams: {
       [executorObservationSeamKey]: observation,
       ...retainedOwnerSeam(
-        retainedOwner,
+        retainedOwner && { ...retainedOwner, deadlineMs: scope.rootDeadlineAtMs },
         async (result) => attempt.commitOwnerResult(result),
         () => {
           transcriptRecorded = true

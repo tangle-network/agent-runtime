@@ -1,16 +1,55 @@
 import { existsSync, mkdirSync, readFileSync, watch } from 'node:fs'
 import { join } from 'node:path'
+import { runFencedAlways } from '../../durable/durable-writer'
 import type { RetainedRunEffect } from '../retained-run-types'
-import { assertNoSymlinkDescendant, writeAtomicDurableFile } from './durable-file'
-import { appendWorkerControlEvent, workerCancellationsDir } from './run-layout'
+import {
+  assertNoSymlinkDescendant,
+  publishExclusiveFenced,
+  writeAtomicDurableFile,
+  writeAtomicDurableFileAsync,
+} from './durable-file'
+import {
+  appendWorkerControlEvent,
+  appendWorkerControlEventAsync,
+  workerCancellationsDir,
+} from './run-layout'
+
+type CancellationPath = 'observer' | 'turn-boundary' | 'fallback'
 
 /** Apply a durable request through the run's existing abort controller. */
 export function applyRunCancellation(
   dir: string,
   abortRun: (reason: string, request?: RunCancelRequest) => void,
   now: () => string,
-  path: 'observer' | 'turn-boundary' | 'fallback' = 'turn-boundary',
+  path: CancellationPath = 'turn-boundary',
 ): RunCancellation | undefined {
+  const applied = abortForRequest(dir, abortRun, now, path)
+  if (applied?.fresh) writeRunCancellation(dir, applied.record)
+  return applied?.record
+}
+
+/**
+ * `applyRunCancellation` without blocking the calling thread on the disk: the abort is issued at
+ * once, and the `cancel_requested` record reaches disk on the durable writer under the run's claim.
+ */
+export async function applyRunCancellationAsync(
+  dir: string,
+  abortRun: (reason: string, request?: RunCancelRequest) => void,
+  now: () => string,
+  path: CancellationPath = 'turn-boundary',
+): Promise<RunCancellation | undefined> {
+  const applied = abortForRequest(dir, abortRun, now, path)
+  if (applied?.fresh) await writeRunCancellationAsync(dir, applied.record)
+  return applied?.record
+}
+
+/** Abort for the pending request, and the record it owes: the standing one, or a fresh one to write. */
+function abortForRequest(
+  dir: string,
+  abortRun: (reason: string, request?: RunCancelRequest) => void,
+  now: () => string,
+  path: CancellationPath,
+): { readonly record: RunCancellation; readonly fresh: boolean } | undefined {
   const request = readRunCancelRequest(dir)
   if (request === undefined) return undefined
   const prior = readRunCancellation(dir, request.operationId)
@@ -19,7 +58,7 @@ export function applyRunCancellation(
   if (prior?.effect === 'cancel_requested') {
     abortRun(request.reason ?? 'run cancel requested', request)
   }
-  if (prior !== undefined) return prior
+  if (prior !== undefined) return { record: prior, fresh: false }
   abortRun(request.reason ?? 'run cancel requested', request)
   const observedAt = now()
   const appliedAfterMs = Math.max(0, Date.parse(observedAt) - Date.parse(request.at))
@@ -37,8 +76,7 @@ export function applyRunCancellation(
     ...(request.operator === undefined ? {} : { operator: request.operator }),
     detail: 'root abort issued to the whole run; termination not yet proven',
   }
-  writeRunCancellation(dir, record)
-  return record
+  return { record, fresh: true }
 }
 
 /** External drivers may remain silent indefinitely, so turn boundaries cannot observe control. */
@@ -58,14 +96,45 @@ export function watchRunCancellation(
     aborted = true
     abortRun(reason, request)
   }
-  const check = (path: 'observer' | 'fallback' = 'observer'): void => {
-    if (failure !== undefined) throw failure
-    if (active) applyRunCancellation(dir, abortOnce, () => new Date().toISOString(), path)
+  // One application at a time. The abort is immediate; its record goes to the durable writer, so a
+  // saturated disk delays the record, never this event loop. A poll that finds one in flight skips.
+  let inFlight: Promise<void> | undefined
+  const apply = (path: 'observer' | 'fallback'): Promise<void> => {
+    if (failure !== undefined) return Promise.reject(failure)
+    if (!active) return Promise.resolve()
+    const applying = applyRunCancellationAsync(
+      dir,
+      abortOnce,
+      () => new Date().toISOString(),
+      path,
+    ).then(() => undefined)
+    const settled = applying.then(
+      () => {
+        if (inFlight === settled) inFlight = undefined
+      },
+      (error: unknown) => {
+        // Kept even after close, so the settle path's check() throws it instead of reading no record.
+        failure ??= error
+        if (inFlight === settled) inFlight = undefined
+      },
+    )
+    inFlight = settled
+    return applying
+  }
+  // A caller's check waits for the application in flight, so a closed observer's last record lands
+  // before the run's settle record is written, and a failure it met is thrown here.
+  const check = async (path: 'observer' | 'fallback' = 'observer'): Promise<void> => {
+    while (inFlight !== undefined) await inFlight
+    await apply(path)
   }
   const fail = (error: unknown): void => {
     if (!active) return
     failure = error
     abortRun(`durable run cancellation observer failed: ${String(error)}`)
+  }
+  const poll = (path: 'observer' | 'fallback'): void => {
+    if (inFlight !== undefined) return
+    apply(path).catch(fail)
   }
   // The watcher is an optimization over the poll loop below (instant pickup instead of ≤100 ms).
   // Creating it can fail for reasons that say NOTHING about this run: the host's inotify budget is
@@ -77,11 +146,7 @@ export function watchRunCancellation(
   try {
     watcher = createWatch(workerCancellationsDir(dir), (_event, filename) => {
       if (!active || (filename !== null && filename !== 'run.request.json')) return
-      try {
-        check()
-      } catch (error) {
-        fail(error)
-      }
+      poll('observer')
     })
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
@@ -90,13 +155,7 @@ export function watchRunCancellation(
   watcher?.on('error', fail)
   // Filesystem notifications are advisory. Scan the same durable inbox when one is dropped —
   // and carry the whole observer alone whenever the watcher above could not be created.
-  const fallback = setInterval(() => {
-    try {
-      check('fallback')
-    } catch (error) {
-      fail(error)
-    }
-  }, 100)
+  const fallback = setInterval(() => poll('fallback'), 100)
   fallback.unref()
   return {
     check,
@@ -215,13 +274,31 @@ export function readRunCancellation(
  * or {@link cancelRun}.
  */
 export function writeRunCancellation(eventDir: string, record: RunCancellation): void {
+  writeAtomicDurableFile(runCancellationTarget(eventDir), recordText(record), { mode: 0o600 })
+}
+
+/** `writeRunCancellation` without blocking the calling thread on the disk under a run claim. @internal */
+export function writeRunCancellationAsync(
+  eventDir: string,
+  record: RunCancellation,
+): Promise<void> {
+  return writeAtomicDurableFileAsync(runCancellationTarget(eventDir), recordText(record), {
+    mode: 0o600,
+  })
+}
+
+const recordText = (record: RunCancellation | RunCancelRequest): string =>
+  `${JSON.stringify(record, null, 2)}\n`
+
+/** The acknowledgement file, its directory made and every path checked for symlinks. */
+function runCancellationTarget(eventDir: string): string {
   const dir = workerCancellationsDir(eventDir)
   assertNoSymlinkDescendant(eventDir, dir, 'run cancel acknowledgement')
   mkdirSync(dir, { recursive: true })
   assertNoSymlinkDescendant(eventDir, dir, 'run cancel acknowledgement')
   const file = runCancellationFile(eventDir)
   assertNoSymlinkDescendant(eventDir, file, 'run cancel acknowledgement')
-  writeAtomicDurableFile(file, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
+  return file
 }
 
 /**
@@ -249,6 +326,8 @@ export function writeRunCancellation(eventDir: string, record: RunCancellation):
 export function cancelRun(
   eventDir: string,
   operationId: string,
+  // Inline, as published through 10.0.5: the archive admission reads a named type here as a new
+  // shape, which would make this patch a major.
   options: {
     readonly reason?: string
     readonly source?: string
@@ -256,6 +335,69 @@ export function cancelRun(
     readonly operator?: string
   } = {},
 ): RunCancellation {
+  const admission = admitRunCancel(eventDir, operationId, options)
+  if ('answer' in admission) return admission.answer
+  if (admission.file !== undefined) {
+    writeAtomicDurableFile(admission.file, recordText(admission.request), { mode: 0o600 })
+    appendWorkerControlEvent(eventDir, 'run', admission.event)
+  }
+  return queuedRunCancellation(admission.request)
+}
+
+/**
+ * Request the cancellation of the whole run like {@link cancelRun}, without blocking the calling
+ * thread on the disk. The request file is published by the durable writer whether or not the
+ * caller holds a run claim (a coordinator outside the run holds none), so an event loop that stops
+ * runs keeps running while the file and its directory reach disk. Same admission, replay and
+ * conflict rules.
+ * @stable
+ */
+export async function cancelRunAsync(
+  eventDir: string,
+  operationId: string,
+  options: CancelRunOptions = {},
+): Promise<RunCancellation> {
+  const admission = admitRunCancel(eventDir, operationId, options)
+  if ('answer' in admission) return admission.answer
+  if (admission.file !== undefined) {
+    // Published only if no request is there yet: an overlapping call admitted against the same empty
+    // inbox loses here, and is admitted again against the winner, which it replays or conflicts with.
+    const published = await runFencedAlways(
+      'publishExclusiveDurableFile',
+      publishExclusiveFenced,
+      admission.file,
+      recordText(admission.request),
+      { mode: 0o600 },
+    )
+    if (!published) return cancelRunAsync(eventDir, operationId, options)
+    await appendWorkerControlEventAsync(eventDir, 'run', admission.event)
+  }
+  return queuedRunCancellation(admission.request)
+}
+
+/** Options of {@link cancelRun} and {@link cancelRunAsync}. */
+export interface CancelRunOptions {
+  readonly reason?: string
+  readonly source?: string
+  readonly deadlineMs?: number
+  readonly operator?: string
+}
+
+/**
+ * The admission of one run cancel: the standing acknowledgement, or the request to answer for,
+ * with the file and control event still to write when it is new.
+ */
+function admitRunCancel(
+  eventDir: string,
+  operationId: string,
+  options: CancelRunOptions,
+):
+  | { readonly answer: RunCancellation }
+  | {
+      readonly request: RunCancelRequest
+      readonly file?: string
+      readonly event: Record<string, unknown>
+    } {
   if (
     options.deadlineMs !== undefined &&
     (!Number.isFinite(options.deadlineMs) || options.deadlineMs < 0)
@@ -287,7 +429,7 @@ export function cancelRun(
       )
     }
     assertRunCancellationMatchesCandidate(acknowledged, candidate)
-    return acknowledged
+    return { answer: acknowledged }
   }
   // A new request names who stops the run. A replay of a request written before this rule keeps
   // its absent operator: it was admitted above against the file it replays.
@@ -303,26 +445,29 @@ export function cancelRun(
     ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
     ...(options.operator === undefined ? {} : { operator: options.operator }),
   }
-  if (pending === undefined) {
-    const dir = workerCancellationsDir(eventDir)
-    assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
-    mkdirSync(dir, { recursive: true })
-    assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
-    const file = runCancelRequestFile(eventDir)
-    assertNoSymlinkDescendant(eventDir, file, 'run cancel request')
-    writeAtomicDurableFile(file, `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 })
-    appendWorkerControlEvent(eventDir, 'run', {
-      kind: 'run-cancel-request',
-      operationId: opId,
-      source,
-      queued: true,
-      ...(options.reason === undefined ? {} : { reason: options.reason }),
-      ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
-      ...(options.operator === undefined ? {} : { operator: options.operator }),
-    })
-  }
-  return {
+  const event = {
+    kind: 'run-cancel-request',
     operationId: opId,
+    source,
+    queued: true,
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+    ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
+    ...(options.operator === undefined ? {} : { operator: options.operator }),
+  }
+  if (pending !== undefined) return { request, event }
+  const dir = workerCancellationsDir(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
+  mkdirSync(dir, { recursive: true })
+  assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
+  const file = runCancelRequestFile(eventDir)
+  assertNoSymlinkDescendant(eventDir, file, 'run cancel request')
+  return { request, file, event }
+}
+
+/** The answer to a request no runtime has acknowledged yet. */
+function queuedRunCancellation(request: RunCancelRequest): RunCancellation {
+  return {
+    operationId: request.operationId,
     effect: 'unknown',
     requestedAt: request.at,
     observedAt: request.at,

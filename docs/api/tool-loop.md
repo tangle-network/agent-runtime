@@ -270,6 +270,14 @@ Return the USD cost of one outcome. Required for `maxCostUsd` to work.
 
 `number`
 
+##### maxConcurrentToolCalls?
+
+> `optional` **maxConcurrentToolCalls?**: `number`
+
+How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+ Above 1, results and tool messages still keep call order; once `maxCostUsd` is spent no
+ further call starts, and the turn stops with `budget` after the started calls settle.
+
 ##### renderResult?
 
 > `optional` **renderResult?**: (`label`, `outcome`) => `string`
@@ -438,6 +446,15 @@ Return the USD cost of one outcome. Required for `maxCostUsd` to work.
 
 `number`
 
+##### maxConcurrentToolCalls?
+
+> `optional` **maxConcurrentToolCalls?**: `number`
+
+How many of one model turn's calls run at once. Default 1: one at a time, in call order.
+ Above 1, each call's `tool_progress` streams as it lands; `tool_result`s and tool messages
+ keep call order. Once `maxCostUsd` is spent no further call starts, and the turn stops
+ with `budget` after the started calls settle.
+
 ##### renderResult?
 
 > `optional` **renderResult?**: (`label`, `outcome`) => `string`
@@ -566,7 +583,7 @@ Executes one tool call. Implementations that take only the call stay valid.
 > **ToolLoopStopReason** = `"completed"` \| `"stuck-loop"` \| `"backstop"` \| `"deadline"` \| `"budget"`
 
 Why the loop stopped. `completed` = model finished naturally; `stuck-loop` =
- ≥3 consecutive identical tool calls (same tool + args); `backstop` = hit the
+ ≥3 consecutive model turns issuing the same calls (tool + args); `backstop` = hit the
  runaway-backstop cap (200 by default); `deadline` = wall-clock deadlineMs
  exceeded; `budget` = maxCostUsd exhausted. Non-`completed` stops are infra /
  resource outcomes — eval scoring must distinguish them from capability failure.

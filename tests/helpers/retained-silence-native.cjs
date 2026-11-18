@@ -42,7 +42,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   ) {
     const sequence = Number(input.since.slice('event-'.length)) + 1
     write('events.jsonl', frame(sequence))
-    if (sequence === 2) fs.writeFileSync(path.join(directory, 'result'), 'finished')
+  } else if (op === 'consumed' && mode.startsWith('replay') && input.cursor === 'event-2') {
+    // A durable frame is not yet delivered: let the real consumer release the exact result.
+    fs.writeFileSync(path.join(directory, 'result'), 'finished')
   } else if (op === 'status') value = mode === 'unknown' ? 'unknown' : 'running'
   else if (op === 'finish') {
     clearInterval(timer)
