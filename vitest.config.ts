@@ -19,6 +19,7 @@ const serial = [
   'tests/runtime/retained-capture-resume.test.ts',
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
+  'tests/integration/child-admission-grant.test.ts',
   'tests/integration/deadline-wake-process.test.ts',
   'tests/integration/flow-model-admission.test.ts',
   'tests/integration/retained-tail-window.test.ts',
@@ -88,6 +89,15 @@ export default defineConfig({
       { extends: true, test: { name: 'parallel', exclude: [...exclude, ...serial] } },
       {
         extends: true,
+        plugins: [
+          {
+            name: 'serial-file-limit',
+            configureVitest({ project }) {
+              // Vitest 5 applies the runner's worker ceiling after resolving fileParallelism.
+              project.config.maxWorkers = 1
+            },
+          },
+        ],
         test: {
           name: 'serial',
           include: serial,
