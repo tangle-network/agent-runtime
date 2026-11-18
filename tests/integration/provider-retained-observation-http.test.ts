@@ -27,11 +27,16 @@ afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 
-// The capacity case sets the executor's placement window below its 10 min default, and Sandbox
-// refuses every environment read for as long as that window, paced by Retry-After. Recovery proves
-// that the same execution waited out an outage as long as its whole configured window.
-const capacityWindowMs = 30_000
-const capacityOutage = { ms: capacityWindowMs, retryAfterSeconds: 3 }
+// Sandbox refuses placement for an outage paced by Retry-After, from the first read of each phase
+// a capacity case names: acquisition's environment reads, and observation's exact-result reads
+// after dispatch. The observer's executor gets its own window, which opens at the first refusal
+// the SDK's own retries pass on. A window longer than the outage recovers the same execution: the
+// runtime keeps reading until its window ends, which is after the outage however long the SDK
+// retried first. A shorter window ends the execution down on the refusal in either phase, where
+// the 10 min default would have waited the outage out. No test runs the default itself, so only
+// code review guards its value: telling 10 min from a shorter value takes a 10 min run.
+const capacityWindowMs = 10_000
+const capacityOutage = { ms: 6_000, retryAfterSeconds: 1, phases: ['acquisition', 'observation'] }
 
 /** Record each phase the observer reaches; the test asserts it exits naturally after observing. */
 async function observeInProcess(fixture: ProcessFixture, windowMs?: number) {
@@ -120,14 +125,18 @@ it.each<Scenario>([
       const events = (await context.journal.loadTree('http-observation'))!
       const state = await fixture.state()
       if (capacityCase) {
-        const refused = state.requests.filter((row) => row.kind === 'capacity-http-error')
-        const recovered = state.requests.find((row) => row.kind === 'capacity-recovered')
-        expect(refused.length).toBeGreaterThan(3)
-        expect(recovered).toMatchObject({
-          environmentId: state.runs[0]!.environmentId,
-          elapsedMs: expect.any(Number),
-        })
-        expect(Number(recovered!.elapsedMs)).toBeGreaterThanOrEqual(capacityWindowMs)
+        for (const phase of capacityOutage.phases) {
+          const at = (kind: string) =>
+            state.requests.filter((row) => row.kind === kind && row.phase === phase)
+          expect(at('capacity-http-error').length).toBeGreaterThan(3)
+          expect(at('capacity-recovered')[0]).toMatchObject({
+            environmentId: state.runs[0]!.environmentId,
+            elapsedMs: expect.any(Number),
+          })
+          expect(Number(at('capacity-recovered')[0]!.elapsedMs)).toBeGreaterThanOrEqual(
+            capacityOutage.ms,
+          )
+        }
         expect(events.filter((row) => row.kind === 'driver-attempt' && row.record.error)).toEqual(
           [],
         )
@@ -216,6 +225,49 @@ it.each<Scenario>([
       expect(() => process.kill(Number(processes[0]!.pid), 0)).toThrow(
         expect.objectContaining({ code: 'ESRCH' }),
       )
+      passed = true
+    } finally {
+      await fixture.close()
+      if (passed) await rm(fixture.directory, { recursive: true, force: true })
+      else console.error('Retained observation proof artifacts:', fixture.directory)
+    }
+  },
+)
+
+it.each(['acquisition', 'observation'])(
+  'ends the execution down on the placement refusal when a %s outage outlasts its window',
+  async (phase) => {
+    const fixture = await ProcessFixture.start(
+      'json-observation-long-capacity-success',
+      executables,
+      { coordinator: false },
+    )
+    let passed = false
+    try {
+      await fixture.control({
+        finish: true,
+        capacityOutage: { ms: 30_000, retryAfterSeconds: 1, phases: [phase] },
+      })
+      const exit = await observeInProcess(fixture, 3_000)
+      expect(exit, JSON.stringify(exit)).toMatchObject({
+        code: 0,
+        signal: null,
+        phase: 'natural-exit',
+      })
+      const { delivered } = JSON.parse(
+        await readFile(join(fixture.directory, 'observed.json'), 'utf8'),
+      )
+      expect(object(delivered).kind).toBe('down')
+      expect(JSON.stringify(delivered)).toContain('No host has capacity for this sandbox')
+      const state = await fixture.state()
+      const kinds = (kind: string) => state.requests.filter((row) => row.kind === kind)
+      expect(kinds('capacity-http-error').every((row) => row.phase === phase)).toBe(true)
+      expect(kinds('capacity-http-error').length).toBeGreaterThan(0)
+      expect(kinds('capacity-recovered')).toEqual([])
+      expect(state.failures).toEqual([])
+      expect(state.runs).toHaveLength(1)
+      expect(kinds('create')).toHaveLength(1)
+      expect(kinds('dispatch')).toHaveLength(1)
       passed = true
     } finally {
       await fixture.close()
