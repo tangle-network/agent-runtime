@@ -24,8 +24,6 @@ export function hostRestartReconnect(
   deadlineMs = 0,
   capacityWindowMs = CAPACITY_RETRY_WINDOW_MS,
 ) {
-  if (!(typeof capacityWindowMs === 'number' && capacityWindowMs >= 0))
-    throw new RangeError('capacityRetryWindowMs must be a non-negative number of milliseconds')
   let since: number | undefined
   let waits = 0
   let refused: object | undefined
