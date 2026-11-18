@@ -39,7 +39,8 @@ it.each([
       { coordinator: false },
     )
     try {
-      // Answer the retained release's DELETE; held, it waits out the 30 s release bound.
+      // Answer the environment DELETE. Held, each case waited out the Sandbox SDK's 30 s request
+      // timeout on the leaf's destroy, then the 5.25 s bound on the supervisor's teardown retry.
       await fixture.control({ finish: true })
       const provider = createTangleProvider({
         client: new Sandbox({
@@ -144,6 +145,12 @@ it.each([
       if (continues) expect(pauses[0]).toMatchObject({ signal: 'TRANSPORT_LOST' })
       expect(reopened?.filter((row) => row.kind === 'execution-input')).toHaveLength(invocations)
       expect(reopened?.filter((row) => row.kind === 'execution-result')).toHaveLength(invocations)
+      // The answered DELETE is the leaf's one destroy, and the child's teardown is confirmed.
+      expect(state.requests.filter((row) => row.kind === 'delete')).toHaveLength(1)
+      expect(state.lost).toEqual([state.boxes[0]!.id])
+      expect(reopened?.filter((row) => row.kind === 'teardown-confirmed')).toEqual([
+        expect.objectContaining({ id: `transport-${phase}-${mode}:s0` }),
+      ])
       expect(
         reopened?.filter(
           (row) =>
