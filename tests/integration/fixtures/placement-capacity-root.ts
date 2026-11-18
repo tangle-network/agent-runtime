@@ -7,7 +7,7 @@ import { FileSpawnJournal } from '../../../src/durable/spawn-journal/journal-sto
 import { createFileRunContext, supervise } from '../../../src/runtime'
 import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-agent-profile'
 import { ProcessFixture, prepareExecutables } from './uncertain-create-harness'
-import { PLACEMENT_CREATE_BUDGET_MS } from './uncertain-create-protocol'
+import { placementTiming } from './uncertain-create-protocol'
 
 /**
  * Drive a provider root whose every create a Sandbox-shaped HTTP service refuses with the real
@@ -27,7 +27,7 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
     await fixture.control({ finish: true })
     const context = createFileRunContext(runDir)
     const provider = createTangleProvider({
-      readyTimeoutMs: PLACEMENT_CREATE_BUDGET_MS,
+      ...placementTiming.provider,
       client: new Sandbox({
         apiKey: 'offline-not-a-secret',
         baseUrl: fixture.url,
@@ -39,9 +39,8 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
     const backend = {
       backend: 'provider' as const,
       provider,
-      capacityRetryWindowMs: 2 * PLACEMENT_CREATE_BUDGET_MS,
+      ...placementTiming.executor,
     }
-    const deadlineMs = (end === 'success' ? 24 : 10) * PLACEMENT_CREATE_BUDGET_MS
     const result = await supervise(
       testAgentProfile('placement-capacity-root', {
         harness: 'opencode',
@@ -56,7 +55,7 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
         blobs: context.blobs,
         backend,
         driverBackend: backend,
-        budget: { maxTokens: 100, maxIterations: 4, deadlineMs },
+        budget: { maxTokens: 100, maxIterations: 4, deadlineMs: placementTiming[end] },
         coordination: {
           host: '127.0.0.1',
           port: 0,
@@ -75,7 +74,7 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
     expect(records.filter((record) => record.stop === 'repeated-failure')).toEqual([])
     expect(result).not.toMatchObject({ reason: 'driver-failed' })
     expect(Date.parse(refused.at(-1)!.at) - Date.parse(refused[0]!.at)).toBeGreaterThan(
-      3 * PLACEMENT_CREATE_BUDGET_MS,
+      placementTiming.minimumRefusal,
     )
     // Every create, refused or admitted, carried the one environment key.
     const creates = [...refused, ...state.requests.filter((row) => row.kind === 'create')]

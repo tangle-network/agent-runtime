@@ -1,7 +1,26 @@
 import { createHash, createHmac } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 
-export const PLACEMENT_CREATE_BUDGET_MS = 5_000
+// The release gate exercises the SDK and Runtime defaults past the original outage duration.
+const createBudgetMs = 5_000
+export const placementTiming =
+  process.env.RUNTIME_FULL_PLACEMENT_WINDOWS === '1'
+    ? {
+        provider: {},
+        executor: {},
+        roomAfter: 8 * 60_000,
+        minimumRefusal: 7 * 60_000,
+        deadline: 13 * 60_000,
+        success: 20 * 60_000,
+      }
+    : {
+        provider: { readyTimeoutMs: createBudgetMs },
+        executor: { capacityRetryWindowMs: 2 * createBudgetMs },
+        roomAfter: 12 * createBudgetMs,
+        minimumRefusal: 3 * createBudgetMs,
+        deadline: 10 * createBudgetMs,
+        success: 24 * createBudgetMs,
+      }
 
 export type Scenario =
   | 'sql-conformance'

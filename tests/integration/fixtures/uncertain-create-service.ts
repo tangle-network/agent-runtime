@@ -12,7 +12,7 @@ import {
   type NativeRun,
   nativeEventFile,
   object,
-  PLACEMENT_CREATE_BUDGET_MS,
+  placementTiming,
   publicCreateMaterial,
   record,
   registry,
@@ -394,10 +394,7 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
   // Sandbox's real refusal of a create when no host has room: for 8 minutes, or always.
   if (scenario.startsWith('json-observation-long-create-capacity-')) {
     capacitySince ??= Date.now()
-    if (
-      scenario.endsWith('-deadline') ||
-      Date.now() - capacitySince < 7 * PLACEMENT_CREATE_BUDGET_MS
-    ) {
+    if (scenario.endsWith('-deadline') || Date.now() - capacitySince < placementTiming.roomAfter) {
       note('capacity-create-refused', { key, status: 503 })
       response.setHeader('Retry-After', '2')
       return jsonError(response, 503, {
