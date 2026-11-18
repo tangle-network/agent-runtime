@@ -34,14 +34,14 @@ const capacityWindowMs = 30_000
 const capacityOutage = { ms: capacityWindowMs, retryAfterSeconds: 3 }
 
 /** Record each phase the observer reaches; the test asserts it exits naturally after observing. */
-async function observeInProcess(fixture: ProcessFixture, capacityWindowMs?: number) {
+async function observeInProcess(fixture: ProcessFixture, windowMs?: number) {
   const child = spawn(
     process.execPath,
     [
       resolve('tests/integration/fixtures/provider-observation-process.mjs'),
       fixture.directory,
       fixture.url,
-      ...(capacityWindowMs === undefined ? [] : [String(capacityWindowMs)]),
+      ...(windowMs === undefined ? [] : [String(windowMs)]),
     ],
     {
       env: { PATH: process.env.PATH, HOME: fixture.directory },
