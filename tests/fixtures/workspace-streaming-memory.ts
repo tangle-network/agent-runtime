@@ -41,9 +41,12 @@ try {
     }
   }
   const durable = await diskS3StreamStore(join(root, 'offhost'))
+  // The bounds are memory, not crash durability, and this root is deleted below, so the store
+  // skips fsync; the durable store keeps the record, as for any ephemeral staging store.
   const store = createPrivateCasArtifactPort(join(root, 'artifacts'), 'memory-proof', {
     durable: durable.store,
     localBudgetBytes: 0,
+    ephemeral: true,
   })
   let maxReadChunk = 0
   const artifacts = {
