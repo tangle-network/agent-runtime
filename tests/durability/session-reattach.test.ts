@@ -143,9 +143,7 @@ describe('runGraph kill-and-resume conformance (session-backed workers, re-attac
 
   async function killAndResume(label: string, settles?: 'batched'): Promise<void> {
     const killed = await runPhase(dir, '1', label, settles)
-    expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe(
-      'SIGKILL',
-    )
+    expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe('SIGKILL')
     expect(await readFile(join(dir, 'killed.log'), 'utf8')).toBe(`${label}\n`)
 
     // Which sessions had already SETTLED when the process died: those must not re-attach or
@@ -181,9 +179,7 @@ describe('runGraph kill-and-resume conformance (session-backed workers, re-attac
       }
     }
     const every = [...phase1Steps, ...report.steps]
-    expect(new Set(every).size, 'no session step may run twice across processes').toBe(
-      every.length,
-    )
+    expect(new Set(every).size, 'no session step may run twice across processes').toBe(every.length)
     for (const node of WORKER_NODES) {
       for (let step = 1; step <= 3; step += 1) {
         expect(every).toContain(`${node}:${step}`)
