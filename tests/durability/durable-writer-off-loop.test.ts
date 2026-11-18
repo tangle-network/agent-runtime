@@ -116,7 +116,11 @@ it('steer and binding writes wait on the durable writer without blocking the eve
     })
     const [, admitted, steer] = await Promise.all([blocked, unclaimed, claimed])
     const waitedMs = performance.now() - began
-    const { worstGapMs } = await worstGap()
+    const { worstGapMs, maxObservedGapMs } = await worstGap()
+    console.info(
+      'DURABLE_WRITER_HEARTBEAT',
+      JSON.stringify({ case: 'steer-binding', worstGapMs, maxObservedGapMs }),
+    )
     holder.kill('SIGKILL')
 
     // Every write waited for the other process's lock (about 3 s) while this loop kept running.
@@ -175,7 +179,11 @@ it('a run stop and its cancellation records wait on the durable writer without b
       (error: Error) => error.message,
     )
     const [settledMs, outside, rivalOutcome] = await Promise.all([settled, stopped, rival])
-    const { worstGapMs } = await worstGap()
+    const { worstGapMs, maxObservedGapMs } = await worstGap()
+    console.info(
+      'DURABLE_WRITER_HEARTBEAT',
+      JSON.stringify({ case: 'cancellation', worstGapMs, maxObservedGapMs }),
+    )
     holder.kill('SIGKILL')
 
     expect(abortedMs).toBeLessThan(100)
@@ -218,7 +226,11 @@ it('claimed writes wait on a held run lock without blocking the event loop, in t
     )
     await Promise.all(writes)
     const waitedMs = performance.now() - began
-    const { worstGapMs } = await worstGap()
+    const { worstGapMs, maxObservedGapMs } = await worstGap()
+    console.info(
+      'DURABLE_WRITER_HEARTBEAT',
+      JSON.stringify({ case: 'ordered-writes', worstGapMs, maxObservedGapMs }),
+    )
     holder.kill('SIGKILL')
 
     // The writes waited for the other process's lock (about 3 s) while this loop kept running.
