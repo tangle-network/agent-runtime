@@ -4,6 +4,7 @@ import { cappedDoublingMs, placementRefusal } from './upstream-unavailable'
 
 /** A release roll restarts a host agent for about 18 s; past this window the failure stands. */
 export const HOST_RESTART_WINDOW_MS = 3 * 60_000
+/** The default `ProviderExecutorOptions.capacityRetryWindowMs`. */
 const CAPACITY_RETRY_WINDOW_MS = 10 * 60_000
 
 /**
@@ -13,12 +14,16 @@ const CAPACITY_RETRY_WINDOW_MS = 10 * 60_000
  * resent under one execution id once and replays its events
  * (apps/sidecar/tests/integration/run-stream-resend.test.ts). `retry` waits, Retry-After at least, then doubling to `retryUntil`,
  * 30 s per wait, and answers true; any other error, an abort or a spent window answers false.
- * A placement refusal waits for room until `deadlineMs` when the run has one, else for the
- * capacity window, before the same retained invocation counts as a failed attempt; `refused` is
+ * A placement refusal waits for room until `deadlineMs` when the run has one, else for
+ * `capacityWindowMs`, before the same retained invocation counts as a failed attempt; `refused` is
  * the refusal the last wait was for, which a wait the signal cut ends on instead of the abort.
  * `settled` opens a new window after progress; the caller's signal still bounds every wait.
  */
-export function hostRestartReconnect(signal: AbortSignal, deadlineMs = 0) {
+export function hostRestartReconnect(
+  signal: AbortSignal,
+  deadlineMs = 0,
+  capacityWindowMs = CAPACITY_RETRY_WINDOW_MS,
+) {
   let since: number | undefined
   let waits = 0
   let refused: object | undefined
@@ -35,7 +40,7 @@ export function hostRestartReconnect(signal: AbortSignal, deadlineMs = 0) {
           ? since + HOST_RESTART_WINDOW_MS
           : deadlineMs > 0
             ? deadlineMs
-            : since + CAPACITY_RETRY_WINDOW_MS
+            : since + capacityWindowMs
       const left = end - Date.now()
       if (left <= 0) return false
       refused = capacity

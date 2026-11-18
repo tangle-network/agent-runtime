@@ -42,6 +42,11 @@ export function createProviderExecutor(
   options: ProviderExecutorOptions,
   placement?: { id: string; digest: string },
 ): Executor<unknown> {
+  const windowMs = options.capacityRetryWindowMs
+  if (windowMs !== undefined && !(typeof windowMs === 'number' && windowMs >= 0))
+    throw new ValidationError(
+      'providerAsExecutor: capacityRetryWindowMs must be a non-negative number',
+    )
   options = { ...options, ...providerOutputOptions(profile, options) }
   const node = detachedSnapshot(ctx.node, 'provider executor node')
   const retention = retainedExecutorContext(ctx)
