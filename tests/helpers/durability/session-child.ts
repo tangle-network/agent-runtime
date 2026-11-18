@@ -9,6 +9,8 @@
  * never restart it.
  */
 
+import type { WorkerNode } from './conformance-graph'
+
 const [dir, phase, killAt] = process.argv.slice(2)
 if (dir === undefined || (phase !== '1' && phase !== '2')) {
   throw new Error('usage: session-child.ts <dir> <phase:1|2> [killAt]')
@@ -33,8 +35,10 @@ const kill = armKillSwitch({
   killedFile: `${dir}/killed.log`,
 })
 const site = openSideEffectSite(dir)
-const seam = sessionBackedLeafSeam(dir, phase, kill)
 const planner = new ConductorPlanner()
+const seam = sessionBackedLeafSeam(dir, phase, kill, (label) =>
+  planner.maySettle(label as WorkerNode),
+)
 let brainCalls = 0
 const brain = async (messages: ReadonlyArray<Record<string, unknown>>) => {
   brainCalls += 1
@@ -48,6 +52,8 @@ const result = await runGraph(conformanceGraph(), {
   runDir: dir,
   workerSlots: 3,
   maxTurns: 24,
+  // The seam's maySettle gives each settle its own wake, so a debounce would only add idle time.
+  wake: { debounceMs: 0 },
   perWorker: { maxIterations: 60, maxTokens: 500_000 },
   brain,
   makeLeafAgent: seam.makeLeafAgent,

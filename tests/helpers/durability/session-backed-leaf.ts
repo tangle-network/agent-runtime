@@ -65,10 +65,16 @@ export interface SessionLeafSeam {
   readonly reattachLog: (phase: string) => string[]
 }
 
+/**
+ * `maySettle` holds a finished session until the driver has read every earlier settle, so each
+ * settle gets its own wake and the run passes the same driver-turn labels in every process, as
+ * `instrumentedLeafSeam`'s does.
+ */
 export function sessionBackedLeafSeam(
   dir: string,
   phase: string,
   kill: KillSwitch,
+  maySettle?: (label: string) => boolean,
 ): SessionLeafSeam {
   const stepLogPath = `${dir}/session-steps-${phase}.log`
   const reattachLogPath = `${dir}/session-reattach-${phase}.log`
@@ -129,6 +135,11 @@ export function sessionBackedLeafSeam(
         record(stepLogPath, `${label}:${session.steps}`)
         kill(`session:${label}:step-${session.steps}`)
         await new Promise((r) => setTimeout(r, 20))
+      }
+      const deadline = Date.now() + 60_000
+      while (maySettle !== undefined && !maySettle(label)) {
+        if (Date.now() > deadline) throw new Error(`session leaf ${label}: no earlier settle read`)
+        await new Promise((r) => setTimeout(r, 5))
       }
       session.done = true
       writeSession(sessionFile, session)
