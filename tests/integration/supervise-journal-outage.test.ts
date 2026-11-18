@@ -1,15 +1,14 @@
 import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { compileFixture } from '../helpers/compile-fixture'
 
 const roots: string[] = []
 const execute = promisify(execFile)
-const tsx = createRequire(import.meta.url).resolve('tsx')
 const fixture = fileURLToPath(
   new URL('../../scripts/fixtures/journal-outage-consumer.mjs', import.meta.url),
 )
@@ -21,19 +20,24 @@ afterEach(async () => {
 describe.skipIf(process.platform !== 'linux')(
   'durable storage outage across controller processes',
   () => {
+    let modules: Awaited<ReturnType<typeof compileFixture>>
+    beforeAll(async () => {
+      modules = await compileFixture('tests/integration/fixtures/journal-outage-runtime.ts')
+    })
+    afterAll(() => modules?.dispose())
+
     it.each(['dispatch', 'partial', 'result', 'root-dispatch', 'root-result'])(
       'preserves the exact native child across a real process storage limit at %s',
       async (fault) => {
         const directory = await mkdtemp(join(tmpdir(), 'journal-outage-consumer-'))
         try {
-          await execute(process.execPath, ['--import', tsx, fixture, fault, directory], {
+          const entry = pathToFileURL(modules.path).href
+          await execute(process.execPath, [fixture, fault, directory], {
             env: {
               ...process.env,
-              RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
-              RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
+              RUNTIME_KERNEL_MODULE: entry,
+              RUNTIME_DURABLE_MODULE: entry,
             },
-            // The consumer compiles the Runtime source through tsx before it starts; on a loaded
-            // runner that alone has taken longer than 30 s.
             timeout: 120_000,
           })
         } catch (cause) {
