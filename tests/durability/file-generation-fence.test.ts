@@ -1,17 +1,14 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { appendFile, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it } from 'vitest'
+import { afterAll, afterEach, expect, it } from 'vitest'
+import { compileFixture } from '../helpers/compile-fixture'
 
 const children = new Set<ChildProcess>()
 const directories: string[] = []
-const fixture = fileURLToPath(
-  new URL('../helpers/durability/file-generation-child.ts', import.meta.url),
-)
-const tsx = createRequire(import.meta.url).resolve('tsx')
+const fixture = await compileFixture('tests/helpers/durability/file-generation-child.ts')
+afterAll(() => fixture.dispose())
 
 afterEach(async () => {
   await Promise.all(
@@ -29,7 +26,7 @@ afterEach(async () => {
 })
 
 function start(dir: string, mode: string) {
-  const child = spawn(process.execPath, ['--import', tsx, fixture, dir, mode], {
+  const child = spawn(process.execPath, [fixture.path, dir, mode], {
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   })
   children.add(child)
