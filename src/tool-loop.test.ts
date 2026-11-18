@@ -5,7 +5,6 @@ import {
   type StreamToolLoopYield,
   streamToolLoop,
   type ToolCallExecutor,
-  type ToolCallOutcome,
   type ToolLoopCall,
   type ToolLoopEvent,
   type ToolLoopMessage,
@@ -29,73 +28,6 @@ describe('runToolLoop', () => {
     expect(r.turns).toBe(1)
     expect(r.toolResults).toHaveLength(0)
     expect(r.cappedOut).toBe(false)
-  })
-
-  it('executes a tool call, folds the result back, re-runs to the final answer', async () => {
-    const calls: ToolLoopCall[] = []
-    const streamTurn = async function* (messages: ToolLoopMessage[]) {
-      if (!messages.some((m) => m.role === 'tool')) {
-        yield { type: 'text', text: 'Routing. ' } as ToolLoopEvent
-        yield {
-          type: 'tool_call',
-          call: { toolName: 'submit_proposal', toolCallId: 'p1', args: { type: 'x', title: 'A' } },
-        } as ToolLoopEvent
-        return
-      }
-      yield { type: 'text', text: 'Done.' } as ToolLoopEvent
-    }
-    const r = await runToolLoop({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      executeToolCall: async (c) => {
-        calls.push(c)
-        return { ok: true, result: { id: 1 } } satisfies ToolCallOutcome
-      },
-      isExecutableTool: isExec,
-    })
-    expect(calls).toHaveLength(1)
-    expect(r.turns).toBe(2)
-    expect(r.finalText).toBe('Routing. Done.')
-  })
-
-  it('appends tool history in OpenAI shape: assistant+tool_calls then role:tool per result, no user fold', async () => {
-    const seen: ToolLoopMessage[][] = []
-    const streamTurn = async function* (messages: ToolLoopMessage[]) {
-      seen.push(messages)
-      if (!messages.some((m) => m.role === 'tool')) {
-        yield { type: 'text', text: 'Routing. ' } as ToolLoopEvent
-        yield {
-          type: 'tool_call',
-          call: { toolName: 'submit_proposal', toolCallId: 'p1', args: { title: 'A' } },
-        } as ToolLoopEvent
-        return
-      }
-      yield { type: 'text', text: 'Done.' } as ToolLoopEvent
-    }
-
-    await runToolLoop({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      executeToolCall: async () => ({ ok: true, result: { id: 1 } }),
-      isExecutableTool: isExec,
-    })
-
-    // The second turn's history carries the model's own tool use in OpenAI shape.
-    const second = seen[1] ?? []
-    const assistant = second.find((m) => m.role === 'assistant' && m.tool_calls)
-    expect(assistant).toMatchObject({
-      role: 'assistant',
-      content: 'Routing.',
-      tool_calls: [{ id: 'p1', type: 'function', function: { name: 'submit_proposal' } }],
-    })
-    const tool = second.find((m) => m.role === 'tool')
-    expect(tool).toMatchObject({ role: 'tool', tool_call_id: 'p1' })
-    // The broken shape — a user message folding results — must not appear.
-    expect(
-      second.some((m) => m.role === 'user' && (m.content ?? '').includes('Tool results')),
-    ).toBe(false)
   })
 
   it('derives a stable tool_call_id from the tool name when the model omits one', async () => {
@@ -127,43 +59,6 @@ describe('runToolLoop', () => {
     expect(assistant?.content).toBeNull()
     expect(assistant?.tool_calls?.[0]?.id).toBe('call_submit_proposal')
     expect(tool?.tool_call_id).toBe('call_submit_proposal')
-  })
-
-  it('a strict model that re-issues on a user fold completes on the tool-history shape', async () => {
-    // This model mimics a strict tool-history validator (Claude, OpenAI-compat):
-    // if its own tool call is folded into a user message it cannot see the
-    // result and re-issues the same call forever; given the assistant+tool_calls
-    // / role:tool shape it reads the result back and finishes.
-    let calls = 0
-    const streamTurn = async function* (messages: ToolLoopMessage[]) {
-      const sawToolResult = messages.some((m) => m.role === 'tool')
-      const wasFoldedIntoUser = messages.some(
-        (m) => m.role === 'user' && (m.content ?? '').includes('Tool results'),
-      )
-      if (sawToolResult && !wasFoldedIntoUser) {
-        yield { type: 'text', text: 'Final answer.' } as ToolLoopEvent
-        return
-      }
-      // No readable result yet — re-issue the call (the looping pathology).
-      calls++
-      yield {
-        type: 'tool_call',
-        call: { toolName: 'submit_proposal', toolCallId: 'p1', args: { title: 'A' } },
-      } as ToolLoopEvent
-    }
-
-    const r = await runToolLoop({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      executeToolCall: async () => ({ ok: true, result: { id: 1 } }),
-      isExecutableTool: isExec,
-    })
-
-    expect(r.stopReason).toBe('completed')
-    expect(r.finalText).toBe('Final answer.')
-    // One call, then it reads the result and stops — not a stuck loop.
-    expect(calls).toBe(1)
   })
 
   it('ignores non-executable tool calls', async () => {
@@ -207,27 +102,6 @@ describe('runToolLoop', () => {
     expect(r.stopReason).toBe('backstop')
     expect(r.cappedOut).toBe(true)
     expect(r.toolResults.length).toBe(3)
-  })
-
-  it('detects a stuck loop at exactly 3 consecutive identical calls', async () => {
-    // The model re-issues the same tool call with the same args every turn.
-    const streamTurn = async function* () {
-      yield {
-        type: 'tool_call',
-        call: { toolName: 'submit_proposal', args: { type: 'x' } },
-      } as ToolLoopEvent
-    }
-    const r = await runToolLoop({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      executeToolCall: async () => ({ ok: true, result: {} }),
-      isExecutableTool: isExec,
-    })
-    expect(r.stopReason).toBe('stuck-loop')
-    expect(r.cappedOut).toBe(true)
-    // Fires on the 3rd identical call — 2 tool results recorded before stop.
-    expect(r.toolResults.length).toBe(2)
   })
 
   it('does NOT flag stuck-loop when calls alternate', async () => {
@@ -545,61 +419,6 @@ describe('streamToolLoop', () => {
     isExecutableTool: (n: string) => n === 'submit_proposal',
   }
 
-  it('yields each raw event + each tool_result and drives the loop', async () => {
-    const streamTurn = async function* (messages: ToolLoopMessage[]): AsyncIterable<Raw> {
-      if (!messages.some((m) => m.role === 'tool')) {
-        yield { type: 'text_delta', text: 'Routing. ' }
-        yield { type: 'tool_call', toolName: 'submit_proposal', toolCallId: 'p1', args: {} }
-        return
-      }
-      yield { type: 'text_delta', text: 'Done.' }
-    }
-    const ys: StreamToolLoopYield<Raw>[] = []
-    for await (const item of streamToolLoop<Raw>({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      ...seams,
-      executeToolCall: async () => ({ ok: true, result: {} }),
-    }))
-      ys.push(item)
-    expect(ys.filter((y) => y.kind === 'event').length).toBe(3)
-    expect(ys.filter((y) => y.kind === 'tool_result').length).toBe(1)
-  })
-
-  it('appends tool history in OpenAI shape (assistant+tool_calls then role:tool), no user fold', async () => {
-    const seen: ToolLoopMessage[][] = []
-    const streamTurn = async function* (messages: ToolLoopMessage[]): AsyncIterable<Raw> {
-      seen.push(messages)
-      if (!messages.some((m) => m.role === 'tool')) {
-        yield { type: 'text_delta', text: 'Routing. ' }
-        yield { type: 'tool_call', toolName: 'submit_proposal', toolCallId: 'p1', args: { a: 1 } }
-        return
-      }
-      yield { type: 'text_delta', text: 'Done.' }
-    }
-    for await (const _ of streamToolLoop<Raw>({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      ...seams,
-      executeToolCall: async () => ({ ok: true, result: {} }),
-    })) {
-      // drain
-    }
-    const second = seen[1] ?? []
-    expect(second.find((m) => m.role === 'assistant' && m.tool_calls)).toMatchObject({
-      tool_calls: [{ id: 'p1', type: 'function', function: { name: 'submit_proposal' } }],
-    })
-    expect(second.find((m) => m.role === 'tool')).toMatchObject({
-      role: 'tool',
-      tool_call_id: 'p1',
-    })
-    expect(
-      second.some((m) => m.role === 'user' && (m.content ?? '').includes('Tool results')),
-    ).toBe(false)
-  })
-
   it('echoes the provider fields a model attached to a call on its tool_calls entry', async () => {
     // Gemini 3 answers HTTP 400 when the next request drops a call's thought_signature.
     const extraContent = { google: { thought_signature: 'sig-abc' } }
@@ -712,24 +531,6 @@ describe('streamToolLoop', () => {
     } finally {
       clock.mockRestore()
     }
-  })
-
-  it('emits capped with stuck-loop stopReason on 3 consecutive identical calls', async () => {
-    const streamTurn = async function* (): AsyncIterable<Raw> {
-      yield { type: 'tool_call', toolName: 'submit_proposal', args: { type: 'x' } }
-    }
-    const ys: StreamToolLoopYield<Raw>[] = []
-    for await (const item of streamToolLoop<Raw>({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn,
-      ...seams,
-      executeToolCall: async () => ({ ok: true, result: {} }),
-    }))
-      ys.push(item)
-    const capped = ys.filter((y) => y.kind === 'capped')
-    expect(capped).toHaveLength(1)
-    expect(capped[0]).toMatchObject({ kind: 'capped', stopReason: 'stuck-loop' })
   })
 
   it('emits a failure-recovery decision point without changing streamed yields', async () => {
@@ -912,22 +713,5 @@ describe('tool progress', () => {
     })
     expect(result.stopReason).toBe('completed')
     expect(seen).toEqual(['b1:resolving', 'b1:compiling', 'b1:linking'])
-  })
-
-  it('still accepts an executor that takes only the call', async () => {
-    const callOnly = async (call: ToolLoopCall): Promise<ToolCallOutcome> => ({
-      ok: true,
-      result: call.toolName,
-    })
-    const ys: StreamToolLoopYield<Raw>[] = []
-    for await (const item of streamToolLoop<Raw>({
-      systemPrompt: 's',
-      userMessage: 'u',
-      streamTurn: progressTurn,
-      ...progressSeams,
-      executeToolCall: callOnly,
-    }))
-      ys.push(item)
-    expect(ys.map((y) => y.kind)).toEqual(['event', 'tool_result', 'event'])
   })
 })

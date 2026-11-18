@@ -20,7 +20,7 @@ import {
 // empty arguments, and the stuck-loop guard ended the turn as if the model had looped. Both loops
 // run here against a loopback OpenAI-compatible server through the Runtime's own Router client.
 
-type Reply = { calls: string[] } | { text: string }
+type Reply = { calls: string[]; text?: string } | { text: string }
 
 const webSearch: ToolSpec = {
   type: 'function',
@@ -44,18 +44,17 @@ async function loopbackModel(reply: (request: number) => Reply) {
     for await (const chunk of req) body += chunk
     const answer = reply(requests.length)
     requests.push(JSON.parse(body))
-    const delta =
-      'text' in answer
-        ? { content: answer.text }
-        : {
-            tool_calls: answer.calls.map((args, index) => ({
-              index,
-              id: `call_${requests.length}_${index}`,
-              type: 'function',
-              function: { name: 'web_search', arguments: args },
-            })),
-          }
-    const finish = 'text' in answer ? 'stop' : 'tool_calls'
+    const calls = 'calls' in answer ? answer.calls : undefined
+    const delta = {
+      content: answer.text,
+      tool_calls: calls?.map((args, index) => ({
+        index,
+        id: `call_${requests.length}_${index}`,
+        type: 'function',
+        function: { name: 'web_search', arguments: args },
+      })),
+    }
+    const finish = calls ? 'tool_calls' : 'stop'
     res.writeHead(200, { 'content-type': 'text/event-stream' })
     for (const chunk of [
       { choices: [{ index: 0, delta }] },
@@ -99,15 +98,16 @@ async function bothLoops(
       ...overrides,
     }
     let stopReason = 'completed'
+    let cappedCount = 0
     let text = ''
     const results: ToolCallOutcome[] = []
     // The streamed tool steps, as `kind:toolCallId`, to check progress attribution and order.
     const steps: string[] = []
-    const started = Date.now()
     try {
       if (loop === 'runToolLoop') {
         const run = await runToolLoop(options)
         stopReason = run.stopReason
+        cappedCount = Number(run.cappedOut)
         text = run.finalText
         results.push(...run.toolResults.map((item) => item.outcome))
       } else {
@@ -116,7 +116,10 @@ async function bothLoops(
           extractText: (event) => (event.type === 'text' ? event.text : ''),
           extractToolCall: (event) => (event.type === 'tool_call' ? event.call : null),
         })) {
-          if (step.kind === 'capped') stopReason = step.stopReason
+          if (step.kind === 'capped') {
+            cappedCount++
+            stopReason = step.stopReason
+          }
           if (step.kind === 'tool_result') results.push(step.outcome)
           if (step.kind === 'tool_result' || step.kind === 'tool_progress') {
             steps.push(`${step.kind}:${step.toolCallId}`)
@@ -127,9 +130,7 @@ async function bothLoops(
     } finally {
       await model.close()
     }
-    const elapsedMs = Date.now() - started
-    console.log(`${loop}: stopReason=${stopReason} toolResults=${results.length}`, { text })
-    runs.push({ loop, stopReason, results, text, requests: model.requests, steps, elapsedMs })
+    runs.push({ loop, stopReason, cappedCount, results, text, requests: model.requests, steps })
   }
   return runs
 }
@@ -151,42 +152,60 @@ it('runs a parallel batch of identical calls and the model answers from their er
 it('still stops a model that repeats the same call across three model turns', async () => {
   const runs = await bothLoops(() => ({ calls: ['{"query":"solar coop door"}'] }))
   for (const run of runs) {
-    expect(run.stopReason).toBe('stuck-loop')
+    expect(run).toMatchObject({ stopReason: 'stuck-loop', cappedCount: 1 })
     expect(run.results).toHaveLength(2)
     expect(run.requests).toHaveLength(3)
   }
 })
 
 it("runs a turn's calls at once when opted in, keeps call order, defaults to serial", async () => {
-  // Call a sleeps longest, so the calls settle in the reverse of call order.
-  const sleepMs: Record<string, number> = { a: 1000, b: 950, c: 900 }
-  const sleepingSearch: ToolCallExecutor = async (call, context) => {
-    const query = String(call.args.query)
-    context.progress({ message: `searching ${query}` })
-    await new Promise((resolve) => setTimeout(resolve, sleepMs[query]))
-    return { ok: true, result: `results for ${query}` }
-  }
   const reply = (request: number): Reply =>
     request === 0
-      ? { calls: ['{"query":"a"}', '{"query":"b"}', '{"query":"c"}'] }
+      ? { text: 'Searching. ', calls: ['{"query":"a"}', '{"query":"b"}', '{"query":"c"}'] }
       : { text: 'Found all three.' }
   const inOrder = ['a', 'b', 'c'].map((query) => `results for ${query}`)
-  // Width 6 is opted in; no option keeps the default of one call at a time.
-  for (const [width, atLeastMs, underMs] of [
-    [6, 900, 2_000],
-    [undefined, 2_800, 5_000],
-  ] as const) {
-    const runs = await bothLoops(reply, {
-      executeToolCall: sleepingSearch,
-      maxConcurrentToolCalls: width,
-    })
+  for (const width of [6, undefined]) {
+    const pending: Array<() => void> = []
+    const completed: string[] = []
+    const search: ToolCallExecutor = async (call, context) => {
+      const query = String(call.args.query)
+      context.progress({ message: `searching ${query}` })
+      // Finish the calls admitted together in reverse order on the next event-loop turn.
+      await new Promise<void>((resolve) => {
+        pending.push(resolve)
+        if (pending.length === 1) {
+          setImmediate(() => {
+            for (const finish of pending.splice(0).reverse()) finish()
+          })
+        }
+      })
+      completed.push(query)
+      return { ok: true, result: `results for ${query}` }
+    }
+    const runs = await bothLoops(reply, { executeToolCall: search, maxConcurrentToolCalls: width })
+    const completionOrder = width ? ['c', 'b', 'a'] : ['a', 'b', 'c']
+    expect(completed).toEqual([...completionOrder, ...completionOrder])
     for (const run of runs) {
-      console.log(`${run.loop} width=${width ?? 'default'}: ${run.elapsedMs} ms`, run.steps)
-      expect(run.elapsedMs).toBeGreaterThanOrEqual(atLeastMs)
-      expect(run.elapsedMs).toBeLessThan(underMs)
-      expect(run).toMatchObject({ stopReason: 'completed', text: 'Found all three.' })
+      expect(run).toMatchObject({
+        stopReason: 'completed',
+        cappedCount: 0,
+        text: 'Searching. Found all three.',
+      })
       expect(run.results.map((outcome) => outcome.ok && outcome.result)).toEqual(inOrder)
-      const toolMessages = run.requests[1]!.messages.filter((message) => message.role === 'tool')
+      const history = run.requests[1]!.messages
+      expect(history.map((message) => message.role)).toEqual([
+        'system',
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+        'tool',
+      ])
+      expect(history[2]?.content).toBe('Searching.')
+      const ids = ['call_1_0', 'call_1_1', 'call_1_2']
+      expect(history[2]?.tool_calls?.map((call) => call.id)).toEqual(ids)
+      const toolMessages = history.filter((message) => message.role === 'tool')
+      expect(toolMessages.map((message) => message.tool_call_id)).toEqual(ids)
       expect(toolMessages.map((message) => message.content)).toEqual(
         inOrder.map((result) => expect.stringContaining(result)),
       )
