@@ -176,7 +176,8 @@ async function retainedExecution(
   }
   // A reconnect after a planned host restart reattaches through what this attempt admitted.
   const admissions = [...retention.admissions]
-  const restart = hostRestartReconnect(signal, retention.deadlineMs)
+  const { capacityRetryWindowMs } = args.options
+  const restart = hostRestartReconnect(signal, retention.deadlineMs, capacityRetryWindowMs)
   let reattach = false
   const onAdmission = async (admission: RetentionAdmission) => {
     if (admission.phase === 'dispatched') proof.executionAdmitted = true
@@ -217,7 +218,13 @@ async function retainedExecution(
         })
       }
       const session = exactSession(environment, handle.controlRef).session
-      const events = new RetainedObservation(handle, signal, retention).observe(session)
+      const events = new RetainedObservation(
+        handle,
+        signal,
+        retention,
+        undefined,
+        capacityRetryWindowMs,
+      ).observe(session)
       return { environment, events, retained: true }
     } catch (thrown) {
       // The same execution id is resent or reattached, never a second run.

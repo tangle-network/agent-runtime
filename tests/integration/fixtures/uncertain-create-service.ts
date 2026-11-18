@@ -25,6 +25,14 @@ import {
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
 let capacitySince: number | undefined
+// The capacity case's outage, set by its test through control before the first environment read.
+// Each phase it names is refused from that phase's own first read: acquisition's environment
+// reads, and observation's event-stream and exact-result reads. No frame reaches the run during an
+// observation outage, so none reopens its window.
+type CapacityPhase = 'acquisition' | 'observation'
+let capacityOutage: { ms: number; retryAfterSeconds: number; phases: CapacityPhase[] } | undefined
+const outageSince: Partial<Record<CapacityPhase, number>> = {}
+let observationStreamed = false
 const ledger = join(directory, 'service-ledger.jsonl')
 const stopping = new AbortController()
 const state: ServiceState = {
@@ -695,6 +703,12 @@ async function runtime(
     const run = state.runs.filter((candidate) => candidate[key] === id).at(-1)
     // Only the independently requested exact result binds a session query.
     const exactResult = url.searchParams.has('sessionId')
+    if (!sessionMatch) {
+      // The exact result waits for the stream, so the frames reach the run before it settles.
+      const held = exactResult && !observationStreamed
+      if (capacityRefused(response, environmentId, 'observation', held)) return
+      if (!exactResult) observationStreamed = true
+    }
     note(sessionMatch ? 'session-status' : 'events', {
       environmentId,
       executionId: sessionMatch ? run?.executionId : id,
@@ -733,6 +747,29 @@ async function runtime(
     return replay(run, response, exactResult)
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
+}
+/** In the capacity case, refuse placement on a phase's read while its outage lasts or `held`. */
+function capacityRefused(
+  response: ServerResponse,
+  environmentId: string,
+  phase: CapacityPhase,
+  held = false,
+) {
+  if (scenario !== 'json-observation-long-capacity-success') return false
+  if (capacityOutage === undefined) throw new Error('the capacity case sets no outage')
+  if (!capacityOutage.phases.includes(phase)) return false
+  const since = (outageSince[phase] ??= Date.now())
+  if (!held && Date.now() - since >= capacityOutage.ms) {
+    note('capacity-recovered', { environmentId, phase, elapsedMs: Date.now() - since })
+    return false
+  }
+  note('capacity-http-error', { environmentId, phase, status: 503 })
+  response.setHeader('Retry-After', String(capacityOutage.retryAfterSeconds))
+  jsonError(response, 503, {
+    code: 'CAPACITY_EXHAUSTED',
+    message: 'No host has capacity for this sandbox; retry later',
+  })
+  return true
 }
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url!, origin)
@@ -804,6 +841,15 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       })
     }
     if (typeof control.finish === 'boolean') state.finish = control.finish
+    if (control.capacityOutage !== undefined) {
+      const { ms, retryAfterSeconds, phases } = object(control.capacityOutage)
+      if (
+        !(Number(ms) > 0 && Number(retryAfterSeconds) > 0 && Array.isArray(phases)) ||
+        !phases.every((phase) => phase === 'acquisition' || phase === 'observation')
+      )
+        throw new Error('a capacity outage needs a positive length, Retry-After and its phases')
+      capacityOutage = { ms: Number(ms), retryAfterSeconds: Number(retryAfterSeconds), phases }
+    }
     if ((scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') && state.finish)
       for (const held of holds) json(held, 200, { ok: true })
     if (
@@ -890,18 +936,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         retryable: false,
       })
     }
-    if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
-      capacitySince ??= Date.now()
-      if (Date.now() - capacitySince < 600_000) {
-        note('capacity-http-error', { environmentId: id, status: 503 })
-        response.setHeader('Retry-After', '30')
-        return jsonError(response, 503, {
-          code: 'CAPACITY_EXHAUSTED',
-          message: 'No host has capacity for this sandbox; retry later',
-        })
-      }
-      note('capacity-recovered', { environmentId: id, elapsedMs: Date.now() - capacitySince })
-    }
+    if (request.method === 'GET' && capacityRefused(response, id, 'acquisition')) return
     note('get', { environmentId: id, absent: state.lost.includes(id) })
     return json(
       response,

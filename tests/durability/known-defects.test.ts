@@ -53,13 +53,14 @@ describe('known defect: 2026-08-11 resume appended the root record twice', () =>
   })
 
   // Kills that land inside or right at the edge of the finalization window: after the wake that
-  // delivered every settlement (turn 3 is the commit turn), around the side-effect commit, and
-  // around the submission turn (turn 4).
+  // delivered the last settlement (turn 5 is the commit turn), around the side-effect commit, and
+  // around the submission turn (turn 6). Each settle gets its own wake (`maySettle`), so the
+  // first two settles take turns 3 and 4.
   const windowKills = [
-    'driver:turn:3:before',
+    'driver:turn:5:before',
     'tool:commit:after-effect',
-    'driver:turn:4:before',
-    'driver:turn:4:after',
+    'driver:turn:6:before',
+    'driver:turn:6:after',
   ] as const
 
   it.each(windowKills)(
@@ -85,6 +86,9 @@ describe('known defect: 2026-08-11 resume appended the root record twice', () =>
         child.once('close', (code, signal) => resolve({ code, signal, stderr }))
       })
       expect(phase1.signal, `phase 1 stderr: ${phase1.stderr}`).toBe('SIGKILL')
+      // In the window, every worker settle is already journaled.
+      const atKill = await auditSpawnJournal(dir, RUN_ID)
+      expect(atKill.settledDoneByLabel).toEqual({ surveyor: 1, builder: 1, verifier: 1 })
 
       const phase2 = await new Promise<{ code: number | null; stdout: string; stderr: string }>(
         (resolve, reject) => {

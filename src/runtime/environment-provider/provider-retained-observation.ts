@@ -108,8 +108,9 @@ export class RetainedObservation {
     private readonly signal: AbortSignal,
     private readonly position?: Pick<RetainedExecutorContext, 'observed' | 'onObserved'>,
     private readonly quietMs = RETAINED_AWAITING_RESULT_AFTER_MS,
+    capacityWindowMs?: number,
   ) {
-    this.restart = hostRestartReconnect(signal)
+    this.restart = hostRestartReconnect(signal, 0, capacityWindowMs)
     const observed = position?.observed
     if (observed?.executionId === handle.controlRef.executionId)
       this.lastReplayPosition = this.resumedFrom = observed.replayPosition

@@ -16,7 +16,13 @@
  *      carried its prior admissions) — never restarted from step 1;
  *   4. the driver never saw an in-doubt refusal (no manual key escalations): the recovery owned
  *      the interrupted children, so their keys were never reminted;
- *   5. the side effect commits exactly once under its stable idempotency key.
+ *   5. the side effect commits exactly once under its stable idempotency key;
+ *   6. sessions still open at the kill settle together in the resumed process, at least two in one
+ *      wake of its driver, so the journal checks above see concurrent recovered settles.
+ *
+ * Phase 1 holds each settle until the driver has read the earlier ones, so its labels repeat in
+ * every run. One more case runs phase 1 without that hold and kills the commit turn while all
+ * three settles sit unread in its one wake.
  */
 
 import { spawn } from 'node:child_process'
@@ -24,6 +30,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { compileFixture } from '../helpers/compile-fixture'
 import {
   ARTIFACT_KEY,
   auditSpawnJournal,
@@ -33,11 +40,15 @@ import {
   WORKER_NODES,
 } from '../helpers/durability/conformance-graph'
 
-const childScript = new URL('../helpers/durability/session-child.ts', import.meta.url).pathname
+// Every case starts two child processes. Compiled once here, each one loads JavaScript instead
+// of transpiling the source tree through tsx again.
+const sessionChild = await compileFixture('tests/helpers/durability/session-child.ts')
+afterAll(() => sessionChild.dispose())
 
 interface SessionReport extends GraphChildReport {
   readonly steps: string[]
   readonly reattached: string[]
+  readonly settlesPerWake: number[]
 }
 
 interface PhaseExit {
@@ -47,11 +58,22 @@ interface PhaseExit {
   readonly stderr: string
 }
 
-async function runPhase(dir: string, phase: '1' | '2', killAt?: string): Promise<PhaseExit> {
+async function runPhase(
+  dir: string,
+  phase: '1' | '2',
+  killAt?: string,
+  settles?: 'batched',
+): Promise<PhaseExit> {
   return await new Promise<PhaseExit>((resolvePhase, rejectPhase) => {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', childScript, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
+      [
+        sessionChild.path,
+        dir,
+        phase,
+        ...(phase === '1' ? [killAt ?? '-'] : []),
+        ...(settles === undefined ? [] : [settles]),
+      ],
       { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let stdout = ''
@@ -110,74 +132,89 @@ describe('runGraph kill-and-resume conformance (session-backed workers, re-attac
   it.each(cases.map((label) => [label] as const))(
     'SIGKILL at %s → resume re-attaches the sessions, nothing lost or repeated',
     { timeout: 120_000 },
-    async (label: string) => {
-      const killed = await runPhase(dir, '1', label)
-      expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe(
-        'SIGKILL',
-      )
-      expect(await readFile(join(dir, 'killed.log'), 'utf8')).toBe(`${label}\n`)
-
-      // Which sessions had already SETTLED when the process died: those must not re-attach or
-      // re-run anything; the rest are recovered mid-flight.
-      const atKill = await auditSpawnJournal(dir, RUN_ID)
-      const settledNodes = new Set(
-        Object.entries(atKill.settledDoneByLabel)
-          .filter(([, count]) => count > 0)
-          .map(([node]) => node),
-      )
-
-      const resumed = await runPhase(dir, '2')
-      expect(resumed.code, `phase 2 stderr: ${resumed.stderr}`).toBe(0)
-      const report = parseReport(resumed.stdout)
-
-      // 1. Completes with the SAME final output.
-      expect(report.fatal).toBeUndefined()
-      expect(report.kind).toBe('winner')
-      expect(report.out).toEqual(reference.out)
-
-      // 2. Every session step ran exactly once across BOTH processes.
-      const phase1Steps = await readPhase1Steps()
-      async function readPhase1Steps(): Promise<string[]> {
-        try {
-          return (await readFile(join(dir, 'session-steps-1.log'), 'utf8'))
-            .split('\n')
-            .filter((l) => l.length > 0)
-        } catch {
-          return []
-        }
-      }
-      const every = [...phase1Steps, ...report.steps]
-      expect(new Set(every).size, 'no session step may run twice across processes').toBe(
-        every.length,
-      )
-      for (const node of WORKER_NODES) {
-        for (let step = 1; step <= 3; step += 1) {
-          expect(every).toContain(`${node}:${step}`)
-        }
-      }
-
-      // 3. Interrupted sessions RE-ATTACHED — every node that had started but not settled.
-      const started = new Set(phase1Steps.map((s) => s.split(':')[0] as string))
-      for (const node of started) {
-        if (settledNodes.has(node)) continue
-        expect(
-          report.reattached,
-          `interrupted session ${node} must re-attach, not restart`,
-        ).toContain(node)
-      }
-
-      // 4. The recovery owned the interruption: no in-doubt refusals, no reminted keys.
-      expect(report.escalations).toEqual([])
-      const final = await auditSpawnJournal(dir, RUN_ID)
-      for (const node of WORKER_NODES) {
-        expect(final.spawnedKeysByLabel[node]).toEqual([`step:${node}`])
-      }
-      expect(final.settledDoneByLabel).toEqual({ surveyor: 1, builder: 1, verifier: 1 })
-      expect(final.rootSpawned).toBe(1)
-      expect(final.duplicateCursorSeqs).toEqual([])
-
-      // 5. Side effect exactly once under the stable key.
-      expect(report.committedEffects).toEqual([ARTIFACT_KEY])
-    },
+    (label: string) => killAndResume(label),
   )
+
+  it(
+    'SIGKILL at driver:turn:3:before, three settles unread in one wake → resume, nothing lost or repeated',
+    { timeout: 120_000 },
+    () => killAndResume('driver:turn:3:before', 'batched'),
+  )
+
+  async function killAndResume(label: string, settles?: 'batched'): Promise<void> {
+    const killed = await runPhase(dir, '1', label, settles)
+    expect(killed.signal, `phase 1 should die by SIGKILL, got code=${killed.code}`).toBe('SIGKILL')
+    expect(await readFile(join(dir, 'killed.log'), 'utf8')).toBe(`${label}\n`)
+
+    // Which sessions had already SETTLED when the process died: those must not re-attach or
+    // re-run anything; the rest are recovered mid-flight.
+    const atKill = await auditSpawnJournal(dir, RUN_ID)
+    const settledNodes = new Set(
+      Object.entries(atKill.settledDoneByLabel)
+        .filter(([, count]) => count > 0)
+        .map(([node]) => node),
+    )
+    if (settles === 'batched') {
+      expect(settledNodes.size, 'the batched kill lands after every settle').toBe(3)
+    }
+
+    const resumed = await runPhase(dir, '2')
+    expect(resumed.code, `phase 2 stderr: ${resumed.stderr}`).toBe(0)
+    const report = parseReport(resumed.stdout)
+
+    // 1. Completes with the SAME final output.
+    expect(report.fatal).toBeUndefined()
+    expect(report.kind).toBe('winner')
+    expect(report.out).toEqual(reference.out)
+
+    // 2. Every session step ran exactly once across BOTH processes.
+    const phase1Steps = await readPhase1Steps()
+    async function readPhase1Steps(): Promise<string[]> {
+      try {
+        return (await readFile(join(dir, 'session-steps-1.log'), 'utf8'))
+          .split('\n')
+          .filter((l) => l.length > 0)
+      } catch {
+        return []
+      }
+    }
+    const every = [...phase1Steps, ...report.steps]
+    expect(new Set(every).size, 'no session step may run twice across processes').toBe(every.length)
+    for (const node of WORKER_NODES) {
+      for (let step = 1; step <= 3; step += 1) {
+        expect(every).toContain(`${node}:${step}`)
+      }
+    }
+
+    // 3. Interrupted sessions RE-ATTACHED — every node that had started but not settled.
+    const started = new Set(phase1Steps.map((s) => s.split(':')[0] as string))
+    for (const node of started) {
+      if (settledNodes.has(node)) continue
+      expect(
+        report.reattached,
+        `interrupted session ${node} must re-attach, not restart`,
+      ).toContain(node)
+    }
+
+    // 4. The recovery owned the interruption: no in-doubt refusals, no reminted keys.
+    expect(report.escalations).toEqual([])
+    const final = await auditSpawnJournal(dir, RUN_ID)
+    for (const node of WORKER_NODES) {
+      expect(final.spawnedKeysByLabel[node]).toEqual([`step:${node}`])
+    }
+    expect(final.settledDoneByLabel).toEqual({ surveyor: 1, builder: 1, verifier: 1 })
+    expect(final.rootSpawned).toBe(1)
+    expect(final.duplicateCursorSeqs).toEqual([])
+
+    // 5. Side effect exactly once under the stable key.
+    expect(report.committedEffects).toEqual([ARTIFACT_KEY])
+
+    // 6. The sessions open at the kill settled together: at least two rode one resumed wake.
+    if (WORKER_NODES.length - settledNodes.size >= 2) {
+      expect(
+        Math.max(...report.settlesPerWake),
+        `settles per resumed wake: ${report.settlesPerWake.join(', ')}`,
+      ).toBeGreaterThanOrEqual(2)
+    }
+  }
 })

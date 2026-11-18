@@ -1,25 +1,25 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { closeSync, existsSync, openSync, readFileSync } from 'node:fs'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, type TestContext, vi } from 'vitest'
 import { contentAddress } from '../../src/durable/content-address'
 import type { SpawnEvent } from '../../src/runtime'
 import { createFencedSqlRunContext } from '../../src/runtime/supervise/sql-run-context'
 import { compileFixture } from '../helpers/compile-fixture'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
 import { isSqlOwnershipDenial, openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
+import { waitForState } from '../helpers/observable-state'
 import {
   type Executables,
-  ProcessFixture,
   prepareExecutables,
 } from '../integration/fixtures/uncertain-create-harness'
-import { readRecords } from '../integration/fixtures/uncertain-create-protocol'
+import { readRecords, type ServiceState } from '../integration/fixtures/uncertain-create-protocol'
 
 let childFixture: Awaited<ReturnType<typeof compileFixture>>
 let bundle: string
 let executables: Executables
-const services = new Map<string, ProcessFixture>()
 beforeAll(async () => {
   ;({ bundle, executables } = await prepareExecutables())
   childFixture = await compileFixture('tests/helpers/durability/sql-run-context-child.ts')
@@ -28,54 +28,94 @@ afterAll(async () => {
   await childFixture?.dispose()
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
-const roots: string[] = []
-const children = new Set<ChildProcess>()
 const leaseOptions = TEST_LEASE
 // A resumed graph run takes seconds idle and many times that under load. Waits end on the child's
 // own messages and exit; this one bound only stops a hung child.
 vi.setConfig({ testTimeout: 180_000 })
 
-async function directory() {
+/**
+ * The directories and processes one case owns. Each case holds its own, so the process cases run
+ * concurrently; the case's own finish hook joins them, which also ends a timed-out case's waits.
+ */
+function testScope({ onTestFinished, task }: TestContext) {
+  const scope = {
+    roots: [] as string[],
+    children: new Set<ChildProcess>(),
+    services: new Map<string, { state(): Promise<ServiceState>; close(): Promise<void> }>(),
+  }
+  onTestFinished(async () => {
+    await Promise.all(
+      [...scope.children].map(
+        (child) =>
+          new Promise<void>((resolve) => {
+            if (child.exitCode !== null || child.signalCode !== null) {
+              resolve()
+              return
+            }
+            child.once('exit', () => resolve())
+            child.kill('SIGKILL')
+          }),
+      ),
+    )
+    for (const service of scope.services.values()) await service.close()
+    if (task.result?.state === 'fail')
+      console.error(`SQL physical fixture evidence retained: ${scope.roots.join(', ')}`)
+    else await Promise.all(scope.roots.map((path) => rm(path, { recursive: true, force: true })))
+  })
+  return scope
+}
+type Scope = ReturnType<typeof testScope>
+
+async function directory(scope: Scope) {
   const path = await mkdtemp(join(tmpdir(), 'sql-run-context-'))
-  roots.push(path)
+  scope.roots.push(path)
   return path
 }
 
-afterEach(async ({ task }) => {
-  await Promise.all(
-    [...children].map(
-      (child) =>
-        new Promise<void>((resolve) => {
-          if (child.exitCode !== null || child.signalCode !== null) {
-            resolve()
-            return
-          }
-          child.once('exit', () => resolve())
-          child.kill('SIGKILL')
-        }),
-    ),
+/**
+ * The provider HTTP service a case's orchestrators share; it outlives each killed orchestrator.
+ * The case starts and joins it itself: `ProcessFixture.start` registers its cleanup on vitest's one
+ * current test, which concurrent cases overwrite.
+ */
+async function startService(scope: Scope, shared: string) {
+  const log = openSync(join(shared, 'service.log'), 'a')
+  const service = spawn(process.execPath, [executables.service, shared, 'sql-conformance'], {
+    // No auth, proxies or model keys cross the boundary.
+    env: {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      TMPDIR: tmpdir(),
+      LANG: 'C.UTF-8',
+      NODE_ENV: 'test',
+      FORCE_COLOR: '0',
+    },
+    stdio: ['ignore', log, log],
+  })
+  closeSync(log)
+  const closed = new Promise<void>((resolve) => service.once('close', () => resolve()))
+  const exited = new AbortController()
+  service.once('exit', (code, signal) =>
+    exited.abort(new Error(`fixture service exited ${code ?? signal}; see ${shared}`)),
   )
-  children.clear()
-  for (const service of services.values()) {
-    await service.captureCheckedFrontier(task.result?.state === 'fail' ? 'failed' : 'checked')
-    await service.close()
-  }
-  services.clear()
-  const paths = roots.splice(0)
-  if (task.result?.state === 'fail')
-    console.error(`SQL physical fixture evidence retained: ${paths.join(', ')}`)
-  else await Promise.all(paths.map((path) => rm(path, { recursive: true, force: true })))
-})
+  let url = ''
+  scope.services.set(shared, {
+    async state() {
+      const response = await fetch(`${url}/fixture/state`)
+      if (!response.ok) throw new Error(`fixture state returned ${response.status}`)
+      return (await response.json()) as ServiceState
+    },
+    async close() {
+      if (service.exitCode === null && service.signalCode === null) service.kill('SIGTERM')
+      await closed
+    },
+  })
+  const ready = join(shared, 'service-ready.json')
+  await waitForState(shared, async () => existsSync(ready), exited.signal)
+  ;({ url } = JSON.parse(readFileSync(ready, 'utf8')) as { url: string })
+}
 
-async function start(shared: string, cwd: string, mode = 'run', checkpoint = '') {
-  if (mode !== 'lease' && !services.has(shared))
-    services.set(
-      shared,
-      await ProcessFixture.start('sql-conformance', executables, {
-        directory: shared,
-        coordinator: false,
-      }),
-    )
+async function start(scope: Scope, shared: string, cwd: string, mode = 'run', checkpoint = '') {
+  if (mode !== 'lease' && !scope.services.has(shared)) await startService(scope, shared)
   const child = spawn(
     process.execPath,
     ['--experimental-sqlite', childFixture.path, shared, mode, checkpoint],
@@ -84,7 +124,7 @@ async function start(shared: string, cwd: string, mode = 'run', checkpoint = '')
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     },
   )
-  children.add(child)
+  scope.children.add(child)
   const messages: Array<{ type: string; [key: string]: unknown }> = []
   let stdout = ''
   let stderr = ''
@@ -98,7 +138,7 @@ async function start(shared: string, cwd: string, mode = 'run', checkpoint = '')
   const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => {
-      children.delete(child)
+      scope.children.delete(child)
       resolve({ code, signal })
     })
   })
@@ -183,8 +223,8 @@ function assertComplete(report: Awaited<ReturnType<Awaited<ReturnType<typeof sta
   expect(report.dispatches).toBe(3)
 }
 
-async function assertPhysical(shared: string) {
-  const state = await services.get(shared)!.state()
+async function assertPhysical(scope: Scope, shared: string) {
+  const state = await scope.services.get(shared)!.state()
   const processes = readRecords(join(shared, 'json-worker-processes.jsonl'))
   expect(state.failures).toEqual([])
   expect(state.provisions).toHaveLength(3)
@@ -245,8 +285,8 @@ async function assertPhysical(shared: string) {
 }
 
 describe('SQL run context', () => {
-  it('retains a begun tree and content-addressed blobs across independent contexts', async () => {
-    const path = join(await directory(), 'runs.sqlite')
+  it('retains a begun tree and content-addressed blobs across independent contexts', async (context) => {
+    const path = join(await directory(testScope(context)), 'runs.sqlite')
     const a = openSql(path)
     const b = openSql(path)
     try {
@@ -275,8 +315,8 @@ describe('SQL run context', () => {
     }
   })
 
-  it('rejects a live second owner but does not serialize distinct runs', async () => {
-    const db = openSql(join(await directory(), 'runs.sqlite'))
+  it('rejects a live second owner but does not serialize distinct runs', async (context) => {
+    const db = openSql(join(await directory(testScope(context)), 'runs.sqlite'))
     try {
       const first = await createFencedSqlRunContext(db.adapter, 'one', leaseOptions)
       const second = await createFencedSqlRunContext(db.adapter, 'one', leaseOptions)
@@ -294,8 +334,9 @@ describe('SQL run context', () => {
     }
   })
 
-  it('shares one immutable read-only SQL inspection cut across journal, blobs and coordination', async () => {
-    const shared = await directory()
+  it('shares one immutable read-only SQL inspection cut across journal, blobs and coordination', async (testContext) => {
+    const scope = testScope(testContext)
+    const shared = await directory(scope)
     const rootId = 'inspection-root-node'
     const db = openSql(join(shared, 'run-context.sqlite'))
     let selects = 0
@@ -399,7 +440,7 @@ describe('SQL run context', () => {
       }
       readOnly = true
       writes = 0
-      writer = await start(shared, await directory(), 'lease')
+      writer = await start(scope, shared, await directory(scope), 'lease')
       await writer.message('owned')
       const pid = writer.child.pid
       if (pid === undefined) throw new Error('SQL writer has no process identity')
@@ -526,17 +567,20 @@ describe('SQL run context', () => {
     ).rejects.toThrow(/prefix|identifier/i)
   })
 
-  it('runs the graph with SQL as its only orchestration persistence', async () => {
-    const shared = await directory()
-    const host = await directory()
-    assertComplete(await (await start(shared, host)).report())
-    await assertPhysical(shared)
+  // The process cases below each own a fixture service, SQLite file and hosts, and wait mostly on
+  // other processes, so they run concurrently (vitest's maxConcurrency).
+  it.concurrent('runs the graph with SQL as its only orchestration persistence', async (context) => {
+    const scope = testScope(context)
+    const shared = await directory(scope)
+    const host = await directory(scope)
+    assertComplete(await (await start(scope, shared, host)).report())
+    await assertPhysical(scope, shared)
     expect(await readdir(host)).toEqual([])
   })
 
   // Before/after are on opposite sides of the actual SQLite statement commit. In the after
   // cases the adapter NEVER acknowledges the write to Runtime: the process dies first.
-  it.each([
+  it.concurrent.for([
     'sql:begin:before',
     'sql:begin:after',
     'sql:spawned-root:before',
@@ -563,31 +607,37 @@ describe('SQL run context', () => {
     'sql:settled:after',
     'tool:commit:before',
     'tool:commit:after',
-  ])('SIGKILL at %s resumes on another host without a replacement key', async (checkpoint) => {
-    const shared = await directory()
-    const firstHost = await directory()
-    const secondHost = await directory()
-    const first = await start(shared, firstHost, 'kill', checkpoint)
-    await first.message('checkpoint')
-    expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
-    await rm(firstHost, { recursive: true, force: true })
-    assertComplete(await (await start(shared, secondHost)).report())
-    await assertPhysical(shared)
-    expect(await readdir(secondHost)).toEqual([])
-  })
+  ])(
+    'SIGKILL at %s resumes on another host without a replacement key',
+    async (checkpoint, context) => {
+      const scope = testScope(context)
+      const shared = await directory(scope)
+      const firstHost = await directory(scope)
+      const secondHost = await directory(scope)
+      const first = await start(scope, shared, firstHost, 'kill', checkpoint)
+      await first.message('checkpoint')
+      expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
+      await rm(firstHost, { recursive: true, force: true })
+      assertComplete(await (await start(scope, shared, secondHost)).report())
+      await assertPhysical(scope, shared)
+      expect(await readdir(secondHost)).toEqual([])
+    },
+  )
 
-  it.each(['contend', 'contend-locked'])(
+  it.concurrent.for(['contend', 'contend-locked'])(
     'two live orchestrators (%s): rejects the contender, then the SAME process takes over after SIGKILL',
-    async (mode) => {
-      const shared = await directory()
+    async (mode, context) => {
+      const scope = testScope(context)
+      const shared = await directory(scope)
       const owner = await start(
+        scope,
         shared,
-        await directory(),
+        await directory(scope),
         'hold',
         'sql:execution-admitted-dispatched:after',
       )
       await owner.message('checkpoint')
-      const contender = await start(shared, await directory(), mode)
+      const contender = await start(scope, shared, await directory(scope), mode)
       if (mode === 'contend-locked') {
         await contender.message('claim')
         owner.child.send('lock')
@@ -602,15 +652,16 @@ describe('SQL run context', () => {
       expect(await owner.exit).toEqual({ code: null, signal: 'SIGKILL' })
       contender.child.send('retry')
       assertComplete(await contender.report())
-      await assertPhysical(shared)
+      await assertPhysical(scope, shared)
     },
   )
-  it('fences a SIGSTOP/SIGCONT owner without releasing its live successor', async () => {
-    const shared = await directory()
-    const owner = await start(shared, await directory(), 'lease')
+  it('fences a SIGSTOP/SIGCONT owner without releasing its live successor', async (context) => {
+    const scope = testScope(context)
+    const shared = await directory(scope)
+    const owner = await start(scope, shared, await directory(scope), 'lease')
     await owner.message('owned')
     owner.child.kill('SIGSTOP')
-    const successor = await start(shared, await directory(), 'lease')
+    const successor = await start(scope, shared, await directory(scope), 'lease')
     await successor.message('owned')
     owner.child.kill('SIGCONT')
     owner.child.send('write')

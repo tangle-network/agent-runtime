@@ -6,7 +6,7 @@ import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createExecutor, createFileRunContext, createSupervisor } from '../../../dist/kernel.js'
 
-const [directory, url] = process.argv.slice(2)
+const [directory, url, capacityRetryWindowMs] = process.argv.slice(2)
 const provider = createTangleProvider({
   client: new Sandbox({
     apiKey: 'offline-not-a-secret',
@@ -16,7 +16,11 @@ const provider = createTangleProvider({
     directExec: false,
   }),
 })
-const executorFactory = createExecutor({ backend: 'provider', provider })
+const executorFactory = createExecutor({
+  backend: 'provider',
+  provider,
+  ...(capacityRetryWindowMs ? { capacityRetryWindowMs: Number(capacityRetryWindowMs) } : {}),
+})
 const profile = {
   name: 'fetch-pr',
   harness: 'opencode',
