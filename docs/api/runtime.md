@@ -5772,6 +5772,19 @@ Applies to a retained execution under a Scope, the path a supervised leaf takes 
 that declares `retainedControl`.
 `false` ends the execution on the refused turn.
 
+##### capacityRetryWindowMs?
+
+> `optional` **capacityRetryWindowMs?**: `number`
+
+**`Experimental`**
+
+How long a retained execution waits for room, in ms, after Sandbox refuses it placement (a
+503 such as `CAPACITY_EXHAUSTED`) while it is acquired or observed, before the refusal counts
+as a failed attempt. The same execution is reattached after each wait, which honors
+Retry-After and lasts at most 30 s. Acquisition in a run with a deadline waits until the
+deadline instead. Default 10 min; a value that is not a non-negative number fails the
+executor's construction with a `ValidationError`.
+
 ***
 
 ### RetainedFileOutput
@@ -27183,6 +27196,21 @@ that declares `retainedControl`.
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`unavailablePause`](#unavailablepause)
+
+##### capacityRetryWindowMs?
+
+> `optional` **capacityRetryWindowMs?**: `number`
+
+How long a retained execution waits for room, in ms, after Sandbox refuses it placement (a
+503 such as `CAPACITY_EXHAUSTED`) while it is acquired or observed, before the refusal counts
+as a failed attempt. The same execution is reattached after each wait, which honors
+Retry-After and lasts at most 30 s. Acquisition in a run with a deadline waits until the
+deadline instead. Default 10 min; a value that is not a non-negative number fails the
+executor's construction with a `ValidationError`.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`capacityRetryWindowMs`](#capacityretrywindowms)
 
 ##### provider
 
