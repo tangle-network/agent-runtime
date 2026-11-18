@@ -46,7 +46,6 @@ it('sizes each spawned worker within maxWorkerResources and refuses one above it
       {
         budget: { maxIterations: 20, maxTokens: 100_000 },
         perWorker: { maxIterations: 1, maxTokens: 1_000 },
-        runDir: join(dir, 'run'),
         inheritSpawnRights: false,
         driverRetry: { enabled: false },
         backend: {
