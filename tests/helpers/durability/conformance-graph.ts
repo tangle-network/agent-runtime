@@ -535,8 +535,9 @@ export async function runGraphPhase(dir: string, phase: string, killAt?: string)
     workerSlots: 3,
     maxTurns: 24,
     // Workers settle within milliseconds; a heartbeat wake means one never will, and the planner
-    // gives up after eight of them instead of waiting 15 minutes per wake.
-    wake: { heartbeatMs: 1_000 },
+    // gives up after eight of them instead of waiting 15 minutes per wake. `maySettle` already
+    // gives each settle its own wake, so a debounce only adds 2 s of idle before each one.
+    wake: { heartbeatMs: 1_000, debounceMs: 0 },
     perWorker: { maxIterations: 60, maxTokens: 500_000 },
     brain,
     makeLeafAgent: instrumentedLeafSeam({

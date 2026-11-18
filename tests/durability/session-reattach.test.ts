@@ -24,6 +24,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { compileFixture } from '../helpers/compile-fixture'
 import {
   ARTIFACT_KEY,
   auditSpawnJournal,
@@ -33,7 +34,10 @@ import {
   WORKER_NODES,
 } from '../helpers/durability/conformance-graph'
 
-const childScript = new URL('../helpers/durability/session-child.ts', import.meta.url).pathname
+// Every case starts two child processes. Compiled once here, each one loads JavaScript instead
+// of transpiling the source tree through tsx again.
+const sessionChild = await compileFixture('tests/helpers/durability/session-child.ts')
+afterAll(() => sessionChild.dispose())
 
 interface SessionReport extends GraphChildReport {
   readonly steps: string[]
@@ -51,7 +55,7 @@ async function runPhase(dir: string, phase: '1' | '2', killAt?: string): Promise
   return await new Promise<PhaseExit>((resolvePhase, rejectPhase) => {
     const child = spawn(
       process.execPath,
-      ['--import', 'tsx', childScript, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
+      [sessionChild.path, dir, phase, ...(phase === '1' ? [killAt ?? '-'] : [])],
       { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let stdout = ''
