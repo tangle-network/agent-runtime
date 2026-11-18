@@ -39,6 +39,8 @@ it.each([
       { coordinator: false },
     )
     try {
+      // Answer the retained release's DELETE; held, it waits out the 30 s release bound.
+      await fixture.control({ finish: true })
       const provider = createTangleProvider({
         client: new Sandbox({
           apiKey: 'offline-not-a-secret',
