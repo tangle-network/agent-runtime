@@ -37,15 +37,17 @@ async function sweepScratch(): Promise<void> {
 // tmpfs pages are charged to this process's cgroup and, unlike page cache, cannot be dropped.
 // A gate unit shares its class slice's memory.max with the other gates, a limit that host free
 // memory does not show. So the room is the smallest `memory.max - memory.current + inactive_file`
-// over the cgroups from this one up to the root, and never more than host free memory.
+// over the cgroups from this one up to the root's children, and never more than host free memory.
 async function memoryRoom(): Promise<number> {
   const self = await readFile('/proc/self/cgroup', 'utf8').catch(() => '')
   let room = freemem()
-  let path = self.match(/^0::(\/.*)$/m)?.[1]
-  while (path) {
+  // No v2 path below the root (cgroup v1, or a cgroup namespace hiding the ancestors): unknown.
+  let path = self.match(/^0::(\/.+)$/m)?.[1]
+  if (!path) return Number.NaN
+  while (path !== '/') {
     const dir = join('/sys/fs/cgroup', path)
-    path = path === '/' ? undefined : dirname(path)
-    const read = (file: string) => readFile(join(dir, file), 'utf8').catch(() => 'max')
+    path = dirname(path)
+    const read = (file: string) => readFile(join(dir, file), 'utf8').catch(() => 'unreadable')
     const max = await read('memory.max')
     if (max.trim() === 'max') continue
     const inactive = Number((await read('memory.stat')).match(/^inactive_file (\d+)$/m)?.[1])
