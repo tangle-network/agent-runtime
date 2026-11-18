@@ -27,10 +27,11 @@ afterAll(async () => {
   if (bundle) await rm(bundle, { recursive: true, force: true })
 })
 
-// The capacity case sets the executor's placement window below its 10 min default. Sandbox refuses
-// every environment read until the window less a 5 s margin, so recovery proves that the same
-// execution waited out nearly the whole configured window, paced by Retry-After.
-const capacity = { windowMs: 30_000, outage: { ms: 25_000, retryAfterSeconds: 3 } }
+// The capacity case sets the executor's placement window below its 10 min default, and Sandbox
+// refuses every environment read for as long as that window, paced by Retry-After. Recovery proves
+// that the same execution waited out an outage as long as its whole configured window.
+const capacityWindowMs = 30_000
+const capacityOutage = { ms: capacityWindowMs, retryAfterSeconds: 3 }
 
 /** Record each phase the observer reaches; the test asserts it exits naturally after observing. */
 async function observeInProcess(fixture: ProcessFixture, capacityWindowMs?: number) {
@@ -99,10 +100,10 @@ it.each<Scenario>([
     try {
       await fixture.control({
         finish: true,
-        ...(capacityCase ? { capacityOutage: capacity.outage } : {}),
+        ...(capacityCase ? { capacityOutage } : {}),
       })
       const context = createFileRunContext(join(fixture.directory, 'run'))
-      const exit = await observeInProcess(fixture, capacityCase ? capacity.windowMs : undefined)
+      const exit = await observeInProcess(fixture, capacityCase ? capacityWindowMs : undefined)
       await writeFile(join(fixture.directory, 'observer-process-exit.json'), JSON.stringify(exit))
       expect(exit, JSON.stringify(exit)).toMatchObject({
         code: 0,
@@ -126,7 +127,7 @@ it.each<Scenario>([
           environmentId: state.runs[0]!.environmentId,
           elapsedMs: expect.any(Number),
         })
-        expect(Number(recovered!.elapsedMs)).toBeGreaterThanOrEqual(capacity.outage.ms)
+        expect(Number(recovered!.elapsedMs)).toBeGreaterThanOrEqual(capacityWindowMs)
         expect(events.filter((row) => row.kind === 'driver-attempt' && row.record.error)).toEqual(
           [],
         )
