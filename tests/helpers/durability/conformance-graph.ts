@@ -220,6 +220,8 @@ export interface PlannerReport {
   readonly escalations: ReadonlyArray<{ node: string; from: string; to: string }>
   readonly turns: number
   readonly submitted: boolean
+  /** For each wake that carried events, how many of the workers this planner waited on it settled. */
+  readonly settlesPerWake: ReadonlyArray<number>
   readonly fatal?: string
 }
 
@@ -245,6 +247,7 @@ export class ConductorPlanner {
   private wakesFolded = 0
   private replayedCompletions = false
   private replayDelivered = false
+  private readonly settlesPerWake: number[] = []
   turns = 0
 
   constructor(private readonly options: { forbidInDoubt?: boolean } = {}) {
@@ -317,7 +320,9 @@ export class ConductorPlanner {
         continue
       }
       this.idleStreak = 0
+      const waiting = this.nodes.filter((n) => n.status === 'spawned').length
       for (const event of events) this.foldEvent(event)
+      this.settlesPerWake.push(waiting - this.nodes.filter((n) => n.status === 'spawned').length)
     }
   }
 
@@ -485,6 +490,7 @@ export class ConductorPlanner {
       escalations: this.escalations,
       turns: this.turns,
       submitted: this.submitted,
+      settlesPerWake: this.settlesPerWake,
       ...(this.fatal === undefined ? {} : { fatal: this.fatal }),
     }
   }
@@ -535,9 +541,10 @@ export async function runGraphPhase(dir: string, phase: string, killAt?: string)
     workerSlots: 3,
     maxTurns: 24,
     // Workers settle within milliseconds; a heartbeat wake means one never will, and the planner
-    // gives up after eight of them instead of waiting 15 minutes per wake. `maySettle` already
-    // gives each settle its own wake, so a debounce only adds 2 s of idle before each one.
-    wake: { heartbeatMs: 1_000, debounceMs: 0 },
+    // gives up after eight of them instead of waiting 15 minutes per wake. `maySettle` holds the
+    // next settle until the driver has read this one, so nothing else can land in the debounce:
+    // 20 ms still takes the coalescing branch production's 2 s default takes, without 2 s of idle.
+    wake: { heartbeatMs: 1_000, debounceMs: 20 },
     perWorker: { maxIterations: 60, maxTokens: 500_000 },
     brain,
     makeLeafAgent: instrumentedLeafSeam({

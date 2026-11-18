@@ -66,9 +66,9 @@ export interface SessionLeafSeam {
 }
 
 /**
- * `maySettle` holds a finished session until the driver has read every earlier settle, so each
- * settle gets its own wake and the run passes the same driver-turn labels in every process, as
- * `instrumentedLeafSeam`'s does.
+ * `maySettle`, when given, holds a finished session until the driver has read every earlier
+ * settle, so each settle gets its own wake and every run passes the same driver-turn labels, as
+ * `instrumentedLeafSeam`'s does. Without it, sessions settle as soon as their steps are done.
  */
 export function sessionBackedLeafSeam(
   dir: string,
