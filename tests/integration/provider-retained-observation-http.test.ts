@@ -33,8 +33,7 @@ afterAll(async () => {
 // refusal the SDK's own retries pass on. A window longer than the outage recovers the same
 // execution: the runtime keeps reading until its window ends, which is after the outage however
 // long the SDK retried first. A shorter window ends the execution down on the refusal in either
-// phase, where the 10 min default would have waited the outage out. No test runs the default
-// itself, so only code review guards its value: telling 10 min from a shorter one takes 10 min.
+// phase. Release qualification also measures the no-deadline default through the real observer.
 const capacityWindowMs = 12_000
 const capacityOutage = { ms: 6_000, retryAfterSeconds: 1, phases: ['acquisition', 'observation'] }
 
@@ -234,9 +233,13 @@ it.each<Scenario>([
   },
 )
 
+const fullPlacementWindows = process.env.RUNTIME_FULL_PLACEMENT_WINDOWS === '1'
+const expectedDefaultWindowMs = 10 * 60_000
+
 it.each(['acquisition', 'observation'])(
   'ends the execution down on the placement refusal when a %s outage outlasts its window',
   async (phase) => {
+    const checkDefault = fullPlacementWindows && phase === 'acquisition'
     const fixture = await ProcessFixture.start(
       'json-observation-long-capacity-success',
       executables,
@@ -246,9 +249,13 @@ it.each(['acquisition', 'observation'])(
     try {
       await fixture.control({
         finish: true,
-        capacityOutage: { ms: 30_000, retryAfterSeconds: 1, phases: [phase] },
+        capacityOutage: {
+          ms: checkDefault ? expectedDefaultWindowMs + 60_000 : 30_000,
+          retryAfterSeconds: 1,
+          phases: [phase],
+        },
       })
-      const exit = await observeInProcess(fixture, 3_000)
+      const exit = await observeInProcess(fixture, checkDefault ? undefined : 3_000)
       expect(exit, JSON.stringify(exit)).toMatchObject({
         code: 0,
         signal: null,
@@ -261,8 +268,13 @@ it.each(['acquisition', 'observation'])(
       expect(JSON.stringify(delivered)).toContain('No host has capacity for this sandbox')
       const state = await fixture.state()
       const kinds = (kind: string) => state.requests.filter((row) => row.kind === kind)
-      expect(kinds('capacity-http-error').every((row) => row.phase === phase)).toBe(true)
-      expect(kinds('capacity-http-error').length).toBeGreaterThan(0)
+      const refusals = kinds('capacity-http-error')
+      expect(refusals.length).toBeGreaterThan(0)
+      expect(refusals.every((row) => row.phase === phase)).toBe(true)
+      if (checkDefault) {
+        const elapsed = Date.parse(refusals.at(-1)!.at) - Date.parse(refusals[0]!.at)
+        expect(elapsed).toBeGreaterThanOrEqual(expectedDefaultWindowMs)
+      }
       expect(kinds('capacity-recovered')).toEqual([])
       expect(state.failures).toEqual([])
       expect(state.runs).toHaveLength(1)
@@ -275,4 +287,5 @@ it.each(['acquisition', 'observation'])(
       else console.error('Retained observation proof artifacts:', fixture.directory)
     }
   },
+  fullPlacementWindows ? expectedDefaultWindowMs + 120_000 : undefined,
 )
