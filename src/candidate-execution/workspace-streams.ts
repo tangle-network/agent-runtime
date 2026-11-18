@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { mkdir, mkdtemp, open, realpath, rename, rm } from 'node:fs/promises'
+import { type FileHandle, mkdir, mkdtemp, open, realpath, rename, rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -369,11 +369,11 @@ async function consumeWorkspaceArtifacts(
             if (!(chunk instanceof Uint8Array))
               throw new Error('workspace entry emitted a non-byte chunk')
             signal?.throwIfAborted()
-            byteLength += chunk.byteLength
-            if (byteLength > expected!.byteLength)
+            if (byteLength + chunk.byteLength > expected!.byteLength)
               throw new Error('workspace entry exceeds its manifest length')
             hash.update(chunk)
-            if (file) await file.writeFile(chunk)
+            if (file) await writeRestoredChunk(file, chunk, byteLength)
+            byteLength += chunk.byteLength
             selected?.get(expected!.path)?.push(Uint8Array.from(chunk))
             yield chunk
           }
@@ -385,7 +385,11 @@ async function consumeWorkspaceArtifacts(
           }
         }
         await appendTarFile(canonical, expected, checked(), signal)
-        if (file) await file.chmod(expected.mode)
+        if (file) {
+          // Zero chunks were skipped as holes; the final length supplies any trailing ones.
+          await file.truncate(expected.byteLength)
+          await file.chmod(expected.mode)
+        }
       } finally {
         await file?.close()
       }
@@ -417,6 +421,23 @@ async function openDestination(destination: string, relativePath: string) {
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
     0o600,
   )
+}
+
+const ZEROS = Buffer.alloc(64 * 1024)
+
+/**
+ * Write a restored chunk at its offset in a new file. An all-zero chunk is left as a hole, so a
+ * sparse or zero-filled file reads back the same bytes without writing its zeros to disk.
+ */
+async function writeRestoredChunk(file: FileHandle, chunk: Uint8Array, position: number) {
+  const bytes = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+  if (bytes.byteLength <= ZEROS.byteLength && bytes.equals(ZEROS.subarray(0, bytes.byteLength)))
+    return
+  for (let written = 0; written < bytes.byteLength; ) {
+    const result = await file.write(bytes, written, bytes.byteLength - written, position + written)
+    if (result.bytesWritten === 0) throw new Error('workspace restore wrote no bytes')
+    written += result.bytesWritten
+  }
 }
 
 async function* workspaceArchiveChunks(
