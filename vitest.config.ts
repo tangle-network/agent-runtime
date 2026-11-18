@@ -14,6 +14,8 @@ const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktr
 // Heavy-but-robust resume/kill suites (durability/*, runtime/supervisor-*) stay in the pool — they
 // tolerate process-death timing and serializing them would lengthen the serial wall past baseline.
 const serial = [
+  // The archive qualification writes about 9 GiB when it cannot use tmpfs. Other tests fsync.
+  'tests/candidate-workspace-streaming-memory.test.ts',
   'tests/runtime/retained-capture-resume.test.ts',
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
