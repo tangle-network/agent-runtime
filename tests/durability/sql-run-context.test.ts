@@ -11,7 +11,10 @@ import { compileFixture } from '../helpers/compile-fixture'
 import { EXPECTED_OUT, RUN_ID, WORKER_NODES } from '../helpers/durability/conformance-graph'
 import { isSqlOwnershipDenial, openSql, TEST_LEASE } from '../helpers/durability/sql-adapter'
 import { waitForState } from '../helpers/observable-state'
-import { type Executables, prepareExecutables } from '../integration/fixtures/uncertain-create-harness'
+import {
+  type Executables,
+  prepareExecutables,
+} from '../integration/fixtures/uncertain-create-harness'
 import { readRecords, type ServiceState } from '../integration/fixtures/uncertain-create-protocol'
 
 let childFixture: Awaited<ReturnType<typeof compileFixture>>
@@ -604,19 +607,22 @@ describe('SQL run context', () => {
     'sql:settled:after',
     'tool:commit:before',
     'tool:commit:after',
-  ])('SIGKILL at %s resumes on another host without a replacement key', async (checkpoint, context) => {
-    const scope = testScope(context)
-    const shared = await directory(scope)
-    const firstHost = await directory(scope)
-    const secondHost = await directory(scope)
-    const first = await start(scope, shared, firstHost, 'kill', checkpoint)
-    await first.message('checkpoint')
-    expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
-    await rm(firstHost, { recursive: true, force: true })
-    assertComplete(await (await start(scope, shared, secondHost)).report())
-    await assertPhysical(scope, shared)
-    expect(await readdir(secondHost)).toEqual([])
-  })
+  ])(
+    'SIGKILL at %s resumes on another host without a replacement key',
+    async (checkpoint, context) => {
+      const scope = testScope(context)
+      const shared = await directory(scope)
+      const firstHost = await directory(scope)
+      const secondHost = await directory(scope)
+      const first = await start(scope, shared, firstHost, 'kill', checkpoint)
+      await first.message('checkpoint')
+      expect(await first.exit).toEqual({ code: null, signal: 'SIGKILL' })
+      await rm(firstHost, { recursive: true, force: true })
+      assertComplete(await (await start(scope, shared, secondHost)).report())
+      await assertPhysical(scope, shared)
+      expect(await readdir(secondHost)).toEqual([])
+    },
+  )
 
   it.concurrent.for(['contend', 'contend-locked'])(
     'two live orchestrators (%s): rejects the contender, then the SAME process takes over after SIGKILL',
