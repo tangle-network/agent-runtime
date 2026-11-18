@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { writeAtomicDurableFile } from '../../../src/runtime/supervise/durable-file'
@@ -77,7 +77,11 @@ function startAction(run: NativeRun): void {
 }
 function note(kind: string, data: Record<string, unknown> = {}): void {
   const row = { kind, at: new Date().toISOString(), ...data }
-  record(ledger, row)
+  // These synthetic refusals are observed over HTTP. Flushing each one to disk before the
+  // reply can exhaust the SDK's create deadline and simulate transport loss instead.
+  if (kind === 'capacity-create-refused')
+    appendFileSync(ledger, `${JSON.stringify(row)}\n`, { mode: 0o600 })
+  else record(ledger, row)
   state.requests.push(row)
 }
 function json(response: ServerResponse, status: number, body: unknown): void {
