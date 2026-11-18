@@ -186,7 +186,12 @@ it("runs a turn's calls at once when opted in, keeps call order, defaults to ser
       expect(run.results.map((outcome) => outcome.ok && outcome.result)).toEqual(inOrder)
       const history = run.requests[1]!.messages
       expect(history.map((message) => message.role)).toEqual([
-        'system', 'user', 'assistant', 'tool', 'tool', 'tool',
+        'system',
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+        'tool',
       ])
       const ids = ['call_1_0', 'call_1_1', 'call_1_2']
       expect(history[2]?.tool_calls?.map((call) => call.id)).toEqual(ids)

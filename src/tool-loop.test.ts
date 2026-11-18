@@ -30,7 +30,6 @@ describe('runToolLoop', () => {
     expect(r.cappedOut).toBe(false)
   })
 
-
   it('derives a stable tool_call_id from the tool name when the model omits one', async () => {
     const seen: ToolLoopMessage[][] = []
     const streamTurn = async function* (messages: ToolLoopMessage[]) {
@@ -419,7 +418,6 @@ describe('streamToolLoop', () => {
         : null,
     isExecutableTool: (n: string) => n === 'submit_proposal',
   }
-
 
   it('echoes the provider fields a model attached to a call on its tool_calls entry', async () => {
     // Gemini 3 answers HTTP 400 when the next request drops a call's thought_signature.
