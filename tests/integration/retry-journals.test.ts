@@ -30,10 +30,17 @@ const runs = captured
   }))
 
 for (const run of runs) {
-  it(`settles every captured unchanged episode from ${run.runId} within three attempts`, async () => {
+  it(`bounds each distinct captured retry failure from ${run.runId} within three attempts`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'retry-journal-golden-'))
     try {
+      expect(run.episodes.length).toBeGreaterThan(0)
+      const replayed = new Set<string>()
       for (const [index, episode] of run.episodes.entries()) {
+        // The retry driver sees the error text and root/child policy. Counts describe the original run.
+        const nested = episode.node !== run.runId
+        const key = `${nested}:${episode.error}`
+        if (replayed.has(key)) continue
+        replayed.add(key)
         const file = join(directory, `${index}.jsonl`)
         const journal = new FileSpawnJournal(file)
         await journal.beginTree(episode.node, new Date().toISOString())
@@ -55,8 +62,8 @@ for (const run of runs) {
               reservedTokens: 0,
             }),
             progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
-            nested: episode.node !== run.runId,
-            stopPause: episode.node === run.runId ? { steered: async () => {} } : undefined,
+            nested,
+            stopPause: nested ? undefined : { steered: async () => {} },
             policy: { initialBackoffMs: 1, maxBackoffMs: 2 },
             async drive() {
               // The legacy journal preserved flattened text, not SDK error instances or typed codes.
