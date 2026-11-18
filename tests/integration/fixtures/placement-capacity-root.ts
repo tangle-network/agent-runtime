@@ -7,14 +7,14 @@ import { FileSpawnJournal } from '../../../src/durable/spawn-journal/journal-sto
 import { createFileRunContext, supervise } from '../../../src/runtime'
 import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-agent-profile'
 import { ProcessFixture, prepareExecutables } from './uncertain-create-harness'
+import { PLACEMENT_CREATE_BUDGET_MS } from './uncertain-create-protocol'
 
 /**
  * Drive a provider root whose every create a Sandbox-shaped HTTP service refuses with the real
  * 503 placement body and Retry-After, through the real SDK and Tangle provider, until its room
- * returns (`success`, after 8 min) or never (`deadline`). In real time: three unchanged drives of
- * the SDK's ~2 min create budget once ended such a run as `repeated-failure` near 6.7 min.
+ * returns after several complete SDK create budgets or the run reaches its own deadline.
  */
-export async function runPlacementCapacityRoot(end: 'success' | 'deadline', deadlineMs: number) {
+export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
   const { bundle, executables } = await prepareExecutables()
   const fixture = await ProcessFixture.start(
     `json-observation-long-create-capacity-${end}`,
@@ -27,6 +27,7 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline', dead
     await fixture.control({ finish: true })
     const context = createFileRunContext(runDir)
     const provider = createTangleProvider({
+      readyTimeoutMs: PLACEMENT_CREATE_BUDGET_MS,
       client: new Sandbox({
         apiKey: 'offline-not-a-secret',
         baseUrl: fixture.url,
@@ -35,6 +36,12 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline', dead
         directExec: false,
       }),
     })
+    const backend = {
+      backend: 'provider' as const,
+      provider,
+      capacityRetryWindowMs: 2 * PLACEMENT_CREATE_BUDGET_MS,
+    }
+    const deadlineMs = (end === 'success' ? 24 : 10) * PLACEMENT_CREATE_BUDGET_MS
     const result = await supervise(
       testAgentProfile('placement-capacity-root', {
         harness: 'opencode',
@@ -47,8 +54,8 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline', dead
         runId,
         journal: context.journal,
         blobs: context.blobs,
-        backend: { backend: 'provider', provider },
-        driverBackend: { backend: 'provider', provider },
+        backend,
+        driverBackend: backend,
         budget: { maxTokens: 100, maxIterations: 4, deadlineMs },
         coordination: {
           host: '127.0.0.1',
@@ -67,7 +74,9 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline', dead
     // No drive ended on the unchanged refusal, though it outlasted three such drives.
     expect(records.filter((record) => record.stop === 'repeated-failure')).toEqual([])
     expect(result).not.toMatchObject({ reason: 'driver-failed' })
-    expect(Date.parse(refused.at(-1)!.at) - Date.parse(refused[0]!.at)).toBeGreaterThan(420_000)
+    expect(Date.parse(refused.at(-1)!.at) - Date.parse(refused[0]!.at)).toBeGreaterThan(
+      3 * PLACEMENT_CREATE_BUDGET_MS,
+    )
     // Every create, refused or admitted, carried the one environment key.
     const creates = [...refused, ...state.requests.filter((row) => row.kind === 'create')]
     expect(new Set(creates.map((row) => row.key)).size).toBe(1)

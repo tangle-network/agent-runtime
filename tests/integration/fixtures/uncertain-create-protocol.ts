@@ -1,6 +1,8 @@
 import { createHash, createHmac } from 'node:crypto'
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 
+export const PLACEMENT_CREATE_BUDGET_MS = 5_000
+
 export type Scenario =
   | 'sql-conformance'
   | 'trace-owner'
