@@ -25,6 +25,8 @@ import {
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
 let capacitySince: number | undefined
+// The capacity case's outage, set by its test through control before the first environment read.
+let capacityOutage: { ms: number; retryAfterSeconds: number } | undefined
 const ledger = join(directory, 'service-ledger.jsonl')
 const stopping = new AbortController()
 const state: ServiceState = {
@@ -804,6 +806,12 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       })
     }
     if (typeof control.finish === 'boolean') state.finish = control.finish
+    if (control.capacityOutage !== undefined) {
+      const { ms, retryAfterSeconds } = object(control.capacityOutage)
+      if (!(Number(ms) > 0 && Number(retryAfterSeconds) > 0))
+        throw new Error('a capacity outage needs a positive length and Retry-After')
+      capacityOutage = { ms: Number(ms), retryAfterSeconds: Number(retryAfterSeconds) }
+    }
     if ((scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') && state.finish)
       for (const held of holds) json(held, 200, { ok: true })
     if (
@@ -891,10 +899,11 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
       })
     }
     if (scenario === 'json-observation-long-capacity-success' && request.method === 'GET') {
+      if (capacityOutage === undefined) throw new Error('the capacity case sets no outage')
       capacitySince ??= Date.now()
-      if (Date.now() - capacitySince < 600_000) {
+      if (Date.now() - capacitySince < capacityOutage.ms) {
         note('capacity-http-error', { environmentId: id, status: 503 })
-        response.setHeader('Retry-After', '30')
+        response.setHeader('Retry-After', String(capacityOutage.retryAfterSeconds))
         return jsonError(response, 503, {
           code: 'CAPACITY_EXHAUSTED',
           message: 'No host has capacity for this sandbox; retry later',

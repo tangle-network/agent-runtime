@@ -204,4 +204,11 @@ export interface ProviderExecutorOptions {
    * `false` ends the execution on the refused turn.
    */
   unavailablePause?: UnavailablePausePolicy | false
+  /**
+   * How long a retained execution waits for room, in ms, after Sandbox refuses it placement (a
+   * 503 such as `CAPACITY_EXHAUSTED`), before the refusal counts as a failed attempt. The same
+   * execution is reattached after each wait, which honors Retry-After and lasts at most 30 s.
+   * Acquisition in a run with a deadline waits until the deadline instead. Default 10 min.
+   */
+  capacityRetryWindowMs?: number
 }
