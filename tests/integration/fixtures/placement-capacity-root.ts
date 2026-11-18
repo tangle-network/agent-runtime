@@ -7,7 +7,27 @@ import { FileSpawnJournal } from '../../../src/durable/spawn-journal/journal-sto
 import { createFileRunContext, supervise } from '../../../src/runtime'
 import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-agent-profile'
 import { ProcessFixture, prepareExecutables } from './uncertain-create-harness'
-import { placementTiming } from './uncertain-create-protocol'
+
+// The release gate exercises the SDK and Runtime defaults past the original outage duration.
+const createBudgetMs = 5_000
+const placementTiming =
+  process.env.RUNTIME_FULL_PLACEMENT_WINDOWS === '1'
+    ? {
+        provider: {},
+        executor: {},
+        roomAfter: 8 * 60_000,
+        minimumRefusal: 7 * 60_000,
+        deadline: 13 * 60_000,
+        success: 20 * 60_000,
+      }
+    : {
+        provider: { readyTimeoutMs: createBudgetMs },
+        executor: { capacityRetryWindowMs: 2 * createBudgetMs },
+        roomAfter: 12 * createBudgetMs,
+        minimumRefusal: 3 * createBudgetMs,
+        deadline: 10 * createBudgetMs,
+        success: 24 * createBudgetMs,
+      }
 
 /**
  * Drive a provider root whose every create a Sandbox-shaped HTTP service refuses with the real
@@ -24,7 +44,14 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
   const runId = `placement-capacity-${end}`
   const runDir = join(fixture.directory, 'run')
   try {
-    await fixture.control({ finish: true })
+    await fixture.control({
+      finish: true,
+      capacityOutage: {
+        ms: placementTiming.roomAfter,
+        retryAfterSeconds: 2,
+        phases: ['acquisition'],
+      },
+    })
     const context = createFileRunContext(runDir)
     const provider = createTangleProvider({
       ...placementTiming.provider,
