@@ -135,6 +135,58 @@ function processStages(
   }
 }
 
+it('selects a Bridge seat that can materialize the authored prompt before execution', async () => {
+  const codex = agentProfileSeatSchema.parse({
+    harness: 'codex',
+    provider: 'openai',
+    model: 'gpt-6.1-sol',
+    selector: { kind: 'all-eligible' },
+  })
+  const claude = agentProfileSeatSchema.parse({
+    harness: 'claude-code',
+    provider: 'anthropic',
+    model: 'claude-sonnet-5-5',
+    selector: { kind: 'all-eligible' },
+  })
+  const profile = { prompt: { appendSystemPrompt: 'Read the complete manuscript.' } }
+  const graph = {
+    graph: 'reader',
+    nodes: [{ id: 'reader', profile }],
+    entry: [{ node: 'reader', task: {} }],
+    edges: [],
+    budget: { maxIterations: 2 },
+    check: { node: 'reader', pointer: '/content', equals: 'done' },
+  }
+  const source = JSON.stringify(graph)
+  const choices = new Map([
+    ['codex', codex],
+    ['claude', claude],
+  ])
+  const resolveSeat = (name?: string) => choices.get(name ?? '')
+  const file = 'reader.graph.json'
+  const ordered = await loadGraphFile(file, {
+    source,
+    nodeSeats: { reader: ['codex', 'claude'] },
+    resolveSeat,
+  })
+  expect(ordered.graph.nodes[0]?.profile).toMatchObject({
+    ...profile,
+    harness: 'claude-code',
+    model: { default: claude.model, provider: claude.provider },
+  })
+  const implicit = await loadGraphFile(file, { source, seats: [codex, claude] })
+  expect(implicit.graph.digest).toBe(ordered.graph.digest)
+  await expect(loadGraphFile(file, { source, seat: 'codex', resolveSeat })).rejects.toThrow(
+    /reader.*codex cannot materialize.*appendSystemPrompt/,
+  )
+  const compatible = await loadGraphFile(file, {
+    source: JSON.stringify({ ...graph, nodes: [{ id: 'reader', profile: {} }] }),
+    nodeSeats: { reader: ['codex', 'claude'] },
+    resolveSeat,
+  })
+  expect(compatible.graph.nodes[0]?.profile.harness).toBe('codex')
+})
+
 // This proves loader, registry and routing plumbing with real processes. The CLI consumer owns
 // real Bridge/native-harness qualification; these processes do not emulate the Bridge protocol.
 it('loads one canonical file, persists its data check, and runs and resumes real process stages', async () => {

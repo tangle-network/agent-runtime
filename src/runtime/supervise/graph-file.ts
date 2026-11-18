@@ -25,6 +25,7 @@ import { parseGraphYaml } from './graph-strings'
 import { validateGraphTopology } from './graph-topology'
 import { assertExecutableAgentProfile, concreteProfileModel } from './model-policy'
 import { kernelPromptRegistry, type PromptRegistry } from './prompt-registry'
+import { bridgeProfileRefusal } from './supervise-profile-admission'
 
 export type GraphFileSeat = NonNullable<AgentProfile['seats']>[number]
 export type GraphFileNeed = z.infer<typeof graphFileNeedSchema>
@@ -146,7 +147,29 @@ async function expandProfile(
   const authored = options.seat ?? options.nodeSeats?.[node.id] ?? node.seat
   const resolveSeat = options.resolveSeat
   const context = { node: node.id, cwd: options.cwd, signal: options.signal }
-  let selected: GraphFileSeat | undefined
+  let selected: AgentProfile | undefined
+  let incompatible: string | undefined
+  function select(seat: GraphFileSeat): boolean {
+    const profile: Record<string, unknown> = {
+      ...node.profile,
+      name: node.id,
+      harness: seat.harness,
+      model: {
+        ...(node.profile?.model as object | undefined),
+        provider: seat.provider,
+        default: seat.model,
+        ...(seat.reasoningEffort === undefined ? {} : { reasoningEffort: seat.reasoningEffort }),
+      },
+    }
+    delete profile.seats
+    const parsed = agentProfileSchema.safeParse(profile)
+    if (!parsed.success) refuse(`node ${node.id} has an invalid profile: ${parsed.error.message}`)
+    incompatible = bridgeProfileRefusal(parsed.data)
+    if (incompatible) return false
+    selected = parsed.data
+    return true
+  }
+
   if (authored !== undefined) {
     if (!resolveSeat)
       refuse(
@@ -155,15 +178,17 @@ async function expandProfile(
     const candidates = typeof authored === 'string' ? [authored] : authored
     if (!candidates.length) refuse(`node ${node.id} has an empty seat preference list`)
     for (const [index, candidate] of candidates.entries()) {
-      selected = await resolveSeat(candidate, {
+      const seat = await resolveSeat(candidate, {
         ...context,
         lastCandidate: index === candidates.length - 1,
       })
-      if (selected) break
+      if (seat && select(seat)) break
     }
     if (!selected)
       refuse(
-        `node ${node.id} has no available Bridge seat; sign in through Bridge or choose another seat`,
+        incompatible
+          ? `node ${node.id}: ${incompatible}`
+          : `node ${node.id} has no available Bridge seat; sign in through Bridge or choose another seat`,
       )
   } else if (Array.isArray(node.profile?.seats)) {
     const parsed = agentProfileSchema.safeParse({ ...node.profile, name: node.id })
@@ -173,10 +198,17 @@ async function expandProfile(
     !concreteProfileModel(node.profile as AgentProfile) ||
     !(node.profile.model as AgentProfile['model'])?.provider
   ) {
-    selected =
-      options.seats?.[0] ?? (await resolveSeat?.(undefined, { ...context, lastCandidate: true }))
+    if (options.seats?.length) options.seats.some(select)
+    else {
+      const seat = await resolveSeat?.(undefined, { ...context, lastCandidate: true })
+      if (seat) select(seat)
+    }
     if (!selected)
-      refuse(`node ${node.id} needs a canonical profile or resolveSeat from Bridge login inventory`)
+      refuse(
+        incompatible
+          ? `node ${node.id}: ${incompatible}`
+          : `node ${node.id} needs a canonical profile or resolveSeat from Bridge login inventory`,
+      )
   }
   // A repeated need is one need: resolve it once, before any host I/O such as an OAuth grant.
   const connections = await Promise.all(
@@ -214,19 +246,7 @@ async function expandProfile(
       }
     }),
   )
-  const profile: Record<string, unknown> = { ...node.profile, name: node.id }
-  if (selected) {
-    delete profile.seats
-    profile.harness = selected.harness
-    profile.model = {
-      ...(node.profile?.model as object | undefined),
-      provider: selected.provider,
-      default: selected.model,
-      ...(selected.reasoningEffort === undefined
-        ? {}
-        : { reasoningEffort: selected.reasoningEffort }),
-    }
-  }
+  const profile: Record<string, unknown> = { ...(selected ?? node.profile), name: node.id }
   if (node.needs && (connections.length > 0 || node.profile?.connections !== undefined)) {
     // An exact duplicate reference, authored or resolved, collapses; distinct aliases, capabilities
     // and conflicting explicit aliases stay for the profile schema and the Hub resolver to judge.
