@@ -24,7 +24,6 @@ import {
 
 const directory = process.argv[2]!
 const scenario = process.argv[3] as Scenario
-let capacitySince: number | undefined
 // The capacity case's outage, set by its test through control before the first environment read.
 // Each phase it names is refused from that phase's own first read: acquisition's environment
 // reads, and observation's event-stream and exact-result reads. No frame reaches the run during an
@@ -392,10 +391,11 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
   }
   // Sandbox's real refusal of a create when no host has room: for 8 minutes, or always.
   if (scenario.startsWith('json-observation-long-create-capacity-')) {
-    capacitySince ??= Date.now()
-    if (scenario.endsWith('-deadline') || Date.now() - capacitySince < 480_000) {
+    if (!capacityOutage) throw new Error('the placement case sets no outage')
+    const since = (outageSince.acquisition ??= Date.now())
+    if (scenario.endsWith('-deadline') || Date.now() - since < capacityOutage.ms) {
       note('capacity-create-refused', { key, status: 503 })
-      response.setHeader('Retry-After', '2')
+      response.setHeader('Retry-After', String(capacityOutage.retryAfterSeconds))
       return jsonError(response, 503, {
         code: 'CAPACITY_EXHAUSTED',
         message: 'Provision failed — (container) — No host has room for this sandbox now.',
