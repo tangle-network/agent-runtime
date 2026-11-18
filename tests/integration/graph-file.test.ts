@@ -149,13 +149,15 @@ it('selects a Bridge seat that can materialize the authored prompt before execut
     selector: { kind: 'all-eligible' },
   })
   const profile = { prompt: { appendSystemPrompt: 'Read the complete manuscript.' } }
-  const source = JSON.stringify({
+  const graph = {
     graph: 'reader',
     nodes: [{ id: 'reader', profile }],
     entry: [{ node: 'reader', task: {} }],
     edges: [],
+    budget: { maxIterations: 2 },
     check: { node: 'reader', pointer: '/content', equals: 'done' },
-  })
+  }
+  const source = JSON.stringify(graph)
   const choices = new Map([
     ['codex', codex],
     ['claude', claude],
@@ -178,7 +180,7 @@ it('selects a Bridge seat that can materialize the authored prompt before execut
     /reader.*codex cannot materialize.*appendSystemPrompt/,
   )
   const compatible = await loadGraphFile(file, {
-    source: JSON.stringify({ ...JSON.parse(source), nodes: [{ id: 'reader', profile: {} }] }),
+    source: JSON.stringify({ ...graph, nodes: [{ id: 'reader', profile: {} }] }),
     nodeSeats: { reader: ['codex', 'claude'] },
     resolveSeat,
   })
