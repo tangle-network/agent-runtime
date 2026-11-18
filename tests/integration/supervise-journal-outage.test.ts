@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +8,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const roots: string[] = []
 const execute = promisify(execFile)
-const tsx = createRequire(import.meta.url).resolve('tsx')
 const fixture = fileURLToPath(
   new URL('../../scripts/fixtures/journal-outage-consumer.mjs', import.meta.url),
 )
@@ -26,14 +24,8 @@ describe.skipIf(process.platform !== 'linux')(
       async (fault) => {
         const directory = await mkdtemp(join(tmpdir(), 'journal-outage-consumer-'))
         try {
-          await execute(process.execPath, ['--import', tsx, fixture, fault, directory], {
-            env: {
-              ...process.env,
-              RUNTIME_KERNEL_MODULE: new URL('../../src/runtime/index.ts', import.meta.url).href,
-              RUNTIME_DURABLE_MODULE: new URL('../../src/durable/index.ts', import.meta.url).href,
-            },
-            // The consumer compiles the Runtime source through tsx before it starts; on a loaded
-            // runner that alone has taken longer than 30 s.
+          await execute(process.execPath, [fixture, fault, directory], {
+            env: { PATH: process.env.PATH, HOME: directory },
             timeout: 120_000,
           })
         } catch (cause) {
