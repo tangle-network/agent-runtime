@@ -42,7 +42,9 @@ try {
   }
   const durable = await diskS3StreamStore(join(root, 'offhost'))
   // The bounds are memory, not crash durability, and this root is deleted below, so the store
-  // skips fsync; the durable store keeps the record, as for any ephemeral staging store.
+  // skips fsync; the durable store keeps the record, as for any ephemeral staging store. In
+  // alternating runs on beelink2 under shared load, the test took 236-282 s with the 3 GiB
+  // archive's fsync and 161-181 s without it.
   const store = createPrivateCasArtifactPort(join(root, 'artifacts'), 'memory-proof', {
     durable: durable.store,
     localBudgetBytes: 0,
