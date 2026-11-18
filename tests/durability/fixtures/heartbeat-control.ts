@@ -29,9 +29,11 @@ const heartbeat = await createEventLoopHeartbeat()
 try {
   const stop = heartbeat.start()
   if (mode === 'busy') {
-    const began = performance.now()
-    while (performance.now() - began < durationMs) {
-      // Deliberately occupy this real event loop for the positive control.
+    const began = process.threadCpuUsage()
+    for (;;) {
+      const used = process.threadCpuUsage(began)
+      if (used.user + used.system >= durationMs * 1_000) break
+      // Consume actual main-thread CPU even when other work delays this thread's scheduling.
     }
   } else if (mode === 'sync-wait') {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs)
