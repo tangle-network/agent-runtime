@@ -18,6 +18,8 @@ const serial = [
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
   'tests/integration/deadline-wake-process.test.ts',
+  'tests/integration/flow-model-admission.test.ts',
+  'tests/integration/retained-tail-window.test.ts',
   'tests/integration/uncertain-create-identity.test.ts',
   'tests/integration/seat-pause-*.test.ts',
   'tests/integration/retained-silence.test.ts',
