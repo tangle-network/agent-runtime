@@ -28,14 +28,14 @@ afterAll(async () => {
 })
 
 // Sandbox refuses placement for an outage paced by Retry-After, from the first read of each phase
-// a capacity case names: acquisition's environment reads, and observation's exact-result reads
-// after dispatch. The observer's executor gets its own window, which opens at the first refusal
-// the SDK's own retries pass on. A window longer than the outage recovers the same execution: the
-// runtime keeps reading until its window ends, which is after the outage however long the SDK
-// retried first. A shorter window ends the execution down on the refusal in either phase, where
-// the 10 min default would have waited the outage out. No test runs the default itself, so only
-// code review guards its value: telling 10 min from a shorter value takes a 10 min run.
-const capacityWindowMs = 10_000
+// a capacity case names: acquisition's environment reads, and observation's event and exact-result
+// reads after dispatch. The observer's executor gets its own window, which opens at the first
+// refusal the SDK's own retries pass on. A window longer than the outage recovers the same
+// execution: the runtime keeps reading until its window ends, which is after the outage however
+// long the SDK retried first. A shorter window ends the execution down on the refusal in either
+// phase, where the 10 min default would have waited the outage out. No test runs the default
+// itself, so only code review guards its value: telling 10 min from a shorter one takes 10 min.
+const capacityWindowMs = 12_000
 const capacityOutage = { ms: 6_000, retryAfterSeconds: 1, phases: ['acquisition', 'observation'] }
 
 /** Record each phase the observer reaches; the test asserts it exits naturally after observing. */

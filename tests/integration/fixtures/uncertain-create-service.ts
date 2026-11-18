@@ -27,10 +27,12 @@ const scenario = process.argv[3] as Scenario
 let capacitySince: number | undefined
 // The capacity case's outage, set by its test through control before the first environment read.
 // Each phase it names is refused from that phase's own first read: acquisition's environment
-// reads, and observation's exact-result reads, while the event stream is served.
+// reads, and observation's event-stream and exact-result reads. No frame reaches the run during an
+// observation outage, so none reopens its window.
 type CapacityPhase = 'acquisition' | 'observation'
 let capacityOutage: { ms: number; retryAfterSeconds: number; phases: CapacityPhase[] } | undefined
 const outageSince: Partial<Record<CapacityPhase, number>> = {}
+let observationStreamed = false
 const ledger = join(directory, 'service-ledger.jsonl')
 const stopping = new AbortController()
 const state: ServiceState = {
@@ -701,8 +703,12 @@ async function runtime(
     const run = state.runs.filter((candidate) => candidate[key] === id).at(-1)
     // Only the independently requested exact result binds a session query.
     const exactResult = url.searchParams.has('sessionId')
-    if (!sessionMatch && exactResult && capacityRefused(response, environmentId, 'observation'))
-      return
+    if (!sessionMatch) {
+      // The exact result waits for the stream, so the frames reach the run before it settles.
+      const held = exactResult && !observationStreamed
+      if (capacityRefused(response, environmentId, 'observation', held)) return
+      if (!exactResult) observationStreamed = true
+    }
     note(sessionMatch ? 'session-status' : 'events', {
       environmentId,
       executionId: sessionMatch ? run?.executionId : id,
@@ -742,13 +748,18 @@ async function runtime(
   }
   throw new Error(`unexpected SDK runtime route ${request.method} ${path}`)
 }
-/** In the capacity case, refuse placement on a phase's read while its outage lasts. */
-function capacityRefused(response: ServerResponse, environmentId: string, phase: CapacityPhase) {
+/** In the capacity case, refuse placement on a phase's read while its outage lasts or `held`. */
+function capacityRefused(
+  response: ServerResponse,
+  environmentId: string,
+  phase: CapacityPhase,
+  held = false,
+) {
   if (scenario !== 'json-observation-long-capacity-success') return false
   if (capacityOutage === undefined) throw new Error('the capacity case sets no outage')
   if (!capacityOutage.phases.includes(phase)) return false
   const since = (outageSince[phase] ??= Date.now())
-  if (Date.now() - since >= capacityOutage.ms) {
+  if (!held && Date.now() - since >= capacityOutage.ms) {
     note('capacity-recovered', { environmentId, phase, elapsedMs: Date.now() - since })
     return false
   }
