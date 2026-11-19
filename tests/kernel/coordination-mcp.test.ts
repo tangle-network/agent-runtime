@@ -1706,9 +1706,11 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
           value: { accepted: false, stop: false },
         },
       ])
-      expect(JSON.stringify(wake?.events[0]?.value)).toContain(
-        'FAIL verify_product testCommand: exited 1',
-      )
+      expect(wake?.events[0]?.value).toMatchObject({
+        checkRead: 1,
+        reason: expect.stringContaining('1 of 1 checked items failed'),
+      })
+      expect(JSON.stringify(wake?.events[0]?.value)).toContain('FAIL verify_product testCommand: exited 1')
       expect(checks()).toBe(1)
       expect(mcp.submittedResult()).toBeUndefined()
     })
@@ -1716,12 +1718,15 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
 
   it('accepts a passing verdict delivered after the fence, and checks again once a verdict was returned', async () => {
     await withSlowCheck(async ({ mcp, controls, checks, verdicts }) => {
+      for (let index = 0; index < 7; index++) controls.recordCheckRead({ source: 'turn-end', verdict: { pass: false } })
       expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
-      verdicts[0]!.resolve(false)
+      const waiting = 'Release r4 passed. The operator decides when the run ends.'
+      verdicts[0]!.resolve({ pass: false, failures: [waiting] })
       await tick()
-      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
-        { type: 'tool-outcome', ok: true, value: { accepted: false } },
-      ])
+      const refusal = (await controls.awaitWake(wakeInput()))?.events[0]?.value
+      expect(refusal).toMatchObject({ accepted: false, stop: false, checkRead: 8, reason: expect.stringContaining(waiting) })
+      expect(refusal).toMatchObject({ reason: expect.stringContaining('Manager completion evaluation #8') })
+      expect(JSON.stringify(refusal)).not.toContain('outside check failed')
       // Identity ended with that verdict: the same packet after a repair is a fresh check.
       expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
       expect(checks()).toBe(2)
