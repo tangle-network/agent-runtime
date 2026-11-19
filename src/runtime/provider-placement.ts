@@ -1,4 +1,8 @@
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  WorkspaceCheckpointRefSchema,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../errors'
 import type {
@@ -7,6 +11,7 @@ import type {
 } from './environment-provider/provider-executor-admission'
 import { concreteProfileModel } from './supervise/model-policy'
 import { detachedSnapshot } from './supervise/snapshot'
+import type { ExecutorNodeContext } from './supervise/types'
 
 /** Caller-declared execution placement. Matching never changes the authored profile.
  * @experimental */
@@ -30,6 +35,44 @@ const placementMetadataKey = 'runtimeProviderPlacement'
 
 /** Select exactly one declaration before any provider effects. Shared defaults carry infrastructure only. */
 export function selectProviderPlacement<T extends ProviderExecutorOptions>(
+  profile: AgentProfile,
+  options: T,
+  node?: ExecutorNodeContext,
+): { options: T; identity?: { id: string; digest: string } } {
+  const placed = declaredPlacement(profile, options)
+  if (options.checkpointForNode === undefined) return placed
+  if (!node) throw new ValidationError('checkpointForNode requires a supervised node')
+  const value = options.checkpointForNode(detachedSnapshot(node, 'checkpointForNode assignment'))
+  if (value === undefined) return placed
+  const checkpoint = WorkspaceCheckpointRefSchema.parse(value)
+  const defaults = placed.options.defaults ?? {}
+  if (
+    defaults.workspace?.checkpoint &&
+    canonicalCandidateDigest(defaults.workspace.checkpoint) !== canonicalCandidateDigest(checkpoint)
+  ) {
+    throw new ValidationError('checkpointForNode disagrees with the declared workspace checkpoint')
+  }
+  if (!placed.identity && Object.hasOwn(defaults.metadata ?? {}, placementMetadataKey)) {
+    throw new ValidationError('checkpointForNode: reserved placement metadata key')
+  }
+  const identity = {
+    id: placed.identity?.id ?? 'node-workspace',
+    digest: canonicalCandidateDigest({ placement: placed.identity ?? null, checkpoint }),
+  }
+  return {
+    options: {
+      ...placed.options,
+      defaults: {
+        ...defaults,
+        workspace: { ...defaults.workspace, checkpoint },
+        metadata: { ...defaults.metadata, [placementMetadataKey]: identity },
+      },
+    },
+    identity,
+  }
+}
+
+function declaredPlacement<T extends ProviderExecutorOptions>(
   profile: AgentProfile,
   options: T,
 ): { options: T; identity?: { id: string; digest: string } } {
