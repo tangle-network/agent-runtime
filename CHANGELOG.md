@@ -1,5 +1,7 @@
 ## 10.0.9
 
+Runtime now requires `@tangle-network/agent-interface` ^5.10.28 to satisfy the peer dependency of `@tangle-network/agent-profile-materialize` 1.1.139 during a strict npm install.
+
 Graph file loading skips a Bridge seat that cannot materialize the node's prompt and tries the next signed-in preference. A dry run reports the refusal when no seat can execute the prompt.
 
 The development suite exercises placement recovery with shorter SDK create and Runtime retry budgets. Release qualification runs the same tests with the default SDK and Runtime windows.
