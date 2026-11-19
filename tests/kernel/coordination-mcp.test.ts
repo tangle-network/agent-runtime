@@ -1620,8 +1620,9 @@ async function withSlowCheck<T>(
     checks: () => number
     verdicts: ReadonlyArray<ReturnType<typeof deferred<boolean | CheckVerdict>>>
   }) => Promise<T>,
-  transport: { maxConcurrentRequests?: number } = {},
+  options: { maxConcurrentRequests?: number; feedback?: 'pass-only' } = {},
 ): Promise<T> {
+  const { feedback = 'verbatim', ...transport } = options
   let checks = 0
   const verdicts: Array<ReturnType<typeof deferred<boolean | CheckVerdict>>> = []
   const { handle: mcp, controls } = await serveCoordinationMcpForManager({
@@ -1641,6 +1642,7 @@ async function withSlowCheck<T>(
     toolNames: ['submit_result'],
     deliverable: {
       describe: 'a verified product packet',
+      feedback,
       check: () => {
         checks++
         const verdict = deferred<boolean | CheckVerdict>()
@@ -1692,7 +1694,7 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
 
       verdicts[0]!.resolve({
         pass: false,
-        items: { verify_product: 0 },
+        items: { verify_product: 0, artifact_present: 1 },
         failures: ['FAIL verify_product testCommand: exited 1'],
       })
       await tick()
@@ -1706,6 +1708,10 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
           value: { accepted: false, stop: false },
         },
       ])
+      expect(wake?.events[0]?.value).toMatchObject({
+        checkRead: 1,
+        reason: expect.stringContaining('1 of 2 checked items failed'),
+      })
       expect(JSON.stringify(wake?.events[0]?.value)).toContain(
         'FAIL verify_product testCommand: exited 1',
       )
@@ -1716,12 +1722,25 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
 
   it('accepts a passing verdict delivered after the fence, and checks again once a verdict was returned', async () => {
     await withSlowCheck(async ({ mcp, controls, checks, verdicts }) => {
+      for (let index = 0; index < 7; index++)
+        controls.recordCheckRead({ source: 'turn-end', verdict: { pass: false } })
       expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
-      verdicts[0]!.resolve(false)
+      const waiting = 'Release r4 passed. The operator decides when the run ends.'
+      verdicts[0]!.resolve({ pass: false, failures: [waiting] })
       await tick()
-      expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
-        { type: 'tool-outcome', ok: true, value: { accepted: false } },
-      ])
+      const refusal = (await controls.awaitWake(wakeInput()))?.events[0]?.value
+      expect(refusal).toMatchObject({
+        accepted: false,
+        stop: false,
+        checkRead: 8,
+        reason: expect.stringContaining(waiting),
+      })
+      expect(refusal).toMatchObject({
+        reason: expect.stringContaining(
+          'Manager completion evaluation #8 (submissions and turn-end checks).',
+        ),
+      })
+      expect(JSON.stringify(refusal)).not.toContain('outside check failed')
       // Identity ended with that verdict: the same packet after a repair is a fresh check.
       expect(await structured(await submit(mcp, { n: 1 }))).toMatchObject({ running: true })
       expect(checks()).toBe(2)
@@ -1745,16 +1764,18 @@ describe('submit_result on the coordination MCP is single-flight and fenced', ()
         // Answering with a receipt freed the request, not the work: the running check holds the one slot.
         expect((await submit(mcp, { n: 2 })).status).toBe(429)
         expect(checks()).toBe(1)
-        verdicts[0]!.resolve(false)
+        verdicts[0]!.resolve({ pass: false, failures: ['FAIL private evidence'] })
         await tick()
         // Settled, it no longer holds the slot, and its verdict waits for the manager's next wake.
         expect(await structured(await submit(mcp, { n: 2 }))).toMatchObject({ running: true })
         expect(checks()).toBe(2)
-        expect((await controls.awaitWake(wakeInput()))?.events).toMatchObject([
-          { type: 'tool-outcome', ok: true, value: { accepted: false } },
+        const hidden = (await controls.awaitWake(wakeInput()))?.events
+        expect(hidden).toMatchObject([
+          { type: 'tool-outcome', ok: true, value: { accepted: false, checkRead: 1 } },
         ])
+        expect(JSON.stringify(hidden)).not.toContain('private evidence')
       },
-      { maxConcurrentRequests: 1 },
+      { maxConcurrentRequests: 1, feedback: 'pass-only' },
     )
   })
 })

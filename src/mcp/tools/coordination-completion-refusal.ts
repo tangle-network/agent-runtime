@@ -1,25 +1,15 @@
 import type { CheckVerdict, DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { failedItems, NOTE_FAILURE_LINES } from '../../runtime/supervise/continuation'
-/**
- * The refusal a failed check reading returns to `submit_result`: the verdict as a located fact,
- * the FAIL lines unless the check's tests must stay hidden, and how many times the manager has
- * read the check.
- */
-export function refusalText(
-  verdict: CheckVerdict,
-  deliverable: DeliverableSpec<unknown>,
-  read: number,
-): string {
+/** The completion decision and the evidence the deliverable permits the manager to see. */
+export function refusalText(verdict: CheckVerdict, deliverable: DeliverableSpec<unknown>): string {
   const total = Object.keys(verdict.items ?? {}).length
   const failed = failedItems(verdict).length
   const score =
     verdict.composite === undefined
       ? ''
       : ` (composite ${verdict.composite}${verdict.threshold === undefined ? '' : `, passes at ${verdict.threshold}`})`
-  const head =
-    total > 0
-      ? `The outside check failed: ${failed} of ${total} items fail${score}. Check read ${read}.`
-      : `The outside check failed${score}. Check read ${read}.`
+  const items = total > 0 ? ` ${failed} of ${total} checked items failed.` : ''
+  const head = `Submission declined${score}.${items}`
   if (deliverable.feedback === 'pass-only') return head
   const lines = verdict.failures ?? []
   if (lines.length === 0) {
