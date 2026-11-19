@@ -139,12 +139,19 @@ export function snapshotExecutorConfig(
         provider,
         registry,
         profileForCreate,
+        checkpointForNode,
         taskToTurn,
         validator,
         harnessTranscript,
         shared,
         ...decisionData
       } = config
+      if (checkpointForNode !== undefined && typeof checkpointForNode !== 'function')
+        throw new ValidationError('createExecutor provider: checkpointForNode must be a function')
+      if (shared !== undefined && checkpointForNode !== undefined)
+        throw new ValidationError(
+          'createExecutor provider: a per-node checkpoint requires a dedicated environment',
+        )
       if (harnessTranscript !== undefined && typeof harnessTranscript !== 'function')
         throw new ValidationError(
           'createExecutor provider: harnessTranscript must be a capture function',
@@ -169,6 +176,7 @@ export function snapshotExecutorConfig(
         provider: resolvedProvider,
         ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
+        ...(checkpointForNode === undefined ? {} : { checkpointForNode }),
         ...(validator === undefined ? {} : { validator }),
         ...(harnessTranscript === undefined ? {} : { harnessTranscript }),
         // A live pool: every worker of the run must lease from the same boxes.
@@ -367,7 +375,7 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             'profile outputFile requires a dedicated retained provider without steering',
           )
         const selected = originalSeam.steering
-          ? selectProviderPlacement(spec.profile, originalSeam)
+          ? selectProviderPlacement(spec.profile, originalSeam, seamed.node)
           : undefined
         const providerSeam = selected?.options ?? originalSeam
         const provider = resolveAgentEnvironmentProvider(

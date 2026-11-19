@@ -2,6 +2,7 @@ import type {
   AgentCandidateWorkspaceSnapshotEvidence,
   AgentFileOutputPolicy,
   AgentProfile,
+  WorkspaceCheckpointRef,
 } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
@@ -15,7 +16,7 @@ import { type ProviderPlacement, selectProviderPlacement } from '../provider-pla
 import type { ProviderWorkspaceCaptureReceipt } from '../provider-workspace-retention'
 import type { BridgeSeam } from '../supervise/bridge-config'
 import { detachedSnapshot } from '../supervise/snapshot'
-import type { ExecutorFactory, Runtime } from '../supervise/types'
+import type { ExecutorFactory, ExecutorNodeContext, Runtime } from '../supervise/types'
 import type { UnavailablePausePolicy } from '../supervise/upstream-unavailable'
 import type { Validator } from '../types'
 import { createProviderExecutor } from './provider-executor-lifecycle'
@@ -69,7 +70,7 @@ export function providerAsExecutor(
       captured.placements === undefined
         ? spec.profile
         : detachedSnapshot(spec.profile, 'provider placement profile')
-    const selected = selectProviderPlacement(profile, captured)
+    const selected = selectProviderPlacement(profile, captured, ctx.node)
     return createProviderExecutor(provider, profile, ctx, selected.options, selected.identity)
   }
 }
@@ -146,6 +147,9 @@ export type ProviderPromptOptions = Omit<PromptOptions, 'model' | 'sessionId' | 
 export interface ProviderExecutorOptions {
   /** Select exactly one caller-declared placement from each child's unchanged profile. */
   placements?: readonly ProviderPlacement[]
+  /** Choose the initial filesystem for a supervised node from its Runtime-owned assignment.
+   * A retained session keeps its own checkpoint when it recovers. */
+  checkpointForNode?: (node: Readonly<ExecutorNodeContext>) => WorkspaceCheckpointRef | undefined
   defaults?: Partial<CreateAgentEnvironmentInput>
   runtime?: Runtime
   destroyOnSettle?: boolean
