@@ -1,5 +1,7 @@
 ## 10.0.9
 
+The Sandbox provider adapter validates the execution profile after custom mapping. Candidate profile plans can still identify a retired harness in historical evidence.
+
 Runtime now requires `@tangle-network/agent-interface` ^5.10.28 to satisfy the peer dependency of `@tangle-network/agent-profile-materialize` 1.1.139 during a strict npm install.
 
 Graph file loading skips a Bridge seat that cannot materialize the node's prompt and tries the next signed-in preference. A dry run reports the refusal when no seat can execute the prompt.
