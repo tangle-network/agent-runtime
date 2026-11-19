@@ -6,6 +6,7 @@ import {
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type AgentRunControlRef,
+  agentProfileSchema,
   canonicalCandidateDigest,
   canonicalWorkspaceCwd,
   type InteractionAcknowledgement,
@@ -66,17 +67,21 @@ export function providerAsSandboxClient(
         options.mapCreateOptions !== undefined,
       )
       const selected = structuredClone(sandboxInput.secrets ?? defaults.secrets)
-      const authored = sandboxInput.profile ?? defaults.profile
+      const authored = createOptions?.backend?.profile ?? defaults.profile
       const bindings = [
         defaults.proxySecrets,
         sandboxInput.proxySecrets,
         typeof authored === 'object' ? authored.proxySecrets : undefined,
       ].flatMap((value) => (value === undefined ? [] : [mergeProxySecretBindings(value)]))
-      const customInput = options.mapCreateOptions?.(createOptions) ?? {}
+      const { profile, ...customInput } = {
+        profile: authored,
+        ...options.mapCreateOptions?.(createOptions),
+      }
       const mapped = {
         ...defaults,
         ...sandboxInput,
         ...customInput,
+        profile: typeof profile === 'object' ? agentProfileSchema.parse(profile) : profile,
         ...(defaults.env || sandboxInput.env || customInput.env
           ? { env: { ...defaults.env, ...sandboxInput.env, ...customInput.env } }
           : {}),
@@ -105,7 +110,6 @@ export function providerAsSandboxClient(
           mapped.proxySecrets,
           typeof mapped.profile === 'object' ? mapped.profile.proxySecrets : undefined,
         )
-      if (typeof mapped.profile === 'object') mapped.profile = structuredClone(mapped.profile)
       if (mapped.backend === undefined) delete mapped.backend
       if (mapped.profile === undefined)
         throw new ValidationError(
@@ -187,7 +191,6 @@ function createInputFromSandboxOptions(
         `providerAsSandboxClient: Sandbox create controls require mapCreateOptions: ${unsupported.join(', ')}`,
       )
   }
-  const profile = options?.backend?.profile
   const backend = options?.backend?.type
   const cwd =
     options?.cwd === undefined
@@ -200,7 +203,6 @@ function createInputFromSandboxOptions(
     ...(cwd === undefined ? {} : { cwd }),
   }
   return {
-    ...(profile !== undefined ? { profile } : {}),
     ...(backend ? { backend } : {}),
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),

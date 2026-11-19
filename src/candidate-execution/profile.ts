@@ -13,6 +13,7 @@ import type {
   AgentProfileMcpServer,
   AgentProfileResourceRef,
   HarnessType,
+  RecordedHarnessType,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
@@ -121,7 +122,7 @@ export function materializeAgentCandidateProfilePlan(
 /** Resolve the private Pi roots needed by an agent-root profile plan. */
 export function candidateProfileAgentPaths(
   plan: {
-    harness: HarnessType
+    harness: RecordedHarnessType
     files: ReadonlyArray<{ root?: 'agent' | 'workspace' }>
   },
   runtimeHome: string | undefined,

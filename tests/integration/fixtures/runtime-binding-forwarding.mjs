@@ -276,6 +276,14 @@ try {
       mapCreateOptions: () => ({ secrets: ['LEGACY_ALL_TARGET'] }),
     }).create({ backend: { type: 'opencode', profile }, secrets: 'all' })
     assert.deepEqual(creates.at(-1).secrets, ['LEGACY_ALL_TARGET'])
+    const retired = { backend: { type: 'opencode', profile: { ...profile, harness: 'forge' } } }
+    const before = creates.length
+    await assert.rejects(providerAsSandboxClient(provider).create(retired), /harness/i)
+    assert.equal(creates.length, before)
+    await providerAsSandboxClient(provider, {
+      mapCreateOptions: () => ({ profile }),
+    }).create(retired)
+    assert.equal(creates.length, before + 1)
     console.log(
       JSON.stringify({
         deniedBeforeCreate: 12,
