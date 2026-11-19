@@ -48,12 +48,16 @@ const earlierPassingResult = () => ({
   stop: true,
 })
 
+const recordedRefusal = (decision: string, read: number) =>
+  `${decision}\nManager completion evaluation #${read} (submissions and turn-end checks).`
+
 function submitResultTool(env: ResultToolsEnv, deliverable: Deliverable): McpToolDescriptor {
   return {
     name: 'submit_result',
     description: [
-      'Submit the complete result to the injected independent check.',
+      'Submit the complete result for a completion decision.',
       'The first passing result is retained; stop work when accepted.',
+      'checkRead counts manager completion evaluations across submissions and turn ends.',
       ...(deliverable.describe ? [`Expected result: ${deliverable.describe}`] : []),
     ].join(' '),
     inputSchema: {
@@ -122,7 +126,7 @@ async function submitResult(
         stop: false,
         unavailable: true,
         checkRead: read.read,
-        reason: error.message,
+        reason: recordedRefusal(error.message, read.read),
       }
     }
   }
@@ -143,12 +147,13 @@ async function checkAndCommitSubmission(
     ...(fault === undefined ? {} : { unavailable: fault.message }),
   })
   if (verdict === undefined || !verdict.pass) {
-    const refusal =
+    const decision =
       verdict !== undefined
-        ? refusalText(verdict, deliverable, read.read)
+        ? refusalText(verdict, deliverable)
         : fault?.unavailable === true
-          ? `the check could not run, so this result was not judged (check read ${read.read}): ${fault.message}`
-          : `the independent check THREW, so nothing was accepted (check read ${read.read}): ${fault?.message}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`
+          ? `The check could not run. ${fault.message}`
+          : `The completion check threw an error. Report the check error before submitting again. ${fault?.message}`
+    const refusal = recordedRefusal(decision, read.read)
     state.lastRejection = { at: Date.now(), reason: refusal }
     return {
       accepted: false,
