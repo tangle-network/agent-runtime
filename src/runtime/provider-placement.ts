@@ -1,7 +1,7 @@
 import {
   type AgentProfile,
-  WorkspaceCheckpointRefSchema,
   canonicalCandidateDigest,
+  WorkspaceCheckpointRefSchema,
 } from '@tangle-network/agent-interface'
 import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import { ValidationError } from '../errors'
