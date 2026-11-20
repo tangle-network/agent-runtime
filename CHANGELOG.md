@@ -1,5 +1,7 @@
 ## 10.0.10
 
+The agent-eval peer range is `^1.0.32 || ^2.0.0`, so an application can install agent-eval 2.0.0 beside Runtime without a peer conflict; Runtime builds, typechecks and passes its suite on either major. `improve()` in method mode refuses a `describeArtifact` set beside the method: agent-eval 2.0.0 hands such a hook to every method's optimizer, where it would reach GEPA or SkillOpt without the redaction and evaluation identity `officialGepa` and `officialSkillOpt` apply. Set it on the method instead. A free agent in a test fixture now records a known $0 call, which agent-eval 1.0.39 and later require for complete cost accounting.
+
 Managers can require an explicit submission and continue unfinished delegated work within its original budget. An expired worker with no result reports failure to its parent. A worker that produces output as it exhausts its budget retains the completed turn for review. Its parent can see the overspend and whether a check accepted the work.
 
 Provider executors can restore a supervised node from a checkpoint assigned to its Runtime identity. The execution record identifies the selected checkpoint even when siblings use the same AgentProfile.
