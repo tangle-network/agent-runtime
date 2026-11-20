@@ -53,14 +53,8 @@ function resolveOptimizationMethod<TScenario extends Scenario, TArtifact>(
   return method
 }
 
-/**
- * The comparison's one producer row, read in full: the method's own ledger and,
- * for a method Eval composed (`sequentialOptimizationMethod`,
- * `scopedOptimizationMethod`), every stage's ledger, depth first in run order.
- * Each ledger must be closed and is replayed from its bytes. `searchHistories`
- * is left out when any search behind the winner recorded no ledger, because the
- * lineage is then unknown.
- */
+/** Read the comparison's one producer row and its composed stages depth first:
+ * refuse an open ledger, naming its stage, and replay each closed one from its bytes. */
 function closedSearchHistories(
   methodName: string,
   producers: readonly SearchHistoryCoverageRow[],
@@ -252,11 +246,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
       `improve(): reported total cost $${raw.totalCost.totalCostUsd} exceeds costCeiling $${comparisonOptions.costCeiling}`,
     )
   }
-  const { searchHistory, searchHistories } = closedSearchHistories(
-    method.name,
-    raw.searchHistory.producers,
-    methodStorage,
-  )
+  const histories = closedSearchHistories(method.name, raw.searchHistory.producers, methodStorage)
   const score = raw.best
   const winnerSurface = immutableCandidateValue(score.winnerSurface)
   assertCandidateSurfaceKind(surface, baselineSurface, winnerSurface)
@@ -277,8 +267,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
         : 'hold',
     lift: score.lift,
     liftInterval: { ...score.liftCi },
-    searchHistory,
-    ...(searchHistories ? { searchHistories } : {}),
+    ...histories,
     cost,
     durationMs: Date.now() - startedAt,
     lineage: Object.freeze({
