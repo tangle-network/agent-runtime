@@ -12,13 +12,10 @@ import {
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime'
+import { RELEASE_DESTROY_MS } from '../../src/runtime/supervise/retained-owner-release'
 import type { Agent, AgentSpec, Executor } from '../../src/runtime/supervise/types'
-import {
-  observe,
-  physicalState,
-  withInPlaceProcess,
-  within,
-} from '../helpers/in-place-process-fixture'
+import { observe, physicalState, withInPlaceProcess } from '../helpers/in-place-process-fixture'
+import { HANG_BOUND_MS, waitForState, within } from '../helpers/observable-state'
 
 it.each([
   {
@@ -104,19 +101,13 @@ it.each([
   let rootAdmitted = false
   let drives = 0
   let workerId = ''
-  let guard: ReturnType<typeof setTimeout> | undefined
-  let guardDeadline = Number.POSITIVE_INFINITY
-  let guardExpired = false
+  let firstBoundaryAck: ReturnType<typeof readWorkerSteerAcknowledgement>
   const stages: { phase: string; at: number }[] = []
   const mark = (phase: string) => stages.push({ phase, at: Date.now() })
   const controller = new AbortController()
   // Dispatch can fail before execute: abort releases that wait, and the driver checks the
   // same signal before writing a steer, so cleanup can unwind and join the existing run.
   controller.signal.addEventListener('abort', entered, { once: true })
-  let failBoundary!: (error: unknown) => void
-  const boundaryFailure = new Promise<never>((_resolve, reject) => {
-    failBoundary = reject
-  })
   let verified = false
   const run = supervisePursuit(
     {
@@ -145,22 +136,10 @@ it.each([
           rootSteerAtBoundary &&
           record.attempt === 1 &&
           record.error === undefined &&
-          rootAdmitted
+          rootAdmitted &&
+          !controller.signal.aborted
         ) {
-          const acknowledgement = readWorkerSteerAcknowledgement(directory, rootOperationId)
-          if (!guardExpired && !controller.signal.aborted && Date.now() < guardDeadline) {
-            try {
-              expect(
-                acknowledgement,
-                'ROOT_BOUNDARY_ADMISSION_MISSING: first live attempt must queue the root steer',
-              ).toMatchObject({ effect: 'unknown' })
-            } catch (error) {
-              // Surface the public observer's failure even if manager error teardown is waiting
-              // for the intentionally held capture; cleanup still aborts and joins that lifetime.
-              failBoundary(error)
-              throw error
-            }
-          }
+          firstBoundaryAck = readWorkerSteerAcknowledgement(directory, rootOperationId)
         }
       },
       makeWorkerAgent: () => worker,
@@ -226,9 +205,14 @@ it.each([
         })
         await capturing
         cancelWorker(directory, workerId, 'cancel-blocked-capture')
-        await expect
-          .poll(() => readWorkerCancellation(directory, 'cancel-blocked-capture')?.effect)
-          .toMatch(/^(cancel_requested|cancelled)$/)
+        await waitForState(
+          directory,
+          async () => {
+            const effect = readWorkerCancellation(directory, 'cancel-blocked-capture')?.effect
+            return effect === 'cancel_requested' || effect === 'cancelled'
+          },
+          controller.signal,
+        )
         if (rootSteerAtBoundary) {
           await closed
           // The observer's timer is still awaiting this worker's durable capture. A new root
@@ -249,18 +233,10 @@ it.each([
     },
   )
   try {
-    guardDeadline = Date.now() + 5000
-    await Promise.race([
-      run,
-      boundaryFailure,
-      new Promise<never>((_resolve, reject) => {
-        guard = setTimeout(() => {
-          guardExpired = true
-          mark('guard-expired')
-          reject(new Error('native turn blocked on steer capture'))
-        }, 5000)
-      }),
-    ])
+    // Either phase can hang. Keep cleanup reachable if the worker never starts capturing.
+    await within(Promise.race([capturing, run]), HANG_BOUND_MS, 'waiting for worker steer capture')
+    // The turn must close while capture is still held. Only cleanup releases it.
+    await within(run, HANG_BOUND_MS, 'native turn blocked on steer capture')
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
     expect(readWorkerCancellation(directory, 'cancel-blocked-capture')).toMatchObject({
       effect: 'cancelled',
@@ -271,6 +247,9 @@ it.each([
     expect(existsSync(delivered)).toBe(false)
     expect(instructionCaptures).toBe(1)
     if (rootSteerAtBoundary) {
+      expect(firstBoundaryAck, 'first live attempt must queue the root steer').toMatchObject({
+        effect: 'unknown',
+      })
       expect(readWorkerSteerAcknowledgement(directory, rootOperationId)).toMatchObject({
         effect: 'delivered',
       })
@@ -305,7 +284,6 @@ it.each([
     )
   } finally {
     mark('cleanup')
-    clearTimeout(guard)
     controller.abort(new Error('native control fixture cleanup'))
     captured()
     captureReleased = true
@@ -450,12 +428,16 @@ it.skipIf(process.platform === 'win32')(
           signal: fixture.controller.signal,
         },
       )
-      const outcome = await observe(within(run, 5000))
+      // A permanent teardown failure ends the default confirmation policy at once. Retrying it
+      // would hold the run for the whole RELEASE_DESTROY_MS window, which the hang bound sits
+      // well inside, so the bound separates that regression from a slow host.
+      expect(HANG_BOUND_MS).toBeLessThan(RELEASE_DESTROY_MS)
+      const outcome = await observe(within(run))
       if (exercise) await exercise
       fixture.record('scope-result', outcome)
       if (outcome.status === 'rejected') throw outcome.error
-      // The default confirmation policy must complete within the same 5s guard. The immutable
-      // failure stays UNKNOWN; neither Scope settlement nor that status proves physical closure.
+      // The immutable failure stays UNKNOWN; neither Scope settlement nor that status proves
+      // physical closure.
       const unconfirmed = outcome.value.teardownUnconfirmed?.find(
         (entry) => entry.label === 'in-place-process',
       )
