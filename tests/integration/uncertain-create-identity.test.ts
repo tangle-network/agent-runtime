@@ -56,6 +56,23 @@ function executionResults(events: SpawnEvent[], id?: string) {
       event.kind === 'execution-result' && (id === undefined || event.id === id),
   )
 }
+function acceptedExecutionId(
+  events: SpawnEvent[],
+  result: Extract<SpawnEvent, { kind: 'execution-result' }>,
+) {
+  const admission = events
+    .slice(0, events.indexOf(result))
+    .filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-admitted' }> =>
+        event.kind === 'execution-admitted' &&
+        event.id === result.id &&
+        event.admission.phase === 'dispatched',
+    )
+    .at(-1)?.admission
+  if (admission?.phase !== 'dispatched')
+    throw new Error('accepted result has no exact native admission')
+  return admission.controlRef.executionId
+}
 async function assertAcceptedNativeResult(
   fixture: ProcessFixture,
   event: Extract<SpawnEvent, { kind: 'execution-result' }>,
@@ -792,14 +809,18 @@ describe('accepted native recovery and historical identities', () => {
             }),
           ]),
         )
-        expect(executionResults(events, rootId).length).toBeGreaterThan(0)
+        const firstRootResult = executionResults(events, rootId)[0]!
+        expect(acceptedExecutionId(events, firstRootResult)).toBe(root!.executionId)
+        expect(acceptedExecutionId(events, result[0]!)).toBe(leaf!.executionId)
+        await assertAcceptedNativeResult(fixture, firstRootResult)
+        // A later pursuit turn can dispatch only after the original root has committed its result.
+        expect(intents(events.slice(0, events.indexOf(firstRootResult)), rootId)).toHaveLength(1)
         expect(abandoned(events)).toEqual([])
+        const acceptedIds = executionResults(events).map((row) => acceptedExecutionId(events, row))
+        expect(new Set(acceptedIds).size).toBe(acceptedIds.length)
         const recovered = await fixture.state()
-        expect(recovered.runs.map((run) => run.executionId)).toEqual([
-          root!.executionId,
-          leaf!.executionId,
-        ])
-        expect(requests(recovered, 'dispatch')).toHaveLength(2)
+        const dispatchedIds = requests(recovered, 'dispatch').map((row) => row.executionId)
+        expect(dispatchedIds.sort()).toEqual(acceptedIds.sort())
         expect(fixture.outcomes().find((row) => row.kind === 'settled')).toMatchObject({
           result: { result: { kind: 'winner' } },
         })
@@ -968,20 +989,7 @@ describe('accepted native recovery and historical identities', () => {
       const acceptedResults = executionResults(events)
       for (const result of acceptedResults) await assertAcceptedNativeResult(fixture, result)
       const acceptedExecutions = new Set(
-        acceptedResults.map((result) => {
-          const admission = events
-            .slice(0, events.indexOf(result))
-            .filter(
-              (event): event is Extract<SpawnEvent, { kind: 'execution-admitted' }> =>
-                event.kind === 'execution-admitted' &&
-                event.id === result.id &&
-                event.admission.phase === 'dispatched',
-            )
-            .at(-1)?.admission
-          if (admission?.phase !== 'dispatched')
-            throw new Error('accepted result has no exact native admission')
-          return admission.controlRef.executionId
-        }),
+        acceptedResults.map((result) => acceptedExecutionId(events, result)),
       )
       expect(acceptedExecutions.size).toBe(acceptedResults.length)
       const completedExecutions = new Set(
