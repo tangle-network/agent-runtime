@@ -297,9 +297,7 @@ function makeFixture(mode: ProcessMode, name: string) {
         }
         await sleep(10)
       }
-      throw new Error(
-        `actual subprocess/descendant readiness missing within ${HANG_BOUND_MS}ms`,
-      )
+      throw new Error(`actual subprocess/descendant readiness missing within ${HANG_BOUND_MS}ms`)
     },
     record(phase: string, value: unknown) {
       const record = { phase, directory, at: Date.now(), value }
