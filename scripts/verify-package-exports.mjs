@@ -225,7 +225,10 @@ try {
   writeFileSync(
     join(appDir, 'tsconfig.json'),
     `${JSON.stringify(
-      { ...createStrictNodeConsumerTsconfig(), include: ['consumer.ts', 'provider-consumer.ts'] },
+      {
+        ...createStrictNodeConsumerTsconfig(),
+        include: ['consumer.ts', 'provider-consumer.ts', 'stored-graph-consumer.ts'],
+      },
       null,
       2,
     )}\n`,
@@ -237,6 +240,10 @@ try {
   copyFileSync(
     join(repoRoot, 'scripts', 'fixtures', 'packed-runtime-consumer.ts'),
     join(appDir, 'consumer.ts'),
+  )
+  copyFileSync(
+    join(repoRoot, 'scripts', 'fixtures', 'packed-stored-graph-consumer.ts'),
+    join(appDir, 'stored-graph-consumer.ts'),
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
@@ -272,6 +279,7 @@ try {
   assertNoEdgeUnsafeStaticImports(installedScope)
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
   run(process.execPath, ['--experimental-strip-types', 'provider-consumer.ts'], appDir)
+  run(process.execPath, ['--experimental-strip-types', 'stored-graph-consumer.ts'], appDir)
   copyFileSync(
     join(repoRoot, 'scripts', 'fixtures', 'packed-sandbox-contract-consumer.mjs'),
     join(appDir, 'sandbox-contract-consumer.mjs'),

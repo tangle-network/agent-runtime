@@ -132,6 +132,7 @@ export async function runFinalizer(
     readonly deliverable?: DeliverableSpec
   },
 ): Promise<unknown | undefined> {
+  if (args.deliverable?.requireSubmission) return undefined
   const deliveredRows = args.settled.filter((w) => w.status === 'done' && w.valid === true)
   const deliveredRefs = new Set<string>()
   for (const w of deliveredRows) if (w.outRef !== undefined) deliveredRefs.add(w.outRef)

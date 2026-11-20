@@ -66,6 +66,7 @@ const profile = testAgentProfile('parking-root', {
 const abort = new AbortController()
 let cancelTimer: ReturnType<typeof setTimeout> | undefined
 let drives = 0
+let toolOutcomeAttempts = 0
 let releaseTool!: () => void
 const toolMayFinish = new Promise<void>((resolve) => {
   releaseTool = resolve
@@ -159,6 +160,16 @@ try {
     ...(mode === 'tool'
       ? {
           coordination: { requestTimeoutMs: 400 },
+          onCoordinationEvent: async (_context, id, record) => {
+            if (record.event.type !== 'tool-outcome') return
+            appendFileSync(
+              join(runDir, 'tool-outcome-attempts.jsonl'),
+              `${JSON.stringify({ id, seq: record.seq, at: record.at, receipt: record.event.outcome.receipt })}\n`,
+            )
+            // The observer persisted the first delivery, then lost its acknowledgement.
+            if (++toolOutcomeAttempts === 1) throw new Error('lost tool outcome acknowledgement')
+            cancelTimer = setTimeout(() => abort.abort(new Error('unread tool outcome proof')), 100)
+          },
           resolveSupervisorTools: () => [
             {
               name: 'slow_effect',
@@ -168,10 +179,6 @@ try {
                 appendFileSync(join(runDir, 'tool-started'), 'started\n')
                 await toolMayFinish
                 appendFileSync(join(runDir, 'tool-finished'), 'finished\n')
-                cancelTimer = setTimeout(
-                  () => abort.abort(new Error('unread tool outcome proof')),
-                  100,
-                )
                 return { committed: true }
               },
             },

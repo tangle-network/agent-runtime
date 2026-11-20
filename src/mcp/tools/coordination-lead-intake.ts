@@ -4,6 +4,13 @@ import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import type { CoordinationTools, CoordinationToolsOptions } from './coordination-contracts'
 import type { CoordinationEvent, LeadMessage, ToolOutcomeEvent } from './coordination-events'
 
+interface OpenToolReceipt {
+  readonly tool: string
+  readonly startedAt: number
+  outcome?: Extract<CoordinationEvent, { type: 'tool-outcome' }>
+  publishing?: Promise<void>
+}
+
 /**
  * What reaches a manager from outside its tools: lead messages from its parent, and the outcomes
  * of tool calls that outlived their response fence. Both are open work until they are delivered.
@@ -19,7 +26,7 @@ export function createLeadIntake({
 }) {
   // Tool calls that outlived their response fence, by receipt. Each is open work: its outcome
   // reaches the manager as a `tool-outcome` event on the next wake.
-  const openReceipts = new Map<string, { readonly tool: string; readonly startedAt: number }>()
+  const openReceipts = new Map<string, OpenToolReceipt>()
   let receiptSeq = 0
   // Lead messages accepted and still being published. The sender is told `delivered` the moment the
   // message is accepted, so a manager that ends its turn then must still count it as open work.
@@ -54,11 +61,28 @@ export function createLeadIntake({
     return receipt
   }
 
+  function publishOutcome(
+    receipt: string,
+    open: OpenToolReceipt,
+    event: NonNullable<OpenToolReceipt['outcome']>,
+  ): Promise<void> {
+    // Keep the receipt open until every subscriber acknowledges and the manager can pull it.
+    // Retry the same event after a lost acknowledgement so its sequence and timestamp survive.
+    open.publishing ??= Promise.resolve()
+      .then(() => bus.publish(event))
+      .then(() => {
+        openReceipts.delete(receipt)
+      })
+      .finally(() => {
+        delete open.publishing
+      })
+    return open.publishing
+  }
+
   const settleToolReceipt: CoordinationTools['settleToolReceipt'] = async (receipt, outcome) => {
     const open = openReceipts.get(receipt)
     if (open === undefined) return
-    openReceipts.delete(receipt)
-    await bus.publish({
+    open.outcome ??= {
       type: 'tool-outcome',
       outcome: detachedFrozen<ToolOutcomeEvent>({
         receipt,
@@ -71,13 +95,22 @@ export function createLeadIntake({
             }),
         elapsedMs: Date.now() - open.startedAt,
       }),
-    })
+    }
+    await publishOutcome(receipt, open, open.outcome)
+  }
+
+  async function retryToolOutcomes(): Promise<void> {
+    for (const [receipt, open] of openReceipts) {
+      if (open.outcome !== undefined && open.publishing === undefined)
+        await publishOutcome(receipt, open, open.outcome)
+    }
   }
 
   return {
     receiveLeadMessage,
     openToolReceipt,
     settleToolReceipt,
+    retryToolOutcomes,
     leadPublishing: () => leadPublishing,
     openReceiptCount: () => openReceipts.size,
   }
