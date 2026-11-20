@@ -894,6 +894,10 @@ describe('a shape change is classified from the declarations it was built from',
         `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = Exclude<(typeof keys)[number], 'skip'>; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`,
     ],
     ['a callable interface argument', callable],
+    ...['readonly Answer[]', 'ReadonlyArray<Answer>'].map((array) => [
+      `a ${array} item`,
+      (member: string) => `interface Answer { readonly id: string; ${member} } export interface Report { readonly questions: ${array}; }`,
+    ] as const),
     ['each variant of an untagged union', (member: string) => variants(member)],
   ])(
     'asks a patch for an added optional member of %s and a major for an added required one',
