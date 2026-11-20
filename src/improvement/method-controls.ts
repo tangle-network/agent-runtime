@@ -41,7 +41,11 @@ export function methodRuntimeControlsOf<TScenario extends Scenario, TArtifact>(
 export function assertNoCallerArtifactDescriptor(input: object, label: string): void {
   if ((input as { describeArtifact?: unknown }).describeArtifact !== undefined) {
     throw new ConfigError(
-      `${label}: describeArtifact belongs on the method, not beside it: officialGepa and officialSkillOpt redact what it returns and record it in their evaluation identity, and a native method takes it in its own configuration`,
+      [
+        `${label}: describeArtifact belongs on the method, not beside it:`,
+        'officialGepa and officialSkillOpt redact what it returns and record it in their',
+        'evaluation identity, and a native method takes it in its own configuration',
+      ].join(' '),
     )
   }
 }
