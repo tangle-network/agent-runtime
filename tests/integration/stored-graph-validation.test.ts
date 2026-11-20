@@ -56,7 +56,19 @@ it('validates compiled file data through the actual registry and deliverable con
     const deliverable = { ...validated.deliverable, requireSubmission: true }
     expect(() => redigest({ ...validated, deliverable })).toThrow('no manager to submit')
     const { entry: _entry, ...managed } = validated
-    const authoredManager = redigest({ ...managed, deliverable })
+    const authoredManager = redigest({
+      ...managed,
+      nodes: [{ id: 'lead', profile: testAgentProfile('lead') }, ...managed.nodes],
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'lead',
+          to: 'worker',
+          directive: { surface: 'delegates/worker-brief', version: 1 },
+        },
+      ],
+      deliverable,
+    })
     await recordStoredGraphRun(registry, authoredManager)
     const manager = graphFromStored(
       validateStoredGraph(await loadGraph(registry, authoredManager.digest)),
