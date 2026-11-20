@@ -964,22 +964,34 @@ describe('a shape change is classified from the declarations it was built from',
   })
 
   it.each([
-    ['an interface', (own: string) =>
-      `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`],
-    ['a Pick', (own: string) =>
-      `interface Parent { readonly mode?: string | number; } export type StartOptions = Pick<Parent, 'mode'>${own ? ` & { ${own} }` : ''};`],
-    ['a private projection', (own: string) =>
-      `interface Parent { readonly mode?: string | number; } type Projected = Pick<Parent, 'mode'>; export type StartOptions = Projected & { readonly label?: string; ${own} };`],
-  ] as const)('asks a major for a narrowed optional property inherited through %s', async (_form, inherited) => {
-    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-heritage-'))
-    roots.push(root)
-    await git(root, 'init', '--quiet', '--initial-branch=main')
-    const released = await build(root, '1.0.0', inherited(''))
-    await publish(root, 'v1.0.0')
-    await build(root, '1.0.1', inherited('readonly mode?: string;'))
-    const failure = await check(root, released).catch((error) => error)
-    expect(failure.stderr).toContain('breaking change needing a major bump')
-  })
+    [
+      'an interface',
+      (own: string) =>
+        `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`,
+    ],
+    [
+      'a Pick',
+      (own: string) =>
+        `interface Parent { readonly mode?: string | number; } export type StartOptions = Pick<Parent, 'mode'>${own ? ` & { ${own} }` : ''};`,
+    ],
+    [
+      'a private projection',
+      (own: string) =>
+        `interface Parent { readonly mode?: string | number; } type Projected = Pick<Parent, 'mode'>; export type StartOptions = Projected & { readonly label?: string; ${own} };`,
+    ],
+  ] as const)(
+    'asks a major for a narrowed optional property inherited through %s',
+    async (_form, inherited) => {
+      const root = await mkdtemp(join(tmpdir(), 'agent-runtime-heritage-'))
+      roots.push(root)
+      await git(root, 'init', '--quiet', '--initial-branch=main')
+      const released = await build(root, '1.0.0', inherited(''))
+      await publish(root, 'v1.0.0')
+      await build(root, '1.0.1', inherited('readonly mode?: string;'))
+      const failure = await check(root, released).catch((error) => error)
+      expect(failure.stderr).toContain('breaking change needing a major bump')
+    },
+  )
 
   it('reads an inferred promised union part by part: an optional member is a patch, a removed one a major', async () => {
     const promised = (member: string, rest = '  readonly attempts: number;\n') =>
