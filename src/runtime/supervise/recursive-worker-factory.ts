@@ -151,7 +151,6 @@ function managedWorker(
     subtreeGraph,
     ownFlow,
     managerDeliverable: ownSubmission ? ownSubmissionDeliverable : admitted.childDeliverable,
-    ownSubmission,
     acceptedSubmission: false,
     unassessedOutput: false,
   }

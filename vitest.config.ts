@@ -80,11 +80,10 @@ export default defineConfig({
       '**/tsconfig*.json',
       '**/tsdown.config.*',
     ],
-    // Several suites drive real fixtures + canonical digests; in isolation each runs well under a
-    // second, but the full parallel pool inflates their wall ~10x and brushes vitest's 5s default
-    // (measured 3.6-4.1s) — pure CPU contention. 20s absorbs it; a genuine hang still trips. hookTimeout too.
-    testTimeout: 20_000,
-    hookTimeout: 20_000,
+    // Several suites drive real fixtures + canonical digests; the full parallel pool inflates
+    // their wall time under shared-runner contention. 60s absorbs it; a genuine hang still trips.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     projects: [
       { extends: true, test: { name: 'parallel', exclude: [...exclude, ...serial] } },
       {
