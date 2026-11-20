@@ -15,11 +15,13 @@
 import { appendFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
+import { recordValue } from '../../../src/record-value'
 import {
   createFencedSqlRunContext,
   promptHandle,
   RunParkedError,
   runGraph,
+  type RunGraphOptions,
   type ToolLoopChat,
 } from '../../../src/runtime/index'
 import type { SelectSeat } from '../../../src/runtime/supervise/seat-chain'
@@ -55,7 +57,7 @@ const profile = testAgentProfile('work', {
 })
 let selections = 0
 const abort = new AbortController()
-if (mode === 'short') setTimeout(() => abort.abort(new Error('stop the in-place wait')), 1_500)
+let cancelShortWait: ReturnType<typeof setTimeout> | undefined
 const sql = openSql(join(dir, 'run-context.sqlite'))
 const context = await createFencedSqlRunContext(sql.adapter, RUN_ID, TEST_LEASE)
 const journal = async () => (await context.journal.loadTree(RUN_ID)) ?? []
@@ -158,7 +160,19 @@ const shared = {
   perWorker: { maxIterations: 2, maxTokens: 500 },
   childSettleGraceMs: 0,
   signal: abort.signal,
-}
+  hooks: {
+    onEvent(event) {
+      if (
+        mode === 'short' &&
+        event.target === 'agent.seat' &&
+        recordValue(event.payload)?.phase === 'paused'
+      ) {
+        // Cancel after the worker's durable wait gives the parking policy a chance to hand off.
+        cancelShortWait ??= setTimeout(() => abort.abort(new Error('stop the in-place wait')), 300)
+      }
+    },
+  },
+} satisfies RunGraphOptions
 const deliverable = { describe: 'the seated work', check: () => true }
 const budget = { maxIterations: 20, maxTokens: 10_000, deadlineMs: 3_600_000 }
 try {
@@ -209,6 +223,7 @@ try {
     })}\n`,
   )
 } finally {
+  clearTimeout(cancelShortWait)
   sql.database.close()
   // A root request still open when the run parked would answer after this point; record it.
   if (holdsRequest) {
