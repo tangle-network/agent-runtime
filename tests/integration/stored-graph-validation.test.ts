@@ -13,7 +13,7 @@ import {
 } from '../../src/runtime/supervise/graph-registry'
 import { createPromptRegistry } from '../../src/runtime/supervise/prompt-registry'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 function redigest(graph: StoredGraph): StoredGraph {
   const { digest: _digest, ...content } = graph
@@ -58,7 +58,15 @@ it('validates compiled file data through the actual registry and deliverable con
     const { entry: _entry, ...managed } = validated
     const authoredManager = redigest({
       ...managed,
-      nodes: [{ id: 'lead', profile: testAgentProfile('lead') }, ...managed.nodes],
+      nodes: [
+        {
+          id: 'lead',
+          profile: testAgentProfile('lead', {
+            tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+          }),
+        },
+        ...managed.nodes,
+      ],
       edges: [
         {
           kind: 'delegates',
