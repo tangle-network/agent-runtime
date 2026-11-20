@@ -198,9 +198,7 @@ function nestedDeliverableDeps(child: ManagedChild): Partial<SupervisorAgentDeps
       : {}),
     // A child gets the run's continuation bounds and its own task and check. A returned
     // harness turn alone cannot satisfy the child's promised submission.
-    ...(checked &&
-    options.continuation &&
-    isExternalSupervisor(admitted.authorized)
+    ...(checked && options.continuation && isExternalSupervisor(admitted.authorized)
       ? {
           continuation: options.continuation,
           ...(options.runDir === undefined

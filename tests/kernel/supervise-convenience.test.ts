@@ -151,89 +151,97 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(result.kind).toBe('no-winner')
   })
 
-  it.each(['open', 'expired'] as const)('a managed child finishes its own submission under a %s continuation', async (policy) => {
-    // test-retained-root-wake-20261018b (2026-10-18): the child's submit_result was refused with the
-    // run's check ("Expected: the canary runs to its deadline"), so it never settled and its waiting
-    // manager was only ever woken by the heartbeat.
-    const journal = new InMemorySpawnJournal()
-    const child = testAgentProfile('delay', {
-      harness: 'opencode',
-      tools: runtimeToolDeclarations('submit_result'),
-    })
-    const call = async (url: string, name: string, args: Record<string, unknown>) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: name,
-          method: 'tools/call',
-          params: { name, arguments: args },
-        }),
-      })
-      return response.json()
-    }
-    const rootTasks: unknown[] = []
-    let childReply: unknown
-    let childTurns = 0
-    const driveHarness: DriveHarness = async ({ profile, task, coordinationMcpUrl }) => {
-      if (profile.name === 'root') {
-        rootTasks.push(task)
-        if (rootTasks.length === 1) {
-          await call(coordinationMcpUrl, 'spawn_worker', {
-            profile: child,
-            task: 'submit CHILD: ready',
-          })
-        } else {
-          await call(coordinationMcpUrl, 'submit_result', { result: 'ROOT: recorded' })
-        }
-        return
-      }
-      if (++childTurns === 1) return
-      childReply = await call(coordinationMcpUrl, 'submit_result', { result: 'CHILD: ready' })
-    }
-
-    await superviseForTest(
-      testAgentProfile('root', {
+  it.each(['open', 'expired'] as const)(
+    'a managed child finishes its own submission under a %s continuation',
+    async (policy) => {
+      // test-retained-root-wake-20261018b (2026-10-18): the child's submit_result was refused with the
+      // run's check ("Expected: the canary runs to its deadline"), so it never settled and its waiting
+      // manager was only ever woken by the heartbeat.
+      const journal = new InMemorySpawnJournal()
+      const child = testAgentProfile('delay', {
         harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
-      }),
-      'delegate',
-      {
-        budget,
-        perWorker: { maxIterations: 4, maxTokens: 10_000 },
-        makeLeafAgent: () => deliveringLeaf('unused', {}),
-        driveHarness,
-        journal,
-        runId: 'own-submission',
-        // Only the root can submit the complete result; the narrower child has its own assignment.
-        deliverable: {
-          describe: 'the complete result from the root',
-          check: (value) => value === 'ROOT: recorded' || { pass: false, failures: ['FAIL run: incomplete'] },
-        },
-        continuation: testContinuation(policy === 'expired' ? { deadline: 1 } : {}),
-      },
-    )
+        tools: runtimeToolDeclarations('submit_result'),
+      })
+      const call = async (url: string, name: string, args: Record<string, unknown>) => {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: name,
+            method: 'tools/call',
+            params: { name, arguments: args },
+          }),
+        })
+        return response.json()
+      }
+      const rootTasks: unknown[] = []
+      let childReply: unknown
+      let childTurns = 0
+      const driveHarness: DriveHarness = async ({ profile, task, coordinationMcpUrl }) => {
+        if (profile.name === 'root') {
+          rootTasks.push(task)
+          if (rootTasks.length === 1) {
+            await call(coordinationMcpUrl, 'spawn_worker', {
+              profile: child,
+              task: 'submit CHILD: ready',
+            })
+          } else {
+            await call(coordinationMcpUrl, 'submit_result', { result: 'ROOT: recorded' })
+          }
+          return
+        }
+        if (++childTurns === 1) return
+        childReply = await call(coordinationMcpUrl, 'submit_result', { result: 'CHILD: ready' })
+      }
 
-    if (policy === 'open') {
-      expect(childTurns).toBe(2)
-      expect(JSON.stringify(childReply)).toContain('accepted')
-      expect(JSON.stringify(childReply)).not.toContain('FAIL run')
-    } else {
-      expect(childTurns).toBe(1)
-      expect(childReply).toBeUndefined()
-    }
-    expect(await journal.loadTree('own-submission')).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: 'settled', id: 'own-submission:s0', status: policy === 'open' ? 'done' : 'down' }),
-      ]),
-    )
-    // The settle, not the heartbeat, starts the manager's next turn.
-    expect(rootTasks.length).toBeGreaterThanOrEqual(2)
-    expect(String(rootTasks[1])).toContain('own-submission:s0')
-    expect(String(rootTasks[1])).toContain('"settled"')
-    expect(String(rootTasks[1])).not.toContain('Nothing reached your inbox')
-  })
+      await superviseForTest(
+        testAgentProfile('root', {
+          harness: 'opencode',
+          tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+        }),
+        'delegate',
+        {
+          budget,
+          perWorker: { maxIterations: 4, maxTokens: 10_000 },
+          makeLeafAgent: () => deliveringLeaf('unused', {}),
+          driveHarness,
+          journal,
+          runId: 'own-submission',
+          // Only the root can submit the complete result; the narrower child has its own assignment.
+          deliverable: {
+            describe: 'the complete result from the root',
+            check: (value) =>
+              value === 'ROOT: recorded' || { pass: false, failures: ['FAIL run: incomplete'] },
+          },
+          continuation: testContinuation(policy === 'expired' ? { deadline: 1 } : {}),
+        },
+      )
+
+      if (policy === 'open') {
+        expect(childTurns).toBe(2)
+        expect(JSON.stringify(childReply)).toContain('accepted')
+        expect(JSON.stringify(childReply)).not.toContain('FAIL run')
+      } else {
+        expect(childTurns).toBe(1)
+        expect(childReply).toBeUndefined()
+      }
+      expect(await journal.loadTree('own-submission')).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'settled',
+            id: 'own-submission:s0',
+            status: policy === 'open' ? 'done' : 'down',
+          }),
+        ]),
+      )
+      // The settle, not the heartbeat, starts the manager's next turn.
+      expect(rootTasks.length).toBeGreaterThanOrEqual(2)
+      expect(String(rootTasks[1])).toContain('own-submission:s0')
+      expect(String(rootTasks[1])).toContain('"settled"')
+      expect(String(rootTasks[1])).not.toContain('Nothing reached your inbox')
+    },
+  )
 
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'supervise-rundir-'))

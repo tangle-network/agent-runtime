@@ -1,12 +1,12 @@
 import { ValidationError } from '../../errors'
 import { errorMessage } from '../util'
-import { ownSubmissionDeliverable } from './supervisor-agent-profile'
 import type { CoordinationMcpHandle } from './coordination-mcp'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
 import { providerVisibleProfile } from './provider-visible-profile'
 import { isRunParked } from './run-parking'
 import { detachedSnapshot } from './snapshot'
 import type { SupervisorAgentDeps } from './supervisor-agent-contracts'
+import { ownSubmissionDeliverable } from './supervisor-agent-profile'
 import {
   type ExternalManagerConfig,
   type ExternalManagerLive,
