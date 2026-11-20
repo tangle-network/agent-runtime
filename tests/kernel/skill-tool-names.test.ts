@@ -115,3 +115,13 @@ describe('profile-authoring skill', () => {
     }
   })
 })
+
+describe('work-producing skills set the bar first', () => {
+  const names = ['agent-graphs', 'be-ambitious', 'build-with-agent-runtime', 'profile-authoring']
+
+  it.each(names)('%s opens with the bar and finishes against it', (name) => {
+    const skill = readFileSync(join(skillsRoot, name, 'SKILL.md'), 'utf8')
+    expect(skill.match(/^## .*$/m)?.[0]).toBe('## Set the bar')
+    expect(skill).toContain('necessary, not sufficient')
+  })
+})

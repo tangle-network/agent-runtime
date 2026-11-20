@@ -10,7 +10,7 @@ that does the work, run it under your granted permissions, and record what happe
 Every execution is fully traced like any graph run — the registry plus the run's journal
 is the knowledge.
 
-Apply `be-ambitious` to sharpen the methods and outside check while keeping the user's goal and acceptance fixed.
+Apply `be-ambitious` to set the graph's bar (the best known result, a target that beats it, the outside check) while keeping the task's acceptance and granted authority fixed.
 Apply `agent-graphs` for the executable graph contract; keep these capabilities as separate profile skill resources.
 For a file consumer, deliver one canonical YAML or JSON graph, qualify it through the existing dry-run path, and use that same file for the authorized real run.
 Runtime owns loading and content addressing; Bridge owns native execution and seat inventory.
