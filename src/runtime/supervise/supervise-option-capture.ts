@@ -148,6 +148,12 @@ export function captureDeliverable(
   if (typeof deliverable.check !== 'function') {
     throw new ValidationError(`${context}: deliverable.check must be a function`)
   }
+  if (
+    deliverable.requireSubmission !== undefined &&
+    typeof deliverable.requireSubmission !== 'boolean'
+  ) {
+    throw new ValidationError(`${context}: deliverable.requireSubmission must be a boolean`)
+  }
   if (deliverable.checkState !== undefined && typeof deliverable.checkState !== 'function') {
     throw new ValidationError(`${context}: deliverable.checkState must be a function`)
   }
@@ -162,6 +168,9 @@ export function captureDeliverable(
     ...detachedSnapshot(
       {
         describe: deliverable.describe,
+        ...(deliverable.requireSubmission === undefined
+          ? {}
+          : { requireSubmission: deliverable.requireSubmission }),
         ...(deliverable.feedback === undefined ? {} : { feedback: deliverable.feedback }),
         ...(deliverable.sealed === undefined ? {} : { sealed: deliverable.sealed === true }),
       },
