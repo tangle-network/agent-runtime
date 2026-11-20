@@ -175,34 +175,36 @@ it('steer and binding writes wait on the durable writer without blocking the eve
         message: 'admitted outside any claim',
       }),
     )
-    const claimed = completion(lock.run(async () => {
-      const steer = await writeWorkerSteerAsync(dir, 'run', 'run:s1', {
-        eventDir: dir,
-        operationId: 'steer-claimed',
-        message: 'admitted under the run claim',
-      })
-      const record = {
-        schemaVersion: 1 as const,
-        operationId: steer.request.operationId,
-        requestDigest: steer.request.requestDigest,
-        worker: steer.request.worker,
-        requestedAt: steer.request.at,
-        observedAt: steer.request.at,
-        effect: 'unknown' as const,
-        detail: 'delivery admitted',
-      }
-      expect(await claimWorkerSteerDelivery(dir, record)).toBe(true)
-      await writeWorkerSteerAcknowledgement(dir, {
-        ...record,
-        effect: 'delivered',
-        detail: 'delivered',
-      })
-      await writeWorkerInteractiveBindingAsync(dir, 'run:s1', 'worker', dir, {
-        status: 'unavailable',
-        reason: 'not-live',
-      })
-      return steer
-    }))
+    const claimed = completion(
+      lock.run(async () => {
+        const steer = await writeWorkerSteerAsync(dir, 'run', 'run:s1', {
+          eventDir: dir,
+          operationId: 'steer-claimed',
+          message: 'admitted under the run claim',
+        })
+        const record = {
+          schemaVersion: 1 as const,
+          operationId: steer.request.operationId,
+          requestDigest: steer.request.requestDigest,
+          worker: steer.request.worker,
+          requestedAt: steer.request.at,
+          observedAt: steer.request.at,
+          effect: 'unknown' as const,
+          detail: 'delivery admitted',
+        }
+        expect(await claimWorkerSteerDelivery(dir, record)).toBe(true)
+        await writeWorkerSteerAcknowledgement(dir, {
+          ...record,
+          effect: 'delivered',
+          detail: 'delivered',
+        })
+        await writeWorkerInteractiveBindingAsync(dir, 'run:s1', 'worker', dir, {
+          status: 'unavailable',
+          reason: 'not-live',
+        })
+        return steer
+      }),
+    )
     // Every write waited for the other process's lock while this loop kept running.
     await releaseAfterHold(holder, [blocked, unclaimed, claimed])
     const admitted = await unclaimed.done
@@ -238,21 +240,23 @@ it('a run stop and its cancellation records wait on the durable writer without b
     let abortedAt: number | undefined
     // The run's observer applies the stop under its claim: the abort is issued at once, and the
     // `cancel_requested` record, then the settle record, wait on the writer behind the held lock.
-    const settled = completion(lock.run(async () => {
-      const applied = await applyRunCancellationAsync(
-        dir,
-        () => {
-          abortedAt = Date.now()
-        },
-        () => new Date().toISOString(),
-        'observer',
-      )
-      await writeRunCancellationAsync(dir, {
-        ...applied!,
-        effect: 'cancelled',
-        detail: 'the run reached its terminal cancelled state',
-      })
-    }))
+    const settled = completion(
+      lock.run(async () => {
+        const applied = await applyRunCancellationAsync(
+          dir,
+          () => {
+            abortedAt = Date.now()
+          },
+          () => new Date().toISOString(),
+          'observer',
+        )
+        await writeRunCancellationAsync(dir, {
+          ...applied!,
+          effect: 'cancelled',
+          detail: 'the run reached its terminal cancelled state',
+        })
+      }),
+    )
     // Another run's coordinator stops it with no claim: its request queues behind the same writer.
     const stopped = completion(
       cancelRunAsync(other, 'stop-other', { operator: 'test-operator', reason: 'solved' }),
