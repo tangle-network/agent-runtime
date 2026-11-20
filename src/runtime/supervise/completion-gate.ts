@@ -69,6 +69,9 @@ export interface DeliverableSpec<Out = unknown> {
   ) => boolean | CheckVerdict | Promise<boolean | CheckVerdict>
   /** What the spawn was supposed to produce — surfaced in traces/reports. */
   describe?: string
+  /** Only an accepted submit_result from this manager satisfies its assignment. The manager
+   *  can submit a child's output after reviewing it. Its workers keep their own checks. */
+  requireSubmission?: boolean
   /** Judge the run's current state with no submitted result. Runtime calls it when a manager's
    *  turn ends and no result reached the check during that turn. Omit for a check that reads only
    *  the submitted value. */
