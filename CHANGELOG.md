@@ -1,3 +1,11 @@
+## 10.0.10
+
+The agent-eval peer range is `^1.0.32 || ^2.0.0`, so an application can install agent-eval 2.0.0 beside Runtime without a peer conflict; Runtime builds, typechecks and passes its suite on either major. With agent-eval 2.0.0, install agent-knowledge 23.0.7 or later: earlier Knowledge releases declare an agent-eval 1 peer, and Runtime's `^23.0.0` Knowledge dependency admits 23.0.7. The release cohort qualifies Runtime with Knowledge 23.0.7 and agent-eval 2.0.0 installed together. `improve()` in method mode refuses a `describeArtifact` set beside the method: agent-eval 2.0.0 hands such a hook to every method's optimizer, where it would reach GEPA or SkillOpt without the redaction and evaluation identity `officialGepa` and `officialSkillOpt` apply. Set it on the method instead. A free agent in a test fixture now records a known $0 call, which agent-eval 1.0.39 and later require for complete cost accounting.
+
+Provider executors can restore a supervised node from a checkpoint assigned to its Runtime identity: the optional `checkpointForNode` on `ProviderExecutorOptions` receives the node's Runtime-assigned identity and returns the workspace checkpoint it starts from, so siblings that share one AgentProfile can start from different inputs. The execution record and placement digest identify the selected checkpoint. A callback that disagrees with a configured workspace checkpoint, or one set beside a shared environment, is refused; configurations without it behave as before.
+
+The `agent-graphs`, `build-with-agent-runtime` and `profile-authoring` skills open by setting the bar (the best known result with its source, our number, a target that beats it, the mechanism and the outside check) and finish when that check shows the target met or the miss is explained, not when checks pass; the bundled `be-ambitious` snapshot follows the current canonical skill.
+
 ## 10.0.9
 
 The Sandbox provider adapter validates the execution profile after custom mapping. Candidate profile plans can still identify a retired harness in historical evidence.

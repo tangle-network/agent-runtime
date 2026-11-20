@@ -5586,6 +5586,25 @@ Options for running a provider as a supervise-mode executor.
 
 Select exactly one caller-declared placement from each child's unchanged profile.
 
+##### checkpointForNode?
+
+> `optional` **checkpointForNode?**: (`node`) => `WorkspaceCheckpointRef` \| `undefined`
+
+**`Experimental`**
+
+Choose the initial filesystem for a supervised node from its Runtime-owned assignment.
+A retained session keeps its own checkpoint when it recovers.
+
+###### Parameters
+
+###### node
+
+`Readonly`\<[`ExecutorNodeContext`](#executornodecontext)\>
+
+###### Returns
+
+`WorkspaceCheckpointRef` \| `undefined`
+
 ##### defaults?
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
@@ -26978,6 +26997,27 @@ Select exactly one caller-declared placement from each child's unchanged profile
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`placements`](#placements)
+
+##### checkpointForNode?
+
+> `optional` **checkpointForNode?**: (`node`) => `WorkspaceCheckpointRef` \| `undefined`
+
+Choose the initial filesystem for a supervised node from its Runtime-owned assignment.
+A retained session keeps its own checkpoint when it recovers.
+
+###### Parameters
+
+###### node
+
+`Readonly`\<[`ExecutorNodeContext`](#executornodecontext)\>
+
+###### Returns
+
+`WorkspaceCheckpointRef` \| `undefined`
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`checkpointForNode`](#checkpointfornode)
 
 ##### defaults?
 
