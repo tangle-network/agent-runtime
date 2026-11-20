@@ -103,6 +103,7 @@ export function createCoordinationToolsForManager(
   // before the manager's first turn, after any replayed settlements are published.
   const ready = async (): Promise<void> => {
     await replayResumeEvents()
+    await intake.retryToolOutcomes()
     if (opts.routeFlow !== undefined) await routes.start()
   }
   // A steer the manager read in its journal is delivered to this attempt, as a wake delivers it,
@@ -173,8 +174,12 @@ export function createCoordinationToolsForManager(
   // receipts and lead publishes; parking waits for them. A harness manager binds its own later.
   bindScopeParkingDrain(
     opts.scope,
-    async () => {},
-    () => !settlements.isBusy() && intake.openReceiptCount() === 0 && intake.leadPublishing() === 0,
+    intake.retryToolOutcomes,
+    () =>
+      !settlements.isBusy() &&
+      intake.openReceiptCount() === 0 &&
+      bus.pending(['tool-outcome']) === 0 &&
+      intake.leadPublishing() === 0,
   )
 
   const parts: ManagerParts = {
@@ -392,7 +397,10 @@ function managerSurface(parts: ManagerParts, tools: McpToolDescriptor[]): Coordi
     questions: () => questionLedger.questions,
     escalations: () => questionLedger.escalations,
     definedAnalysts: () => analysis.definedAnalysts,
-    drainResolved: settlements.drainResolved,
+    drainResolved: async () => {
+      await intake.retryToolOutcomes()
+      return settlements.drainResolved()
+    },
     finishAnalysis: analysis.finishAnalysis,
     abortWorker: spawnAdmission.abortWorker,
     beginDriverAttempt: (attempt) => {
