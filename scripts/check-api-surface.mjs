@@ -439,14 +439,14 @@ const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typ
  *   `name` `name?` `readonly name`  a property     `name()` `name?()`  a method
  *   `(0)` `(1?)` `(...2)` `this`    a parameter    `=>`  the return type
  *   `|<digest>` or `|tag:...` a union variant, an untagged one with its parts when it has them;
- *   `&<digest>` an opaque intersection part
+ *   `&<digest>` an opaque intersection member or `Pick` projection
  *   `@0` `@1`    a signature of a function value         `<>` type parameters
  *   `Promise<>`  the value of a `Promise`
  *   `~form`     completely accounted declaration kind; private heritage is flattened
  *   `~call` an interface's call signature; `~<digest>` any other member (index, construct, accessor)
  *
  * Unsupported, cyclic or ambiguous declarations stay opaque. Only bounded local
- * non-generic aliases, private property heritage and exact mutable const maps expand.
+ * non-generic aliases, private heritage and intersection members, and exact mutable const maps expand.
  */
 const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
   if (origin?.file === undefined || origin.name === undefined) return null
@@ -582,10 +582,13 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
         return unionParts(type.types)
       case 'TSTypeReference':
         // A promise only hands its value out, so its value compares part by part (an inferred
-        // `Promise<{...} | ...>` return); every other generic stays opaque.
+        // `Promise<{...} | ...>` return); a Pick retains its exact projection as one opaque part.
         if (type.typeName.type === 'Identifier' && type.typeName.name === 'Promise' &&
           type.typeArguments?.params.length === 1)
           return { 'Promise<>': typePart(type.typeArguments.params[0]) }
+        if (type.typeName.type === 'Identifier' && type.typeName.name === 'Pick' &&
+          resolveBinding(module.file, 'Pick', ctx) === null && type.typeArguments?.params.length === 2)
+          return { [`&${digest(type)}`]: 1 }
         return type.typeArguments ? null : localParts(type.typeName)
       case 'TSMappedType': {
         const constraint = type.constraint
@@ -605,8 +608,17 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       case 'TSIntersectionType': {
         const parts = {}
         for (const member of type.types.map(unwrap)) {
-          if (member.type === 'TSTypeLiteral') memberParts(member.members, parts)
-          else parts[`&${digest(member)}`] = 1
+          if (member.type === 'TSTypeLiteral') {
+            memberParts(member.members, parts)
+            continue
+          }
+          const inherited = member.type === 'TSTypeReference' ? localParts(member.typeName) : null
+          if (inherited === null) {
+            parts[`&${digest(member)}`] = 1
+            continue
+          }
+          if (Object.keys(inherited).some((key) => key in parts)) return null
+          Object.assign(parts, inherited)
         }
         return parts
       }
