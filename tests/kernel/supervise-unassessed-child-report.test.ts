@@ -270,7 +270,7 @@ async function childReportFlow(
         budget: {
           maxIterations: 20,
           maxTokens: 1000,
-          deadlineMs: nativeGrantAvailable ? 30000 : 3000,
+          deadlineMs: 30000,
         },
         perWorker: { maxIterations: 4, maxTokens: 100 },
         maxDepth: 3,
