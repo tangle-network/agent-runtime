@@ -1,0 +1,3 @@
+type: patch
+---
+The agent-eval peer range is `^1.0.32 || ^2.0.0`, so an application can install agent-eval 2.0.0 beside Runtime without a peer conflict; Runtime builds, typechecks and passes its suite on either major. `improve()` in method mode refuses a `describeArtifact` set beside the method: agent-eval 2.0.0 hands such a hook to every method's optimizer, where it would reach GEPA or SkillOpt without the redaction and evaluation identity `officialGepa` and `officialSkillOpt` apply. Set it on the method instead. A free agent in a test fixture now records a known $0 call, which agent-eval 1.0.39 and later require for complete cost accounting.

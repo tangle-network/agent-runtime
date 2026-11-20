@@ -196,7 +196,7 @@ catalogs:
       specifier: 1.32.2
       version: 1.32.2
     '@tangle-network/agent-eval':
-      specifier: ^1.0.32
+      specifier: ^1.0.32 || ^2.0.0
       version: 1.0.32
     '@tangle-network/agent-interface':
       specifier: ^5.10.28

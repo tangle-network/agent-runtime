@@ -44,7 +44,8 @@ function baseRef() {
 
 /**
  * Each adopted Eval and Interface pin must match its cohort entry and sit inside its caret
- * peer. The caret already admits every later compatible release, so adoption leaves it as written.
+ * peer, or inside one caret of a peer that names one caret per supported major joined by `||`.
+ * The caret already admits every later compatible release, so adoption leaves it as written.
  */
 function assertAdoptedPeers() {
   const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'))
@@ -54,13 +55,21 @@ function assertAdoptedPeers() {
     const name = key === 'agentEval' ? '@tangle-network/agent-eval' : '@tangle-network/agent-interface'
     const version = pkg.devDependencies?.[name]
     const peer = pkg.peerDependencies?.[name]
-    const caret = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(peer ?? '')
+    const carets = (peer ?? '').split('||').map((part) => /^\^(\d+)\.(\d+)\.(\d+)$/.exec(part.trim()))
+    const majors = carets.map((caret) => caret?.[1])
     const pin = /^(\d+)\.(\d+)\.(\d+)$/.exec(version ?? '')
-    if (selected?.name !== name || selected.version !== version || !pin || !caret || Number(caret[1]) < 1) {
-      throw new Error(`adoption requires matching exact development/cohort pins and a caret peer from 1.0.0 for ${name}`)
+    if (
+      selected?.name !== name ||
+      selected.version !== version ||
+      !pin ||
+      carets.some((caret) => !caret || Number(caret[1]) < 1) ||
+      new Set(majors).size !== majors.length
+    ) {
+      throw new Error(`adoption requires matching exact development/cohort pins and a caret peer from 1.0.0, one per major, for ${name}`)
     }
     const order = (match) => match.slice(1).map(Number).reduce((total, part) => total * 1_000_000 + part, 0)
-    if (pin[1] !== caret[1] || order(pin) < order(caret)) {
+    const caret = carets.find((candidate) => candidate[1] === pin[1])
+    if (!caret || order(pin) < order(caret)) {
       throw new Error(`adoption pin ${name}@${version} is outside its declared peer ${peer}`)
     }
   }
