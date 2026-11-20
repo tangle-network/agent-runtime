@@ -70,7 +70,7 @@ interface StoredGraphContent {
   }>
   readonly deliverable: Pick<
     AgentGraph['deliverable'],
-    'describe' | 'checkRef' | 'command' | 'when'
+    'describe' | 'requireSubmission' | 'checkRef' | 'command' | 'when'
   >
   /** A flow graph's entry and gates; absent for any other graph. */
   readonly entry?: AgentGraph['entry']
@@ -192,6 +192,8 @@ function canonicalJson(value: unknown): string {
  *  it had before flow graphs were stored. */
 export function graphDigest(graph: Omit<StoredGraph, 'digest'>): string {
   const { continuation, ...content } = graph
+  if (content.entry !== undefined && content.deliverable.requireSubmission)
+    throw new ValidationError('a graph with an entry has no manager to submit its result')
   const policy =
     continuation === undefined ? undefined : portableContinuationPolicySchema.parse(continuation)
   if (policy !== undefined && content.entry !== undefined)
@@ -214,7 +216,7 @@ export function digestOfGraph(graph: AgentGraph): string {
 }
 
 function storeGraph(graph: AgentGraph): StoredGraph {
-  const { describe, checkRef, command, when } = graph.deliverable
+  const { describe, requireSubmission, checkRef, command, when } = graph.deliverable
   const continuation = graph.continuation
   const content = {
     nodes: graph.nodes,
@@ -223,6 +225,7 @@ function storeGraph(graph: AgentGraph): StoredGraph {
     ...(graph.triggerBindings === undefined ? {} : { triggerBindings: graph.triggerBindings }),
     deliverable: {
       ...(describe ? { describe } : {}),
+      ...(requireSubmission === undefined ? {} : { requireSubmission }),
       ...(checkRef ? { checkRef } : {}),
       ...(command ? { command } : {}),
       ...(when ? { when } : {}),
