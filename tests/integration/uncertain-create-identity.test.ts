@@ -742,17 +742,19 @@ describe('accepted native recovery and historical identities', () => {
       async (fixture) => {
         await fixture.wait(
           'four retried root observations with its native child admitted',
-          async () =>
-            fixture
-              .attempts()
-              .filter((row) => row.classification === 'transient' && row.retryInMs !== undefined)
-              .length >= 4 &&
-            (await fixture.events()).some(
-              (event) =>
-                event.kind === 'execution-admitted' &&
-                event.id === `${rootId}:s0` &&
-                event.admission.phase === 'dispatched',
-            ),
+          async () => {
+            const attempts = fixture.attempts()
+            expect(attempts.find((row) => row.stop !== undefined)?.stop, 'root stopped during its retained read outage').toBeUndefined()
+            return (
+              attempts.filter((row) => row.classification === 'transient' && row.retryInMs !== undefined).length >= 4 &&
+              (await fixture.events()).some(
+                (event) =>
+                  event.kind === 'execution-admitted' &&
+                  event.id === `${rootId}:s0` &&
+                  event.admission.phase === 'dispatched',
+              )
+            )
+          },
         )
         const held = await fixture.state()
         expect(held.runs).toHaveLength(2)
@@ -787,12 +789,36 @@ describe('accepted native recovery and historical identities', () => {
         )
         expect(executionResults(events, rootId).length).toBeGreaterThan(0)
         expect(abandoned(events)).toEqual([])
-        expect(await fixture.state()).toMatchObject({ failures: [] })
+        const recovered = await fixture.state()
+        expect(recovered.runs.map((run) => run.executionId)).toEqual([root!.executionId, leaf!.executionId])
+        expect(requests(recovered, 'dispatch')).toHaveLength(2)
         expect(fixture.outcomes().find((row) => row.kind === 'settled')).toMatchObject({
           result: { result: { kind: 'winner' } },
         })
       },
       { rootReadOutage: true },
+    )
+  }, 120_000)
+
+  it('stops repeated root gateway reads at the configured attempt limit', async () => {
+    await withFixture(
+      'accepted',
+      executables,
+      async (fixture) => {
+        await fixture.wait('supervisor recorded the final attempt', async () =>
+          fixture.attempts().some((row) => row.stop !== undefined),
+        )
+        const attempts = fixture.attempts().filter((row) => row.error !== undefined)
+        expect(attempts).toHaveLength(5)
+        expect(attempts.at(-1)).toMatchObject({ classification: 'transient', stop: 'max-attempts' })
+        const held = await fixture.state()
+        const refused = requests(held, 'root-read-timeout')
+        expect(refused.length).toBeGreaterThanOrEqual(5)
+        expect(new Set(refused.map((row) => row.executionId))).toEqual(new Set([held.runs[0]!.executionId]))
+        expect(held.runs).toHaveLength(2)
+        expect(requests(held, 'dispatch')).toHaveLength(2)
+      },
+      { rootReadOutage: true, maxDriverAttempts: 5 },
     )
   }, 120_000)
 

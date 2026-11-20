@@ -53,6 +53,7 @@ export interface Configuration {
   url: string
   resolver: string
   holdCreateFailure?: true
+  maxDriverAttempts?: number
 }
 export interface WireRecord {
   kind: string
