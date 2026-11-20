@@ -527,6 +527,26 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
   }
   const memberName = (member) => member.computed || !member.key ? undefined
     : member.key.type === 'Identifier' ? member.key.name : JSON.stringify(String(member.key.value))
+  const isPick = (type) => type.type === 'TSTypeReference' && type.typeName.type === 'Identifier' &&
+    type.typeName.name === 'Pick' && resolveBinding(module.file, 'Pick', ctx) === null &&
+    type.typeArguments?.params.length === 2
+  // An optional redeclaration can narrow a field the projection already supplies.
+  const disjointPickMembers = (members, projection) => {
+    const names = literalKeys(projection.typeArguments.params[1])
+    if (names === null) return false
+    const used = new Set(names)
+    for (const member of members) {
+      if (member === projection) continue
+      if (member.type !== 'TSTypeLiteral') return false
+      for (const field of member.members) {
+        if (field.type !== 'TSPropertySignature' || field.computed) return false
+        const name = field.key.type === 'Identifier' ? field.key.name : String(field.key.value)
+        if (used.has(name)) return false
+        used.add(name)
+      }
+    }
+    return true
+  }
   const memberParts = (members, parts) => {
     for (const member of members) {
       // A quoted key (`'@id'`) is written as JSON so it never reads as a structural key.
@@ -586,9 +606,7 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
         if (type.typeName.type === 'Identifier' && type.typeName.name === 'Promise' &&
           type.typeArguments?.params.length === 1)
           return { 'Promise<>': typePart(type.typeArguments.params[0]) }
-        if (type.typeName.type === 'Identifier' && type.typeName.name === 'Pick' &&
-          resolveBinding(module.file, 'Pick', ctx) === null && type.typeArguments?.params.length === 2)
-          return { [`&${digest(type)}`]: 1 }
+        if (isPick(type)) return { [`&${digest(type)}`]: 1 }
         return type.typeArguments ? null : localParts(type.typeName)
       case 'TSMappedType': {
         const constraint = type.constraint
@@ -607,17 +625,21 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       }
       case 'TSIntersectionType': {
         const parts = {}
-        for (const member of type.types.map(unwrap)) {
+        const members = type.types.map(unwrap)
+        const projection = members.find(isPick)
+        if (projection && !disjointPickMembers(members, projection)) return null
+        for (const member of members) {
           if (member.type === 'TSTypeLiteral') {
             memberParts(member.members, parts)
             continue
           }
-          const inherited = member.type === 'TSTypeReference' ? localParts(member.typeName) : null
+          const inherited = member.type === 'TSTypeReference' && !member.typeArguments ? localParts(member.typeName) : null
           if (inherited === null) {
             parts[`&${digest(member)}`] = 1
             continue
           }
-          if (Object.keys(inherited).some((key) => key in parts)) return null
+          // An opaque private intersection can project the same names as this one.
+          if (Object.keys(inherited).some((key) => key.startsWith('&') || key in parts)) return null
           Object.assign(parts, inherited)
         }
         return parts

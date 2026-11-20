@@ -963,9 +963,14 @@ describe('a shape change is classified from the declarations it was built from',
     expect(failure.stderr).toContain('breaking change needing a major bump')
   })
 
-  it('does not classify a narrowed inherited optional property as an additive extension', async () => {
-    const inherited = (own: string) =>
-      `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`
+  it.each([
+    ['an interface', (own: string) =>
+      `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`],
+    ['a Pick', (own: string) =>
+      `interface Parent { readonly mode?: string | number; } export type StartOptions = Pick<Parent, 'mode'>${own ? ` & { ${own} }` : ''};`],
+    ['a private projection', (own: string) =>
+      `interface Parent { readonly mode?: string | number; } type Projected = Pick<Parent, 'mode'>; export type StartOptions = Projected & { readonly label?: string; ${own} };`],
+  ] as const)('asks a major for a narrowed optional property inherited through %s', async (_form, inherited) => {
     const root = await mkdtemp(join(tmpdir(), 'agent-runtime-heritage-'))
     roots.push(root)
     await git(root, 'init', '--quiet', '--initial-branch=main')
