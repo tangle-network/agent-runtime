@@ -90,7 +90,6 @@ describe('nested retained owner native custody', () => {
                         dispatched.filter((event) => event.role === 'director').length > 1
                       )
                     },
-                    { timeout: 10_000 },
                   )
                   .toBe(true)
                 expect(

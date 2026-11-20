@@ -370,7 +370,6 @@ describe('an accepted submit_result settles its node', () => {
             ofKind(await tree.rootEvents(), 'settled').find(
               (event) => event.id !== 'accepted-before-destroy' && event.status === 'done',
             ),
-          { timeout: 20_000 },
         )
         .toBeDefined()
       const settled = ofKind(await tree.rootEvents(), 'settled').find(

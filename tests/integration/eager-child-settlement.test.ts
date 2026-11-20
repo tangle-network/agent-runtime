@@ -99,7 +99,6 @@ it.each(['done', 'down'] as const)(
           () =>
             scope.observeTree().nodes.find((node) => node.label === 'process-child')
               ?.settlementPending?.kind,
-          { timeout: 5000 },
         )
         .toBe(kind)
       expect(scope.workerCapacity.working).toBe(0)
@@ -111,7 +110,6 @@ it.each(['done', 'down'] as const)(
             ((await coldJournal.loadTree(root)) ?? []).filter(
               (event) => event.kind === 'settled' && event.id === id,
             ).length,
-          { timeout: 2000 },
         )
         .toBe(1)
       const node = scope.observeTree().nodes.find((entry) => entry.id === id)!
