@@ -370,6 +370,7 @@ const result = await improve({
 
 Without `describeScenario`, the external optimizer receives only each development case ID.
 Without `describeArtifact`, evaluation feedback contains no artifact body.
+Set it on `officialGepa` or `officialSkillOpt`, or in a native method's own configuration; `improve()` refuses one set beside the method, because agent-eval 2.0.0 would hand it to the optimizer without this redaction.
 When either descriptor is present, its result passes through `redact` together with findings, background text, profile name, and judge notes.
 The built-in redactor removes common credentials and email addresses.
 Supply a domain redactor for customer names, account IDs, or other private data the built-in rules cannot identify.

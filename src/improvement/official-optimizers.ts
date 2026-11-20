@@ -17,7 +17,7 @@ import type {
   ImproveMethodContext,
   ImproveMethodFactory,
 } from './improve'
-import { withMethodRuntimeControls } from './method-controls'
+import { assertNoCallerArtifactDescriptor, withMethodRuntimeControls } from './method-controls'
 
 const defaultMaxFindingsChars = 50_000
 const pythonClientDocs = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
@@ -501,6 +501,10 @@ function withDependencyHelp<TScenario extends { id: string; kind: string }, TArt
   return {
     ...method,
     async optimize(input) {
+      assertNoCallerArtifactDescriptor(
+        input,
+        optimizer === 'gepa' ? 'officialGepa' : 'officialSkillOpt',
+      )
       try {
         const judges = input.judges.map((judge) =>
           Object.freeze({

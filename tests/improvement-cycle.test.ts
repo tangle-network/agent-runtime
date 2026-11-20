@@ -166,11 +166,26 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
           expectUsage: 'off',
           budget: { generations: 1, populationSize: 1, reps: 1, holdout: 'deferred' },
           analyzeGeneration: null,
-          agent: async (surface, scenario) => {
+          // Reading the tree costs nothing, and the cell's ledger says so: from agent-eval
+          // 1.0.39 a cell that records no call has unknown cost, which holds the search.
+          agent: async (surface, scenario, context) => {
             scored.push(scenario.id)
             if (typeof surface !== 'object' || surface.kind !== 'code')
               throw new Error('expected code')
-            return readFileSync(join(surface.worktreeRef, 'source.ts'), 'utf8')
+            const read = await context.cost.runPaidCall({
+              actor: 'deterministic-code-read',
+              model: 'deterministic-child@2026-11-12',
+              maximumCharge: { externallyEnforcedMaximumUsd: 0 },
+              execute: async () => readFileSync(join(surface.worktreeRef, 'source.ts'), 'utf8'),
+              receipt: () => ({
+                model: 'deterministic-child@2026-11-12',
+                inputTokens: 0,
+                outputTokens: 0,
+                actualCostUsd: 0,
+              }),
+            })
+            if (!read.succeeded) throw read.error
+            return read.value
           },
           judge: {
             name: 'deterministic-code-read',
