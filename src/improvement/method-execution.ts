@@ -20,7 +20,7 @@ import type {
   ImproveMethodSource,
   ImprovementProfileCandidate,
 } from './improve-types'
-import { methodRuntimeControlsOf } from './method-controls'
+import { assertNoCallerArtifactDescriptor, methodRuntimeControlsOf } from './method-controls'
 import {
   assertMethodCostRecorded,
   methodHistoricalReceipts,
@@ -61,6 +61,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
   profile: AgentProfile,
   opts: ImproveMethodOptions<TScenario, TArtifact>,
 ): Promise<ImproveMethodResult> {
+  assertNoCallerArtifactDescriptor(opts, 'improve()')
   const {
     surface: _surface,
     executionRef: _executionRef,
