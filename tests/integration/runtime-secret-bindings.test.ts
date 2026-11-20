@@ -43,8 +43,8 @@ async function run(mode: string) {
   const certificate = join(directory, 'cert.pem')
   const fixture = new AbortController()
   fixtures.add(fixture)
-  // The fixture's exit is the event. A 19 s kill stood in for it and ended a healthy restart
-  // fixture that needed 20 s on a loaded gate host (11-20, load 67); the test's own timeout now
+  // The fixture's exit is the event. A 19 s kill stood in for it and ended a restart fixture that
+  // was still running at 19 s on a loaded gate host (11-20, load 67); the test's own timeout now
   // bounds a hang.
   const { stdout, stderr } = await execute(
     process.execPath,

@@ -31,8 +31,8 @@ function leafStarted(root: string, signal: AbortSignal): Promise<void> {
     Number(await readFile(join(root, 'started'), 'utf8').catch(() => '0')) > 0
   return within(waitForState(root, started, signal), HANG_BOUND_MS, 'leaf process start')
 }
-// No deadline: nothing here reads one, and a 10 s run deadline raced the test's own release of
-// the leaf on a loaded gate host.
+// No deadline: nothing here reads one, and a leaf that starts late on a loaded gate host would let
+// a 10 s run deadline end the run before the test releases the leaf.
 const budget = { maxIterations: 10, maxTokens: 10000 }
 const profile = {
   name: 'stage',
