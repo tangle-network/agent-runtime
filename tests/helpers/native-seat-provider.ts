@@ -2,6 +2,7 @@ import { appendFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   AgentEnvironment,
+  AgentEnvironmentEvent,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { sameControlCoordinates } from '../../src/runtime/retained-run-binding'
@@ -11,7 +12,7 @@ import { runFixtureProcess } from './fixture-process'
 /** Offline retained provider backed by durable control state and a native process per dispatch. */
 export function nativeSeatProvider(
   directory: string,
-  fixtureOptions: { success?: boolean; recordOutput?: boolean } = {},
+  fixtureOptions: { success?: boolean; recordOutput?: boolean; emitOutput?: boolean } = {},
 ): AgentEnvironmentProvider {
   const base = durableRetainedProvider(join(directory, 'provider.json'))
   const runs = new Map<string, ReturnType<typeof runFixtureProcess>>()
@@ -41,28 +42,58 @@ process.stdout.write(JSON.stringify({ text: success ? 'native completed' : 'nati
     },
     session(id, options) {
       const session = environment.session!(id, options)
+      const readCompleted = async () => {
+        const run = runs.get(session.controlRef!.executionId!)
+        if (!run && !fixtureOptions.recordOutput)
+          throw new Error('no native dispatch for exact result')
+        const completed = run
+          ? await run
+          : (await readFile(join(directory, 'native-output.jsonl'), 'utf8'))
+              .trim()
+              .split('\n')
+              .map((line) => JSON.parse(line))
+              .find((record) => sameControlCoordinates(record.controlRef, session.controlRef!))
+        if (!completed) throw new Error('no persisted native result for exact control')
+        if (completed.exitCode !== 0) throw new Error(completed.stderr)
+        return completed
+      }
       return {
         ...session,
         async *events(options) {
-          // A terminal provider frame cannot precede the real native process closing.
+          // These frames describe the real child after exit, including its actual stdout.
+          if (fixtureOptions.emitOutput) {
+            const completed = await readCompleted()
+            const frames: AgentEnvironmentEvent[] = [
+              {
+                id: 'native-output',
+                type: 'message.part.updated',
+                data: { part: { id: 'stdout', type: 'text', text: completed.stdout } },
+              },
+              {
+                id: 'native-exit',
+                type: 'result',
+                data: {
+                  finalText: completed.stdout,
+                  success: JSON.parse(completed.stdout).success,
+                },
+              },
+            ]
+            const start =
+              options?.since === undefined
+                ? 0
+                : frames.findIndex((frame) => frame.id === options.since) + 1
+            if (options?.since !== undefined && start === 0)
+              throw new Error('unknown native event cursor')
+            yield* frames.slice(start)
+            return
+          }
           await runs.get(session.controlRef!.executionId!)
           yield* session.events!(options)
         },
         async result() {
-          const run = runs.get(session.controlRef!.executionId!)
-          if (!run && !fixtureOptions.recordOutput)
-            throw new Error('no native dispatch for exact result')
-          const completed = run
-            ? await run
-            : (await readFile(join(directory, 'native-output.jsonl'), 'utf8'))
-                .trim()
-                .split('\n')
-                .map((line) => JSON.parse(line))
-                .find((record) => sameControlCoordinates(record.controlRef, session.controlRef!))
-          if (!completed) throw new Error('no persisted native result for exact control')
-          if (completed.exitCode !== 0) throw new Error(completed.stderr)
+          const completed = await readCompleted()
           if (
-            run &&
+            runs.has(session.controlRef!.executionId!) &&
             fixtureOptions.recordOutput &&
             !recorded.has(session.controlRef!.executionId!)
           ) {

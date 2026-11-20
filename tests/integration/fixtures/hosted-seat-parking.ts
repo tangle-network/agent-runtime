@@ -24,7 +24,6 @@ import {
   RunParkedError,
   runGraph,
   type ToolLoopChat,
-  workerFromBackend,
 } from '../../../src/runtime/index'
 import type { SelectSeat } from '../../../src/runtime/supervise/seat-chain'
 import { superviseWithTestBrain } from '../../../src/testing/index'
@@ -39,7 +38,7 @@ const RUN_ID = 'hosted-seat-parking'
 const now = () => Date.now() + (phase === 'resume' ? 600_000 : 0)
 const base =
   mode === 'gate-held'
-    ? nativeSeatProvider(dir)
+    ? nativeSeatProvider(dir, { emitOutput: true })
     : durableRetainedProvider(join(dir, 'provider.json'))
 const provider = {
   ...base,
@@ -198,11 +197,9 @@ try {
               // `build`.
               ...(mode === 'gate-held'
                 ? {
-                    // Only the build leaf executes. Its real process result opens the flow gate.
-                    makeLeafAgent: workerFromBackend(backend, {
-                      check: (out) => recordValue(out)?.content === 'native completed',
-                    }),
-                    decideGate: async () => {
+                    decideGate: async ({ evidence }) => {
+                      if (recordValue(evidence.build)?.text !== 'native completed')
+                        throw new Error('the build worker did not return its native result')
                       await heldRequest()
                       return { kind: 'choose' as const, choice: 'reject', by: 'fixture' }
                     },
