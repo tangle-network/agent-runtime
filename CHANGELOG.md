@@ -1,6 +1,6 @@
 ## 10.0.10
 
-Managers can require an explicit submission to complete their assignment while retaining checked worker results for review. A delegated manager can continue its own unfinished assignment within the existing run policy. An expired assignment without an accepted result returns a failure to its parent.
+Managers can require an explicit submission and continue unfinished delegated work within its original budget. An expired worker with no result reports failure to its parent. A worker that produces output as it exhausts its budget retains the completed turn for review. Its parent can see the overspend and whether a check accepted the work.
 
 Provider executors can restore a supervised node from a checkpoint assigned to its Runtime identity. The execution record identifies the selected checkpoint even when siblings use the same AgentProfile.
 

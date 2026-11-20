@@ -3278,7 +3278,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     )
     // The committed result is kept; budgetViolation marks it as budget-stopped work for readers.
     expect(settled).toMatchObject({ status: 'done' })
-    expect(await blobs.get(settled!.outRef!)).toBe('accepted answer')
+    expect(await blobs.get(settled!.outRef!)).toMatchObject({ content: 'accepted answer' })
     expect(settled?.verdict).toBeUndefined()
     expect(settled?.budgetViolation?.overspent).toContainEqual(
       expect.objectContaining({ channel: 'tokens', reserved: 42_000, spent: 235_857 }),
