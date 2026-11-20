@@ -744,9 +744,14 @@ describe('accepted native recovery and historical identities', () => {
           'four retried root observations with its native child admitted',
           async () => {
             const attempts = fixture.attempts()
-            expect(attempts.find((row) => row.stop !== undefined)?.stop, 'root stopped during its retained read outage').toBeUndefined()
+            expect(
+              attempts.find((row) => row.stop !== undefined)?.stop,
+              'root stopped during its retained read outage',
+            ).toBeUndefined()
             return (
-              attempts.filter((row) => row.classification === 'transient' && row.retryInMs !== undefined).length >= 4 &&
+              attempts.filter(
+                (row) => row.classification === 'transient' && row.retryInMs !== undefined,
+              ).length >= 4 &&
               (await fixture.events()).some(
                 (event) =>
                   event.kind === 'execution-admitted' &&
@@ -790,7 +795,10 @@ describe('accepted native recovery and historical identities', () => {
         expect(executionResults(events, rootId).length).toBeGreaterThan(0)
         expect(abandoned(events)).toEqual([])
         const recovered = await fixture.state()
-        expect(recovered.runs.map((run) => run.executionId)).toEqual([root!.executionId, leaf!.executionId])
+        expect(recovered.runs.map((run) => run.executionId)).toEqual([
+          root!.executionId,
+          leaf!.executionId,
+        ])
         expect(requests(recovered, 'dispatch')).toHaveLength(2)
         expect(fixture.outcomes().find((row) => row.kind === 'settled')).toMatchObject({
           result: { result: { kind: 'winner' } },
@@ -814,7 +822,9 @@ describe('accepted native recovery and historical identities', () => {
         const held = await fixture.state()
         const refused = requests(held, 'root-read-timeout')
         expect(refused.length).toBeGreaterThanOrEqual(5)
-        expect(new Set(refused.map((row) => row.executionId))).toEqual(new Set([held.runs[0]!.executionId]))
+        expect(new Set(refused.map((row) => row.executionId))).toEqual(
+          new Set([held.runs[0]!.executionId]),
+        )
         expect(held.runs).toHaveLength(2)
         expect(requests(held, 'dispatch')).toHaveLength(2)
       },

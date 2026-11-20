@@ -358,7 +358,9 @@ try {
             driverRetry: {
               pauseRootStops: config.scenario === 'terminal-ceiling',
               transientOutageMs: 0,
-              ...(config.maxDriverAttempts === undefined ? {} : { maxAttempts: config.maxDriverAttempts }),
+              ...(config.maxDriverAttempts === undefined
+                ? {}
+                : { maxAttempts: config.maxDriverAttempts }),
               initialBackoffMs: 10,
               maxBackoffMs: 10,
               unavailablePauseMs: 10,
