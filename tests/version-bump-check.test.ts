@@ -916,6 +916,53 @@ describe('a shape change is classified from the declarations it was built from',
     },
   )
 
+  it('asks a patch for an optional nested member beside a stable Pick, not for a required one', async () => {
+    const stored = (member = '', projected = false) =>
+      `export interface AgentGraph { readonly deliverable: {\n  readonly describe?: string;\n  readonly checkRef?: string;\n${member}} }\n` +
+      `interface StoredGraphContent { readonly digest: string; readonly deliverable: ` +
+      `Pick<AgentGraph['deliverable'], 'describe' | 'checkRef'>${projected ? ` & {\n${member}}` : ''}; }\n` +
+      `export type StoredGraph = StoredGraphContent & { readonly id: string };\n`
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-stored-graph-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(root, '1.0.0', stored())
+    await publish(root, 'v1.0.0')
+
+    await build(root, '1.0.1', stored('  readonly journalRoot?: string;\n', true))
+    await expect(check(root, released)).resolves.toMatchObject({
+      stdout: expect.stringContaining('needing a patch bump, paid for by 1.0.0 -> 1.0.1 (patch)'),
+    })
+
+    await build(root, '1.0.1', stored('  readonly journalRoot: string;\n', true))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('readonly journalRoot)')
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
+
+  it.each([
+    ['removed', ''],
+    ['narrowed', '  readonly journalRoot?: string;\n'],
+  ])('asks a major for a %s nested member beside a stable Pick', async (_change, member) => {
+    const stored = (member: string, projected: boolean) =>
+      `export interface AgentGraph { readonly deliverable: {\n  readonly describe?: string;\n  readonly checkRef?: string;\n${member}} }\n` +
+      `interface StoredGraphContent { readonly digest: string; readonly deliverable: ` +
+      `Pick<AgentGraph['deliverable'], 'describe' | 'checkRef'>${projected ? ` & {\n${member}}` : ''}; }\n` +
+      `export type StoredGraph = StoredGraphContent & { readonly id: string };\n`
+    const root = await mkdtemp(join(tmpdir(), 'agent-runtime-stored-graph-break-'))
+    roots.push(root)
+    await git(root, 'init', '--quiet', '--initial-branch=main')
+    const released = await build(
+      root,
+      '1.0.0',
+      stored('  readonly journalRoot?: string | number;\n', true),
+    )
+    await publish(root, 'v1.0.0')
+    await build(root, '1.0.1', stored(member, member !== ''))
+    const failure = await check(root, released).catch((error) => error)
+    expect(failure.stderr).toContain('readonly journalRoot')
+    expect(failure.stderr).toContain('breaking change needing a major bump')
+  })
+
   it('does not classify a narrowed inherited optional property as an additive extension', async () => {
     const inherited = (own: string) =>
       `export interface Parent { readonly mode?: string | number; } export interface StartOptions extends Parent { ${own} }`

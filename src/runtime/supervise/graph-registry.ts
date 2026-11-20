@@ -70,8 +70,10 @@ interface StoredGraphContent {
   }>
   readonly deliverable: Pick<
     AgentGraph['deliverable'],
-    'describe' | 'requireSubmission' | 'checkRef' | 'command' | 'when'
-  >
+    'describe' | 'checkRef' | 'command' | 'when'
+  > & {
+    readonly requireSubmission?: AgentGraph['deliverable']['requireSubmission']
+  }
   /** A flow graph's entry and gates; absent for any other graph. */
   readonly entry?: AgentGraph['entry']
   readonly gates?: AgentGraph['gates']
