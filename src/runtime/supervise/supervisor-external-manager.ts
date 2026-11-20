@@ -162,6 +162,9 @@ async function settleManagerOutput(
     return submitted.result
   }
   if (contractDeclared) {
+    if (candidate === undefined && (config.nodeContextSeed?.depth ?? 0) > 0) {
+      throw new Error('The worker ended without an accepted result for its assignment.')
+    }
     await mcp.finishAnalysis({ status: 'done', output: candidate })
     return candidate
   }

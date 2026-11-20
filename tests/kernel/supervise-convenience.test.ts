@@ -225,7 +225,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     }
     expect(await journal.loadTree('own-submission')).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'settled', id: 'own-submission:s0', status: policy === 'open' ? 'done' : 'failed' }),
+        expect.objectContaining({ kind: 'settled', id: 'own-submission:s0', status: policy === 'open' ? 'done' : 'down' }),
       ]),
     )
     // The settle, not the heartbeat, starts the manager's next turn.

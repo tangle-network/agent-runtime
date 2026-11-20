@@ -11,17 +11,9 @@ import { assertExecutableAgentProfile, concreteProfileModel } from './model-poli
 import { coordinationMcpAlias, coordinationProfileToolPrefix } from './provider-visible-profile'
 
 /**
- * The completion check of a managed child that no `resolveDeliverable` gave a check of its own, a
- * `run_graph` node included: its accepted submission settles it, and the result goes to the manager
- * that assigned the task. The run's own check judges the run's result, never a child's narrower
- * assignment. Held to the run's check, a child's submission is refused for as long as the run's
- * is: every node of test-canary-graph-tools-20261017a, and the `delay` child of
- * test-retained-root-wake-20261018b ("Expected: the canary runs to its deadline"), was
- * refused at submit_result, never settled, and its manager was never woken with it.
- *
- * It is the one check a harness manager may hold without a continuation policy: it accepts every
- * submission, so there is nothing to send the child back for. test-canary-graph-tools-20261018c and
- * -d had every harness-run graph lead refused at spawn until this exemption.
+ * A managed child without a separate assignment check returns its own submission to its parent.
+ * The run's check belongs to the root. A configured continuation gives the child another turn
+ * when it returns early. Graph nodes can also submit directly in runs without a continuation.
  */
 export const ownSubmissionDeliverable: DeliverableSpec<unknown> = Object.freeze({
   describe:
