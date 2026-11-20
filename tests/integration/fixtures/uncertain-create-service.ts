@@ -32,6 +32,7 @@ type CapacityPhase = 'acquisition' | 'observation'
 let capacityOutage: { ms: number; retryAfterSeconds: number; phases: CapacityPhase[] } | undefined
 const outageSince: Partial<Record<CapacityPhase, number>> = {}
 let observationStreamed = false
+let rootReadOutage = false
 const ledger = join(directory, 'service-ledger.jsonl')
 const stopping = new AbortController()
 const state: ServiceState = {
@@ -721,6 +722,14 @@ async function runtime(
     })
     if (!run)
       return jsonError(response, 404, { message: sessionMatch ? 'no session' : 'no execution' })
+    if (rootReadOutage && runProfile(run).name === 'root') {
+      note('root-read-timeout', { environmentId, executionId: run.executionId, status: 504 })
+      return jsonError(response, 504, {
+        code: 'TIMEOUT',
+        message: 'Request timed out after 30000ms',
+        retryable: true,
+      })
+    }
     if (sessionMatch) {
       return json(response, 200, {
         id: run.sessionId,
@@ -799,6 +808,7 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
   }
   if (url.pathname === '/fixture/control') {
     const control = await body(request)
+    if (typeof control.rootReadOutage === 'boolean') rootReadOutage = control.rootReadOutage
     if (typeof control.nativeExactResultObserved === 'string') {
       const result = observedResults.get(control.nativeExactResultObserved)
       if (!result) throw new Error('exact result acknowledgement requires admitted SQL execution')

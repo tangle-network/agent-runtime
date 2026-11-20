@@ -56,6 +56,23 @@ function executionResults(events: SpawnEvent[], id?: string) {
       event.kind === 'execution-result' && (id === undefined || event.id === id),
   )
 }
+function acceptedExecutionId(
+  events: SpawnEvent[],
+  result: Extract<SpawnEvent, { kind: 'execution-result' }>,
+) {
+  const admission = events
+    .slice(0, events.indexOf(result))
+    .filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-admitted' }> =>
+        event.kind === 'execution-admitted' &&
+        event.id === result.id &&
+        event.admission.phase === 'dispatched',
+    )
+    .at(-1)?.admission
+  if (admission?.phase !== 'dispatched')
+    throw new Error('accepted result has no exact native admission')
+  return admission.controlRef.executionId
+}
 async function assertAcceptedNativeResult(
   fixture: ProcessFixture,
   event: Extract<SpawnEvent, { kind: 'execution-result' }>,
@@ -735,6 +752,107 @@ describe('typed real command credential refusal and accepted evidence', () => {
 })
 
 describe('accepted native recovery and historical identities', () => {
+  it('rejoins the original root after repeated gateway timeouts while its admitted child works', async () => {
+    await withFixture(
+      'accepted',
+      executables,
+      async (fixture) => {
+        await fixture.wait(
+          'four retried root observations with its native child admitted',
+          async () => {
+            const attempts = fixture.attempts()
+            expect(
+              attempts.find((row) => row.stop !== undefined)?.stop,
+              'root stopped during its retained read outage',
+            ).toBeUndefined()
+            return (
+              attempts.filter(
+                (row) => row.classification === 'transient' && row.retryInMs !== undefined,
+              ).length >= 4 &&
+              (await fixture.events()).some(
+                (event) =>
+                  event.kind === 'execution-admitted' &&
+                  event.id === `${rootId}:s0` &&
+                  event.admission.phase === 'dispatched',
+              )
+            )
+          },
+        )
+        const held = await fixture.state()
+        expect(held.runs).toHaveLength(2)
+        const [root, leaf] = held.runs
+        expect(leaf).toMatchObject({ status: 'running' })
+        const refused = requests(held, 'root-read-timeout')
+        expect(refused.length).toBeGreaterThanOrEqual(4)
+        expect(new Set(refused.map((row) => row.executionId))).toEqual(new Set([root!.executionId]))
+        expect(requests(held, 'dispatch')).toHaveLength(2)
+        expect(requests(held, 'cancel')).toEqual([])
+        expect(requests(held, 'delete')).toEqual([])
+        expect(abandoned(await fixture.events())).toEqual([])
+
+        await fixture.control({ rootReadOutage: false, finish: true })
+        await fixture.wait(
+          'original child committed its result and the pursuit settled',
+          async () => fixture.outcomes().some((row) => row.kind === 'settled'),
+        )
+        const events = await fixture.events()
+        const result = executionResults(events, `${rootId}:s0`)
+        expect(result).toHaveLength(1)
+        await assertAcceptedNativeResult(fixture, result[0]!)
+        expect(events).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'settled',
+              id: `${rootId}:s0`,
+              status: 'done',
+              outRef: result[0]!.outRef,
+            }),
+          ]),
+        )
+        const firstRootResult = executionResults(events, rootId)[0]!
+        expect(acceptedExecutionId(events, firstRootResult)).toBe(root!.executionId)
+        expect(acceptedExecutionId(events, result[0]!)).toBe(leaf!.executionId)
+        await assertAcceptedNativeResult(fixture, firstRootResult)
+        // A later pursuit turn can dispatch only after the original root has committed its result.
+        expect(intents(events.slice(0, events.indexOf(firstRootResult)), rootId)).toHaveLength(1)
+        expect(abandoned(events)).toEqual([])
+        const acceptedIds = executionResults(events).map((row) => acceptedExecutionId(events, row))
+        expect(new Set(acceptedIds).size).toBe(acceptedIds.length)
+        const recovered = await fixture.state()
+        const dispatchedIds = requests(recovered, 'dispatch').map((row) => row.executionId)
+        expect(dispatchedIds.sort()).toEqual(acceptedIds.sort())
+        expect(fixture.outcomes().find((row) => row.kind === 'settled')).toMatchObject({
+          result: { result: { kind: 'winner' } },
+        })
+      },
+      { rootReadOutage: true },
+    )
+  }, 120_000)
+
+  it('stops repeated root gateway reads at the configured attempt limit', async () => {
+    await withFixture(
+      'accepted',
+      executables,
+      async (fixture) => {
+        await fixture.wait('supervisor recorded the final attempt', async () =>
+          fixture.attempts().some((row) => row.stop !== undefined),
+        )
+        const attempts = fixture.attempts().filter((row) => row.error !== undefined)
+        expect(attempts).toHaveLength(5)
+        expect(attempts.at(-1)).toMatchObject({ classification: 'transient', stop: 'max-attempts' })
+        const held = await fixture.state()
+        const refused = requests(held, 'root-read-timeout')
+        expect(refused.length).toBeGreaterThanOrEqual(5)
+        expect(new Set(refused.map((row) => row.executionId))).toEqual(
+          new Set([held.runs[0]!.executionId]),
+        )
+        expect(held.runs).toHaveLength(2)
+        expect(requests(held, 'dispatch')).toHaveLength(2)
+      },
+      { rootReadOutage: true, maxDriverAttempts: 5 },
+    )
+  }, 120_000)
+
   it('UC7 accepted native result, descendant accounting and delivered-only finalizer survive process recovery', async () => {
     await withFixture('accepted', executables, async (fixture) => {
       await fixture.wait(
@@ -871,20 +989,7 @@ describe('accepted native recovery and historical identities', () => {
       const acceptedResults = executionResults(events)
       for (const result of acceptedResults) await assertAcceptedNativeResult(fixture, result)
       const acceptedExecutions = new Set(
-        acceptedResults.map((result) => {
-          const admission = events
-            .slice(0, events.indexOf(result))
-            .filter(
-              (event): event is Extract<SpawnEvent, { kind: 'execution-admitted' }> =>
-                event.kind === 'execution-admitted' &&
-                event.id === result.id &&
-                event.admission.phase === 'dispatched',
-            )
-            .at(-1)?.admission
-          if (admission?.phase !== 'dispatched')
-            throw new Error('accepted result has no exact native admission')
-          return admission.controlRef.executionId
-        }),
+        acceptedResults.map((result) => acceptedExecutionId(events, result)),
       )
       expect(acceptedExecutions.size).toBe(acceptedResults.length)
       const completedExecutions = new Set(

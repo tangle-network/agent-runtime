@@ -55,6 +55,9 @@ export async function prepareExecutables(): Promise<{ bundle: string; executable
   return { bundle, executables }
 }
 
+type CoordinatorOptions = Pick<Configuration, 'holdCreateFailure' | 'maxDriverAttempts'>
+type FixtureOptions = CoordinatorOptions & { rootReadOutage?: true }
+
 export class ProcessFixture {
   readonly children: Array<{ process: ChildProcess; closed: Promise<void> }> = []
   coordinator: ChildProcess | undefined
@@ -63,16 +66,20 @@ export class ProcessFixture {
     readonly directory: string,
     readonly scenario: Scenario,
     readonly executables: Executables,
-    private readonly holdCreateFailure?: true,
+    private readonly coordinatorOptions: CoordinatorOptions,
   ) {}
   static async start(
     scenario: Scenario,
     executables: Executables,
-    options: { directory?: string; coordinator?: false; holdCreateFailure?: true } = {},
+    options: FixtureOptions & { directory?: string; coordinator?: false } = {},
   ): Promise<ProcessFixture> {
     const directory =
       options.directory ?? (await mkdtemp(join(tmpdir(), 'uncertain-create-integration-')))
-    const fixture = new ProcessFixture(directory, scenario, executables, options.holdCreateFailure)
+    const { holdCreateFailure, maxDriverAttempts } = options
+    const fixture = new ProcessFixture(directory, scenario, executables, {
+      ...(holdCreateFailure ? { holdCreateFailure } : {}),
+      ...(maxDriverAttempts === undefined ? {} : { maxDriverAttempts }),
+    })
     // A timed-out test never reaches its own cleanup; ending its processes ends its waits too.
     onTestFinished(() => fixture.close())
     try {
@@ -87,6 +94,7 @@ export class ProcessFixture {
       fixture.url = String(
         object(JSON.parse(readFileSync(join(directory, 'service-ready.json'), 'utf8'))).url,
       )
+      if (options.rootReadOutage) await fixture.control({ rootReadOutage: true })
       if (options.coordinator !== false) await fixture.resume()
       return fixture
     } catch (error) {
@@ -173,7 +181,7 @@ export class ProcessFixture {
       scenario: this.scenario,
       url: this.url,
       resolver: this.executables.credential,
-      ...(this.holdCreateFailure ? { holdCreateFailure: true } : {}),
+      ...this.coordinatorOptions,
     }
     const configPath = join(this.directory, 'coordinator-config.json')
     writeAtomicDurableFile(configPath, JSON.stringify(config))
@@ -330,7 +338,7 @@ export async function withFixture(
   scenario: Scenario,
   executables: Executables,
   body: (fixture: ProcessFixture) => Promise<void>,
-  options: { holdCreateFailure?: true } = {},
+  options: FixtureOptions = {},
 ): Promise<void> {
   const fixture = await ProcessFixture.start(scenario, executables, options)
   const failures: unknown[] = []
