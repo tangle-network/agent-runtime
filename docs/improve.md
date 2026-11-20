@@ -54,6 +54,9 @@ Keep that callback and its dependencies bound to the execution identity.
 Composed method evidence remains in `result.raw.best.composition.stages`, including each child's provenance, usage, history, and selected surface.
 Read the aggregate cost from `result.cost`; summing it with child costs would count the same work twice.
 A method that records a search ledger must close it; Runtime replays the ledger bytes and returns the receipt as `result.searchHistory`.
+Each stage of a composed method that records a ledger must close it too, or `improve()` refuses the run and names the stage.
+`result.searchHistories` lists every verified ledger behind the winner, the method's own first and then each stage's in run order.
+`result.searchHistory` stays the method's own ledger, so it is `null` for Eval's composers, which record none themselves.
 
 ## The call
 
@@ -192,7 +195,7 @@ Use `resume: 'required'` to fail when no matching run exists.
 Every candidate the evaluation callback scored is a node, and every evaluation is an `external` cell.
 GEPA's reported parents become `correlated` edges; SkillOpt reports no parents, so its edges are `unknown`.
 The optimizer's own choice is the `selected` node.
-A custom method that records no ledger returns `searchHistory: null`, which means its lineage is unknown.
+A custom method that records no ledger returns `searchHistory: null` and no `searchHistories`, which means its lineage is unknown.
 `lineage.baselineProfileDigest` is `canonicalAgentProfileDigest` of the baseline: the same identity supervise, preparation receipts, and VerticalBench record.
 Ship the ledger to Intelligence with Eval's `startSearchShipper` or `agent-eval search ship`.
 

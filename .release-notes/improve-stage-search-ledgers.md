@@ -1,0 +1,3 @@
+type: patch
+---
+`improve()` in method mode returns `searchHistories`: every search ledger behind the winner, closed and verified from its bytes, including each stage's ledger when the method was composed with agent-eval's `sequentialOptimizationMethod` or `scopedOptimizationMethod`. A stage that leaves its ledger open is refused with the error a single open ledger gets, naming the stage, and a stage ledger whose bytes no longer match its receipt is refused. `searchHistory` stays the method's own ledger. `searchHistories` is absent when any search behind the winner recorded no ledger, so its lineage is unknown.

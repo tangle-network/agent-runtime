@@ -61,6 +61,7 @@ The system is four steps, each with a named entry point:
    Agent Eval scores the selected profile on the untouched final test.
    Runtime returns `ship` only when the paired interval clears the required lift and all spend is accounted for.
    `searchHistory` is the method's search ledger, verified from its bytes: every scored candidate as a node, every evaluation as a cell, and GEPA's parents as edges.
+   `searchHistories` holds every verified ledger behind the winner, including each stage's ledger when Eval composed the method.
    `improve(profile, { method: searchMethod({ proposer, maxExpansions, lanes }), claim, ... })` runs Runtime's native search on Eval's search kernel instead: a policy, an allocator, and a proposer, with parent-to-child Interface diffs on every edge and one claim on the sealed test split.
    A producer can pass `recordCell({ cell, search, result })` to bind its RunRecord during each scored cell settlement. The callback receives final attempt accounting and trace identity; a failed callback stops the search before the cell settles. Pass `executionRunId(artifact)` when a cell ran a nested AgentGraph so its graph run id reaches `traceRef.execRunId`.
    Pass `finalEvidence` with a ledger shared across related campaigns to reserve final units before development and record the sealed candidate roster before test dispatch. Native search returns that receipt and permits an interrupted claim to resume only from its identical durable plan; a fresh adaptive attempt cannot reuse exposed final units.

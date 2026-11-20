@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type { CostReceipt } from '@tangle-network/agent-eval'
 import {
+  type CampaignStorage,
   compareOptimizationMethods,
   fsCampaignStorage,
   type OptimizationMethod,
   type OptimizationMethodInput,
   type OptimizationMethodResult,
+  type SearchHistoryCoverageRow,
+  type SearchHistoryReceipt,
   verifySearchHistoryArtifact,
 } from '@tangle-network/agent-eval/campaign'
 import type { MutableSurface, Scenario } from '@tangle-network/agent-eval/contract'
@@ -50,12 +53,53 @@ function resolveOptimizationMethod<TScenario extends Scenario, TArtifact>(
   return method
 }
 
+/** Read the comparison's one producer row and its composed stages depth first:
+ * refuse an open ledger, naming its stage, and replay each closed one from its bytes. */
+function closedSearchHistories(
+  methodName: string,
+  producers: readonly SearchHistoryCoverageRow[],
+  storage: Pick<CampaignStorage, 'read'>,
+): Pick<ImproveMethodResult, 'searchHistory' | 'searchHistories'> {
+  const [row] = producers
+  if (producers.length !== 1 || row?.producerId !== methodName) {
+    const reported = producers.map((producer) => `'${producer.producerId}'`).join(', ')
+    throw new ConfigError(
+      `improve(): method '${methodName}' needs exactly its own search history row; the comparison reported [${reported}]`,
+    )
+  }
+  const receipts: SearchHistoryReceipt[] = []
+  let lineageKnown = true
+  const read = (current: SearchHistoryCoverageRow, stagePath: readonly string[]): void => {
+    const { receipt, stages = [] } = current
+    if (receipt) {
+      if (!receipt.complete) {
+        const stage = stagePath.length > 0 ? ` stage '${stagePath.join(' > ')}'` : ''
+        throw new ConfigError(
+          `improve(): method '${methodName}'${stage} returned an open search ledger: ${receipt.incompleteReasons.join('; ')}`,
+        )
+      }
+      verifySearchHistoryArtifact(receipt, storage)
+      receipts.push(receipt)
+    } else if (stages.length === 0) {
+      lineageKnown = false
+    }
+    for (const stage of stages) read(stage, [...stagePath, stage.producerId])
+  }
+  read(row, [])
+  return {
+    searchHistory: row.receipt ?? null,
+    ...(lineageKnown ? { searchHistories: Object.freeze(receipts) } : {}),
+  }
+}
+
 /**
  * Run one complete method, then compare its winner with the baseline on the
  * held-out test split. A method that records its search (GEPA and SkillOpt do
- * through `officialGepa` and `officialSkillOpt`) must close its ledger; Runtime
- * replays the bytes and returns the receipt. A method that records none
- * returns `searchHistory: null`: its lineage is unknown, not empty.
+ * through `officialGepa` and `officialSkillOpt`) must close its ledger, and so
+ * must every stage of a method Eval composed; Runtime replays the bytes and
+ * returns the receipts. `searchHistory` is the method's own ledger and is
+ * `null` when the method recorded none itself; `searchHistories` holds every
+ * ledger behind the winner and is absent when any search recorded none.
  */
 export async function runMethodImprovement<TScenario extends Scenario, TArtifact>(
   profile: AgentProfile,
@@ -202,15 +246,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
       `improve(): reported total cost $${raw.totalCost.totalCostUsd} exceeds costCeiling $${comparisonOptions.costCeiling}`,
     )
   }
-  const searchHistory = raw.searchHistory.producers[0]?.receipt ?? null
-  if (searchHistory) {
-    if (!searchHistory.complete) {
-      throw new ConfigError(
-        `improve(): method '${method.name}' returned an open search ledger: ${searchHistory.incompleteReasons.join('; ')}`,
-      )
-    }
-    verifySearchHistoryArtifact(searchHistory, methodStorage)
-  }
+  const histories = closedSearchHistories(method.name, raw.searchHistory.producers, methodStorage)
   const score = raw.best
   const winnerSurface = immutableCandidateValue(score.winnerSurface)
   assertCandidateSurfaceKind(surface, baselineSurface, winnerSurface)
@@ -231,7 +267,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
         : 'hold',
     lift: score.lift,
     liftInterval: { ...score.liftCi },
-    searchHistory,
+    ...histories,
     cost,
     durationMs: Date.now() - startedAt,
     lineage: Object.freeze({
