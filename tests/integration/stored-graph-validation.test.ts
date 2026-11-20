@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import {
+  digestOfGraph,
   graphDigest,
   graphFromStored,
   loadGraph,
@@ -12,7 +13,7 @@ import {
 } from '../../src/runtime/supervise/graph-registry'
 import { createPromptRegistry } from '../../src/runtime/supervise/prompt-registry'
 import { validateStoredGraph } from '../../src/runtime/supervise/stored-graph-validation'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 function redigest(graph: StoredGraph): StoredGraph {
   const { digest: _digest, ...content } = graph
@@ -51,6 +52,37 @@ it('validates compiled file data through the actual registry and deliverable con
     const graph = graphFromStored(reloaded)
     expect(await graph.deliverable.check({ worker: { ok: true } })).toBe(true)
     expect(await graph.deliverable.check({ worker: { ok: false } })).toBe(false)
+
+    const deliverable = { ...validated.deliverable, requireSubmission: true }
+    expect(() => redigest({ ...validated, deliverable })).toThrow('no manager to submit')
+    const { entry: _entry, ...managed } = validated
+    const authoredManager = redigest({
+      ...managed,
+      nodes: [
+        {
+          id: 'lead',
+          profile: testAgentProfile('lead', {
+            tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
+          }),
+        },
+        ...managed.nodes,
+      ],
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'lead',
+          to: 'worker',
+          directive: { surface: 'delegates/worker-brief', version: 1 },
+        },
+      ],
+      deliverable,
+    })
+    await recordStoredGraphRun(registry, authoredManager)
+    const manager = graphFromStored(
+      validateStoredGraph(await loadGraph(registry, authoredManager.digest)),
+    )
+    expect(manager.deliverable.requireSubmission).toBe(true)
+    expect(digestOfGraph(manager)).toBe(authoredManager.digest)
 
     const changed = structuredClone(loaded.graph)
     ;(changed.entry![0]!.task as Record<string, unknown>).message = 'tampered after digesting'

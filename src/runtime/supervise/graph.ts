@@ -735,6 +735,8 @@ export function assertRunGraphAuthoring(
   brain?: ToolLoopChat,
 ): ReturnType<typeof validateGraph> {
   assertRunGraphOptionKeys(opts)
+  if (graph.entry !== undefined && graph.deliverable.requireSubmission)
+    throw new ValidationError('a graph with an entry has no manager to submit its result')
   if (graph.continuation !== undefined) {
     portableContinuationPolicySchema.parse(graph.continuation)
     if (opts.continuation !== undefined)

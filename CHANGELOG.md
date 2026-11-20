@@ -1,10 +1,16 @@
 ## 10.0.10
 
-The agent-eval peer range is `^1.0.32 || ^2.0.0`, so an application can install agent-eval 2.0.0 beside Runtime without a peer conflict; Runtime builds, typechecks and passes its suite on either major. With agent-eval 2.0.0, install agent-knowledge 23.0.7 or later: earlier Knowledge releases declare an agent-eval 1 peer, and Runtime's `^23.0.0` Knowledge dependency admits 23.0.7. The release cohort qualifies Runtime with Knowledge 23.0.7 installed beside the newest agent-eval 1.0 and 2.0 releases on npm. `improve()` in method mode refuses a `describeArtifact` set beside the method: agent-eval 2.0.0 hands such a hook to every method's optimizer, where it would reach GEPA or SkillOpt without the redaction and evaluation identity `officialGepa` and `officialSkillOpt` apply. Set it on the method instead. A free agent in a test fixture now records a known $0 call, which agent-eval 1.0.39 and later require for complete cost accounting.
+Keep a coordinator available until it can read a receipted tool result, and retry its delivery when an observer loses the acknowledgement.
 
-Provider executors can restore a supervised node from a checkpoint assigned to its Runtime identity: the optional `checkpointForNode` on `ProviderExecutorOptions` receives the node's Runtime-assigned identity and returns the workspace checkpoint it starts from, so siblings that share one AgentProfile can start from different inputs. The execution record and placement digest identify the selected checkpoint. A callback that disagrees with a configured workspace checkpoint, or one set beside a shared environment, is refused; configurations without it behave as before.
+The agent-eval peer range is `^1.0.32 || ^2.0.0`, so an application can install agent-eval 2.0.0 beside Runtime without a peer conflict; Runtime builds, typechecks and passes its suite on either major. `improve()` in method mode refuses a `describeArtifact` set beside the method: agent-eval 2.0.0 hands such a hook to every method's optimizer, where it would reach GEPA or SkillOpt without the redaction and evaluation identity `officialGepa` and `officialSkillOpt` apply. Set it on the method instead. A free agent in a test fixture now records a known $0 call, which agent-eval 1.0.39 and later require for complete cost accounting.
+
+Managers can require an explicit submission and continue unfinished delegated work within its original budget. An expired worker with no result reports failure to its parent. A worker that produces output as it exhausts its budget retains the completed turn for review. Its parent can see the overspend and whether a check accepted the work.
+
+Provider executors can restore a supervised node from a checkpoint assigned to its Runtime identity. The execution record identifies the selected checkpoint even when siblings use the same AgentProfile.
 
 The `agent-graphs`, `build-with-agent-runtime` and `profile-authoring` skills open by setting the bar (the best known result with its source, our number, a target that beats it, the mechanism and the outside check) and finish when that check shows the target met or the miss is explained, not when checks pass; the bundled `be-ambitious` snapshot follows the current canonical skill.
+
+Keep stored manager graphs compatible with v10 consumers while preserving the optional explicit-submission policy through registry round trips.
 
 ## 10.0.9
 

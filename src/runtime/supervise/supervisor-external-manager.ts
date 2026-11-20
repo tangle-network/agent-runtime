@@ -5,7 +5,9 @@ import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './m
 import { providerVisibleProfile } from './provider-visible-profile'
 import { isRunParked } from './run-parking'
 import { detachedSnapshot } from './snapshot'
+import { exhaustedBudgetChannels } from './supervise-budget'
 import type { SupervisorAgentDeps } from './supervisor-agent-contracts'
+import { ownSubmissionDeliverable } from './supervisor-agent-profile'
 import {
   type ExternalManagerConfig,
   type ExternalManagerLive,
@@ -122,7 +124,7 @@ async function actExternalManager(
       providerProfile,
       controlPass: () => controlObserver?.pass() ?? Promise.resolve(),
     })
-    return await settleManagerOutput(config, mcp, contractDeclared, finalize, candidate)
+    return await settleManagerOutput(config, mcp, scope, contractDeclared, finalize, candidate)
   } catch (error) {
     if (isRunParked(error, scope)) throw error
     await mcp.finishAnalysis({
@@ -146,6 +148,7 @@ async function actExternalManager(
 async function settleManagerOutput(
   config: ExternalManagerConfig,
   mcp: CoordinationMcpHandle,
+  scope: Scope<unknown>,
   contractDeclared: boolean,
   finalize: () => Promise<unknown>,
   candidate: unknown,
@@ -162,16 +165,24 @@ async function settleManagerOutput(
     return submitted.result
   }
   if (contractDeclared) {
-    await mcp.finishAnalysis({ status: 'done', output: candidate })
-    return candidate
+    const owesSubmission =
+      deps.deliverable === ownSubmissionDeliverable || deps.deliverable?.requireSubmission === true
+    if (!owesSubmission || candidate !== undefined || (config.nodeContextSeed?.depth ?? 0) === 0) {
+      await mcp.finishAnalysis({ status: 'done', output: candidate })
+      return candidate
+    }
+    if (exhaustedBudgetChannels(scope.budget, Date.now()) === undefined) {
+      throw new Error('The worker ended without an accepted result for its assignment.')
+    }
+  } else {
+    const finalized = await finalize()
+    if (finalized !== undefined) {
+      await mcp.finishAnalysis({ status: 'done', output: finalized })
+      return finalized
+    }
   }
-  const finalized = await finalize()
-  if (finalized !== undefined) {
-    await mcp.finishAnalysis({ status: 'done', output: finalized })
-    return finalized
-  }
-  // An unchecked child may do direct work. Retain its terminal report through the same
-  // settlement and blob reader, without treating native completion as quality acceptance.
+  // Retain an unchecked child's work or a finished turn that exhausted its worker budget.
+  // Neither provides a submission verdict.
   const harnessResult = config.driveHarness.resultArtifact?.()
   if (
     config.nodeContextSeed !== undefined &&
@@ -182,6 +193,9 @@ async function settleManagerOutput(
     deps.onUnassessedOutput?.(harnessResult.out)
     await mcp.finishAnalysis({ status: 'done', output: harnessResult.out })
     return harnessResult.out
+  }
+  if (contractDeclared) {
+    throw new Error('The worker ended without an accepted result for its assignment.')
   }
   await mcp.finishAnalysis({ status: 'done' })
   return undefined

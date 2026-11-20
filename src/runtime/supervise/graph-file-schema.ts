@@ -103,6 +103,7 @@ export const graphFileSchema = z.strictObject({
     .strictObject({
       describe: z.string().optional(),
       checkRef: z.string().min(1),
+      requireSubmission: z.boolean().optional(),
       command: command.optional(),
       when: graphRouteWhenSchema.optional(),
     })
