@@ -19,6 +19,7 @@ const v10Graph = {
         name: 'manager',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'offline/manager' },
+        tools: { agent_runtime_coordination_spawn_worker: true },
       },
     },
     {
