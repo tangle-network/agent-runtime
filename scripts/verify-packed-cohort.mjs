@@ -534,7 +534,10 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
       2,
     )}\n`,
   )
-  writeFileSync(join(appDir, 'pnpm-workspace.yaml'), 'packages: []\n')
+  writeFileSync(
+    join(appDir, 'pnpm-workspace.yaml'),
+    ['packages: []', 'autoInstallPeers: true', 'strictPeerDependencies: true', ''].join('\n'),
+  )
   captured(
     'corepack',
     [
@@ -547,10 +550,6 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
       JSON.stringify(fileSpecs),
     ],
     appDir,
-  )
-  writeFileSync(
-    join(appDir, '.npmrc'),
-    ['auto-install-peers=true', 'strict-peer-dependencies=true', ''].join('\n'),
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
@@ -814,18 +813,12 @@ function assertSharedContractPeer(owner, dependency) {
   if (owner.packageJson.dependencies?.[dependency.name] !== undefined) {
     throw new Error(`${owner.name} must not nest ${dependency.name} as a runtime dependency`)
   }
-  // A required peer deliberately admits later compatible patches. Requiring every owner's
-  // development pin to equal the consumer-selected patch recreates the release lockstep that
-  // peer dependencies removed. The strict packed install below proves the selected version is
-  // admitted and resolves to one physical package; this check verifies its development and selected versions.
-  requiredPackedDevelopmentDependency(owner.packageJson, dependency.name)
-  const window =
-    owner.name === PACKAGES.agentRuntime ? peerCompatibility[dependency.name] : undefined
+  // Check each packed manifest against the consumer's selected versions before installing it.
+  const window = peerCompatibility[dependency.name]
   assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name, {
-    ...(owner.name === '@tangle-network/agent-knowledge'
-      ? { expectedRange: owner.packageJson.peerDependencies?.[dependency.name] }
-      : {}),
-    ...(window ? { expectedRange: window.expectedRange } : {}),
+    expectedRange: owner.name === PACKAGES.agentRuntime
+      ? window?.expectedRange
+      : owner.packageJson.peerDependencies?.[dependency.name],
     admittedVersions: [dependency.version, ...(window?.admittedVersions ?? [])],
   })
   assertRequiredPeer(owner, dependency)

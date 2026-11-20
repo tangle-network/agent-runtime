@@ -17,6 +17,12 @@ const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktr
 const serial = [
   // The archive qualification writes about 9 GiB when it cannot use tmpfs. Other tests fsync.
   'tests/candidate-workspace-streaming-memory.test.ts',
+  // Knowledge activation hashes and restores real snapshots. Concurrent filesystem suites
+  // exhausted its time bound before the explicit-default and research restores finished.
+  'tests/knowledge-improvement-job.test.ts',
+  // These exercise a bounded trainer subprocess and the viewer's discovery latency.
+  'tests/profile-training.test.ts',
+  'tests/integration/top-web.test.ts',
   'tests/runtime/retained-capture-resume.test.ts',
   'tests/kernel/retained-checkpoint-capture.test.ts',
   'tests/kernel/run-registry-persistence.test.ts',
