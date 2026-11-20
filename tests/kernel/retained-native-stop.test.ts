@@ -19,6 +19,7 @@ import type { Agent, SpawnEvent, UsageEvent } from '../../src/runtime/supervise/
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { HANG_BOUND_MS, HANG_TEST_TIMEOUT_MS, within } from '../helpers/observable-state'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -70,8 +71,10 @@ function liveProcessProvider(
 ) {
   const processes = new Map<string, ChildProcess>()
   const stoppedAt = new Map<string, number>()
-  // Executions whose event stream Runtime opened: it is observing the native process.
-  const observed = new Set<string>()
+  let observing!: () => void
+  const observation = new Promise<void>((resolve) => {
+    observing = resolve
+  })
   const base = durableRetainedProvider(stateFile)
   let creates = 0
   let destroys = 0
@@ -105,7 +108,7 @@ function liveProcessProvider(
       return {
         ...session,
         async *events(): AsyncIterable<AgentEnvironmentEvent> {
-          observed.add(executionId)
+          observing()
           yield {
             id: 'event-0',
             type: 'status',
@@ -166,7 +169,7 @@ function liveProcessProvider(
     provider,
     processes,
     stoppedAt,
-    observing: () => observed.size > 0,
+    observed: () => within(observation, HANG_BOUND_MS, 'observation of the native process'),
     creates: () => creates,
     destroys: () => destroys,
     dispatches: () => dispatches,
@@ -211,20 +214,40 @@ function childRunContext(runDir: string) {
   }
 }
 
-/** Whether `condition` holds before `ms` elapse. */
-async function within(ms: number, condition: () => boolean): Promise<boolean> {
-  const until = Date.now() + ms
-  while (!condition()) {
-    if (Date.now() >= until) return false
-    await new Promise((resolve) => setTimeout(resolve, 20))
-  }
-  return true
-}
-
 async function scratch(prefix: string): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), prefix))
   directories.push(directory)
   return directory
+}
+
+/** How long this host takes from spawning a retained leaf until Runtime observes its native
+ *  process: a cancelled run of the same supervisor, provider and leaf, measured to the event. */
+async function nativeSetupMs(): Promise<number> {
+  const directory = await scratch('native-stop-setup-')
+  const live = liveProcessProvider(join(directory, 'provider.json'))
+  let setupMs: number | undefined
+  const result = await createSupervisor<string, string>().run(
+    {
+      name: 'root',
+      act: async (_task, scope) => {
+        const spawnedAt = Date.now()
+        const spawned = scope.spawn(retainedLeaf(live.provider), 'setup probe', {
+          key: 'probe',
+          budget: { maxIterations: 1, maxTokens: 100 },
+        })
+        if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
+        await live.observed()
+        setupMs = Date.now() - spawnedAt
+        spawned.handle.abort('the native setup is measured')
+        await scope.next()
+        return 'measured'
+      },
+    },
+    'root-task',
+    childRunContext(join(directory, 'run')),
+  )
+  if (setupMs === undefined) throw new Error(`native setup probe failed: ${JSON.stringify(result)}`)
+  return setupMs
 }
 
 describe('native custody when a retained run is cancelled', () => {
@@ -264,7 +287,7 @@ describe('native custody when a retained run is cancelled', () => {
         },
       },
     )
-    await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
+    await live.observed()
     const [harness] = [...live.processes.values()]
     expect(running(harness!)).toBe(true)
 
@@ -312,7 +335,7 @@ describe('native custody when a retained run is cancelled', () => {
           signal: cancel.signal,
         },
       )
-      await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
+      await live.observed()
       const [harness] = [...live.processes.values()]
       expect(running(harness!)).toBe(true)
 
@@ -347,13 +370,18 @@ describe('native custody when a retained run is cancelled', () => {
             key: 'work',
             budget: { maxIterations: 1, maxTokens: 100 },
           })
-          await expect.poll(() => live.observing(), { timeout: 10_000 }).toBe(true)
+          await live.observed()
           const [harness] = [...live.processes.values()]
           expect(running(harness!)).toBe(true)
           if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
           spawned.handle.abort('the director stopped this worker')
           expect((await scope.next())?.kind).toBe('down')
-          stoppedWhileLive = await within(5_000, () => !running(harness!))
+          // The exit itself, awaited inside the root's act: a stop that came only from the
+          // root's release could not happen while this waits, and the bound names that hang.
+          stoppedWhileLive = await within(exited(harness!)).then(
+            () => true,
+            () => false,
+          )
           return 'root done'
         },
       },
@@ -375,15 +403,20 @@ describe('a deadline that ends a retained turn', () => {
       const directory = await scratch('native-stop-deadline-')
       const runDir = join(directory, 'run')
       const live = liveProcessProvider(join(directory, 'provider.json'), { asynchronousStopMs })
-      await createSupervisor<string, string>().run(
+      // The deadline arms at admission, before the provider creates and dispatches the process,
+      // so it has to outlast that setup for the turn it ends to hold a running process. A fixed
+      // 1.5 s lost that race on a loaded gate host (11-20, load 24); ten times this host's own
+      // setup keeps the deadline after the process is running, inside the hang bound.
+      const deadlineMs = Math.min(HANG_BOUND_MS, Math.max(1_500, 10 * (await nativeSetupMs())))
+      const result = await createSupervisor<string, string>().run(
         {
           name: 'root',
           act: async (_task, scope) => {
             scope.spawn(retainedLeaf(live.provider), 'child task', {
               key: 'work',
-              budget: { maxIterations: 1, maxTokens: 100, deadlineMs: 1_500 },
+              budget: { maxIterations: 1, maxTokens: 100, deadlineMs },
             })
-            await expect.poll(() => live.observing()).toBe(true)
+            await live.observed()
             expect([...live.processes.values()].some(running)).toBe(true)
             expect(await scope.next()).toMatchObject({
               kind: 'down',
@@ -396,6 +429,7 @@ describe('a deadline that ends a retained turn', () => {
         'root-task',
         childRunContext(runDir),
       )
+      expect(result.kind, JSON.stringify(result)).toBe('winner')
       expect(live.stoppedAt.size).toBe(1)
       const stoppedAt = [...live.stoppedAt.values()][0]!
       const events = (await createFileRunContext(runDir).journal.loadTree('root')) ?? []
@@ -411,7 +445,7 @@ describe('a deadline that ends a retained turn', () => {
         ofKind(events, 'execution-input').every((event) => event.workspaceRetention !== true),
       ).toBe(true)
     },
-    30_000,
+    HANG_TEST_TIMEOUT_MS,
   )
 })
 
@@ -538,7 +572,7 @@ describe('terminal recovery of a previously admitted native process', () => {
       })
       if (ending === 'retry-stop') {
         availability.stopUnavailable = false
-        const receipts = await recovered!.releaseRetained!(AbortSignal.timeout(5_000))
+        const receipts = await recovered!.releaseRetained!(AbortSignal.timeout(HANG_BOUND_MS))
         expect(running(harness!)).toBe(false)
         expect(running(canary)).toBe(true)
         expect(receipts).toMatchObject([
@@ -548,7 +582,7 @@ describe('terminal recovery of a previously admitted native process', () => {
         expect({ creates: live.creates(), dispatches: live.dispatches() }).toEqual(before)
       }
     },
-    30_000,
+    HANG_TEST_TIMEOUT_MS,
   )
 })
 
@@ -588,15 +622,15 @@ it('releases warm native custody after an unknown stop later receives an exact s
           budget: { maxIterations: 1, maxTokens: 100 },
         })
         if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
-        await expect.poll(() => live.observing()).toBe(true)
+        await live.observed()
         spawned.handle.abort('the director stopped this worker')
         await turnEnded
         const [harness] = [...live.processes.values()]
-        first = await executor!.releaseRetained!(AbortSignal.timeout(5_000))
+        first = await executor!.releaseRetained!(AbortSignal.timeout(HANG_BOUND_MS))
         firstAlive = running(harness!)
         firstDestroys = live.destroys()
         availability.stopUnavailable = false
-        second = await executor!.releaseRetained!(AbortSignal.timeout(5_000))
+        second = await executor!.releaseRetained!(AbortSignal.timeout(HANG_BOUND_MS))
         secondAlive = running(harness!)
         return 'root done'
       },

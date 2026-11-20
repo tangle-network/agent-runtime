@@ -27,6 +27,35 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
+/**
+ * A durable store whose copies each wait until `count` of them overlap. No copy finishes before
+ * then, so a capture or pass that keeps `count` in flight gets there however slowly the host
+ * starts them. A 100 ms fallback let copies through before they overlapped on a loaded host;
+ * one that keeps fewer than `count` in flight now waits until the test's timeout names it.
+ */
+function overlappingStore(store: PrivateCasDurableStore, count: number) {
+  let inFlight = 0
+  let most = 0
+  let overlapped!: () => void
+  const overlap = new Promise<void>((resolve) => {
+    overlapped = resolve
+  })
+  const slow: PrivateCasDurableStore = {
+    ...store,
+    async putStream(object) {
+      most = Math.max(most, ++inFlight)
+      if (inFlight >= count) overlapped()
+      try {
+        await overlap
+        await store.putStream!(object)
+      } finally {
+        inFlight--
+      }
+    },
+  }
+  return { store: slow, most: () => most }
+}
+
 // A capture refuses when its pass reports anything pending, so a second capture's put and pass
 // that meet the first capture's copy in flight must wait for it, not report it or copy it again.
 it.each([0, 1024])(
@@ -346,32 +375,15 @@ it('captures a workspace tree with several durable copies in flight, each distin
   )
   await writeFile(join(source, 'same-as-f0'), 'file 0')
   const durable = await diskS3StreamStore(join(root, 'remote'))
-  let inFlight = 0
-  let most = 0
-  let overlapped!: () => void
-  const overlap = new Promise<void>((resolve) => {
-    overlapped = resolve
+  // A slow store: each upload waits until four overlap.
+  const slow = overlappingStore(durable.store, 4)
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: slow.store,
   })
-  // A slow store: each upload waits until four overlap. The bound only lets a capture that copies
-  // one file at a time finish, so the assertion below fails instead of the test timing out.
-  const slow: PrivateCasDurableStore = {
-    ...durable.store,
-    async putStream(object) {
-      most = Math.max(most, ++inFlight)
-      if (inFlight >= 4) overlapped()
-      try {
-        await Promise.race([overlap, new Promise((settle) => setTimeout(settle, 100))])
-        await durable.store.putStream!(object)
-      } finally {
-        inFlight--
-      }
-    },
-  }
-  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', { durable: slow })
   const tree = await captureAgentCandidateWorkspaceTreeToArtifacts(source, {
     artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
   })
-  expect(most).toBeGreaterThanOrEqual(4)
+  expect(slow.most()).toBeGreaterThanOrEqual(4)
   expect(tree).toMatchObject({ files: 33, storedBytes: tree.bytes - 'file 0'.length })
   // 32 distinct files and the manifest; the file with f0's content is f0's object.
   expect(durable.counts().uploads).toBe(33)
@@ -404,35 +416,17 @@ it('captures a many-file tree with fsyncs in flight, every file verified and dur
   }
   const distinct = new Set([...files.values()].map((bytes) => bytes.toString('base64'))).size
   const durable = await diskS3StreamStore(join(root, 'remote'))
-  let inFlight = 0
-  let most = 0
-  let overlapped!: () => void
-  const overlap = new Promise<void>((resolve) => {
-    overlapped = resolve
-  })
-  // Each upload waits until sixteen overlap, or 100 ms for a capture that keeps fewer in flight.
-  const slow: PrivateCasDurableStore = {
-    ...durable.store,
-    async putStream(object) {
-      most = Math.max(most, ++inFlight)
-      if (inFlight >= 16) overlapped()
-      try {
-        await Promise.race([overlap, new Promise((settle) => setTimeout(settle, 100))])
-        await durable.store.putStream!(object)
-      } finally {
-        inFlight--
-      }
-    },
-  }
+  // Each upload waits until sixteen overlap.
+  const slow = overlappingStore(durable.store, 16)
   // A host that keeps its objects after upload, as drew-gtr-pro's archive disk does.
   const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
-    durable: slow,
+    durable: slow.store,
     localBudgetBytes: 1024 * 1024 * 1024,
   })
   const tree = await captureAgentCandidateWorkspaceTreeToArtifacts(source, {
     artifactPersistence: { executionId: 'node', outputArtifacts: artifacts },
   })
-  expect(most).toBeGreaterThanOrEqual(16)
+  expect(slow.most()).toBeGreaterThanOrEqual(16)
   const bytes = [...files.values()].reduce((sum, each) => sum + each.byteLength, 0)
   expect(tree).toMatchObject({ files: 300, bytes })
   // Every distinct file and the manifest reached the store before the capture returned.
@@ -518,30 +512,13 @@ it('a pass copies host-only objects with several durable copies in flight', asyn
     await writeFile(join(root, 'local', 'sha256', hex.slice(0, 2), hex), text)
   }
   const durable = await diskS3StreamStore(join(root, 'remote'))
-  let inFlight = 0
-  let most = 0
-  let overlapped!: () => void
-  const overlap = new Promise<void>((resolve) => {
-    overlapped = resolve
+  // A slow store: each copy waits until four overlap.
+  const slow = overlappingStore(durable.store, 4)
+  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', {
+    durable: slow.store,
   })
-  // A slow store: each copy waits until four overlap. The bound only lets a pass that copies one
-  // object at a time finish, so the assertion below fails instead of the test timing out.
-  const slow: PrivateCasDurableStore = {
-    ...durable.store,
-    async putStream(object) {
-      most = Math.max(most, ++inFlight)
-      if (inFlight >= 4) overlapped()
-      try {
-        await Promise.race([overlap, new Promise((settle) => setTimeout(settle, 100))])
-        await durable.store.putStream!(object)
-      } finally {
-        inFlight--
-      }
-    },
-  }
-  const artifacts = createPrivateCasArtifactPort(join(root, 'local'), 'test', { durable: slow })
   expect(await artifacts.offload()).toMatchObject({ durable: 32, uploaded: 32, pending: [] })
-  expect(most).toBeGreaterThanOrEqual(4)
+  expect(slow.most()).toBeGreaterThanOrEqual(4)
   expect(durable.counts().uploads).toBe(32)
   expect(await artifacts.offload()).toMatchObject({ durable: 32, uploaded: 0, pending: [] })
 })
