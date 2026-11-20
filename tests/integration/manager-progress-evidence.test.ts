@@ -112,9 +112,10 @@ it.each(['checked', 'unchecked', 'score', 'checked-budget'] as const)(
           wake: { heartbeatMs: 5000, debounceMs: 0, deadlineWarningMs: 0 },
           continuation: testContinuation({ maxBarren: mode === 'unchecked' ? 100 : 2 }),
           driverRetry: { maxAttempts: 4, initialBackoffMs: 0, maxBackoffMs: 0 },
-          finalizer: () => undefined,
           deliverable: {
-            check: () => false,
+            requireSubmission: true,
+            // The worker's file satisfies the content check. Only the manager can submit it.
+            check: (out) => out === 'checked work',
             checkState: async () => {
               if (mode !== 'score') return false
               const milestone =
