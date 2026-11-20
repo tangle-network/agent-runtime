@@ -870,6 +870,8 @@ describe('a shape change is classified from the declarations it was built from',
   // An untagged union of an object and an intersection, the shape of SupervisedResult (9.0.4).
   const variants = (member: string, rest = '  readonly attempts: number;\n') =>
     `export type Outcome =\n  | {\n  readonly winner: string;\n${member}}\n  | ({\n${rest}${member}} & ({ readonly a: 1 } | { readonly b: 2 }));\n`
+  const report = (array: string, member: string) =>
+    `interface Answer { readonly id: string; ${member} } export interface Report { readonly questions: ${array}; }`
 
   it.each([
     ['an options interface', options],
@@ -894,6 +896,8 @@ describe('a shape change is classified from the declarations it was built from',
         `export interface Parent { readonly cwd: string; readonly skip?: boolean; } declare const keys: readonly ['cwd', 'skip']; type Keys = Exclude<(typeof keys)[number], 'skip'>; export interface StartOptions extends Pick<Parent, Keys> { ${member} }`,
     ],
     ['a callable interface argument', callable],
+    ['an item in readonly T[]', (member: string) => report('readonly Answer[]', member)],
+    ['an item in ReadonlyArray<T>', (member: string) => report('ReadonlyArray<Answer>', member)],
     ['each variant of an untagged union', (member: string) => variants(member)],
   ])(
     'asks a patch for an added optional member of %s and a major for an added required one',

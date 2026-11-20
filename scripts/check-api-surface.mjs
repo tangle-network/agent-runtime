@@ -441,7 +441,7 @@ const unwrap = (type) => (type?.type === 'TSParenthesizedType' ? unwrap(type.typ
  *   `|<digest>` or `|tag:...` a union variant, an untagged one with its parts when it has them;
  *   `&<digest>` an opaque intersection member or `Pick` projection
  *   `@0` `@1`    a signature of a function value         `<>` type parameters
- *   `Promise<>`  the value of a `Promise`
+ *   `Promise<>`  the value of a `Promise`; `~readonly-array` the element of a readonly array
  *   `~form`     completely accounted declaration kind; private heritage is flattened
  *   `~call` an interface's call signature; `~<digest>` any other member (index, construct, accessor)
  *
@@ -600,12 +600,20 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
         return functionParts(type)
       case 'TSUnionType':
         return unionParts(type.types)
+      case 'TSTypeOperator': {
+        const array = unwrap(type.typeAnnotation)
+        return type.operator === 'readonly' && array?.type === 'TSArrayType'
+          ? { '~readonly-array': typePart(array.elementType) } : null
+      }
       case 'TSTypeReference':
         // A promise only hands its value out, so its value compares part by part (an inferred
         // `Promise<{...} | ...>` return); a Pick retains its exact projection as one opaque part.
         if (type.typeName.type === 'Identifier' && type.typeName.name === 'Promise' &&
           type.typeArguments?.params.length === 1)
           return { 'Promise<>': typePart(type.typeArguments.params[0]) }
+        if (type.typeName.type === 'Identifier' && type.typeName.name === 'ReadonlyArray' &&
+          type.typeArguments?.params.length === 1 && resolveBinding(module.file, 'ReadonlyArray', ctx) === null)
+          return { '~readonly-array': typePart(type.typeArguments.params[0]) }
         if (isPick(type)) return { [`&${digest(type)}`]: 1 }
         return type.typeArguments ? null : localParts(type.typeName)
       case 'TSMappedType': {
