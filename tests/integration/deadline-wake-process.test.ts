@@ -6,7 +6,8 @@ import { FileSpawnJournal } from '../../src/durable/spawn-journal/journal-store'
 import { connectHttpMcp } from '../../src/runtime/http-mcp-client'
 import type { Agent, AgentSpec } from '../../src/runtime/supervise/types'
 import { testContinuation } from '../helpers/continuation'
-import { physicalState, withInPlaceProcess, within } from '../helpers/in-place-process-fixture'
+import { physicalState, withInPlaceProcess } from '../helpers/in-place-process-fixture'
+import { within } from '../helpers/observable-state'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 it.skipIf(process.platform === 'win32').each(['wait', 'submit', 'debounce'] as const)(

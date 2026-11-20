@@ -8,6 +8,7 @@ import {
   type ExecutorResult,
   type InPlaceHarnessResult,
 } from '../../src/runtime'
+import { HANG_BOUND_MS, within } from './observable-state'
 
 export type ProcessMode = 'waiting' | 'cleanup-failure' | 'normal'
 export type Observation<T> =
@@ -25,30 +26,6 @@ export async function observe<T>(promise: Promise<T>): Promise<Observation<T>> {
     return { status: 'fulfilled', value: await promise }
   } catch (error) {
     return { status: 'rejected', error }
-  }
-}
-
-// Waits below bound a condition, not a duration: they return once it holds. 2 s expired on a
-// loaded 16-core gate host before a Node subprocess was ready (10-27, every run at load 40-80).
-const PROCESS_PROOF_WAIT_MS = 20_000
-
-export async function within<T>(
-  promise: Promise<T>,
-  milliseconds = PROCESS_PROOF_WAIT_MS,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`process proof exceeded ${milliseconds}ms`)),
-          milliseconds,
-        )
-      }),
-    ])
-  } finally {
-    clearTimeout(timer)
   }
 }
 
@@ -189,7 +166,7 @@ export async function withInPlaceProcess(
     let state: ReturnType<typeof physicalState> | undefined
     try {
       if (fixture.readyValue) {
-        const until = Date.now() + PROCESS_PROOF_WAIT_MS
+        const until = Date.now() + HANG_BOUND_MS
         do {
           state = physicalState(fixture.readyValue)
           if (
@@ -253,7 +230,7 @@ function makeFixture(mode: ProcessMode, name: string) {
     executor = createInPlaceCliExecutor({
       workspacePath: directory,
       profile,
-      harnessTimeoutMs: PROCESS_PROOF_WAIT_MS,
+      harnessTimeoutMs: HANG_BOUND_MS,
       env: { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`, IN_PLACE_PROCESS_MODE: mode },
       executionAttemptId,
     })
@@ -284,7 +261,7 @@ function makeFixture(mode: ProcessMode, name: string) {
       return fixture.running
     },
     async ready() {
-      const until = Date.now() + PROCESS_PROOF_WAIT_MS
+      const until = Date.now() + HANG_BOUND_MS
       while (Date.now() < until) {
         if (existsSync(join(directory, 'ready.json'))) {
           const ready: ProcessReady = JSON.parse(
@@ -321,7 +298,7 @@ function makeFixture(mode: ProcessMode, name: string) {
         await sleep(10)
       }
       throw new Error(
-        `actual subprocess/descendant readiness missing within ${PROCESS_PROOF_WAIT_MS}ms`,
+        `actual subprocess/descendant readiness missing within ${HANG_BOUND_MS}ms`,
       )
     },
     record(phase: string, value: unknown) {

@@ -1,5 +1,39 @@
 import { watch } from 'node:fs'
 
+/**
+ * The outer bound on a wait for an event or a state: it catches a hang and never paces a test.
+ * Fixed budgets that stood in for events failed on loaded gate hosts while the events were still
+ * on their way: 2 s before a Node subprocess was ready (10-27, load 40-80), and 5 s guards before
+ * a cold first test reached its first stage (11-20, load 24-85).
+ */
+export const HANG_BOUND_MS = 20_000
+
+/** The timeout for a test that waits under `HANG_BOUND_MS`: its setup and cleanup sit outside
+ * the bound, so the bound's own diagnostic reports a hang before Vitest's generic timeout. */
+export const HANG_TEST_TIMEOUT_MS = 3 * HANG_BOUND_MS
+
+/** `promise`'s outcome, or a rejection naming `what` once `milliseconds` pass without one. */
+export async function within<T>(
+  promise: Promise<T>,
+  milliseconds = HANG_BOUND_MS,
+  what = 'process proof',
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${what} exceeded ${milliseconds}ms`)),
+          milliseconds,
+        )
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Subscribe before reading, and recheck after every write that overlaps an async read.
  * The caller owns cancellation; elapsed host time is never evidence of readiness. */
 export async function waitForState(

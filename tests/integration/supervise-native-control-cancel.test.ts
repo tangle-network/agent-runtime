@@ -12,13 +12,10 @@ import {
   readWorkerSteerAcknowledgement,
   writeWorkerSteer,
 } from '../../src/runtime'
+import { RELEASE_DESTROY_MS } from '../../src/runtime/supervise/retained-owner-release'
 import type { Agent, AgentSpec, Executor } from '../../src/runtime/supervise/types'
-import {
-  observe,
-  physicalState,
-  withInPlaceProcess,
-  within,
-} from '../helpers/in-place-process-fixture'
+import { observe, physicalState, withInPlaceProcess } from '../helpers/in-place-process-fixture'
+import { HANG_BOUND_MS, within } from '../helpers/observable-state'
 
 it.each([
   {
@@ -107,6 +104,7 @@ it.each([
   let guard: ReturnType<typeof setTimeout> | undefined
   let guardDeadline = Number.POSITIVE_INFINITY
   let guardExpired = false
+  let finished = false
   const stages: { phase: string; at: number }[] = []
   const mark = (phase: string) => stages.push({ phase, at: Date.now() })
   const controller = new AbortController()
@@ -248,19 +246,25 @@ it.each([
       },
     },
   )
-  try {
-    guardDeadline = Date.now() + 5000
-    await Promise.race([
-      run,
-      boundaryFailure,
+  // The capture is held from its first call until cleanup, so only from then can the turn block
+  // on it; time before it is startup, which spent a whole 5 s guard before the first drive of a
+  // cold first test (11-20, load 24-85). A turn that waits on the capture never closes, and the
+  // hang bound names that.
+  const blocked = capturing.then(
+    () =>
       new Promise<never>((_resolve, reject) => {
+        if (finished) return
+        mark('guard-armed')
+        guardDeadline = Date.now() + HANG_BOUND_MS
         guard = setTimeout(() => {
           guardExpired = true
           mark('guard-expired')
           reject(new Error('native turn blocked on steer capture'))
-        }, 5000)
+        }, HANG_BOUND_MS)
       }),
-    ])
+  )
+  try {
+    await Promise.race([run, boundaryFailure, blocked])
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
     expect(readWorkerCancellation(directory, 'cancel-blocked-capture')).toMatchObject({
       effect: 'cancelled',
@@ -305,6 +309,7 @@ it.each([
     )
   } finally {
     mark('cleanup')
+    finished = true
     clearTimeout(guard)
     controller.abort(new Error('native control fixture cleanup'))
     captured()
@@ -450,12 +455,16 @@ it.skipIf(process.platform === 'win32')(
           signal: fixture.controller.signal,
         },
       )
-      const outcome = await observe(within(run, 5000))
+      // A permanent teardown failure ends the default confirmation policy at once. Retrying it
+      // would hold the run for the whole RELEASE_DESTROY_MS window, which the hang bound sits
+      // well inside, so the bound separates that regression from a slow host.
+      expect(HANG_BOUND_MS).toBeLessThan(RELEASE_DESTROY_MS)
+      const outcome = await observe(within(run))
       if (exercise) await exercise
       fixture.record('scope-result', outcome)
       if (outcome.status === 'rejected') throw outcome.error
-      // The default confirmation policy must complete within the same 5s guard. The immutable
-      // failure stays UNKNOWN; neither Scope settlement nor that status proves physical closure.
+      // The immutable failure stays UNKNOWN; neither Scope settlement nor that status proves
+      // physical closure.
       const unconfirmed = outcome.value.teardownUnconfirmed?.find(
         (entry) => entry.label === 'in-place-process',
       )

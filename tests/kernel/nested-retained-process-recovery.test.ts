@@ -27,6 +27,7 @@ import type {
   SpawnJournal,
 } from '../../src/runtime/supervise/types'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { HANG_BOUND_MS } from '../helpers/observable-state'
 import { testAgentProfile } from './test-agent-profile'
 
 it.each([
@@ -48,13 +49,10 @@ it.each([
     const rootInspected = new Promise<void>((resolve) => {
       releaseRoot = resolve
     })
-    const holdCutoff = known && managerTokens === 5
-    let releaseCutoff!: () => void
-    const cutoffObserved = new Promise<void>((resolve) => {
-      releaseCutoff = resolve
-      if (!holdCutoff) resolve()
+    let parentActing!: () => void
+    const parentActs = new Promise<void>((resolve) => {
+      parentActing = resolve
     })
-    let parentActedAtCutoff: boolean | undefined
     let recovery: Promise<unknown> | undefined
     let freshFactories = 0
     let recovering = false
@@ -131,6 +129,7 @@ it.each([
           async act(_task, scope) {
             if (recovering) {
               parentActed = true
+              parentActing()
               expect(scope.view.inFlight).toBe(1)
               expect(scope.budget.reservedTokens).toBe(10)
               expect(scope.budget.tokensLeft).toBe(20 - managerTokens)
@@ -153,7 +152,6 @@ it.each([
             if (!recovering)
               throw new RetainedExecutionPendingError(new Error('manager observation interrupted'))
             expect(settled?.handle.id).toBe('root:s0:s0')
-            if (holdCutoff) await cutoffObserved
             return {
               finalizedBy: 'manager',
               child: settled?.kind === 'done' ? settled.out : undefined,
@@ -233,11 +231,14 @@ it.each([
           ),
       ).toBe(managerTokens)
       recovering = true
-      cutoff = setTimeout(() => {
-        parentActedAtCutoff = parentActed
-        if (!parentActed) abort.abort(new Error('recovery blocked parent coordination'))
-        releaseCutoff()
-      }, 2_000)
+      // Recovery must reopen the manager while its retained child still waits on it. A preflight
+      // that awaited the child's terminal would never reach the manager, so the manager acting is
+      // the event, and the hang bound only names a recovery that never gets there.
+      cutoff = setTimeout(
+        () => abort.abort(new Error('recovery blocked parent coordination')),
+        HANG_BOUND_MS,
+      )
+      void parentActs.then(() => clearTimeout(cutoff))
       const restarted = createFileRunContext(runDirectory, { withDriver: true })
       const recoveryFactory = registerRetainedExecutorPreparation(
         providerAsExecutor(provider(), { destroyOnSettle: false }),
@@ -293,7 +294,6 @@ it.each([
       )
       recovery = pending
       const result = await pending
-      if (holdCutoff) expect(parentActedAtCutoff, 'parent acted before cutoff').toBe(true)
       expect(parentActed).toBe(true)
       expect(result.kind, result.kind === 'no-winner' ? result.reason : undefined).toBe('winner')
       expect(result.spentTotal.tokens.input + result.spentTotal.tokens.output).toBe(
@@ -328,7 +328,6 @@ it.each([
       if (cutoff) clearTimeout(cutoff)
       releaseChild()
       releaseRoot()
-      releaseCutoff()
       abort.abort()
       await recovery?.catch(() => undefined)
       await rm(directory, { recursive: true, force: true })
@@ -508,10 +507,12 @@ it('recovers the parent and healthy sibling when an expired manager settles befo
     recovering = true
     let parentActed = false
     const outcomes: Settled<unknown>[] = []
+    // The parent opening is the event; the hang bound only names a recovery that never reopens it.
     cutoff = setTimeout(() => {
       if (!parentActed) abort.abort(new Error('recovery never reopened the parent'))
       openParent()
-    }, 2_000)
+    }, HANG_BOUND_MS)
+    void parentOpened.then(() => clearTimeout(cutoff))
     const result = await createSupervisor<string, unknown>().run(
       {
         name: 'root',
