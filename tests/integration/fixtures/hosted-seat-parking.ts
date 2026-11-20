@@ -15,6 +15,7 @@
 import { appendFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { recordValue } from '../../../src/record-value'
 import {
   createFencedSqlRunContext,
@@ -23,18 +24,23 @@ import {
   RunParkedError,
   runGraph,
   type ToolLoopChat,
+  workerFromBackend,
 } from '../../../src/runtime/index'
 import type { SelectSeat } from '../../../src/runtime/supervise/seat-chain'
 import { superviseWithTestBrain } from '../../../src/testing/index'
 import { openSql, TEST_LEASE } from '../../helpers/durability/sql-adapter'
 import { durableRetainedProvider } from '../../helpers/durable-retained-provider'
+import { nativeSeatProvider } from '../../helpers/native-seat-provider'
 import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-agent-profile'
 
 const [dir, mode = 'long', phase = 'park'] = process.argv.slice(2)
 if (dir === undefined) throw new Error('run directory required')
 const RUN_ID = 'hosted-seat-parking'
 const now = () => Date.now() + (phase === 'resume' ? 600_000 : 0)
-const base = durableRetainedProvider(join(dir, 'provider.json'))
+const base =
+  mode === 'gate-held'
+    ? nativeSeatProvider(dir)
+    : durableRetainedProvider(join(dir, 'provider.json'))
 const provider = {
   ...base,
   capabilities: async () => ({
@@ -62,21 +68,24 @@ const sql = openSql(join(dir, 'run-context.sqlite'))
 const context = await createFencedSqlRunContext(sql.adapter, RUN_ID, TEST_LEASE)
 const journal = async () => (await context.journal.loadTree(RUN_ID)) ?? []
 
-// The root's outside effect: a request the server answers 3 s after it arrives.
-const ROOT_REQUEST_HOLD_MS = 3_000
+const PARK_AFTER_MS = 30
+let announceFarSeat!: () => void
+const farSeatPaused = new Promise<void>((resolve) => {
+  announceFarSeat = resolve
+})
 let requestDone: Promise<void> = Promise.resolve()
 const server = createServer((_req, res) => {
   const reachedAt = Date.now()
-  requestDone = new Promise((resolve) => {
-    setTimeout(() => {
-      res.end('ok')
-      appendFileSync(
-        join(dir, 'root-requests.jsonl'),
-        `${JSON.stringify({ reachedAt, answeredAt: Date.now() })}\n`,
-      )
-      resolve()
-    }, ROOT_REQUEST_HOLD_MS)
-  })
+  requestDone = (async () => {
+    if (mode === 'gate-held') await farSeatPaused
+    // The gate stays open across multiple checks after the other worker is actually eligible.
+    await delay(mode === 'gate-held' ? 4 * PARK_AFTER_MS : 3_000)
+    res.end('ok')
+    appendFileSync(
+      join(dir, 'root-requests.jsonl'),
+      `${JSON.stringify({ reachedAt, answeredAt: Date.now() })}\n`,
+    )
+  })()
 })
 const holdsRequest = mode === 'root-act' || mode === 'gate-held'
 if (holdsRequest) await new Promise<void>((resolve) => server.listen(0, resolve))
@@ -113,9 +122,7 @@ const graph =
     ? {
         nodes: [
           { id: 'work', profile },
-          // Seated like `work` but ready at once: a seat runs on the fixture's own backend,
-          // while a seatless graph node is held to JSON output the retained provider lacks.
-          { id: 'build', profile: { ...profile, name: 'build' } },
+          { id: 'build', profile: testAgentProfile('build') },
         ],
         entry: [
           { node: 'work', task: 'Finish the seated work.' },
@@ -138,16 +145,16 @@ const graph =
         edges: [],
         entry: [{ node: 'work', task: 'Finish the seated work.' }],
       }
-const selectSeat: SelectSeat = async ({ profile: seated }) => {
+const selectSeat: SelectSeat = async () => {
   selections += 1
-  if (phase === 'resume' || seated.name === 'build') return { seat: 'ready-seat', backend }
+  if (phase === 'resume') return { seat: 'ready-seat', backend }
   return { resumeAt: new Date(now() + (mode === 'short' ? 300 : 360_000)).toISOString() }
 }
 const shared = {
   runId: RUN_ID,
   runContext: context,
   ...(phase === 'park' ? {} : { resume: true }),
-  parking: { afterMs: 30 },
+  parking: { afterMs: PARK_AFTER_MS },
   now,
   backend,
   selectSeat,
@@ -162,11 +169,9 @@ const shared = {
   signal: abort.signal,
   hooks: {
     onEvent(event) {
-      if (
-        mode === 'short' &&
-        event.target === 'agent.seat' &&
-        recordValue(event.payload)?.phase === 'paused'
-      ) {
+      if (event.target === 'agent.seat' && recordValue(event.payload)?.phase === 'paused') {
+        if (mode === 'gate-held') announceFarSeat()
+        if (mode !== 'short') return
         // Cancel after the worker's durable wait gives the parking policy a chance to hand off.
         cancelShortWait ??= setTimeout(() => abort.abort(new Error('stop the in-place wait')), 300)
       }
@@ -193,6 +198,10 @@ try {
               // `build`.
               ...(mode === 'gate-held'
                 ? {
+                    // Only the build leaf executes. Its real process result opens the flow gate.
+                    makeLeafAgent: workerFromBackend(backend, {
+                      check: (out) => recordValue(out)?.content === 'native completed',
+                    }),
                     decideGate: async () => {
                       await heldRequest()
                       return { kind: 'choose' as const, choice: 'reject', by: 'fixture' }
