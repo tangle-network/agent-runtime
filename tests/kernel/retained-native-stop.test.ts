@@ -71,9 +71,10 @@ function liveProcessProvider(
 ) {
   const processes = new Map<string, ChildProcess>()
   const stoppedAt = new Map<string, number>()
-  // Executions whose event stream Runtime opened, in order: it is observing the native process.
-  const observed: string[] = []
-  const observers: Array<() => void> = []
+  let observing!: () => void
+  const observation = new Promise<void>((resolve) => {
+    observing = resolve
+  })
   const base = durableRetainedProvider(stateFile)
   let creates = 0
   let destroys = 0
@@ -107,10 +108,7 @@ function liveProcessProvider(
       return {
         ...session,
         async *events(): AsyncIterable<AgentEnvironmentEvent> {
-          if (!observed.includes(executionId)) {
-            observed.push(executionId)
-            for (const wake of observers.splice(0)) wake()
-          }
+          observing()
           yield {
             id: 'event-0',
             type: 'status',
@@ -171,16 +169,7 @@ function liveProcessProvider(
     provider,
     processes,
     stoppedAt,
-    /** Resolves once Runtime has opened the event streams of `count` native executions. */
-    observed: (count = 1) =>
-      within(
-        new Promise<void>((resolve) => {
-          const check = () => (observed.length >= count ? resolve() : observers.push(check))
-          check()
-        }),
-        HANG_BOUND_MS,
-        `observation of ${count} native execution(s)`,
-      ),
+    observed: () => within(observation, HANG_BOUND_MS, 'observation of the native process'),
     creates: () => creates,
     destroys: () => destroys,
     dispatches: () => dispatches,
