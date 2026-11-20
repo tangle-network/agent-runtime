@@ -3237,6 +3237,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     // one turn, then 'supervisor budget exhausted' discarded the turn's result.
     const requests: BridgeRequest[] = []
     const events: SpawnEvent[] = []
+    const blobs = new InMemoryResultBlobStore()
     const firstTurn = firstTurnOf()
     server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
@@ -3268,6 +3269,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       continuation: testContinuation({ deadline: 1 }),
       driverRetry: { enabled: false },
       journal: recordingJournal(events),
+      blobs,
       runId: 'over-budget-worker-keeps-turn',
     })
     const settled = events.find(
@@ -3276,7 +3278,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     )
     // The committed result is kept; budgetViolation marks it as budget-stopped work for readers.
     expect(settled).toMatchObject({ status: 'done' })
-    expect(settled?.outRef).toBeDefined()
+    expect(await blobs.get(settled!.outRef!)).toBe('accepted answer')
+    expect(settled?.valid).toBeUndefined()
     expect(settled?.budgetViolation?.overspent).toContainEqual(
       expect.objectContaining({ channel: 'tokens', reserved: 42_000, spent: 235_857 }),
     )
