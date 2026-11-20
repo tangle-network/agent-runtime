@@ -85,7 +85,7 @@ describe('retained root wake after a slow exact result', () => {
               async result() {
                 if (role === 'root' && ++rootResults === 1) {
                   releaseChild()
-                  await expect.poll(childSettled, { timeout: 15_000 }).toBe(true)
+                  await expect.poll(childSettled).toBe(true)
                 }
                 return session.result()
               },

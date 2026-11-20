@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
+import { HANG_BOUND_MS } from './tests/helpers/observable-state'
 
 // `_wt/` is where this repo's agents park git worktrees for other branches. A worktree holds a
 // full checkout, so leaving it collectable runs another branch's tests against THIS branch's
@@ -8,7 +9,7 @@ const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktr
 
 // Keep the process/deadline suites and the whole real-subprocess contention class out of the
 // parallel pool. They spawn real OS processes (seat-pause spawn+poll, the tangle Sandbox provider,
-// the in-place CLI harness) and gate on output in short `expect.poll` windows; under pool contention
+// the in-place CLI harness) and gate on output in `expect.poll` windows; under pool contention
 // a starved subprocess misses the window or a shared-file `JSON.parse(readFile())` reads a torn write
 // ("Unexpected end of JSON input"). Serial runs each alone after the pool drains; assertions kept.
 // Heavy-but-robust resume/kill suites (durability/*, runtime/supervisor-*) stay in the pool — they
@@ -84,6 +85,9 @@ export default defineConfig({
     // their wall time under shared-runner contention. 60s absorbs it; a genuine hang still trips.
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    // `expect.poll` waits for a state; its timeout only names a hang. Vitest's 1 s default stood in
+    // for the state's arrival and failed while it was on its way on a loaded gate host.
+    expect: { poll: { timeout: HANG_BOUND_MS } },
     projects: [
       { extends: true, test: { name: 'parallel', exclude: [...exclude, ...serial] } },
       {

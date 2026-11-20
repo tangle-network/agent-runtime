@@ -3,10 +3,12 @@ import { watch } from 'node:fs'
 /**
  * The outer bound on a wait for an event or a state: it catches a hang and never paces a test.
  * Fixed budgets that stood in for events failed on loaded gate hosts while the events were still
- * on their way: 2 s before a Node subprocess was ready (10-27, load 40-80), and 5 s guards before
- * a cold first test reached its first stage (11-20, load 24-85).
+ * on their way: 2 s before a Node subprocess was ready (10-27, load 40-80), 5 s guards before a
+ * cold first test reached its first stage, and `expect.poll`'s 1 s default before a native
+ * execution was observed (11-20, load 22-85). It is also the suite's `expect.poll` timeout
+ * (vitest.config.ts), and it stays under the suite's test timeout so a hang is named here first.
  */
-export const HANG_BOUND_MS = 20_000
+export const HANG_BOUND_MS = 30_000
 
 /** The timeout for a test that waits under `HANG_BOUND_MS`: its setup and cleanup sit outside
  * the bound, so the bound's own diagnostic reports a hang before Vitest's generic timeout. */

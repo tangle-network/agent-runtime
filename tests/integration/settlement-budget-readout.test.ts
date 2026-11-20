@@ -163,7 +163,7 @@ it.each([
       })
       if (!runningDirector.ok) throw new Error(`director refused: ${runningDirector.reason}`)
       directorId = runningDirector.handle.id
-      await expect.poll(() => siblingEntered && leafDelivered, { timeout: 10_000 }).toBe(true)
+      await expect.poll(() => siblingEntered && leafDelivered).toBe(true)
       expect(parentAtLeaf).toBeDefined()
       expect(parentAtLeaf?.tokensKnown).toBe(known)
       if (known) expect(parentAtLeaf?.committedTokens).toBe(10)

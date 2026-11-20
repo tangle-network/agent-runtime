@@ -1227,7 +1227,7 @@ describe('retained environments at root settlement', () => {
           // The grandchild's retained execution releases now, while the root still acts — not at
           // settlement (Discovery magnetar-rust-sandbox-20261031b, Runtime 3.0.5: released workers kept sandboxes until the host hit capacity).
           await expect
-            .poll(() => fleet.environments(), { timeout: 5_000, interval: 20 })
+            .poll(() => fleet.environments(), { interval: 20 })
             .toEqual([])
           releasedWhileRootLive = releaseReceipts(
             (await context.journal.loadTree('root/root:s0')) ?? [],

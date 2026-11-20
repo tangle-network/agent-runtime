@@ -116,7 +116,7 @@ it.each([true, false])(
         reason: 'operator',
         source: 'test',
       })
-      await expect.poll(() => aborted, { timeout: 2_000 }).toBe(true)
+      await expect.poll(() => aborted).toBe(true)
       const settled = await pending
       expect(aborted).toBe(true)
       const cancellation = readRunCancellation(dir, 'cancel-drain')

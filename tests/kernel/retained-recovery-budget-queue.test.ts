@@ -8,6 +8,7 @@ import {
 import { createInMemoryRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, AgentSpec, ExecutorFactory } from '../../src/runtime/supervise/types'
+import { HANG_BOUND_MS } from '../helpers/observable-state'
 import { testAgentProfile } from './test-agent-profile'
 
 it.each(['complete', 'exhaust', 'cancel'] as const)(
@@ -96,10 +97,13 @@ it.each(['complete', 'exhaust', 'cancel'] as const)(
     recovering = true
     let parentActed = false
     const abort = new AbortController()
+    // The parent opening its child's gate is the event; the hang bound only names a recovery
+    // that never runs the parent.
     const cutoff = setTimeout(() => {
       if (!parentActed) abort.abort(new Error('budget recovery blocked parent'))
       release()
-    }, 1_000)
+    }, HANG_BOUND_MS)
+    void parentOpened.then(() => clearTimeout(cutoff))
     try {
       const result = await createSupervisor<string, unknown>().run(
         {

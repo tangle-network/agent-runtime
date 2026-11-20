@@ -13,6 +13,7 @@ import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { HANG_BOUND_MS } from '../helpers/observable-state'
 import { testAgentProfile } from './test-agent-profile'
 
 it('starts the resumed parent while its original child awaits parent coordination', async () => {
@@ -138,15 +139,18 @@ it('starts the resumed parent while its original child awaits parent coordinatio
     // acted that deadlock is impossible, and the remaining path (release the gate, journal the
     // child's settlement) is a durable write sequence whose duration is a property of the host's
     // fsync latency, not of the contract under test. Measured 2026-09-11 at load average ~350:
-    // 656-732 ms from arming to settlement, so an unscoped 500 ms guard cancelled a healthy run.
+    // 656-732 ms from arming to settlement, so an unscoped 500 ms guard cancelled a healthy run,
+    // and the parent itself started after 500 ms on a loaded gate host (11-20, load 67). The
+    // parent acting is the event; the hang bound only names a recovery that never runs it.
     cutoff = setTimeout(() => {
       if (!parentActed) abort.abort(new Error('recovery blocked parent coordination'))
-    }, 500)
+    }, HANG_BOUND_MS)
     const result = await createSupervisor<string, unknown>().run(
       {
         name: 'root',
         async act(_task, scope) {
           parentActed = true
+          clearTimeout(cutoff)
           expect(scope.view.inFlight).toBe(1)
           expect(scope.budget.reservedTokens).toBe(10)
           let resumedMessages = ''
