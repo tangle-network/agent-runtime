@@ -12,7 +12,16 @@ import {
 } from '@tangle-network/agent-runtime/kernel'
 
 const v10Graph = {
-  nodes: [{ id: 'manager', profile: { name: 'manager' } }],
+  nodes: [
+    {
+      id: 'manager',
+      profile: {
+        name: 'manager',
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'offline/manager' },
+      },
+    },
+  ],
   edges: [],
   budget: { maxIterations: 2 },
   deliverable: { describe: 'reviewed result', checkRef: 'review' },
