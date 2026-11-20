@@ -365,11 +365,10 @@ describe('an accepted submit_result settles its node', () => {
     const tree = await acceptedTree('accepted-before-destroy', { gateDirectorDestroy: true })
     try {
       await expect
-        .poll(
-          async () =>
-            ofKind(await tree.rootEvents(), 'settled').find(
-              (event) => event.id !== 'accepted-before-destroy' && event.status === 'done',
-            ),
+        .poll(async () =>
+          ofKind(await tree.rootEvents(), 'settled').find(
+            (event) => event.id !== 'accepted-before-destroy' && event.status === 'done',
+          ),
         )
         .toBeDefined()
       const settled = ofKind(await tree.rootEvents(), 'settled').find(
