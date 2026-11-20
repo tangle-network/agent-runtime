@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, onTestFinished } from 'vitest'
 import { supervisePursuit } from '../../src/durable'
 import {
   cancelWorker,
@@ -204,6 +204,7 @@ it.each([
           message: 'persist before delivery',
         })
         await capturing
+        controller.signal.throwIfAborted()
         cancelWorker(directory, workerId, 'cancel-blocked-capture')
         await waitForState(
           directory,
@@ -232,11 +233,22 @@ it.each([
       },
     },
   )
+  // The runner invokes this hook on timeout too. A capture can stay held until the whole
+  // turn closes without charging subprocess startup to a separate wall-clock deadline.
+  onTestFinished(async () => {
+    mark('cleanup')
+    controller.abort(new Error('native control fixture cleanup'))
+    captured()
+    captureReleased = true
+    release()
+    child.kill('SIGTERM')
+    await closed
+    await run.catch(() => undefined)
+    if (verified) rmSync(directory, { recursive: true, force: true })
+  })
   try {
-    // Either phase can hang. Keep cleanup reachable if the worker never starts capturing.
-    await within(Promise.race([capturing, run]), HANG_BOUND_MS, 'waiting for worker steer capture')
-    // The turn must close while capture is still held. Only cleanup releases it.
-    await within(run, HANG_BOUND_MS, 'native turn blocked on steer capture')
+    await run
+    controller.signal.throwIfAborted()
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true)
     expect(readWorkerCancellation(directory, 'cancel-blocked-capture')).toMatchObject({
       effect: 'cancelled',
@@ -282,16 +294,6 @@ it.each([
       `native control fixture failed; retained ${directory}; stages=${JSON.stringify(stages)}`,
       { cause },
     )
-  } finally {
-    mark('cleanup')
-    controller.abort(new Error('native control fixture cleanup'))
-    captured()
-    captureReleased = true
-    release()
-    child.kill('SIGTERM')
-    await closed
-    await run.catch(() => undefined)
-    if (verified) rmSync(directory, { recursive: true, force: true })
   }
 })
 
