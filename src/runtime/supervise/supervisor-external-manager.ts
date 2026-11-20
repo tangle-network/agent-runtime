@@ -1,5 +1,6 @@
 import { ValidationError } from '../../errors'
 import { errorMessage } from '../util'
+import { ownSubmissionDeliverable } from './supervisor-agent-profile'
 import type { CoordinationMcpHandle } from './coordination-mcp'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
 import { providerVisibleProfile } from './provider-visible-profile'
@@ -162,7 +163,9 @@ async function settleManagerOutput(
     return submitted.result
   }
   if (contractDeclared) {
-    if (candidate === undefined && (config.nodeContextSeed?.depth ?? 0) > 0) {
+    const owesSubmission =
+      deps.deliverable === ownSubmissionDeliverable || deps.deliverable?.requireSubmission === true
+    if (owesSubmission && candidate === undefined && (config.nodeContextSeed?.depth ?? 0) > 0) {
       throw new Error('The worker ended without an accepted result for its assignment.')
     }
     await mcp.finishAnalysis({ status: 'done', output: candidate })
