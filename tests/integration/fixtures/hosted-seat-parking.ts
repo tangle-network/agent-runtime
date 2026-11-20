@@ -19,9 +19,9 @@ import { recordValue } from '../../../src/record-value'
 import {
   createFencedSqlRunContext,
   promptHandle,
+  type RunGraphOptions,
   RunParkedError,
   runGraph,
-  type RunGraphOptions,
   type ToolLoopChat,
 } from '../../../src/runtime/index'
 import type { SelectSeat } from '../../../src/runtime/supervise/seat-chain'
