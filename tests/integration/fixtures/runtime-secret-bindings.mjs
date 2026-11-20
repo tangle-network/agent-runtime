@@ -632,6 +632,12 @@ try {
     })
     child.stdout.resume()
     const exited = new Promise((resolve) => child.once('exit', resolve))
+    let resumed
+    // The test stops this fixture with SIGTERM when its test ends; the coordinators go with it.
+    process.once('SIGTERM', () => {
+      for (const each of [child, resumed]) if (each?.exitCode === null) each.kill('SIGKILL')
+      process.exit(143)
+    })
     try {
       await Promise.race([
         committed,
@@ -646,9 +652,10 @@ try {
       child.kill('SIGKILL')
       await exited
       await delay(1200)
-      const { stdout } = await promisify(execFile)(process.execPath, [...args, 'resume'], {
-        timeout: 12000,
-      }).catch((error) => {
+      // The resumed coordinator's exit is the event, as the first one's is above.
+      const resuming = promisify(execFile)(process.execPath, [...args, 'resume'])
+      resumed = resuming.child
+      const { stdout } = await resuming.catch((error) => {
         throw new Error(`resumed coordinator failed: ${safeFailure(error.stderr)}`)
       })
       assert.equal(JSON.parse(stdout.trim().split('\n').at(-1)).resumed, true)

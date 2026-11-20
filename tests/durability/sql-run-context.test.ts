@@ -135,6 +135,12 @@ async function start(scope: Scope, shared: string, cwd: string, mode = 'run', ch
     stderr += String(chunk)
   })
   child.on('message', (message) => messages.push(message as (typeof messages)[number]))
+  // 'close' follows the last IPC message and output; 'exit' can arrive first on a loaded host. A
+  // child that sends its checkpoint and then SIGKILLs itself was reported as ending before it.
+  let closed = false
+  child.once('close', () => {
+    closed = true
+  })
   const exit = new Promise<{ code: number | null; signal: string | null }>((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => {
@@ -151,7 +157,7 @@ async function start(scope: Scope, shared: string, cwd: string, mode = 'run', ch
       return new Promise<(typeof messages)[number]>((resolve, reject) => {
         const clean = () => {
           child.off('message', received)
-          child.off('exit', ended)
+          child.off('close', ended)
           child.off('error', failed)
         }
         const received = () => {
@@ -167,9 +173,9 @@ async function start(scope: Scope, shared: string, cwd: string, mode = 'run', ch
         }
         const ended = () => failed(new Error(`child exited before ${type}: ${stderr}\n${stdout}`))
         child.on('message', received)
-        child.once('exit', ended)
+        child.once('close', ended)
         child.once('error', failed)
-        if (child.exitCode !== null || child.signalCode !== null) ended()
+        if (closed) ended()
         else received()
       })
     },

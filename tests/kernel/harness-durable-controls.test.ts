@@ -205,7 +205,7 @@ describe('durable worker controls during a native harness invocation', () => {
         spawned.workerId,
       ])
       await expect
-        .poll(() => readWorkerSteerAcknowledgement(dir, 'external-steer'), { timeout: 2000 })
+        .poll(() => readWorkerSteerAcknowledgement(dir, 'external-steer'))
         .toMatchObject({ worker: spawned.workerId, effect: 'delivered' })
       expect(worker.delivered).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
@@ -252,7 +252,7 @@ describe('durable worker controls during a native harness invocation', () => {
           cancelWorker(dir, spawned.workerId, 'external-cancel')
           cancelWorker(dir, spawned.workerId, 'external-cancel')
           await expect
-            .poll(() => readWorkerCancellation(dir, 'external-cancel'), { timeout: 2000 })
+            .poll(() => readWorkerCancellation(dir, 'external-cancel'))
             .toMatchObject({ effect: 'cancel_requested', terminated: [] })
           expect(worker.aborted).toHaveBeenCalledTimes(1)
           expect(sibling.aborted).not.toHaveBeenCalled()
@@ -260,7 +260,7 @@ describe('durable worker controls during a native harness invocation', () => {
         // Woken with the cancelled worker's terminal result while the sibling still runs.
         async () => {
           await expect
-            .poll(() => readWorkerCancellation(dir, 'external-cancel'), { timeout: 2000 })
+            .poll(() => readWorkerCancellation(dir, 'external-cancel'))
             .toMatchObject({ effect: 'cancelled', terminated: [cancelledId] })
           expect(sibling.completed.resolved).toBe(false)
           sibling.completed.resolve()
@@ -288,7 +288,7 @@ describe('durable worker controls during a native harness invocation', () => {
           message: 'new requirement',
         })
         await expect
-          .poll(() => readWorkerSteerAcknowledgement(dir, 'unsupported'), { timeout: 2000 })
+          .poll(() => readWorkerSteerAcknowledgement(dir, 'unsupported'))
           .toMatchObject({ effect: 'unsupported' })
         worker.completed.resolve()
       }),
@@ -318,7 +318,7 @@ describe('durable worker controls during a native harness invocation', () => {
           await instructionStarted.promise
           cancelWorker(dir, spawned.workerId, 'cancel-after-steer')
           await expect
-            .poll(() => readWorkerCancellation(dir, 'cancel-after-steer'), { timeout: 2000 })
+            .poll(() => readWorkerCancellation(dir, 'cancel-after-steer'))
             .toMatchObject({ effect: 'cancel_requested', terminated: [] })
         }),
         () => worker.agent,
@@ -398,7 +398,7 @@ describe('durable worker controls during a native harness invocation', () => {
         await Promise.all([nestedReady.promise, rootWorker.started.promise])
         cancelWorker(dir, 'duplicate', 'root-label')
         await expect
-          .poll(() => readWorkerCancellation(dir, 'root-label'), { timeout: 2000 })
+          .poll(() => readWorkerCancellation(dir, 'root-label'))
           .toMatchObject({ effect: 'cancel_requested', workerId: peer.workerId })
         expect(nestedWorker.aborted).not.toHaveBeenCalled()
         writeWorkerSteer(root, runId, nestedId, {
@@ -406,7 +406,7 @@ describe('durable worker controls during a native harness invocation', () => {
           message: 'check the result',
         })
         await expect
-          .poll(() => readWorkerSteerAcknowledgement(dir, 'nested-steer'), { timeout: 2000 })
+          .poll(() => readWorkerSteerAcknowledgement(dir, 'nested-steer'))
           .toMatchObject({ effect: 'delivered', worker: nestedId })
         expect(nestedWorker.delivered).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({
@@ -416,7 +416,7 @@ describe('durable worker controls during a native harness invocation', () => {
         )
         cancelWorker(dir, nestedId, 'nested-cancel')
         await expect
-          .poll(() => readWorkerCancellation(dir, 'nested-cancel'), { timeout: 2000 })
+          .poll(() => readWorkerCancellation(dir, 'nested-cancel'))
           .toMatchObject({ effect: 'cancelled', workerId: nestedId, terminated: [nestedId] })
       }),
       makeWorker,

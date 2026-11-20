@@ -21,9 +21,19 @@ import type {
 import { loadTopSnapshot, type TopSnapshot } from '../../src/tui/index'
 import { renderTopFrame } from '../../src/tui/top-frame'
 import { transcriptHistory } from '../../src/tui/top-transcript'
+import { HANG_BOUND_MS, waitForState, within } from '../helpers/observable-state'
 
 const runProcess = promisify(execFile)
-const budget = { maxIterations: 10, maxTokens: 10000, deadlineMs: 10000 }
+
+/** The leaf process wrote its pid: the file event, not a polling budget. */
+function leafStarted(root: string, signal: AbortSignal): Promise<void> {
+  const started = async () =>
+    Number(await readFile(join(root, 'started'), 'utf8').catch(() => '0')) > 0
+  return within(waitForState(root, started, signal), HANG_BOUND_MS, 'leaf process start')
+}
+// No deadline: nothing here reads one, and a leaf that starts late on a loaded gate host would let
+// a 10 s run deadline end the run before the test releases the leaf.
+const budget = { maxIterations: 10, maxTokens: 10000 }
 const profile = {
   name: 'stage',
   harness: 'claude-code' as const,
@@ -180,14 +190,7 @@ it.each([
     })
     let continuation: typeof pending | undefined
     try {
-      await Promise.race([
-        pending,
-        expect
-          .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
-            timeout: 30000,
-          })
-          .toBeGreaterThan(0),
-      ])
+      await Promise.race([pending, leafStarted(root, stop.signal)])
       const live = await loadTopSnapshot(root, { runDir })
       expect(live.completeness).toBe('complete')
       expect(live.pursuit?.pursuitId).toBe(pursuitId)
@@ -356,14 +359,7 @@ it.each([
             budget: { ...budget, maxIterations: 6, maxTokens: 20000 },
           },
         })
-        await Promise.race([
-          continuation,
-          expect
-            .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
-              timeout: 30000,
-            })
-            .toBeGreaterThan(0),
-        ])
+        await Promise.race([continuation, leafStarted(root, stop.signal)])
         const resumed = await loadTopSnapshot(root, { runDir })
         expect(resumed.completeness).toBe('complete')
         const resumedRoot = resumed.supervisors.find((row) => row.id === runId)

@@ -124,7 +124,7 @@ it('delivers a same-process keyed completion once after observing its durable re
           mcp.headers,
         )
         const sourceId = JSON.parse(started.result.content[0].text).workerId
-        await expect.poll(() => terminalCount(sourceId), { timeout: 5000 }).toBe(1)
+        await expect.poll(() => terminalCount(sourceId)).toBe(1)
         const spawned = scope.spawn(child, 'go', {
           budget,
           label: 'quick#0',
@@ -133,7 +133,7 @@ it('delivers a same-process keyed completion once after observing its durable re
         })
         if (!spawned.ok) throw new Error(`spawn refused: ${spawned.reason}`)
         const workerId = spawned.handle.id
-        await expect.poll(() => terminalCount(workerId), { timeout: 5000 }).toBe(1)
+        await expect.poll(() => terminalCount(workerId)).toBe(1)
         const observe = async () =>
           JSON.parse(
             (

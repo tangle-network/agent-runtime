@@ -82,16 +82,13 @@ describe('nested retained owner native custody', () => {
                 // The parent independently resolves its task. This is deliberately NOT proof
                 // that the nested manager completed or that a sealed pursuit can resume it.
                 await expect
-                  .poll(
-                    async () => {
-                      const events = (await context.journal.loadTree(runId)) ?? []
-                      return (
-                        events.some((event) => event.kind === 'reconciled') ||
-                        dispatched.filter((event) => event.role === 'director').length > 1
-                      )
-                    },
-                    { timeout: 10_000 },
-                  )
+                  .poll(async () => {
+                    const events = (await context.journal.loadTree(runId)) ?? []
+                    return (
+                      events.some((event) => event.kind === 'reconciled') ||
+                      dispatched.filter((event) => event.role === 'director').length > 1
+                    )
+                  })
                   .toBe(true)
                 expect(
                   await call('submit_result', { result: { answer: 'independent parent' } }),

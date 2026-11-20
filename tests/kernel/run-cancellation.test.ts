@@ -228,7 +228,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
         source: 'test',
       })
       await expect
-        .poll(() => readRunCancellation(dir, 'router-drain-cancel')?.effect, { timeout: 2_000 })
+        .poll(() => readRunCancellation(dir, 'router-drain-cancel')?.effect)
         .toBe('cancelled')
       const result = await pending
       expect(result.kind).toBe('no-winner')

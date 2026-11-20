@@ -291,7 +291,7 @@ describe("the root's harness session", () => {
         },
       },
     })
-    await expect.poll(() => copyStarted, { timeout: 15_000, interval: 50 }).toBe(true)
+    await expect.poll(() => copyStarted, { interval: 50 }).toBe(true)
     openCopy()
     const { result, blobs } = await running
 

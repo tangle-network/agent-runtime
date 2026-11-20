@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { afterAll, beforeAll, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest'
 
 const execute = promisify(execFile)
 let directory: string
@@ -31,10 +31,21 @@ beforeAll(async () => {
 afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true })
 })
+// A fixture still running when its test ends, a timed-out one included, is stopped here.
+const fixtures = new Set<AbortController>()
+afterEach(() => {
+  for (const fixture of fixtures) fixture.abort()
+  fixtures.clear()
+})
 
 /** Real SDK and Runtime exports in a fresh process trust only this fixture's local TLS certificate. */
 async function run(mode: string) {
   const certificate = join(directory, 'cert.pem')
+  const fixture = new AbortController()
+  fixtures.add(fixture)
+  // The fixture's exit is the event. A 19 s kill stood in for it and ended a restart fixture that
+  // was still running at 19 s on a loaded gate host (11-20, load 67); the test's own timeout now
+  // bounds a hang.
   const { stdout, stderr } = await execute(
     process.execPath,
     [
@@ -50,7 +61,7 @@ async function run(mode: string) {
       join(directory, 'key.pem'),
     ],
     {
-      timeout: 19000,
+      signal: fixture.signal,
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
@@ -59,6 +70,7 @@ async function run(mode: string) {
       },
     },
   )
+  fixtures.delete(fixture)
   expect(stderr.includes('TimeoutOverflowWarning')).toBe(false)
   const result = JSON.parse(stdout.trim().split('\n').at(-1)!)
   if (result.resultKind === 'no-winner' || result.rejected)
