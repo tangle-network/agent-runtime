@@ -21,8 +21,23 @@ const v10Graph = {
         model: { provider: 'offline', default: 'offline/manager' },
       },
     },
+    {
+      id: 'worker',
+      profile: {
+        name: 'worker',
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'offline/worker' },
+      },
+    },
   ],
-  edges: [],
+  edges: [
+    {
+      kind: 'delegates',
+      from: 'manager',
+      to: 'worker',
+      directive: { surface: 'delegates/worker-brief', version: 1 },
+    },
+  ],
   budget: { maxIterations: 2 },
   deliverable: { describe: 'reviewed result', checkRef: 'review' },
 } satisfies StoredGraphInput
