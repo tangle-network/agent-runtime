@@ -5586,6 +5586,25 @@ Options for running a provider as a supervise-mode executor.
 
 Select exactly one caller-declared placement from each child's unchanged profile.
 
+##### checkpointForNode?
+
+> `optional` **checkpointForNode?**: (`node`) => `WorkspaceCheckpointRef` \| `undefined`
+
+**`Experimental`**
+
+Choose the initial filesystem for a supervised node from its Runtime-owned assignment.
+A retained session keeps its own checkpoint when it recovers.
+
+###### Parameters
+
+###### node
+
+`Readonly`\<[`ExecutorNodeContext`](#executornodecontext)\>
+
+###### Returns
+
+`WorkspaceCheckpointRef` \| `undefined`
+
 ##### defaults?
 
 > `optional` **defaults?**: `Partial`\<`CreateAgentEnvironmentInput`\>
@@ -16855,6 +16874,13 @@ The deployable check that decides DELIVERED. Return a `CheckVerdict` to report t
 
 What the spawn was supposed to produce — surfaced in traces/reports.
 
+##### requireSubmission?
+
+> `optional` **requireSubmission?**: `boolean`
+
+Only an accepted submit_result from this manager satisfies its assignment. The manager
+ can submit a child's output after reviewing it. Its workers keep their own checks.
+
 ##### checkState?
 
 > `optional` **checkState?**: () => `boolean` \| [`CheckVerdict`](#checkverdict) \| `Promise`\<`boolean` \| [`CheckVerdict`](#checkverdict)\>
@@ -26978,6 +27004,27 @@ Select exactly one caller-declared placement from each child's unchanged profile
 ###### Inherited from
 
 [`ProviderExecutorOptions`](#providerexecutoroptions).[`placements`](#placements)
+
+##### checkpointForNode?
+
+> `optional` **checkpointForNode?**: (`node`) => `WorkspaceCheckpointRef` \| `undefined`
+
+Choose the initial filesystem for a supervised node from its Runtime-owned assignment.
+A retained session keeps its own checkpoint when it recovers.
+
+###### Parameters
+
+###### node
+
+`Readonly`\<[`ExecutorNodeContext`](#executornodecontext)\>
+
+###### Returns
+
+`WorkspaceCheckpointRef` \| `undefined`
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](#providerexecutoroptions).[`checkpointForNode`](#checkpointfornode)
 
 ##### defaults?
 
@@ -39370,7 +39417,13 @@ Authored trigger-slot provenance; present (even empty) on compiled loader output
 
 ##### deliverable
 
-> `readonly` **deliverable**: `Pick`\<[`AgentGraph`](#agentgraph)\[`"deliverable"`\], `"describe"` \| `"checkRef"` \| `"command"` \| `"when"`\>
+> `readonly` **deliverable**: `Pick`\<[`DeliverableSpec`](#deliverablespec)\<`unknown`\> & `object`, `"when"` \| `"describe"` \| `"checkRef"` \| `"command"`\> & `object`
+
+###### Type Declaration
+
+###### requireSubmission?
+
+> `readonly` `optional` **requireSubmission?**: `boolean`
 
 ##### entry?
 
@@ -40252,7 +40305,7 @@ Portable provider selection; credentials and concrete connection IDs belong to t
 
 ### graphFileSchema
 
-> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `provider`: ...; `account`: ...; `capabilities`: ...; `alias`: ...; \}, `$strict`\>\]\>\>\>; `check`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; `environment`: `ZodOptional`\<`ZodString`\>; `egress`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `runtime`: `ZodOptional`\<`ZodEnum`\<\{ `docker`: ...; `firecracker`: ...; \}\>\>; `secrets`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `outputs`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<..., ...\>\>\>; `resources`: `ZodOptional`\<`ZodObject`\<\{ `cpuCores`: ...; `memoryMB`: ...; `diskGB`: ...; \}, `$strict`\>\>; \}, `$strict`\>\>; \}, `$strict`\>\>; `workspace`: `ZodOptional`\<`ZodEnum`\<\{ `cwd`: `"cwd"`; `fresh`: `"fresh"`; \}\>\>; `continuation`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<[`PortableContinuationPolicy`](#portablecontinuationpolicy), `unknown`\>\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
+> `const` **graphFileSchema**: `ZodObject`\<\{ `digest`: `ZodOptional`\<`ZodString`\>; `graph`: `ZodOptional`\<`ZodString`\>; `describe`: `ZodOptional`\<`ZodString`\>; `params`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `default`: `ZodOptional`\<`ZodUnknown`\>; `type`: `ZodOptional`\<`ZodEnum`\<\{ `string`: `"string"`; `number`: `"number"`; `boolean`: `"boolean"`; `object`: `"object"`; `null`: `"null"`; `array`: `"array"`; `integer`: `"integer"`; \}\>\>; \}, `$strict`\>\>\>; `nodes`: `ZodArray`\<`ZodObject`\<\{ `id`: `ZodString`; `profile`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `seat`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodString`, `ZodArray`\<`ZodString`\>\]\>\>; `needs`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `provider`: ...; `account`: ...; `capabilities`: ...; `alias`: ...; \}, `$strict`\>\]\>\>\>; `check`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; `environment`: `ZodOptional`\<`ZodString`\>; `egress`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `runtime`: `ZodOptional`\<`ZodEnum`\<\{ `docker`: ...; `firecracker`: ...; \}\>\>; `secrets`: `ZodOptional`\<`ZodArray`\<`ZodString`\>\>; `outputs`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<..., ...\>\>\>; `resources`: `ZodOptional`\<`ZodObject`\<\{ `cpuCores`: ...; `memoryMB`: ...; `diskGB`: ...; \}, `$strict`\>\>; \}, `$strict`\>\>; \}, `$strict`\>\>; `workspace`: `ZodOptional`\<`ZodEnum`\<\{ `cwd`: `"cwd"`; `fresh`: `"fresh"`; \}\>\>; `continuation`: `ZodOptional`\<`ZodPipe`\<`ZodUnknown`, `ZodTransform`\<[`PortableContinuationPolicy`](#portablecontinuationpolicy), `unknown`\>\>\>; `entry`: `ZodOptional`\<`ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodObject`\<\{ `node`: `ZodString`; `task`: `ZodUnknown`; \}, `$strict`\>\]\>\>\>; `edges`: `ZodArray`\<`ZodRecord`\<`ZodString`, `ZodUnknown`\>\>; `gates`: `ZodOptional`\<`ZodArray`\<`ZodUnknown`\>\>; `budget`: `ZodObject`\<\{ `maxIterations`: `ZodOptional`\<`ZodNumber`\>; `maxTokens`: `ZodOptional`\<`ZodNumber`\>; `maxUsd`: `ZodOptional`\<`ZodNumber`\>; `deadlineMs`: `ZodOptional`\<`ZodNumber`\>; `resources`: `ZodOptional`\<`ZodRecord`\<`ZodString`, `ZodObject`\<\{ `unit`: `ZodString`; `limit`: `ZodNumber`; \}, `$strict`\>\>\>; \}, `$strict`\>; `check`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `equals`: `ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `in`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodString`, `ZodNumber`, `ZodBoolean`, `ZodNull`\]\>\>; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `node`: `ZodOptional`\<`ZodString`\>; `pointer`: `ZodString`; `exists`: `ZodBoolean`; `describe`: `ZodOptional`\<`ZodString`\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `all`: `ZodArray`\<`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>\>; \}, `$strict`\>, `ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `command`: `ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>; \}, `$strict`\>\]\>\>; `deliverable`: `ZodOptional`\<`ZodObject`\<\{ `describe`: `ZodOptional`\<`ZodString`\>; `checkRef`: `ZodString`; `requireSubmission`: `ZodOptional`\<`ZodBoolean`\>; `command`: `ZodOptional`\<`ZodObject`\<\{ `command`: `ZodString`; `timeoutMs`: `ZodOptional`\<`ZodNumber`\>; \}, `$strict`\>\>; `when`: `ZodOptional`\<`ZodUnion`\<readonly \[`ZodUnion`\<readonly \[`ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>, `ZodObject`\<..., ...\>\]\>, `ZodObject`\<\{ `all`: `ZodArray`\<...\>; \}, `$strict`\>\]\>\>; \}, `$strict`\>\>; `on`: `ZodOptional`\<`ZodUnknown`\>; \}, `$strict`\>
 
 Authoring envelope. Canonical profiles and topology are validated by their existing owners.
 

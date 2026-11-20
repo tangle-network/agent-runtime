@@ -1,3 +1,13 @@
+## 10.0.10
+
+Managers can require an explicit submission to complete their assignment while retaining checked worker results for review. A delegated manager can continue its own unfinished assignment within the existing run policy. An expired assignment without an accepted result returns a failure to its parent.
+
+Provider executors can restore a supervised node from a checkpoint assigned to its Runtime identity. The execution record identifies the selected checkpoint even when siblings use the same AgentProfile.
+
+The `agent-graphs`, `build-with-agent-runtime` and `profile-authoring` skills open by setting the bar (the best known result with its source, our number, a target that beats it, the mechanism and the outside check) and finish when that check shows the target met or the miss is explained, not when checks pass; the bundled `be-ambitious` snapshot follows the current canonical skill.
+
+Keep stored manager graphs compatible with v10 consumers while preserving the optional explicit-submission policy through registry round trips.
+
 ## 10.0.9
 
 The Sandbox provider adapter validates the execution profile after custom mapping. Candidate profile plans can still identify a retired harness in historical evidence.
