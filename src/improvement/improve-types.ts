@@ -465,12 +465,20 @@ export interface ImproveMethodResult extends ImproveResultBase<ImprovementProfil
   decision: 'ship' | 'hold'
   lift: number
   liftInterval: { low: number; high: number }
-  /** The optimizer's search ledger, closed and verified from its bytes: every
+  /** The method's own search ledger, closed and verified from its bytes: every
    * candidate it measured as a node, its parents as edges where the optimizer
    * reports them, and every evaluation as a cell. `officialGepa` and
-   * `officialSkillOpt` always record one; `null` means the method recorded
-   * none, so its lineage is unknown. */
+   * `officialSkillOpt` always record one. `null` means the method recorded no
+   * ledger itself: a method Eval composed (`sequentialOptimizationMethod`,
+   * `scopedOptimizationMethod`) leaves its stages' ledgers in
+   * `searchHistories`, and when that is absent too the lineage is unknown. */
   searchHistory: SearchHistoryReceipt | null
+  /** Every search ledger behind the winner, each closed and verified from its
+   * bytes: the method's own first, then each composed stage's, depth first in
+   * the order the stages ran. Present exactly when every search behind the
+   * winner recorded a ledger; absent when any recorded none, so the lineage is
+   * unknown. An open ledger anywhere is refused rather than returned. */
+  searchHistories?: readonly SearchHistoryReceipt[]
   raw: OptimizationMethodComparison
 }
 
