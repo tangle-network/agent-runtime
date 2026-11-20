@@ -68,7 +68,12 @@ export class ProcessFixture {
   static async start(
     scenario: Scenario,
     executables: Executables,
-    options: { directory?: string; coordinator?: false; holdCreateFailure?: true } = {},
+    options: {
+      directory?: string
+      coordinator?: false
+      holdCreateFailure?: true
+      rootReadOutage?: true
+    } = {},
   ): Promise<ProcessFixture> {
     const directory =
       options.directory ?? (await mkdtemp(join(tmpdir(), 'uncertain-create-integration-')))
@@ -87,6 +92,7 @@ export class ProcessFixture {
       fixture.url = String(
         object(JSON.parse(readFileSync(join(directory, 'service-ready.json'), 'utf8'))).url,
       )
+      if (options.rootReadOutage) await fixture.control({ rootReadOutage: true })
       if (options.coordinator !== false) await fixture.resume()
       return fixture
     } catch (error) {
@@ -330,7 +336,7 @@ export async function withFixture(
   scenario: Scenario,
   executables: Executables,
   body: (fixture: ProcessFixture) => Promise<void>,
-  options: { holdCreateFailure?: true } = {},
+  options: { holdCreateFailure?: true; rootReadOutage?: true } = {},
 ): Promise<void> {
   const fixture = await ProcessFixture.start(scenario, executables, options)
   const failures: unknown[] = []

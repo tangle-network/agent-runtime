@@ -735,6 +735,67 @@ describe('typed real command credential refusal and accepted evidence', () => {
 })
 
 describe('accepted native recovery and historical identities', () => {
+  it('rejoins the original root after repeated gateway timeouts while its admitted child works', async () => {
+    await withFixture(
+      'accepted',
+      executables,
+      async (fixture) => {
+        await fixture.wait(
+          'four retried root observations with its native child admitted',
+          async () =>
+            fixture
+              .attempts()
+              .filter((row) => row.classification === 'transient' && row.retryInMs !== undefined)
+              .length >= 4 &&
+            (await fixture.events()).some(
+              (event) =>
+                event.kind === 'execution-admitted' &&
+                event.id === `${rootId}:s0` &&
+                event.admission.phase === 'dispatched',
+            ),
+        )
+        const held = await fixture.state()
+        expect(held.runs).toHaveLength(2)
+        const [root, leaf] = held.runs
+        expect(leaf).toMatchObject({ status: 'running' })
+        const refused = requests(held, 'root-read-timeout')
+        expect(refused.length).toBeGreaterThanOrEqual(4)
+        expect(new Set(refused.map((row) => row.executionId))).toEqual(new Set([root!.executionId]))
+        expect(requests(held, 'dispatch')).toHaveLength(2)
+        expect(requests(held, 'cancel')).toEqual([])
+        expect(requests(held, 'delete')).toEqual([])
+        expect(abandoned(await fixture.events())).toEqual([])
+
+        await fixture.control({ rootReadOutage: false, finish: true })
+        await fixture.wait(
+          'original child committed its result and the pursuit settled',
+          async () => fixture.outcomes().some((row) => row.kind === 'settled'),
+        )
+        const events = await fixture.events()
+        const result = executionResults(events, `${rootId}:s0`)
+        expect(result).toHaveLength(1)
+        await assertAcceptedNativeResult(fixture, result[0]!)
+        expect(events).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'settled',
+              id: `${rootId}:s0`,
+              status: 'done',
+              outRef: result[0]!.outRef,
+            }),
+          ]),
+        )
+        expect(executionResults(events, rootId).length).toBeGreaterThan(0)
+        expect(abandoned(events)).toEqual([])
+        expect(await fixture.state()).toMatchObject({ failures: [] })
+        expect(fixture.outcomes().find((row) => row.kind === 'settled')).toMatchObject({
+          result: { result: { kind: 'winner' } },
+        })
+      },
+      { rootReadOutage: true },
+    )
+  }, 120_000)
+
   it('UC7 accepted native result, descendant accounting and delivered-only finalizer survive process recovery', async () => {
     await withFixture('accepted', executables, async (fixture) => {
       await fixture.wait(

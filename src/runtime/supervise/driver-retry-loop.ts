@@ -431,19 +431,22 @@ export class DriverRetryLoop {
       pending,
     }
     this.sameIdle = progressed ? undefined : extend(this.sameIdle, error)
-    // A named rate limit, overload or placement refusal on a run with a deadline is never a
-    // repeated failure: the run pauses with growing waits until the upstream answers, its budget
-    // or its deadline (rehearsed-futures-sleep-20261111a died of repeated-failure on a busy GLM
-    // plan). Quota and billing 429s, credential refusals, an in-doubt execution, and any refusal
-    // on a run without a deadline still settle after three unchanged drives.
+    // Repeated reads of an admitted root's provider execution can return the same gateway error
+    // while it and its children still work. The ordinary outage, retry and budget limits apply.
+    const observingRoot =
+      !this.run.nested &&
+      classification === 'transient' &&
+      error instanceof RetainedExecutionPendingError &&
+      error.phase === 'execution' &&
+      error.pendingCause === 'transport'
+    // A named rate limit, overload or placement refusal also waits within a declared deadline.
+    const waitingForCapacity =
+      classification === 'unavailable' &&
+      pending === undefined &&
+      (RATE_LIMIT_SIGNALS.has(refusal) || PLACEMENT_SIGNALS.has(refusal))
     if (
       classification !== 'terminal' &&
-      !(
-        classification === 'unavailable' &&
-        pending === undefined &&
-        this.run.budget().deadlineMs > 0 &&
-        (RATE_LIMIT_SIGNALS.has(refusal) || PLACEMENT_SIGNALS.has(refusal))
-      ) &&
+      !(this.run.budget().deadlineMs > 0 && (observingRoot || waitingForCapacity)) &&
       !this.run.signal.aborted &&
       budgetStop(this.run.budget(), this.limits.now()) === undefined &&
       (this.sameIdle?.count ?? 0) >= SAME_CAUSE_LIMIT
