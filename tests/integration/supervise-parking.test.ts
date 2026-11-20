@@ -175,7 +175,14 @@ describe('durable coordinator parking across real process exits', () => {
     expect(outcome.kind).toBe('settled')
     expect(outcome.result.reason).toBe('cancelled')
     expect(existsSync(join(dir, 'tool-receipt'))).toBe(true)
-    expect(existsSync(join(dir, 'tool-finished'))).toBe(true)
+    expect(await readFile(join(dir, 'tool-finished'), 'utf8')).toBe('finished\n')
+    const attempts = (await readFile(join(dir, 'tool-outcome-attempts.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((row) => JSON.parse(row))
+    expect(attempts).toHaveLength(2)
+    expect(attempts[0]).toMatchObject({ receipt: 'slow_effect#1' })
+    expect(attempts[1]).toEqual(attempts[0])
     expect((await events(dir)).some((event) => event.kind === 'run-parked')).toBe(false)
     const observer = await readFile(join(dir, 'coordination-log.jsonl'), 'utf8')
     expect(observer).toContain('tool-outcome')
@@ -278,9 +285,6 @@ describe('hosted graph seat parking over a SQL run context', () => {
   /** Where a run ended, for an assertion message: a miss names it instead of only the field. */
   const ended = (outcome: { result?: string; reason?: string; nodes?: unknown }) =>
     JSON.stringify({ result: outcome.result, reason: outcome.reason, nodes: outcome.nodes })
-  const seatWaitOpened = (events: Array<{ kind: string; gate?: string }>) =>
-    events.some((event) => event.kind === 'admission-queued' && event.gate === 'seat')
-
   it('parks a far seat wait only once the root has no request of its own open', async () => {
     const dir = await directory()
     const parked = await host(dir, 'root-act', 'park')
@@ -302,12 +306,17 @@ describe('hosted graph seat parking over a SQL run context', () => {
     const outcome = await host(dir, 'gate-held', 'park')
     // The gate's reject answer stops the flow while `work` still waits on its far seat reset.
     expect([outcome.kind, outcome.reason], ended(outcome)).toEqual(['settled', 'stopped'])
-    expect(seatWaitOpened(outcome.events)).toBe(true)
+    const queued = outcome.events.find(
+      (event: { kind: string; gate?: string }) =>
+        event.kind === 'admission-queued' && event.gate === 'seat',
+    )
+    expect(queued).toBeDefined()
     const requests = (await readFile(join(dir, 'root-requests.jsonl'), 'utf8'))
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as { reachedAt: number; answeredAt: number })
     expect(requests).toHaveLength(1)
+    expect(Date.parse(queued.at)).toBeLessThanOrEqual(requests[0]!.answeredAt)
     // No handoff while the gate's request was open.
     for (const row of parkedRows(outcome.events) as Array<{ at: string }>) {
       expect(Date.parse(row.at)).toBeGreaterThanOrEqual(requests[0]!.answeredAt)

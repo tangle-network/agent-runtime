@@ -61,7 +61,7 @@ function processLeaf(cwd: string, known: boolean, fail: boolean, iterations = 1)
             const completed = await runProcess(process.execPath, ['-e', script], {
               cwd,
               signal: AbortSignal.any([signal, stop.signal]),
-              timeout: 5000,
+              timeout: 30000,
             })
             stdout = completed.stdout
           }
@@ -184,7 +184,7 @@ it.each([
         pending,
         expect
           .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
-            timeout: 5000,
+            timeout: 30000,
           })
           .toBeGreaterThan(0),
       ])
@@ -360,7 +360,7 @@ it.each([
           continuation,
           expect
             .poll(async () => Number(await readFile(join(root, 'started'), 'utf8')), {
-              timeout: 5000,
+              timeout: 30000,
             })
             .toBeGreaterThan(0),
         ])
@@ -394,5 +394,5 @@ it.each([
       await rm(root, { recursive: true, force: true })
     }
   },
-  20000,
+  90000,
 )

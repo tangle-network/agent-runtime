@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 10.0.9.**
+> **Version 10.0.10.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > Read `package.json` `peerDependencies` for the compatible `agent-eval`, `agent-interface`, and `sandbox` versions.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface`.
@@ -176,6 +176,8 @@ A child can satisfy its own assignment while its parent's objective remains inco
 When the parent declares a `deliverable`, its finalizer's candidate must pass that check before the parent completes.
 The default selects the highest-scoring child that also passes the parent's check.
 Custom finalizers assemble their candidate before the check.
+Set `deliverable.requireSubmission` when this manager must decide what to submit.
+The manager can review a worker's output and submit it through `submit_result`.
 Child validity and delivery counts remain unchanged.
 A nested external child without a completion check retains its terminal harness report when no checked finalizer output exists.
 Its parent's wake input labels that report `assessment: 'unassessed'` and provides the existing `observe_agent` read.

@@ -30,7 +30,6 @@ export interface ManagedChild {
   readonly subtreeGraph: GraphOverlay | undefined
   readonly ownFlow: OwnFlow | undefined
   readonly managerDeliverable: AdmittedSpawn['childDeliverable']
-  readonly ownSubmission: boolean
   /** Raised by the nested manager; read by the driver child when the node settles. */
   acceptedSubmission: boolean
   unassessedOutput: boolean
@@ -197,13 +196,9 @@ function nestedDeliverableDeps(child: ManagedChild): Partial<SupervisorAgentDeps
           },
         }
       : {}),
-    // Every external manager with a check in the tree re-enters under the run's one continuation
-    // policy, its files beside the root's under its own owner id; a child that settles on its own
-    // submission has no part in it: it states what the run still owes.
-    ...(checked &&
-    !child.ownSubmission &&
-    options.continuation &&
-    isExternalSupervisor(admitted.authorized)
+    // A child gets the run's continuation bounds and its own task and check. A returned
+    // harness turn alone cannot satisfy the child's promised submission.
+    ...(checked && options.continuation && isExternalSupervisor(admitted.authorized)
       ? {
           continuation: options.continuation,
           ...(options.runDir === undefined
