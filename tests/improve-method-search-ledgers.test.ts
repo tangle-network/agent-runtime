@@ -11,6 +11,7 @@ import {
   verifySearchHistoryArtifact,
 } from '@tangle-network/agent-eval/campaign'
 import { describe, expect, it } from 'vitest'
+import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
 import { ConfigError } from '../src/errors'
 import { improve } from '../src/improvement/improve'
 import { type ImprovementScenario, improvementOptions } from './helpers/improvement-method-fixture'
@@ -35,7 +36,10 @@ function ledgerMethod(
       const searchId = `${name}-${randomUUID()}`
       // An absolute path keeps the receipt's file URI equal to the in-memory key.
       const path = `/improve-method-search-ledgers/${searchId}/ledger.jsonl`
-      const source = { uri: 'test://improve-method-search-ledgers', revision: '1' }
+      const source = {
+        uri: 'test://improve-method-search-ledgers',
+        revision: canonicalCandidateDigest({ fixture: 'improve-method-search-ledgers' }),
+      }
       const recorder = await SearchRecorder.open(
         { ledger: openSearchLedger({ path, searchId, store: storage }), storage },
         {
@@ -52,7 +56,10 @@ function ledgerMethod(
             train: input.trainScenarios.map((scenario) => ({
               taskId: scenario.id,
               unitId: scenario.id,
-              source: { uri: `scenario://${scenario.id}`, revision: '1' },
+              source: {
+                uri: `scenario://${scenario.id}`,
+                revision: canonicalCandidateDigest(scenario),
+              },
             })),
             selection: [],
             test: [],
