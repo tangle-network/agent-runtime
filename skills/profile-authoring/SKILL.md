@@ -5,10 +5,9 @@ description: Author AgentProfiles that start on first spawn and deliver checked 
 
 # Profile authoring
 
-A profile is right when its agent starts, delivers what its brief names, and the result survives the people it is for.
-Before every spawn, follow the first two sections; before a run that matters, sections 1 to 9 as well.
+An excellent profile starts on first spawn, and its agent's result passes held-back acceptance and beats the best known result for the task at a recorded cost.
+Before every spawn, follow *A profile that starts* and *A brief that delivers*; before a run that matters, set the bar and follow sections 1 to 9 as well.
 Name the observed reason for a new or changed profile and the result that would reverse it.
-Change what is rewarded and who is in the room so the honest path pays; prohibitions barely move agents.
 
 References, mounted by path beside this skill when the work needs them:
 
@@ -16,6 +15,12 @@ References, mounted by path beside this skill when the work needs them:
 - `references/acceptance-examples.md`: when writing acceptance, a null certificate or traps; worked examples and edge cases.
 - `references/research-directors.md`: when authoring or continuing a research director; every director carries it.
 - `references/execution-and-credentials.md`: when the assignment includes cloud execution, accounts or persistence.
+
+## Set the bar
+
+Before writing the role, [set the bar](https://github.com/drewstone/dotfiles/blob/main/claude/skills/be-ambitious/SKILL.md#set-the-bar): the best known result for this task with its source (the audience's published answer or benchmark row, a rival agent's result, the best earlier profile for this role) beside our number, the current profile's accepted-result rate and cost per accepted result.
+Target a number that beats it through a change of kind (who is in the room, what is rewarded, the referee's family, a stricter instrument), not more instructions, and name the outside check: section 3's held-back acceptance.
+The work is finished when that check shows the target met or the measured gap and its cause explain the miss; a profile that starts and passes its development check is necessary, not sufficient.
 
 ## A profile that starts
 
@@ -38,13 +43,12 @@ Keep credential values out of profiles, tasks, resources and journals.
 ## A brief that delivers
 
 The assignment carries the work; the profile carries the role.
-Every assignment names the exact page path and format to record, with one literal example line; the command that checks the part; what to do when blocked; and when to check in.
+Every assignment names the target it must beat, the exact page path and format to record with one literal example line, the command that checks the part, what to do when blocked, and when to check in.
 Hand every file the child judges by path, never a summary.
 Set `deadlineMs` from the work: it is a check-in, not a kill.
 A manager waits by ending its turn; Runtime wakes it with each settlement, finding or message. It ends on an accepted `submit_result` or a bound, never with work open.
 Require each child to record partial work where its parent can recover it.
-Before retrying a failed child, read what it recorded; a retry names the specific failure in a new profile.
-After a transport error on spawn, observe before spawning again.
+Before retrying a failed child, read what it recorded; a retry names the specific failure in a new profile. After a transport error on spawn, observe before spawning again.
 
 ## 1. Name the audience and its acceptance test
 
@@ -68,11 +72,11 @@ Record root-authored claims in Knowledge before a child sees them; keep the head
 
 Proposers: cheap models where an exact checker exists. Referee: another model family with its own instrument; it can reject, only the held-back check accepts. Monitor: reads the journal, steers or reports, never scores.
 Choose each model from measured cost and quality, state its dollars, and admit it in `allowedModels`.
-Spawn a helper only for independent, checkable work long enough to repay a cold start.
+Spawn a helper for independent, checkable work long enough to repay a cold start.
 
 ## 5. Define success, the honest null, and the stop
 
-Success is an accepted result or a reproduced null; an unknown outside verdict is not absent progress.
+Success is an accepted result that meets the target, or a reproduced null; an unknown outside verdict is not absent progress.
 A search null counts only with a coverage certificate (space as data, one row per cell, a calibration cell, the reproducer's sha256) that the outside check reruns with its own registered reproducer; without one it is "stopped, unverified".
 Grant `submit_result` only where Runtime gives the node a check, and list every harness tool a child needs, defaults included.
 State what the agent does the moment its check passes; for continued research, read the continuation contract and set `maxBarren` from the measured feedback cadence.
@@ -87,7 +91,7 @@ Limits live in Runtime options and per-assignment budgets (`budget`, `workerSlot
 
 ## 8. Register arms, a control and outcomes
 
-Before launch, register the claim, arms, measures, useful-effect threshold and refuting result; run each credited ingredient against a control without it.
+Before launch, register the claim, the bar, arms, measures, useful-effect threshold and refuting result; run each credited ingredient against a control without it.
 
 ## 9. Record what makes a hack visible
 
@@ -99,8 +103,9 @@ Keep unknown cost, output and state unknown, never zero or success.
 Store this with the registration before launch.
 
 ```text
+Bar: best known result and source, our number, target, mechanism, outside check:
 Starts: triple, credentialSource, tool ids, coordination keys, no systemPrompt, failOnError, files by path:
-Assignment: page path and example, check command, blocked rule, check-in:
+Assignment: target, page path and example, check command, blocked rule, check-in:
 Audience, decision, quoted acceptance test, outcome classes:
 Proxy and gap probe; held-back acceptance (who, where, from what):
 Roles and models with dollars; null certificate and reproducer:
@@ -111,4 +116,4 @@ Stop, continuation, deadline, maxBarren, budget; traps; arms and control:
 
 - `supervise` to drive the tree once its profiles exist.
 - `eval-engineering` when a judge or checker has no calibration yet.
-- `pursue` when the claim compares arms.
+- `evolve` when the claim compares arms or climbs a measured target.
