@@ -534,7 +534,10 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
       2,
     )}\n`,
   )
-  writeFileSync(join(appDir, 'pnpm-workspace.yaml'), 'packages: []\n')
+  writeFileSync(
+    join(appDir, 'pnpm-workspace.yaml'),
+    ['packages: []', 'autoInstallPeers: true', 'strictPeerDependencies: true', ''].join('\n'),
+  )
   captured(
     'corepack',
     [
@@ -547,10 +550,6 @@ function verifyConsumerFor(cohortArtifacts, { sandboxVersion, registryEvalVersio
       JSON.stringify(fileSpecs),
     ],
     appDir,
-  )
-  writeFileSync(
-    join(appDir, '.npmrc'),
-    ['auto-install-peers=true', 'strict-peer-dependencies=true', ''].join('\n'),
   )
   writeFileSync(
     join(appDir, 'tsconfig.json'),
@@ -814,8 +813,7 @@ function assertSharedContractPeer(owner, dependency) {
   if (owner.packageJson.dependencies?.[dependency.name] !== undefined) {
     throw new Error(`${owner.name} must not nest ${dependency.name} as a runtime dependency`)
   }
-  // Each packed manifest must admit the versions the consumer exercises. Package overrides
-  // can make an install succeed even when an archive's declared peer excludes the selection.
+  // Check each packed manifest against the consumer's selected versions before installing it.
   const window = peerCompatibility[dependency.name]
   assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name, {
     expectedRange: owner.name === PACKAGES.agentRuntime
