@@ -151,7 +151,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(result.kind).toBe('no-winner')
   })
 
-  it('a managed child with no check of its own settles on its accepted submission and wakes its manager', async () => {
+  it.each(['open', 'expired'] as const)('a managed child finishes its own submission under a %s continuation', async (policy) => {
     // test-retained-root-wake-20261018b (2026-10-18): the child's submit_result was refused with the
     // run's check ("Expected: the canary runs to its deadline"), so it never settled and its waiting
     // manager was only ever woken by the heartbeat.
@@ -175,6 +175,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     }
     const rootTasks: unknown[] = []
     let childReply: unknown
+    let childTurns = 0
     const driveHarness: DriveHarness = async ({ profile, task, coordinationMcpUrl }) => {
       if (profile.name === 'root') {
         rootTasks.push(task)
@@ -183,16 +184,19 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
             profile: child,
             task: 'submit CHILD: ready',
           })
+        } else {
+          await call(coordinationMcpUrl, 'submit_result', { result: 'ROOT: recorded' })
         }
         return
       }
+      if (++childTurns === 1) return
       childReply = await call(coordinationMcpUrl, 'submit_result', { result: 'CHILD: ready' })
     }
 
     await superviseForTest(
       testAgentProfile('root', {
         harness: 'opencode',
-        tools: runtimeToolDeclarations('spawn_worker'),
+        tools: runtimeToolDeclarations('spawn_worker', 'submit_result'),
       }),
       'delegate',
       {
@@ -202,21 +206,26 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         driveHarness,
         journal,
         runId: 'own-submission',
-        // The run's check passes nothing, as a Lab run's does until its deadline.
+        // Only the root can submit the complete result; the narrower child has its own assignment.
         deliverable: {
-          describe: 'what only the run deadline ends',
-          check: () => ({ pass: false, failures: ['FAIL run: incomplete'] }),
+          describe: 'the complete result from the root',
+          check: (value) => value === 'ROOT: recorded' || { pass: false, failures: ['FAIL run: incomplete'] },
         },
-        continuation: testContinuation({ deadline: 1 }),
+        continuation: testContinuation(policy === 'expired' ? { deadline: 1 } : {}),
       },
     )
 
-    // The child's submission is accepted against no check but its own, and settles it done.
-    expect(JSON.stringify(childReply)).toMatch(/accepted\\?"\s*:\s*true/)
-    expect(JSON.stringify(childReply)).not.toContain('FAIL run')
+    if (policy === 'open') {
+      expect(childTurns).toBe(2)
+      expect(JSON.stringify(childReply)).toContain('accepted')
+      expect(JSON.stringify(childReply)).not.toContain('FAIL run')
+    } else {
+      expect(childTurns).toBe(1)
+      expect(childReply).toBeUndefined()
+    }
     expect(await journal.loadTree('own-submission')).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'settled', id: 'own-submission:s0', status: 'done' }),
+        expect.objectContaining({ kind: 'settled', id: 'own-submission:s0', status: policy === 'open' ? 'done' : 'failed' }),
       ]),
     )
     // The settle, not the heartbeat, starts the manager's next turn.
