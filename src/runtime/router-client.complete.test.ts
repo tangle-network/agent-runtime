@@ -431,6 +431,67 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(result.content).toBe('done')
     expect(complete).toHaveBeenCalledOnce()
   })
+
+  it('carries an explicit toolChoice none on the plain no-tool completion body', async () => {
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body.tool_choice).toBe('none')
+      expect(body).not.toHaveProperty('tools')
+      return { choices: [{ message: { content: 'text only' } }] }
+    })
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content: 'text only please' }],
+      { toolChoice: 'none' },
+    )
+    expect(result.content).toBe('text only')
+    expect(complete).toHaveBeenCalledOnce()
+  })
+
+  it('refuses a plain-completion toolChoice other than none instead of dropping it', async () => {
+    const complete = vi.fn(async () => ({ choices: [{ message: { content: 'never' } }] }))
+    await expect(
+      routerChatWithUsage(
+        {
+          routerBaseUrl: 'http://router.test/v1',
+          routerKey: 'k',
+          model: 'deepseek-v4-flash',
+          complete,
+        },
+        [{ role: 'user', content: 'text only please' }],
+        // A widened value a JavaScript caller could still pass; the type admits only 'none'.
+        { toolChoice: 'auto' as never },
+      ),
+    ).rejects.toThrow(/toolChoice "auto" is not carryable without tools/u)
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('carries an explicit toolChoice none on the tool-calling body even with an empty tool set', async () => {
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body.tool_choice).toBe('none')
+      expect(body).not.toHaveProperty('tools')
+      return { choices: [{ message: { content: 'text only' } }] }
+    })
+
+    const result = await routerChatWithTools(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content: 'text only please' }],
+      [],
+      { toolChoice: 'none' },
+    )
+    expect(result.content).toBe('text only')
+    expect(complete).toHaveBeenCalledOnce()
+  })
 })
 
 describe('reasoning-aware parsing and reasoning_effort forwarding', () => {

@@ -701,6 +701,91 @@ describe('profileChatClient tool pass-through (a tool-carrying request never ans
     )
     expect(ran).not.toHaveBeenCalled()
   })
+
+  it('sends a profile-declared toolChoice none on the tool-free wire', async () => {
+    let sentBody: Record<string, unknown> | undefined
+    const client = profileChatClient({
+      profile: {
+        ...profile,
+        model: { ...profile.model, metadata: { toolChoice: 'none' } },
+      },
+      context: 'model-only choice test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async (body) => {
+          sentBody = body
+          return {
+            model: 'deepseek-v4-flash',
+            choices: [{ message: { content: 'text only' }, finish_reason: 'stop' }],
+          }
+        },
+      },
+    })
+    const response = await client.chat(request)
+    expect(response.content).toBe('text only')
+    expect(sentBody?.tool_choice).toBe('none')
+    expect(sentBody).not.toHaveProperty('tools')
+  })
+
+  it('accepts a request that restates the profile-declared none without tools', async () => {
+    let sentBody: Record<string, unknown> | undefined
+    const client = profileChatClient({
+      profile: {
+        ...profile,
+        model: { ...profile.model, metadata: { toolChoice: 'none' } },
+      },
+      context: 'model-only restate test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async (body) => {
+          sentBody = body
+          return {
+            model: 'deepseek-v4-flash',
+            choices: [{ message: { content: 'text only' }, finish_reason: 'stop' }],
+          }
+        },
+      },
+    })
+    const response = await client.chat({ ...request, toolChoice: 'none' })
+    expect(response.content).toBe('text only')
+    expect(sentBody?.tool_choice).toBe('none')
+  })
+
+  it('refuses a request toolChoice none the profile does not declare', async () => {
+    const ran = vi.fn()
+    const client = clientWith(async () => {
+      ran()
+      return { model: 'deepseek-v4-flash', choices: [{ message: { content: 'x' } }] }
+    })
+    await expect(client.chat({ ...request, toolChoice: 'none' })).rejects.toThrow(
+      /toolChoice "none" conflicts with AgentProfile\.model\.metadata\.toolChoice null/,
+    )
+    expect(ran).not.toHaveBeenCalled()
+  })
+
+  it('refuses a profile-declared toolChoice on a backend that cannot carry it', async () => {
+    const client = profileChatClient({
+      profile: {
+        ...profile,
+        model: { ...profile.model, metadata: { toolChoice: 'none' } },
+      },
+      context: 'bridge toolChoice test',
+      executor: {
+        backend: 'bridge',
+        bridgeUrl: 'http://127.0.0.1:1/',
+        bridgeBearer: 'unused',
+      },
+    })
+    // Naming the backend is the point: running the completion without the policy would be
+    // indistinguishable from one that enforced it.
+    await expect(client.chat(request)).rejects.toThrow(
+      /backend "bridge" cannot carry AgentProfile\.model\.metadata\.toolChoice "none"/,
+    )
+  })
 })
 
 describe('profile chat over a streamed Router completion', () => {
