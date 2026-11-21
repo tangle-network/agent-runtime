@@ -287,50 +287,6 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     })
   })
 
-  it('cancels pending backoff and never starts another request after caller abort', async () => {
-    const controller = new AbortController()
-    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
-    let firstAttemptStarted = () => {}
-    const started = new Promise<void>((resolve) => {
-      firstAttemptStarted = resolve
-    })
-    const fetchSpy = vi.fn(async () => {
-      firstAttemptStarted()
-      throw new TypeError('fetch failed: offline')
-    })
-    vi.stubGlobal('fetch', fetchSpy)
-
-    const pending = routerChatWithUsage(
-      {
-        routerBaseUrl: 'http://router.test/v1',
-        routerKey: 'k',
-        model: 'deepseek-v4-flash',
-        retry: {
-          maxAttempts: 3,
-          initialBackoffMs: 60_000,
-          maxBackoffMs: 60_000,
-          jitter: 0,
-          requestTimeoutMs: 0,
-        },
-      },
-      [{ role: 'user', content: 'stop retrying' }],
-      { signal: controller.signal },
-    )
-    try {
-      await started
-      await vi.waitFor(() => {
-        expect(timerSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
-      })
-      controller.abort(new Error('caller stopped'))
-
-      await expect(pending).rejects.toThrow(/caller stopped/u)
-      expect(fetchSpy).toHaveBeenCalledOnce()
-    } finally {
-      controller.abort(new Error('test cleanup'))
-      await pending.catch(() => undefined)
-    }
-  })
-
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
     'rejects invalid maxAttempts %s before dispatch',
     async (maxAttempts) => {

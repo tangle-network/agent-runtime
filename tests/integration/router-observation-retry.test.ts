@@ -1,8 +1,12 @@
 import { execFile } from 'node:child_process'
-import { once } from 'node:events'
+import { getEventListeners, once } from 'node:events'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { createExecutor } from '../../src/runtime'
+import { routerChatWithUsage } from '../../src/runtime/router-client'
+import { routerTransportAttemptsFromError } from '../../src/runtime/router-http-transport'
 
 const run = promisify(execFile)
 
@@ -92,4 +96,54 @@ describe('a Router call whose completed response could not be observed', () => {
     const { processes } = await seatRun((cause) => new Error('upstream stalled', { cause }))
     expect(processes).toBe(3)
   }, 20_000)
+})
+
+it('cancels Router backoff after a real HTTP failure without sending another request', async () => {
+  const controller = new AbortController()
+  const reason = new Error('caller stopped')
+  const requests: string[] = []
+  let requestListeners: ReturnType<typeof getEventListeners> = []
+  const server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`)
+    requestListeners = getEventListeners(controller.signal, 'abort')
+    response.writeHead(503, { connection: 'close' })
+    response.end('retryable failure')
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  const outcome = routerChatWithUsage(
+    {
+      routerBaseUrl: `http://127.0.0.1:${port}/v1`,
+      routerKey: 'loopback',
+      model: 'fixture/native',
+      retry: {
+        maxAttempts: 3,
+        initialBackoffMs: 60_000,
+        maxBackoffMs: 60_000,
+        jitter: 0,
+        requestTimeoutMs: 0,
+      },
+    },
+    [{ role: 'user', content: 'stop retrying' }],
+    { signal: controller.signal },
+  ).catch((error: unknown) => error)
+  try {
+    await expect.poll(() => requests.length).toBe(1)
+    // After the failed request, the backoff adds its own abort listener to this caller's signal.
+    await expect
+      .poll(() =>
+        getEventListeners(controller.signal, 'abort').some(
+          (listener) => !requestListeners.includes(listener),
+        ),
+      )
+      .toBe(true)
+    controller.abort(reason)
+    expect(await outcome).toBe(reason)
+    expect(routerTransportAttemptsFromError(reason)).toBe(1)
+    expect(requests).toEqual(['POST /v1/chat/completions'])
+  } finally {
+    controller.abort(reason)
+    await outcome
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
 })
