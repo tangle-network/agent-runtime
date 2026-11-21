@@ -674,11 +674,22 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
         if (parent.expression.type === 'Identifier' && parent.expression.name === 'Pick' &&
             resolveBinding(module.file, 'Pick', ctx) === null && parent.typeArguments?.params.length === 2)
           keys = literalKeys(parent.typeArguments.params[1])
-        else if (!parent.typeArguments && parent.expression.type === 'Identifier') {
+        else if (parent.expression.type === 'Identifier') {
           const target = resolveBinding(module.file, parent.expression.name, ctx)
-          const stated = partsOfOrigin(target, ctx, seen)
-          if (stated && Object.keys(stated).every((key) => key === '~form' || /^(readonly )?[A-Za-z_$][\w$]*\??$/.test(key)))
-            keys = Object.keys(stated).filter((key) => key !== '~form').map((key) => key.replace(/^readonly /, '').replace(/\?$/, ''))
+          if (parent.typeArguments && target?.file) {
+            // Named properties on a local generic interface keep their names under substitution.
+            // The heritage digest binds the entire base and its concrete type arguments.
+            const declarations = readModule(target.file, ctx.modules).declarations.get(target.name)
+            const base = declarations?.length === 1 ? declarations[0] : null
+            if (base?.type === 'TSInterfaceDeclaration' && !base.extends?.length &&
+                base.body.body.every((member) => ['TSPropertySignature', 'TSMethodSignature'].includes(member.type) &&
+                  !member.computed && member.key.type === 'Identifier'))
+              keys = base.body.body.map((member) => member.key.name)
+          } else if (!parent.typeArguments) {
+            const stated = partsOfOrigin(target, ctx, seen)
+            if (stated && Object.keys(stated).every((key) => key === '~form' || /^(readonly )?[A-Za-z_$][\w$]*\??$/.test(key)))
+              keys = Object.keys(stated).filter((key) => key !== '~form').map((key) => key.replace(/^readonly /, '').replace(/\?$/, ''))
+          }
         }
         if (keys === null || keys.some((key) => inheritedNames.has(key))) return null
         for (const name of keys) inheritedNames.add(name)
@@ -691,9 +702,15 @@ const partsOfOrigin = (origin, ctx, visiting = new Set(), mutable = false) => {
       for (const key of Object.keys(inherited)) inheritedNames.add(key.replace(/^readonly /, '').replace(/\?$/, ''))
     }
     if (node.extends?.length && node.body.body.some((member) =>
-      member.type !== 'TSPropertySignature' || member.computed || member.key.type !== 'Identifier' ||
-      inheritedNames.has(member.key.name))) return null
-    memberParts(node.body.body, parts)
+      member.type !== 'TSPropertySignature' || member.computed || member.key.type !== 'Identifier')) return null
+    // A new override can narrow a value the base already exposes, even when marked optional.
+    // An unchanged override must not obscure an unrelated optional property on this interface.
+    const own = node.body.body.filter((member) => {
+      if (!inheritedNames.has(member.key?.name)) return true
+      parts[`~override ${member.key.name}`] = digest(member)
+      return false
+    })
+    memberParts(own, parts)
   } else if (node.type === 'TSTypeAliasDeclaration') {
     parts = typeParts(unwrap(node.typeAnnotation))
   } else if (node.type === 'VariableDeclaration' && node.declarations.length === 1) {
