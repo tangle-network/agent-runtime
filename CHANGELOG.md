@@ -1,3 +1,7 @@
+## 10.0.12
+
+`AgentProfile.model.metadata.toolChoice: "none"` now runs without enabled tools and reaches both the buffered and streamed Router completion wires as `tool_choice: "none"` from `profileChatClient` and `profileOptimizerModelCall`, with no `tools` array; profiles without the declaration keep the identical request. A raw `extraBody.tool_choice` still flows unchanged on the plain body when no typed policy is set (its prior behavior), while the typed `none` stays canonical and cannot be weakened by conflicting extras. `auto` and `required` without tools are still refused, a request may restate (never change) the declared choice, and a profile-declared choice on a backend that cannot carry it is refused by name instead of silently dropped.
+
 ## 10.0.11
 
 Runtime keeps reading an admitted execution while its first frame or next replay cursor is delayed. A running status response preserves the outstanding subscription so late frames can reach the journal.
