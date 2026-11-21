@@ -101,7 +101,11 @@ async function nativeRun(
           let offset = options?.since
             ? initial.findIndex((row) => JSON.parse(row).id === options.since) + 1
             : 0
-          await command('observe', { since: options?.since ?? null })
+          const ack = await command('observe', { since: options?.since ?? null })
+          if (ack === 'released-after-status' && signal.aborted) {
+            stop.abort(new Error(`live native read discarded after ${options?.since ?? 'start'}`))
+            return
+          }
           try {
             while (!signal.aborted) {
               const rows = (await readFile(join(directory, 'events.jsonl'), 'utf8'))
@@ -449,6 +453,15 @@ it.each(['replay', 'replay-closed', 'replay-cold'] as const)(
       .split('\n')
       .map((row) => JSON.parse(row))
     const subscriptions = protocol.filter((row) => row.op === 'observe').map((row) => row.since)
+    if (mode !== 'replay-cold') {
+      const held = protocol.findIndex((row) => row.op === 'observe-held')
+      const released = protocol.findIndex(
+        (row, index) => index > held && row.op === 'observe' && row.since === protocol[held]?.since,
+      )
+      expect(held).toBeGreaterThanOrEqual(0)
+      expect(released).toBeGreaterThan(held)
+      expect(protocol.slice(held + 1, released)).toContainEqual({ op: 'status', value: 'running' })
+    }
     expect([
       [observedPosition ? 'event-0' : null, 'event-0', 'event-1'],
       [observedPosition ? 'event-0' : null, 'event-0', 'event-1', 'event-2'],
