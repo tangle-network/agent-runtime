@@ -492,6 +492,48 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(result.content).toBe('text only')
     expect(complete).toHaveBeenCalledOnce()
   })
+
+  it('keeps a raw extraBody tool_choice none flowing on the plain body (pre-typed-policy behavior)', async () => {
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body.tool_choice).toBe('none')
+      return { choices: [{ message: { content: 'text only' } }] }
+    })
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content: 'text only please' }],
+      { extraBody: { tool_choice: 'none' } },
+    )
+    expect(result.content).toBe('text only')
+    expect(complete).toHaveBeenCalledOnce()
+  })
+
+  it.each(['auto', 'required'] as const)(
+    'keeps the typed none authoritative over a conflicting raw extraBody tool_choice %s',
+    async (rawChoice) => {
+      const complete = vi.fn(async (body: Record<string, unknown>) => {
+        expect(body.tool_choice).toBe('none')
+        return { choices: [{ message: { content: 'text only' } }] }
+      })
+
+      await routerChatWithUsage(
+        {
+          routerBaseUrl: 'http://router.test/v1',
+          routerKey: 'k',
+          model: 'deepseek-v4-flash',
+          complete,
+        },
+        [{ role: 'user', content: 'text only please' }],
+        { toolChoice: 'none', extraBody: { tool_choice: rawChoice } },
+      )
+      expect(complete).toHaveBeenCalledOnce()
+    },
+  )
 })
 
 describe('reasoning-aware parsing and reasoning_effort forwarding', () => {

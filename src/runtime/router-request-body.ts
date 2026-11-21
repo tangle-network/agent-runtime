@@ -96,6 +96,10 @@ export function chatCompletionBody(
   const temperature = opts?.temperature
   const maxTokens = opts?.maxTokens ?? cfg.maxTokens
   const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
+  // `tool_choice` stays unreserved on the plain body: a raw provider extra carrying it flowed to
+  // the wire before the typed policy existed, and dropping it would silently re-enable tools for
+  // an explicitly tool-free caller. A TYPED policy is canonical and written after the extras, so
+  // it wins over any raw value — extras cannot weaken it.
   return {
     ...withRouting(
       providerRequestExtras(opts?.extraBody, [
@@ -108,7 +112,6 @@ export function chatCompletionBody(
         'reasoning_effort',
         'stream',
         'stream_options',
-        'tool_choice',
       ]),
       cfg.routing,
     ),
