@@ -123,13 +123,10 @@ export class RetainedObservation {
     let firstFailure: typeof this.failure
     while (true) {
       this.lastObservedAt = Date.now()
-      if ((yield* this.drain(session, replayedFrom ?? this.resumedFrom)) || this.sawTerminal) break
+      if ((yield* this.drain(session, replayedFrom)) || this.sawTerminal) break
       firstFailure ??= this.failure
       const restarted = await this.restart.retry(this.failure?.error)
-      if (
-        !restarted &&
-        (this.lastReplayPosition === undefined || this.lastReplayPosition === replayedFrom)
-      ) {
+      if (!restarted && !this.canReplayAfter(replayedFrom)) {
         this.failure = firstFailure
         break
       }
@@ -151,6 +148,10 @@ export class RetainedObservation {
     }
     while (!(await this.exactOrQuiet())) await this.stopQuietObservation()
     yield await this.resultFrame()
+  }
+
+  private canReplayAfter(replayedFrom?: string): boolean {
+    return this.lastReplayPosition !== undefined && this.lastReplayPosition !== replayedFrom
   }
 
   private exactOrQuiet(): Promise<boolean> {
@@ -379,9 +380,10 @@ export class RetainedObservation {
 
   private async *drain(
     session: AgentSession,
-    since?: string,
+    replayedFrom?: string,
   ): AsyncGenerator<AgentEnvironmentEvent | RetainedAwaitingResult, boolean> {
     const subscription = linkAbort(this.signal)
+    const since = replayedFrom ?? this.resumedFrom
     let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
     try {
       iterator = session
@@ -421,7 +423,16 @@ export class RetainedObservation {
           return false
         }
         if (observed.kind === 'quiet') {
-          if (this.silenceHandledAt === undefined) yield this.awaitingResult(this.lastObservedAt)
+          const awaiting = this.silenceHandledAt !== undefined
+          if (!awaiting) {
+            yield this.awaitingResult(this.lastObservedAt)
+            this.lastObservedAt = Date.now()
+          }
+          if (!this.canReplayAfter(replayedFrom)) {
+            // No new cursor can replace this read. Keep the pending next() through a live probe.
+            if (awaiting) await this.stopQuietObservation()
+            continue
+          }
           this.failure ??= {
             error: streamFailure('retained provider stream stalled before its exact result'),
           }
