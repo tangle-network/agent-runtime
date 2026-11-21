@@ -8,6 +8,7 @@ let timer
 let initial
 let mode
 let replayReads = 0
+let releaseObservation
 const write = (file, value) =>
   fs.appendFileSync(path.join(directory, file), `${JSON.stringify(value)}\n`)
 const frame = (sequence) => ({
@@ -55,7 +56,19 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     write('protocol.jsonl', { op, ...input, value })
     process.stdout.write(`${JSON.stringify({ id, value })}\n`)
   }
-  if (op === 'status' && mode === 'probe') {
+  if (
+    op === 'observe' &&
+    ((mode === 'replay' && input.since === null) ||
+      (mode === 'replay-closed' && input.since === 'event-1'))
+  ) {
+    // The frame is on disk. Hold its subscription response until the original live-status probe.
+    write('protocol.jsonl', { op: 'observe-held', since: input.since })
+    releaseObservation = reply
+  } else if (op === 'status' && releaseObservation) {
+    reply()
+    releaseObservation()
+    releaseObservation = undefined
+  } else if (op === 'status' && mode === 'probe') {
     write('protocol.jsonl', { op: 'status-enter' })
     setTimeout(reply, 150)
   } else reply()
