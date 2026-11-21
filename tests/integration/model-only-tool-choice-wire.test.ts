@@ -239,6 +239,82 @@ it('keeps an ordinary completion wire free of tool_choice, buffered and streamed
   }
 })
 
+it('keeps a raw metadata.extraBody tool_choice none on the buffered and streamed public wires', async () => {
+  const router = await startLoopbackRouter(MODEL)
+  try {
+    // The pre-typed-policy escape hatch: an explicitly tool-free caller declaring the raw provider
+    // field with no typed toolChoice must keep it on the wire in both modes.
+    const rawExtraProfile = (stream: boolean): AgentProfile => ({
+      name: 'raw-extra-tool-free',
+      harness: 'cli-base',
+      model: {
+        provider: 'tangle-router',
+        default: MODEL,
+        metadata: { extraBody: { tool_choice: 'none' }, ...(stream ? { stream: true } : {}) },
+      },
+    })
+    const buffered = profileChatClient({
+      profile: rawExtraProfile(false),
+      context: 'raw extra buffered',
+      executor: executor(router.baseUrl),
+    })
+    await bounded(
+      buffered.chat({ messages: [{ role: 'user', content: 'text only' }] }),
+      5_000,
+      'raw extra buffered chat',
+    )
+    const streamed = profileChatClient({
+      profile: rawExtraProfile(true),
+      context: 'raw extra streamed',
+      executor: executor(router.baseUrl),
+    })
+    await bounded(
+      streamed.chat({ messages: [{ role: 'user', content: 'text only' }] }),
+      5_000,
+      'raw extra streamed chat',
+    )
+
+    expect(router.wires).toHaveLength(2)
+    for (const wire of router.wires) {
+      expect(wire.body.tool_choice).toBe('none')
+      expect(wire.body).not.toHaveProperty('tools')
+    }
+    expect(router.wires[1]?.body.stream).toBe(true)
+  } finally {
+    await router.close()
+  }
+})
+
+it('keeps the typed none authoritative over a conflicting raw extraBody tool_choice on the public wire', async () => {
+  const router = await startLoopbackRouter(MODEL)
+  try {
+    const client = profileChatClient({
+      profile: {
+        ...modelOnlyProfile(false),
+        model: {
+          ...modelOnlyProfile(false).model,
+          metadata: {
+            toolChoice: 'none',
+            extraBody: { tool_choice: 'auto' },
+          },
+        },
+      },
+      context: 'typed none beats raw auto',
+      executor: executor(router.baseUrl),
+    })
+    await bounded(
+      client.chat({ messages: [{ role: 'user', content: 'text only' }] }),
+      5_000,
+      'typed-none-over-raw-auto chat',
+    )
+
+    expect(router.wires).toHaveLength(1)
+    expect(router.wires[0]?.body.tool_choice).toBe('none')
+  } finally {
+    await router.close()
+  }
+})
+
 it('keeps the native tool turn wire: tool_choice none over a declared tool array', async () => {
   const router = await startLoopbackRouter(MODEL)
   try {

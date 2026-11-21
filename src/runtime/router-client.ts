@@ -149,7 +149,9 @@ export async function routerChatWithUsage(
     /**
      * Send OpenAI `tool_choice: "none"` on this no-tool completion: the provider must answer with
      * text, never attempt a tool call. The only choice a completion without a tools array can
-     * carry; `auto`/`required` name tool selection and are refused by the body builder.
+     * carry; `auto`/`required` name tool selection and are refused by the body builder. Canonical:
+     * it is written after `extraBody` and cannot be weakened by a raw `tool_choice` extra, which
+     * otherwise still flows unchanged when no typed policy is set (its pre-typed-policy behavior).
      */
     toolChoice?: 'none'
     /** Stable logical-call id reused across transport retries. */
