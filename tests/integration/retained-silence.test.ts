@@ -101,7 +101,11 @@ async function nativeRun(
           let offset = options?.since
             ? initial.findIndex((row) => JSON.parse(row).id === options.since) + 1
             : 0
-          await command('observe', { since: options?.since ?? null })
+          const ack = await command('observe', { since: options?.since ?? null })
+          if (ack === 'released-after-status' && signal.aborted) {
+            stop.abort(new Error(`live native read discarded after ${options?.since ?? 'start'}`))
+            return
+          }
           try {
             while (!signal.aborted) {
               const rows = (await readFile(join(directory, 'events.jsonl'), 'utf8'))

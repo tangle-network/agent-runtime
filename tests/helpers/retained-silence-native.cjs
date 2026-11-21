@@ -63,6 +63,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   ) {
     // The frame is on disk. Hold its subscription response until the original live-status probe.
     write('protocol.jsonl', { op: 'observe-held', since: input.since })
+    value = 'released-after-status'
     releaseObservation = reply
   } else if (op === 'status' && releaseObservation) {
     reply()
