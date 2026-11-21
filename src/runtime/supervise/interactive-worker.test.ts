@@ -23,7 +23,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { loadTopSnapshot } from '../../tui/top-snapshot'
 import type { ToolLoopChat } from '../tool-loop'
 import {
@@ -522,25 +522,26 @@ describe('provisionSupervisor', () => {
   it('uses caller-supplied timeoutMs for the live lifecycle after worker admission', async () => {
     const fixture = interactiveProviderFixture()
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-deadline-'))
+    const timeoutMs = 60_000
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
     try {
       const provisioned = await provisionSupervisor({
         invocationId: 'provision-lifecycle-deadline-1',
         task: 'Inspect the assigned workspace',
         workspaceDir: root,
-        timeoutMs: 2_000,
+        timeoutMs,
         pollMs: 2,
         profile,
         connection: { provider: fixture.provider },
       })
 
       expect(fixture.stats.stops).toHaveLength(0)
-      await waitForAsync(
-        () => fixture.stats.stops.length === 1,
-        'full supervisor lifecycle deadline',
-        1_500,
-      )
+      // Let admission and its file I/O finish, then expire the original root deadline.
+      vi.advanceTimersByTime(timeoutMs)
+      await expect
+        .poll(() => [fixture.stats.stops.length, fixture.stats.destroyCalls])
+        .toEqual([1, 1])
       expect(fixture.stats.stops[0]?.status).toBe('accepted')
-      expect(fixture.stats.destroyCalls).toBe(1)
 
       await expect(provisioned.cleanup()).resolves.toMatchObject({
         workerStatus: 'down',
@@ -548,6 +549,7 @@ describe('provisionSupervisor', () => {
         remainingResources: [],
       })
     } finally {
+      vi.useRealTimers()
       rmSync(root, { recursive: true, force: true })
     }
   })

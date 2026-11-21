@@ -211,6 +211,7 @@ try {
   process.stdout.write(
     `${JSON.stringify({
       kind: 'settled',
+      selections,
       result: result.kind,
       reason: 'reason' in result ? result.reason : undefined,
       nodes: result.tree.nodes.map((node) => ({ label: node.label, status: node.status })),

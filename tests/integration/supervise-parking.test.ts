@@ -6,10 +6,9 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { compileFixture } from '../helpers/compile-fixture'
+import { HANG_BOUND_MS } from '../helpers/observable-state'
 
 const exec = promisify(execFile)
-/** Each coordinator process's own bound; a hang fails there, naming the phase and keeping its dir. */
-const CHILD_TIMEOUT_MS = 15_000
 const dirs: string[] = []
 let fixture: Awaited<ReturnType<typeof compileFixture>>
 beforeAll(async () => {
@@ -29,7 +28,7 @@ async function directory() {
 async function coordinator(dir: string, mode: string, phase = 'park') {
   try {
     const { stdout, stderr } = await exec(process.execPath, [fixture.path, dir, mode, phase], {
-      timeout: CHILD_TIMEOUT_MS,
+      timeout: HANG_BOUND_MS,
       maxBuffer: 2_000_000,
     })
     expect(stderr).not.toContain('TimeoutOverflowWarning')
@@ -98,7 +97,7 @@ describe('durable coordinator parking across real process exits', () => {
     },
     // Three processes run in sequence. A 20 s whole-test bound fired before the second or third
     // process's own bound under publisher load (1.9 s alone, over 20 s there) and lost its diagnosis.
-    3 * CHILD_TIMEOUT_MS + 5_000,
+    3 * HANG_BOUND_MS + 5_000,
   )
 
   it('keeps the coordinator while its child is active and cancellation settles normally', async () => {
@@ -223,7 +222,7 @@ describe('hosted graph seat parking over a SQL run context', () => {
     phase: string,
   ) {
     const { stdout } = await exec(process.execPath, [hosted.path, dir, mode, phase], {
-      timeout: CHILD_TIMEOUT_MS,
+      timeout: HANG_BOUND_MS,
       maxBuffer: 20_000_000,
     })
     return JSON.parse(stdout.trim().split('\n').at(-1)!)
@@ -279,7 +278,7 @@ describe('hosted graph seat parking over a SQL run context', () => {
         ),
       ).toHaveLength(1)
     },
-    3 * CHILD_TIMEOUT_MS + 5_000,
+    3 * HANG_BOUND_MS + 5_000,
   )
 
   /** Where a run ended, for an assertion message: a miss names it instead of only the field. */
@@ -328,6 +327,7 @@ describe('hosted graph seat parking over a SQL run context', () => {
     const outcome = await host(dir, 'short', 'park')
     expect(outcome.kind).toBe('settled')
     expect(outcome.reason).toBe('cancelled')
+    expect(outcome.selections).toBeGreaterThanOrEqual(1)
     expect(parkedRows(outcome.events)).toHaveLength(0)
     expect(
       outcome.events.some(
