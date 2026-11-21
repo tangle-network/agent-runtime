@@ -75,7 +75,7 @@ it.each(['completed', 'cancelled'] as const)(
       runDir,
       backend,
       driverBackend: backend,
-      budget: { maxTokens: 1000, maxIterations: 20, deadlineMs: 15000 },
+      budget: { maxTokens: 1000, maxIterations: 20 },
       driverRetry: { enabled: false },
       continuation: testContinuation(),
       maxDepth: 0,
@@ -107,8 +107,10 @@ it.each(['completed', 'cancelled'] as const)(
       }),
     }
     const first = await supervisePursuit(profile, 'Produce one checked native result.', options)
-    expect(first.result.kind, JSON.stringify(first.result)).toBe(
-      reason === 'completed' ? 'winner' : 'no-winner',
+    expect(first.result).toMatchObject(
+      reason === 'completed'
+        ? { kind: 'winner' }
+        : { kind: 'no-winner', reason: 'cancelled', operator: 'integration' },
     )
     const prior = await readFile(join(runDir, 'result.json'), 'utf8')
     const firstReceipt = (await native())[0]
@@ -149,5 +151,4 @@ it.each(['completed', 'cancelled'] as const)(
     ])
     expect(events.filter((event) => event.kind === 'workspace-restored')).toEqual([])
   },
-  30000,
 )
