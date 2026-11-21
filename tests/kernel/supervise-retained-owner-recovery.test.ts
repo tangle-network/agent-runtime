@@ -14,6 +14,7 @@ import type { SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types
 import { testContinuation } from '../helpers/continuation'
 import { coordinationProxy } from '../helpers/coordination-proxy'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
+import { HANG_BOUND_MS } from '../helpers/observable-state'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const directories: string[] = []
@@ -211,8 +212,7 @@ describe('retained external supervisor recovery', () => {
           resolve()
         }
       })
-      // Real time, armed before the clock is faked: a missing end only fails the test, never hangs it.
-      const failsafe = setTimeout(() => endTurn('cancel'), 20_000)
+      const guard = AbortSignal.timeout(HANG_BOUND_MS)
       if (harness === 'runs on') {
         vi.useFakeTimers({
           toFake: ['Date', 'setTimeout', 'clearTimeout'],
@@ -228,6 +228,9 @@ describe('retained external supervisor recovery', () => {
           return {
             ...session,
             result: async () => {
+              // Runtime installs the retained stop handler before it reads this exact result.
+              if (harness === 'runs on' && !endedBy)
+                vi.advanceTimersByTime(ACCEPTED_RESULT_GRACE_MS)
               await turnRunning
               const result = await session.result()
               // Like Codex, the harness reports the turn's usage only when it ends the turn itself.
@@ -257,7 +260,6 @@ describe('retained external supervisor recovery', () => {
           if (!response.ok) throw new Error(`submit_result returned ${response.status}`)
           // Told `stop: true`, the harness closes its turn a moment later, or keeps working.
           if (harness === 'ends its turn') setTimeout(() => endTurn('harness'), 200)
-          else setTimeout(() => vi.advanceTimersByTime(ACCEPTED_RESULT_GRACE_MS), 200)
           return dispatched
         },
       })
@@ -293,6 +295,7 @@ describe('retained external supervisor recovery', () => {
             backend: { backend: 'provider', provider },
             driverBackend: { backend: 'provider', provider },
             budget: { maxIterations: 20, maxTokens: 1_000, deadlineMs: 3_600_000 },
+            signal: guard,
             driverRetry: { enabled: false },
             retainedAtSettlement: 'release',
             deliverable: {
@@ -312,6 +315,7 @@ describe('retained external supervisor recovery', () => {
             },
           },
         )
+        guard.throwIfAborted()
         expect(result).toMatchObject({ kind: 'winner', out: { answer: 'accepted' } })
         const metered = ((await context.journal.loadTree('stop-cancels-retained-turn')) ?? [])
           .flatMap((event) => (event.kind === 'metered' ? [event.spend] : []))
@@ -329,7 +333,6 @@ describe('retained external supervisor recovery', () => {
         }
       } finally {
         vi.useRealTimers()
-        clearTimeout(failsafe)
         endTurn('cancel')
       }
     },
@@ -966,11 +969,15 @@ async function setup(
   }
   const run = async (interrupt: boolean) => {
     const current = createFileRunContext(runDirectory)
+    const repeated = new AbortController()
+    let completedTurns = 0
     const journal: SpawnJournal = {
       beginTree: current.journal.beginTree.bind(current.journal),
       loadTree: current.journal.loadTree.bind(current.journal),
       appendEvent: async (root, event) => {
         await current.journal.appendEvent(root, event)
+        if (repeat && event.kind === 'execution-result') completedTurns++
+        if (repeat && completedTurns === 2 && event.kind === 'barren-pause') repeated.abort()
         if (
           interrupt &&
           !injected &&
@@ -1004,8 +1011,8 @@ async function setup(
         },
         ...(repeat
           ? {
-              // The second drive is barren; its pause runs to this deadline, which ends the run.
-              continuation: testContinuation({ maxBarren: 1, deadline: Date.now() + 8_000 }),
+              signal: repeated.signal,
+              continuation: testContinuation({ maxBarren: 1 }),
               deliverable: { describe: 'A checked delivery', check: async () => false },
             }
           : {}),
