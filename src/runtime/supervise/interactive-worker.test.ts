@@ -522,9 +522,8 @@ describe('provisionSupervisor', () => {
   it('uses caller-supplied timeoutMs for the live lifecycle after worker admission', async () => {
     const fixture = interactiveProviderFixture()
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-deadline-'))
-    const startedAt = Date.now()
-    const timeoutMs = 200
-    vi.useFakeTimers({ toFake: ['Date'], now: startedAt })
+    const timeoutMs = 60_000
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
     try {
       const provisioned = await provisionSupervisor({
         invocationId: 'provision-lifecycle-deadline-1',
@@ -537,9 +536,11 @@ describe('provisionSupervisor', () => {
       })
 
       expect(fixture.stats.stops).toHaveLength(0)
-      // Advance the caller's deadline after real admission. Native timers and file I/O still run.
-      vi.setSystemTime(startedAt + timeoutMs)
-      await expect.poll(() => fixture.stats.stops.length).toBe(1)
+      // Let admission and its file I/O finish, then expire the original root deadline.
+      vi.advanceTimersByTime(timeoutMs)
+      await expect
+        .poll(() => [fixture.stats.stops.length, fixture.stats.destroyCalls])
+        .toEqual([1, 1])
       expect(fixture.stats.stops[0]?.status).toBe('accepted')
 
       await expect(provisioned.cleanup()).resolves.toMatchObject({
@@ -547,7 +548,6 @@ describe('provisionSupervisor', () => {
         resourcesReleased: true,
         remainingResources: [],
       })
-      expect(fixture.stats.destroyCalls).toBe(1)
     } finally {
       vi.useRealTimers()
       rmSync(root, { recursive: true, force: true })

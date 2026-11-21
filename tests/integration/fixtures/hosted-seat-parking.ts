@@ -62,6 +62,7 @@ const profile = testAgentProfile('work', {
 })
 let selections = 0
 const abort = new AbortController()
+let cancelShortWait: ReturnType<typeof setTimeout> | undefined
 const sql = openSql(join(dir, 'run-context.sqlite'))
 const context = await createFencedSqlRunContext(sql.adapter, RUN_ID, TEST_LEASE)
 const journal = async () => (await context.journal.loadTree(RUN_ID)) ?? []
@@ -145,7 +146,6 @@ const graph =
       }
 const selectSeat: SelectSeat = async () => {
   selections += 1
-  if (mode === 'short' && selections === 2) abort.abort(new Error('caller stopped the short wait'))
   if (phase === 'resume') return { seat: 'ready-seat', backend }
   return { resumeAt: new Date(now() + (mode === 'short' ? 300 : 360_000)).toISOString() }
 }
@@ -168,12 +168,12 @@ const shared = {
   signal: abort.signal,
   hooks: {
     onEvent(event) {
-      if (
-        mode === 'gate-held' &&
-        event.target === 'agent.seat' &&
-        recordValue(event.payload)?.phase === 'paused'
-      )
-        announceFarSeat()
+      if (event.target === 'agent.seat' && recordValue(event.payload)?.phase === 'paused') {
+        if (mode === 'gate-held') announceFarSeat()
+        if (mode !== 'short') return
+        // Cancel after the worker's durable wait gives the parking policy a chance to hand off.
+        cancelShortWait ??= setTimeout(() => abort.abort(new Error('stop the in-place wait')), 300)
+      }
     },
   },
 } satisfies RunGraphOptions
@@ -230,6 +230,7 @@ try {
     })}\n`,
   )
 } finally {
+  clearTimeout(cancelShortWait)
   sql.database.close()
   // A root request still open when the run parked would answer after this point; record it.
   if (holdsRequest) {

@@ -327,7 +327,7 @@ describe('hosted graph seat parking over a SQL run context', () => {
     const outcome = await host(dir, 'short', 'park')
     expect(outcome.kind).toBe('settled')
     expect(outcome.reason).toBe('cancelled')
-    expect(outcome.selections).toBe(2)
+    expect(outcome.selections).toBeGreaterThanOrEqual(1)
     expect(parkedRows(outcome.events)).toHaveLength(0)
     expect(
       outcome.events.some(
