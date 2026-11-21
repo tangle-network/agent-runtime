@@ -3,13 +3,13 @@ import { once } from 'node:events'
 import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { expect, it, onTestFinished } from 'vitest'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { interactiveControlServer, ref } from '../helpers/interactive-control-network'
 
 async function client(endpoint: string, journalRoot: string) {
   const child = fork(new URL('../helpers/interactive-control-child.ts', import.meta.url), [], {
-    execArgv: ['--import', 'tsx'],
+    execArgv: [],
     env: { ...process.env, CONTROL_ENDPOINT: endpoint, CONTROL_JOURNAL_ROOT: journalRoot },
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   })
@@ -47,6 +47,12 @@ async function client(endpoint: string, journalRoot: string) {
     },
   )
   const exit = once(child, 'exit')
+  const kill = async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await exit
+  }
+  // A test can finish before this child reaches its ready message and enters its caller's list.
+  onTestFinished(kill)
   child.on('exit', () => {
     const error = new Error(`control process exited: ${stderr}`)
     readyReject(error)
@@ -61,10 +67,7 @@ async function client(endpoint: string, journalRoot: string) {
         pending.set(correlation, { resolve, reject })
         child.send({ id: correlation, action, operationId, prompt })
       }),
-    kill: async () => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-      await exit
-    },
+    kill,
   }
 }
 

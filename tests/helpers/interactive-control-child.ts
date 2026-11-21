@@ -8,7 +8,7 @@ import {
   claimRetainedInteractiveControl,
   reconnectRetainedInteractiveRun,
 } from '@tangle-network/agent-runtime/kernel'
-import { networkInteractiveControlProvider, ref } from './interactive-control-network'
+import { networkInteractiveControlProvider, ref } from './interactive-control-network.ts'
 
 const journalRoot = process.env.CONTROL_JOURNAL_ROOT ?? ''
 await mkdir(journalRoot, { recursive: true, mode: 0o700 })
