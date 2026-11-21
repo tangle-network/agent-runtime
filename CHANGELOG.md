@@ -1,3 +1,13 @@
+## 10.0.11
+
+Runtime keeps reading an admitted execution while its first frame or next replay cursor is delayed. A running status response preserves the outstanding subscription so late frames can reach the journal.
+
+`improve()` in method mode returns `searchHistories`: every search ledger behind the winner, closed and verified from its bytes, including each stage's ledger when the method was composed with agent-eval's `sequentialOptimizationMethod` or `scopedOptimizationMethod`. A stage that leaves its ledger open is refused with the error a single open ledger gets, naming the stage, and a stage ledger whose bytes no longer match its receipt is refused. `searchHistory` stays the method's own ledger. `searchHistories` is absent when any search behind the winner recorded no ledger, so its lineage is unknown.
+
+Applications using agent-eval 2.x with Runtime need a Knowledge release that accepts that peer. Runtime qualifies the packed libraries together with Knowledge 23.0.7 on both supported Eval majors.
+
+When repeated gateway errors interrupt observation of an admitted root execution, Runtime retries the same execution within the configured outage, retry and budget limits of a deadline-bound run.
+
 ## 10.0.10
 
 Keep a coordinator available until it can read a receipted tool result, and retry its delivery when an observer loses the acknowledgement.
