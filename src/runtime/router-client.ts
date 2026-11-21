@@ -146,6 +146,12 @@ export async function routerChatWithUsage(
      * the reasoning/content split in `parseChatResult`.
      */
     reasoningEffort?: ReasoningEffort
+    /**
+     * Send OpenAI `tool_choice: "none"` on this no-tool completion: the provider must answer with
+     * text, never attempt a tool call. The only choice a completion without a tools array can
+     * carry; `auto`/`required` name tool selection and are refused by the body builder.
+     */
+    toolChoice?: 'none'
     /** Stable logical-call id reused across transport retries. */
     callId?: string
     /** Caller trace correlation forwarded independently of idempotency. */

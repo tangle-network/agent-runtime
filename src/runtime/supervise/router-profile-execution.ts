@@ -117,9 +117,13 @@ export function routerProfileExecution(
 
   const declaredTools = profile.tools ?? {}
   const suppliedTools = seam.tools ?? []
-  if (settings.toolChoice !== undefined && suppliedTools.length === 0) {
+  if (
+    settings.toolChoice !== undefined &&
+    settings.toolChoice !== 'none' &&
+    suppliedTools.length === 0
+  ) {
     throw new ValidationError(
-      'routerInlineExecutor: AgentProfile.model.metadata.toolChoice requires at least one enabled tool',
+      'routerInlineExecutor: AgentProfile.model.metadata.toolChoice must be "none" to run without enabled tools; auto and required select among tools',
     )
   }
   const suppliedNames = new Set<string>()

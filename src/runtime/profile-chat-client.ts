@@ -312,15 +312,12 @@ export function terminalDurationMs(
  * `toolChoice` has no per-call channel at all — `routerInlineExecutor` reads it from
  * `AgentProfile.model.metadata.toolChoice` — so a request may restate the profile's policy and
  * never change it. The error names both sides, because declaring it on the profile is the fix.
+ * `none` is the one choice that is meaningful without tools: it asks for a text-only completion,
+ * so restating it on a tool-free request is accepted when the profile declares it too.
  */
 function toolCarryingExecutor(binding: BoundProfileChat, req: ChatRequest): ExecutorConfig {
   const tools = req.tools ?? []
   if (req.toolChoice !== undefined) {
-    if (tools.length === 0) {
-      throw new Error(
-        `${binding.context}: request sets toolChoice with no tools; tool choice is meaningful only with tools`,
-      )
-    }
     if (typeof req.toolChoice !== 'string') {
       throw new Error(
         `${binding.context}: request toolChoice names one function; Runtime's router turn expresses only auto, required, or none`,
@@ -331,8 +328,16 @@ function toolCarryingExecutor(binding: BoundProfileChat, req: ChatRequest): Exec
         `${binding.context}: request toolChoice ${JSON.stringify(req.toolChoice)} conflicts with AgentProfile.model.metadata.toolChoice ${JSON.stringify(binding.settings.toolChoice ?? null)}`,
       )
     }
+    if (tools.length === 0 && req.toolChoice !== 'none') {
+      throw new Error(
+        `${binding.context}: request sets toolChoice ${JSON.stringify(req.toolChoice)} with no tools; only "none" is meaningful without tools`,
+      )
+    }
   }
-  if (tools.length === 0) return binding.executor
+  if (tools.length === 0) {
+    assertBackendCarriesToolChoicePolicy(binding)
+    return binding.executor
+  }
   if (binding.executor.backend !== 'router') {
     throw new Error(
       `${binding.context}: backend ${JSON.stringify(binding.executor.backend)} cannot pass tools through; refusing a tool-carrying request rather than answering without its tools`,
@@ -345,6 +350,26 @@ function toolCarryingExecutor(binding: BoundProfileChat, req: ChatRequest): Exec
     )
   }
   return captureReusableExecutorConfig({ ...binding.executor, tools }, binding.context)
+}
+
+/** The backends that lower `AgentProfile.model.metadata.toolChoice` onto a provider request. */
+const TOOL_CHOICE_CARRYING_BACKENDS = new Set(['router', 'router-tools'])
+
+/**
+ * Refuse a profile-declared `toolChoice` the injected executor cannot carry. A backend that
+ * never reads the policy would run the completion without it, and the caller cannot tell a
+ * policy-ignored answer from a policy-enforced one — the same contaminated evidence a dropped
+ * tool array produces, so it is refused by name before any transport runs.
+ */
+function assertBackendCarriesToolChoicePolicy(binding: BoundProfileChat): void {
+  if (
+    binding.settings.toolChoice !== undefined &&
+    !TOOL_CHOICE_CARRYING_BACKENDS.has(binding.executor.backend)
+  ) {
+    throw new Error(
+      `${binding.context}: backend ${JSON.stringify(binding.executor.backend)} cannot carry AgentProfile.model.metadata.toolChoice ${JSON.stringify(binding.settings.toolChoice)}; refusing the call rather than silently dropping the policy`,
+    )
+  }
 }
 
 /** Caller headers are a lowercase token map. Runtime overwrites its own connection headers later. */

@@ -2,6 +2,7 @@
 
 import { isRecord } from '@tangle-network/agent-core'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
+import { ValidationError } from '../errors'
 import type { ChatCompletionOptions } from './router-client'
 import type { RouterTransportConfig } from './router-http-transport'
 import type { RouterRetryPolicy } from './router-retry-policy'
@@ -107,6 +108,7 @@ export function chatCompletionBody(
         'reasoning_effort',
         'stream',
         'stream_options',
+        'tool_choice',
       ]),
       cfg.routing,
     ),
@@ -117,7 +119,20 @@ export function chatCompletionBody(
     ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
     ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
+    ...(explicitNoneToolChoice(opts?.toolChoice) ? { tool_choice: 'none' } : {}),
   }
+}
+
+/**
+ * The only `tool_choice` a no-tool completion can carry: an explicit `none`. `auto` and
+ * `required` name tool-selection behavior, so they are refused here rather than silently
+ * omitted — a caller that asked for them must learn the request will not carry them.
+ */
+function explicitNoneToolChoice(toolChoice: unknown): boolean {
+  if (toolChoice === undefined || toolChoice === 'none') return toolChoice === 'none'
+  throw new ValidationError(
+    `chatCompletionBody: toolChoice ${JSON.stringify(toolChoice)} is not carryable without tools; only "none" is`,
+  )
 }
 
 /** The OpenAI-shape request body both tool-calling transports send. One builder so the streamed
@@ -164,7 +179,12 @@ export function toolCompletionBody(
           })),
           tool_choice: opts?.toolChoice ?? 'auto',
         }
-      : {}),
+      : // An explicit `none` still crosses the wire with no tools array: the caller asked for a
+        // text-only completion, and `auto`/`required` keep their historical omission here because
+        // they name tool-selection behavior an empty tool set cannot express.
+        opts?.toolChoice === 'none'
+        ? { tool_choice: 'none' }
+        : {}),
     ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
     ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),

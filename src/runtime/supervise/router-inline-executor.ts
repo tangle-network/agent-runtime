@@ -104,6 +104,9 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                         ? { temperature: profileExecution.temperature }
                         : {}),
                       ...(linked ? { signal: linked } : {}),
+                      // Only "none" can reach the no-tool path: validation above rejects auto and
+                      // required without enabled tools, and "none" is a text-only completion here.
+                      ...(profileExecution.toolChoice === 'none' ? { toolChoice: 'none' } : {}),
                       ...routerGenerationOptions(profileExecution),
                       ...requestIdentity,
                     },
