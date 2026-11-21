@@ -29,6 +29,7 @@ const serial = [
   'tests/integration/child-admission-grant.test.ts',
   'tests/integration/deadline-wake-process.test.ts',
   'tests/integration/flow-model-admission.test.ts',
+  'tests/integration/retained-interactive-delegation.test.ts',
   'tests/integration/retained-tail-window.test.ts',
   'tests/integration/uncertain-create-identity.test.ts',
   'tests/integration/seat-pause-*.test.ts',
