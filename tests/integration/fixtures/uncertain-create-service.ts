@@ -29,8 +29,15 @@ const scenario = process.argv[3] as Scenario
 // reads, and observation's event-stream and exact-result reads. No frame reaches the run during an
 // observation outage, so none reopens its window.
 type CapacityPhase = 'acquisition' | 'observation'
-let capacityOutage: { ms: number; retryAfterSeconds: number; phases: CapacityPhase[] } | undefined
+// `capacity` refuses a create because no host has room. `keyed` answers the way Sandbox answers a
+// key whose existence probe failed: that probe's refusal first, then "recovery in progress" while
+// the reconciler holds the key.
+type CreateRefusal = 'capacity' | 'keyed'
+let capacityOutage:
+  | { ms: number; retryAfterSeconds: number; phases: CapacityPhase[]; refusal: CreateRefusal }
+  | undefined
 const outageSince: Partial<Record<CapacityPhase, number>> = {}
+const probedKeys = new Set<string>()
 let observationStreamed = false
 let rootReadOutage = false
 const ledger = join(directory, 'service-ledger.jsonl')
@@ -394,17 +401,38 @@ async function create(request: IncomingMessage, response: ServerResponse): Promi
       error: { code: 'VALIDATION_ERROR', message: 'requested CPU 16 exceeds tenant ceiling 8' },
     })
   }
-  // Sandbox's real refusal of a create when no host has room: for 8 minutes, or always.
+  // Sandbox's real refusals of a create its key gets placed by later: for 8 minutes, or always.
   if (scenario.startsWith('json-observation-long-create-capacity-')) {
     if (!capacityOutage) throw new Error('the placement case sets no outage')
     const since = (outageSince.acquisition ??= Date.now())
     if (scenario.endsWith('-deadline') || Date.now() - since < capacityOutage.ms) {
-      note('capacity-create-refused', { key, status: 503 })
       response.setHeader('Retry-After', String(capacityOutage.retryAfterSeconds))
-      return jsonError(response, 503, {
-        code: 'CAPACITY_EXHAUSTED',
-        message: 'Provision failed — (container) — No host has room for this sandbox now.',
-      })
+      if (capacityOutage.refusal === 'capacity') {
+        note('capacity-create-refused', { key, status: 503, code: 'CAPACITY_EXHAUSTED' })
+        return jsonError(response, 503, {
+          code: 'CAPACITY_EXHAUSTED',
+          message: 'Provision failed — (container) — No host has room for this sandbox now.',
+        })
+      }
+      // The bodies of agent-container products/sandbox/api/src/routes/sandbox-create-idempotency/
+      // coordinate-create.ts, sent through `refuseAs`: message in `error`, code beside it.
+      const probed = probedKeys.has(key)
+      probedKeys.add(key)
+      const code = probed ? 'SANDBOX_CREATE_RECONCILING' : 'IDEMPOTENT_CREATE_PROBE_FAILED'
+      note('capacity-create-refused', { key, status: 503, code })
+      return json(
+        response,
+        503,
+        probed
+          ? { error: 'Sandbox create recovery is in progress', code, retryable: true }
+          : {
+              reason: 'project existence lookup timed out',
+              error:
+                'The existence check for this Idempotency-Key failed, so no sandbox was created. Retry the same request with the same Idempotency-Key after Retry-After.',
+              code,
+              retryable: true,
+            },
+      )
     }
   }
   const prior = state.boxes.find((box) => box.key === key)
@@ -856,13 +884,19 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     }
     if (typeof control.finish === 'boolean') state.finish = control.finish
     if (control.capacityOutage !== undefined) {
-      const { ms, retryAfterSeconds, phases } = object(control.capacityOutage)
+      const { ms, retryAfterSeconds, phases, refusal = 'capacity' } = object(control.capacityOutage)
       if (
         !(Number(ms) > 0 && Number(retryAfterSeconds) > 0 && Array.isArray(phases)) ||
-        !phases.every((phase) => phase === 'acquisition' || phase === 'observation')
+        !phases.every((phase) => phase === 'acquisition' || phase === 'observation') ||
+        (refusal !== 'capacity' && refusal !== 'keyed')
       )
-        throw new Error('a capacity outage needs a positive length, Retry-After and its phases')
-      capacityOutage = { ms: Number(ms), retryAfterSeconds: Number(retryAfterSeconds), phases }
+        throw new Error('a capacity outage needs a positive length, Retry-After, phases and a refusal')
+      capacityOutage = {
+        ms: Number(ms),
+        retryAfterSeconds: Number(retryAfterSeconds),
+        phases,
+        refusal: refusal as CreateRefusal,
+      }
     }
     if ((scenario === 'json-owner-capture' || scenario === 'trace-owner-evidence') && state.finish)
       for (const held of holds) json(held, 200, { ok: true })

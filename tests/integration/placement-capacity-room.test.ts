@@ -1,8 +1,11 @@
 import { expect, it } from 'vitest'
 import { runPlacementCapacityRoot } from './fixtures/placement-capacity-root'
 
-it('waits out successive placement refusals on one drive and completes when room returns', async () => {
-  const { result, records, state } = await runPlacementCapacityRoot('success')
+it.each([
+  'capacity',
+  'keyed',
+] as const)('waits out successive %s create refusals on one drive and completes when room returns', async (refusal) => {
+  const { result, records, state } = await runPlacementCapacityRoot('success', refusal)
   // The create waited inside the first drive: no attempt failed, paused or was charged.
   expect(records).toEqual([expect.objectContaining({ attempt: 1, stop: 'completed' })])
   expect(records[0]).not.toHaveProperty('error')

@@ -1,13 +1,16 @@
 import { expect, it } from 'vitest'
 import { runPlacementCapacityRoot } from './fixtures/placement-capacity-root'
 
-it('ends a run whose deadline passes while placement is refused with a typed capacity stop', async () => {
-  const { result, records } = await runPlacementCapacityRoot('deadline')
+it.each([
+  ['capacity', 'capacity_exhausted'],
+  ['keyed', 'sandbox_create_reconciling'],
+] as const)('ends a run whose deadline passes while its create gets %s refusals with a typed capacity stop', async (refusal, signal) => {
+  const { result, records } = await runPlacementCapacityRoot('deadline', refusal)
   expect(records).toEqual([
     expect.objectContaining({
       attempt: 1,
       classification: 'unavailable',
-      unavailableSignal: 'capacity_exhausted',
+      unavailableSignal: signal,
       stop: 'deadline',
     }),
   ])
