@@ -1,3 +1,7 @@
+## 10.0.13
+
+A Sandbox create that its same key will be placed by later now waits within the run's deadline, the way a no-room refusal does, instead of ending the run as `repeated-failure` after three drives. Besides `CAPACITY_EXHAUSTED`, `HOST_PRESSURE`, `PLACEMENT_WARMING` and `PROVISIONING_PAUSED`, that covers the rest of the codes the Sandbox SDK resends for its 150 s deploy window (`INTERNAL_CREATE_PACED`, `INTERNAL_CREATE_PACING_UNAVAILABLE`, `IDEMPOTENT_CREATE_PROBE_FAILED`, `SANDBOX_TRANSFER_PENDING`), and `SANDBOX_CREATE_RECONCILING`, which Sandbox answers until its reconciler has resolved the key's earlier attempt and which the SDK never resends. A deadline that ends the wait settles the run `deadline`, with the refusal's code as the last attempt's `unavailableSignal`.
+
 ## 10.0.12
 
 `AgentProfile.model.metadata.toolChoice: "none"` now runs without enabled tools and reaches both the buffered and streamed Router completion wires as `tool_choice: "none"` from `profileChatClient` and `profileOptimizerModelCall`, with no `tools` array; profiles without the declaration keep the identical request. A raw `extraBody.tool_choice` still flows unchanged on the plain body when no typed policy is set (its prior behavior), while the typed `none` stays canonical and cannot be weakened by conflicting extras. `auto` and `required` without tools are still refused, a request may restate (never change) the declared choice, and a profile-declared choice on a backend that cannot carry it is refused by name instead of silently dropped.
