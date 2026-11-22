@@ -561,50 +561,54 @@ describe('an opted-in root pauses where it used to stop', () => {
   it.each([
     ['returns with its contract unmet', 'unmet'],
     ['fails after its turn spent the pool', 'failed'],
-  ] as const)('settles a root whose spent pool nothing can refund when it %s', async (_label, shape) => {
-    const dir = await runDirectory()
-    const runId = `spent-pool-${shape}`
-    const rows: Paused[] = []
-    const journal = pacedJournal(dir, (row) => {
-      rows.push(row)
-      cancelRun(dir, 'unexpected-pause', { operator: 'test', reason: 'nothing can refund it' })
-    })
-    const result = (await supervise(
-      testAgentProfile('spent-root', {
-        harness: 'codex',
-        tools: runtimeToolDeclarations('submit_result'),
-      }),
-      'Deliver the word done.',
-      {
-        runDir: dir,
-        runId,
-        journal,
-        budget: { maxIterations: 100, maxTokens: 1_000, deadlineMs: 3_600_000 },
-        makeWorkerAgent: noWorkers,
-        driveHarness: async ({ scope }) => {
-          await scope.meter({
-            iterations: 1,
-            tokens: { input: scope.budget.tokensLeft, output: 0 },
-            usd: 0,
-            ms: 1,
-          })
-          if (shape === 'failed')
-            throw new BackendTransportError('bridge', 'HTTP 503 unavailable', { status: 503 })
-        },
-        driverRetry: { pauseRootStops: true, initialBackoffMs: 1, maxBackoffMs: 1 },
-        deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },
-        continuation: openContinuation(),
-      },
-    )) as SupervisedResult<unknown>
-    const attempts = ((await journal.loadTree(runId)) ?? []).filter(
-      (event) => event.kind === 'driver-attempt',
-    )
-    expect(rows).toEqual([])
-    expect(JSON.stringify(attempts.at(-1))).toContain('budget-exhausted')
-    expect(result.kind).toBe('no-winner')
-    expect(result).not.toMatchObject({ reason: 'cancelled' })
-    expect(result.continuation).toMatchObject({ stopPauses: 0 })
-  }, 30_000)
+   ] as const)(
+     'settles a root whose spent pool nothing can refund when it %s',
+     async (_label, shape) => {
+       const dir = await runDirectory()
+       const runId = `spent-pool-${shape}`
+       const rows: Paused[] = []
+       const journal = pacedJournal(dir, (row) => {
+         rows.push(row)
+         cancelRun(dir, 'unexpected-pause', { operator: 'test', reason: 'nothing can refund it' })
+       })
+       const result = (await supervise(
+         testAgentProfile('spent-root', {
+           harness: 'codex',
+           tools: runtimeToolDeclarations('submit_result'),
+         }),
+         'Deliver the word done.',
+         {
+           runDir: dir,
+           runId,
+           journal,
+           budget: { maxIterations: 100, maxTokens: 1_000, deadlineMs: 3_600_000 },
+           makeWorkerAgent: noWorkers,
+           driveHarness: async ({ scope }) => {
+             await scope.meter({
+               iterations: 1,
+               tokens: { input: scope.budget.tokensLeft, output: 0 },
+               usd: 0,
+               ms: 1,
+             })
+             if (shape === 'failed')
+               throw new BackendTransportError('bridge', 'HTTP 503 unavailable', { status: 503 })
+           },
+           driverRetry: { pauseRootStops: true, initialBackoffMs: 1, maxBackoffMs: 1 },
+           deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },
+           continuation: openContinuation(),
+         },
+       )) as SupervisedResult<unknown>
+       const attempts = ((await journal.loadTree(runId)) ?? []).filter(
+         (event) => event.kind === 'driver-attempt',
+       )
+       expect(rows).toEqual([])
+       expect(JSON.stringify(attempts.at(-1))).toContain('budget-exhausted')
+       expect(result.kind).toBe('no-winner')
+       expect(result).not.toMatchObject({ reason: 'cancelled' })
+       expect(result.continuation).toMatchObject({ stopPauses: 0 })
+     },
+     30_000,
+   )
 
   it('keeps today’s stop for a root that does not opt in', async () => {
     const dir = await runDirectory()
