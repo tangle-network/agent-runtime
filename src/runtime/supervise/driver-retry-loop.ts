@@ -84,6 +84,17 @@ function budgetStop(budget: DriverBudgetReadout, atMs: number): DriverAttemptSto
   return exhausted ? 'budget-exhausted' : undefined
 }
 
+/** A spent channel that nothing can refill. A live run regains budget only from a settling child's
+ *  refund, so a spent token or known resource channel with nothing reserved stays spent until a
+ *  cancel or the deadline; pausing on it only holds the root for an operator. */
+function budgetCannotRefill(budget: DriverBudgetReadout): boolean {
+  if (budget.tokensCapped !== false && budget.tokensLeft <= 0 && budget.reservedTokens <= 0)
+    return true
+  return Object.values(budget.resources ?? {}).some(
+    (r) => r.known && r.remaining <= 0 && r.reserved <= 0,
+  )
+}
+
 /** The cause an admission or continuation refusal carries: it has no failure of its own. */
 function admissionError(stop: DriverAttemptStop): ValidationError {
   return new ValidationError(`driver admission: ${stop}`)
@@ -268,13 +279,14 @@ export class DriverRetryLoop {
     })
   }
 
-  /** True when `stop` becomes a pause: the caller opted in, the stop is one the header names, and
-   *  neither the run nor the manager's own stop has fired. */
+  /** True when `stop` becomes a pause: the caller opted in, the stop is one the header names, a
+   *  spent budget could still be refunded, and neither the run nor the manager's own stop has fired. */
   private pausesStop(stop: DriverAttemptStop): boolean {
     const { run } = this
     return (
       run.stopPause !== undefined &&
       PAUSED_STOPS.has(stop) &&
+      !(stop === 'budget-exhausted' && budgetCannotRefill(run.budget())) &&
       !run.signal.aborted &&
       run.stopSignal?.aborted !== true
     )
