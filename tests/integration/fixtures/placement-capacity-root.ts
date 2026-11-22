@@ -31,17 +31,22 @@ const placementTiming =
 
 /**
  * Drive a provider root whose every create a Sandbox-shaped HTTP service refuses with the real
- * 503 placement body and Retry-After, through the real SDK and Tangle provider, until its room
- * returns after several complete SDK create budgets or the run reaches its own deadline.
+ * 503 body and Retry-After, through the real SDK and Tangle provider, until its room returns
+ * after several complete SDK create budgets or the run reaches its own deadline. `capacity` says
+ * no host has room; `keyed` says the key's existence probe failed, then that its recovery is in
+ * progress.
  */
-export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
+export async function runPlacementCapacityRoot(
+  end: 'success' | 'deadline',
+  refusal: 'capacity' | 'keyed' = 'capacity',
+) {
   const { bundle, executables } = await prepareExecutables()
   const fixture = await ProcessFixture.start(
     `json-observation-long-create-capacity-${end}`,
     executables,
     { coordinator: false },
   )
-  const runId = `placement-capacity-${end}`
+  const runId = `placement-${refusal}-${end}`
   const runDir = join(fixture.directory, 'run')
   try {
     await fixture.control({
@@ -50,6 +55,7 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
         ms: placementTiming.roomAfter,
         retryAfterSeconds: 2,
         phases: ['acquisition'],
+        refusal,
       },
     })
     const context = createFileRunContext(runDir)
@@ -106,6 +112,12 @@ export async function runPlacementCapacityRoot(end: 'success' | 'deadline') {
     // Every create, refused or admitted, carried the one environment key.
     const creates = [...refused, ...state.requests.filter((row) => row.kind === 'create')]
     expect(new Set(creates.map((row) => row.key)).size).toBe(1)
+    // The keyed case met the probe's refusal once, then the reconciler's hold on every resend.
+    if (refusal === 'keyed')
+      expect(refused.map((row) => row.code)).toEqual([
+        'IDEMPOTENT_CREATE_PROBE_FAILED',
+        ...refused.slice(1).map(() => 'SANDBOX_CREATE_RECONCILING'),
+      ])
     return { result, records, state }
   } finally {
     await fixture.close()

@@ -3,13 +3,21 @@ import { causeChain } from './error-message'
 import { turnFailureOf, turnFailurePolicy } from './executor-outcome'
 /** Shared capacity recognition and pause policy for drivers and retained leaves. */
 
-/** Sandbox: no host can place a box now (the SDK's `sandboxFailureKind` reads them as capacity).
- *  Acquisition and the driver both wait for room on these, within the run's deadline. */
+/** Sandbox: a create its same key gets placed by later. No host has room now; or the create is
+ *  paced, its existence probe failed or its box is in transfer (the SDK re-POSTs this whole family
+ *  for its 150 s deploy window only); or an earlier attempt under the key is still reconciling,
+ *  which Sandbox answers until its reconciler's grace ends and the SDK never retries. Acquisition
+ *  and the driver both wait on these under the same key, within the run's deadline. */
 export const PLACEMENT_SIGNALS: ReadonlySet<string> = new Set([
   'capacity_exhausted',
   'host_pressure',
   'placement_warming',
   'provisioning_paused',
+  'internal_create_paced',
+  'internal_create_pacing_unavailable',
+  'idempotent_create_probe_failed',
+  'sandbox_transfer_pending',
+  'sandbox_create_reconciling',
 ])
 
 /** The cause in `error`'s chain whose own code is a placement refusal, if any. */
