@@ -890,7 +890,9 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         !phases.every((phase) => phase === 'acquisition' || phase === 'observation') ||
         (refusal !== 'capacity' && refusal !== 'keyed')
       )
-        throw new Error('a capacity outage needs a positive length, Retry-After, phases and a refusal')
+        throw new Error(
+          'a capacity outage needs a positive length, Retry-After, phases and a refusal',
+        )
       capacityOutage = {
         ms: Number(ms),
         retryAfterSeconds: Number(retryAfterSeconds),
