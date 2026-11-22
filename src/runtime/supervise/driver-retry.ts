@@ -16,6 +16,7 @@
  * open workers, and counts barren drives only after a model event in this process.
  *
  * Root stop-pauses wait on recoverable stops; they cannot reset an unchanged failure streak.
+ * A spent budget pauses only while a reservation could refund it.
  * Cancellation ends the wait; a steer wakes it but grants no admission.
  */
 
