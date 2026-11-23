@@ -90,7 +90,11 @@ async function check(work: string, base: string) {
 
 const answer = (status: number) => (_req: IncomingMessage, res: ServerResponse) => {
   res.writeHead(status, { 'content-type': 'application/json' })
-  res.end(status === 200 ? JSON.stringify({ name: '@tangle-network/agent-runtime', version: '9.9.9' }) : '{}')
+  res.end(
+    status === 200
+      ? JSON.stringify({ name: '@tangle-network/agent-runtime', version: '9.9.9' })
+      : '{}',
+  )
 }
 
 describe('release version check', () => {
@@ -120,7 +124,9 @@ describe('release version check', () => {
     const result = await check(work, npm.base)
 
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("names this tree; @tangle-network/agent-runtime@9.9.9 is this release's own")
+    expect(result.stdout).toContain(
+      "names this tree; @tangle-network/agent-runtime@9.9.9 is this release's own",
+    )
     expect(npm.requests).toEqual([])
   })
 
@@ -142,7 +148,9 @@ describe('release version check', () => {
     const result = await check(work, npm.base)
 
     expect(result.code).toBe(1)
-    expect(result.stderr).toContain('@tangle-network/agent-runtime@9.9.9 is already on the npm registry')
+    expect(result.stderr).toContain(
+      '@tangle-network/agent-runtime@9.9.9 is already on the npm registry',
+    )
   })
 
   it('refuses as could not read when the registry answers an error or cannot be reached', async () => {
@@ -159,7 +167,9 @@ describe('release version check', () => {
     await cleanups.pop()?.()
     const unreachable = await check(work, `http://127.0.0.1:${port}`)
     expect(unreachable.code).toBe(1)
-    expect(unreachable.stderr).toContain('could not read the npm registry for @tangle-network/agent-runtime@9.9.9')
+    expect(unreachable.stderr).toContain(
+      'could not read the npm registry for @tangle-network/agent-runtime@9.9.9',
+    )
     expect(unreachable.stdout).not.toContain('is free')
   })
 
@@ -234,7 +244,15 @@ async function packageRegistry(archiveAnswers: (reads: number) => number, listed
   const install = () => {
     const result = spawnSync(
       'npm',
-      ['install', '--no-audit', '--no-fund', '--registry', npm.base, '--cache', join(app, 'npm-cache')],
+      [
+        'install',
+        '--no-audit',
+        '--no-fund',
+        '--registry',
+        npm.base,
+        '--cache',
+        join(app, 'npm-cache'),
+      ],
       {
         cwd: app,
         encoding: 'utf8',
@@ -260,7 +278,9 @@ describe('packed-consumer install across registry propagation', () => {
       log: (line: string) => lines.push(line),
     })
 
-    expect(existsSync(join(fixture.app, 'node_modules', 'fresh-dependency', 'package.json'))).toBe(true)
+    expect(existsSync(join(fixture.app, 'node_modules', 'fresh-dependency', 'package.json'))).toBe(
+      true,
+    )
     expect(fixture.archiveReads()).toBe(3)
     expect(lines).toHaveLength(2)
     expect(lines[0]).toContain('fresh-dependency@1.0.0 is listed but its archive answered 404')
@@ -286,6 +306,8 @@ describe('packed-consumer install across registry propagation', () => {
 
     await expect(
       installAcrossPropagation(fixture.install, { windowMs: 700, intervalMs: 200, log: () => {} }),
-    ).rejects.toThrow('fresh-dependency@1.0.0 is listed on the npm registry but its archive still answered 404')
+    ).rejects.toThrow(
+      'fresh-dependency@1.0.0 is listed on the npm registry but its archive still answered 404',
+    )
   }, 60_000)
 })
