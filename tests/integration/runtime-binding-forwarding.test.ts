@@ -12,7 +12,8 @@ async function run(mode: string) {
     process.execPath,
     [fileURLToPath(new URL('./fixtures/runtime-binding-forwarding.mjs', import.meta.url)), mode],
     {
-      timeout: 10000,
+      // A fresh Node process loading dist; 10 s killed it at 10.975 s on a loaded gate host.
+      timeout: 50_000,
       env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: tmpdir() },
     },
   )
