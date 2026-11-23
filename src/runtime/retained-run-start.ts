@@ -134,14 +134,20 @@ async function createRetainedEnvironment(
   }
 }
 
+/**
+ * The bound covers `provider.create` and nothing after it. A provider may keep its create input,
+ * signal included, for the environment's life: the CLI Bridge folds it into every turn's stream
+ * and event read. So the timer is creation's own and stops when `create` settles; the signal a
+ * provider keeps then follows only the run's lifetime (#2756).
+ */
 function createRetainedEnvironmentOnce(
   options: StartRetainedRunOptions,
   parent: AbortSignal | undefined,
   bound: number,
   create: number,
 ): Promise<AgentEnvironment> {
-  const timeout = AbortSignal.timeout(bound)
-  const signal = parent === undefined ? timeout : AbortSignal.any([parent, timeout])
+  const creation = new AbortController()
+  const signal = parent === undefined ? creation.signal : AbortSignal.any([parent, creation.signal])
   const created = options.provider.create({
     ...options.environment,
     signal,
@@ -150,9 +156,17 @@ function createRetainedEnvironmentOnce(
       options.environment.idempotencyKey,
     ),
   })
-  const timedOut = () => timeout.aborted && parent?.aborted !== true
+  // Started after the synchronous call, so a create that throws leaves no timer.
+  const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+  const timer = setTimeout(() => creation.abort(timeout), bound)
+  const timedOut = () => creation.signal.aborted && parent?.aborted !== true
   return new Promise((resolve, reject) => {
+    const settle = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', fail)
+    }
     const fail = () => {
+      settle()
       reject(
         timedOut()
           ? new RetainedMaterializationTimeoutError(create)
@@ -168,11 +182,11 @@ function createRetainedEnvironmentOnce(
     signal.addEventListener('abort', fail, { once: true })
     created.then(
       (environment) => {
-        signal.removeEventListener('abort', fail)
+        settle()
         resolve(environment)
       },
       (error: unknown) => {
-        signal.removeEventListener('abort', fail)
+        settle()
         reject(timedOut() ? new RetainedMaterializationTimeoutError(create) : error)
       },
     )
