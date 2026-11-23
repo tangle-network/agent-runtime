@@ -1,3 +1,7 @@
+## 10.0.16
+
+`loadGraphFile` now refuses a `continuity: resume` edge whose target can run on a harness that opens a new conversation every turn (cli-bridge's ACP harnesses `acp`, `hermes` and `openclaw`, and every harness with no cli-bridge backend), even when the host supplies its own resuming `makeWorkerAgent`; such a graph loaded before. A resume route now resumes on the provider backend, the path a local CLI graph run takes: the resumed worker gets a new environment and continues the earlier worker's harness conversation, which cli-bridge keys by session id. The CLI therefore refuses an unresumable graph at load and at `--dry-run`, instead of partway through a run.
+
 ## 10.0.15
 
 A retained run's materialization bound now ends when `provider.create` settles. Before, its timeout signal reached providers that keep their create input for the environment's life, such as the CLI Bridge, and aborted every turn still running when the bound passed, 120 s after create by default (#2756).
