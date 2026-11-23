@@ -18,9 +18,11 @@ import { expect, it } from 'vitest'
 import { createFileRunContext, createSupervisor } from '../../src/runtime'
 import { providerAsExecutor } from '../../src/runtime/environment-provider/provider-executor-admission'
 import {
+  captureBoundHarnessTranscript,
   type HarnessTranscriptEvidence,
   harnessTranscriptArtifact,
 } from '../../src/runtime/harness-transcript'
+import { serveTopWeb } from '../../src/tui/top-web'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
@@ -29,12 +31,13 @@ const execute = promisify(execFile)
 // The portable provider runs a real native process and reads its durable files. No model,
 // remote allocation, mocked filesystem, or scripted executor stands in for execution.
 it.each([
-  [0, false],
-  [7, false],
-  [0, true],
+  [0, false, false],
+  [7, false, false],
+  [0, true, false],
+  [0, false, true],
 ] as const)(
-  'retains exact dispatch provenance after native exit %i (repair: %s)',
-  async (exitCode, repairCapture) => {
+  'retains exact dispatch provenance after native exit %i (repair: %s, trusted capture: %s)',
+  async (exitCode, repairCapture, trustedCapture) => {
     const directory = await mkdtemp(join(tmpdir(), 'provider-transcript-source-'))
     try {
       const home = join(directory, 'home')
@@ -168,8 +171,35 @@ process.exitCode = code;
       }
       const profile = testAgentProfile('native-proof')
       const context = createFileRunContext(join(directory, 'run'))
-      const runId = `native-source-${exitCode}`
+      const runId = `native-source-${exitCode}${trustedCapture ? '-captured' : ''}`
       const createExecutor = providerAsExecutor(provider, {
+        ...(trustedCapture
+          ? {
+              defaults: { workspace: { cwd: { base: 'host' as const, path: directory } } },
+              harnessTranscript: (request) =>
+                captureBoundHarnessTranscript({
+                  harness: request.harness,
+                  nativeSessionId: 'native-proof',
+                  binding: {
+                    kind: 'provider',
+                    controlRef: request.controlRef,
+                    sessionId: request.sessionId,
+                    nativeSessionId: 'native-proof',
+                    profileDigest: request.profileDigest,
+                    node: request.node,
+                    runs: request.runs,
+                  },
+                  files: [{ path: 'native.json', nativeSessionId: 'native-proof' }],
+                  read: () => readFile(join(home, '.opencode/sessions/native.json')),
+                  parse: (text) => ({
+                    nativeSessionId: JSON.parse(text).id,
+                    children: [],
+                    integrity: { truncated: false, unparsedRecords: 0, gaps: [] },
+                  }),
+                  signal: request.signal,
+                }),
+            }
+          : {}),
         ...(repairCapture
           ? {
               validator: {
@@ -260,6 +290,48 @@ process.exitCode = code;
       }
       expect(dispatches).toBe(1)
       expect(receipt.status).toBe('available')
+      if (trustedCapture) {
+        // `tangle top` must read the provider-bound capture, not refuse it as a Bridge binding.
+        expect((await harnessTranscriptArtifact(receipt, context.blobs))?.binding).toMatchObject({
+          kind: 'provider',
+          controlRef,
+        })
+        const assets = join(directory, 'assets')
+        await mkdir(assets)
+        await writeFile(join(assets, 'workspace-viewer.js'), 'export {};')
+        await writeFile(join(assets, 'styles.css'), 'body { color: black; }')
+        const web = await serveTopWeb({
+          roots: [join(directory, 'run')],
+          assets,
+          readSessions: async (artifact) =>
+            artifact.files.map((file) => {
+              const native = JSON.parse(file.content)
+              return {
+                nativeSessionId: native.id,
+                messages: [
+                  {
+                    id: 'native-text',
+                    at: '2026-01-01T00:00:00.000Z',
+                    role: 'assistant',
+                    parts: [{ type: 'text', text: native.text }],
+                  },
+                ],
+                toolCalls: [],
+              }
+            }),
+        })
+        try {
+          const agent = `${web.url}api/top/agents/0/${runId}/${encodeURIComponent(`${runId}:s0`)}`
+          const { coverage } = await (await fetch(agent)).json()
+          expect(coverage.status, JSON.stringify(coverage)).not.toBe('missing')
+          expect(coverage.code).not.toBe('source-mismatch')
+          expect(String(coverage.reason)).not.toMatch(/malformed|execution does not match/)
+          expect(await (await fetch(`${agent}/stream`)).text()).toContain('stored native work')
+        } finally {
+          await web.close()
+        }
+        return
+      }
       expect(receipt).not.toMatchObject({ coverageComplete: true })
       // Readers have only the durable blob and journal; the original native files are gone.
       await rm(home, { recursive: true, force: true })
