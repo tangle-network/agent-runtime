@@ -315,7 +315,11 @@ describe('packed-consumer install across registry propagation', () => {
     const fixture = await packageRegistry(() => 404, 500)
 
     await expect(
-      installAcrossPropagation(fixture.install, { windowMs: 20_000, intervalMs: 200, log: () => {} }),
+      installAcrossPropagation(fixture.install, {
+        windowMs: 20_000,
+        intervalMs: 200,
+        log: () => {},
+      }),
     ).rejects.toThrow(
       /404 Not Found - GET \S+fresh-dependency-1\.0\.0\.tgz[\s\S]*and could not read the npm registry for fresh-dependency@1\.0\.0: HTTP 500/,
     )
