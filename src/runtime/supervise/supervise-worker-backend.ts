@@ -7,6 +7,7 @@ import { recordValue } from '../../record-value'
 import { agentHarness } from '../harness-role'
 import { type DeliverableSpec, gateFactoryOnDeliverable } from './completion-gate'
 import { profileBridgeWireModel, profileProviderModel } from './model-policy'
+import { retainedExecutorContext, retainedExecutorSeamKey } from './retained-executor'
 import {
   bindReusableExecutorExecutionId,
   bridgeRuntimeAttachmentsKey,
@@ -36,15 +37,19 @@ import { WORKER_TRACE_PROPAGATION } from './worker-trace'
  * `supervise()` gives a traced run's workers their trace context without ordering the span recorder
  * ahead of the worker seam.
  *
- * Continuity: the `bridge` backend honors `continuity: 'resume'` by session re-attachment. A
- * bridge session id IS the harness conversation key (cli-bridge maps it to the CLI's own resume —
- * opencode `-s <id>`, claude `--resume`), so this seam records the session id each supervised
- * spawn was bound to, keyed by the worker id the Scope assigned, and a resume spawn binds the
- * prior worker's recorded session id instead of deriving a fresh one. The record is process-local
- * by construction, which matches the kernel's resume boundary (a prior process's workers are not
- * resume targets). Every other backend keeps failing loud: their executors have no re-attachable
- * session, and accepting the spawn would ledger `continuity: 'resume'` over a brand-new session —
- * a stamp asserting something that never happened.
+ * Continuity: the `bridge` and `provider` backends honor `continuity: 'resume'` by session
+ * re-attachment. A bridge session id IS the harness conversation key (cli-bridge maps it to the
+ * CLI's own resume — opencode `-s <id>`, claude `--resume`, codex `exec resume`), and a retained
+ * provider session is that same key one layer up, so this seam records the session each supervised
+ * spawn was bound to, keyed by the worker id the Scope assigned, and a resume spawn binds the prior
+ * worker's recorded session instead of deriving a fresh one. A provider worker's session is the
+ * one its retained environment admission names; the resumed worker gets a new environment, since
+ * the earlier one is torn down when its node settles, and dispatches its first turn into that
+ * session. The record is process-local by construction, which matches the kernel's resume boundary
+ * (a prior process's workers are not resume targets). Every other backend keeps failing loud: their
+ * executors have no re-attachable session, and accepting the spawn would ledger
+ * `continuity: 'resume'` over a brand-new session — a stamp asserting something that never
+ * happened.
  */
 export function workerFromBackend(
   backend: ExecutorConfig,
@@ -54,7 +59,7 @@ export function workerFromBackend(
   const capturedBackend = captureReusableExecutorConfig(backend, 'workerFromBackend')
   const unscopedNamespace = randomUUID()
   let unscopedOrdinal = 0
-  const bridgeSessionByWorker = new Map<string, string>()
+  const sessionByWorker = new Map<string, string>()
   return (rawProfile, spawnContext) => {
     const parsed = agentProfileSchema.safeParse(rawProfile)
     if (!parsed.success) {
@@ -65,11 +70,7 @@ export function workerFromBackend(
     assertBridgeProfileMaterializes(profile, capturedBackend, 'workerFromBackend')
     // Resolved BEFORE any worker exists, so a resume this seam cannot honor fails the spawn
     // itself and the kernel never ledgers a `continuity: 'resume'` stamp for it.
-    const resumeSessionId = bridgeResumeSessionId(
-      capturedBackend,
-      spawnContext,
-      bridgeSessionByWorker,
-    )
+    const resumeSessionId = resumeSessionIdFor(capturedBackend, spawnContext, sessionByWorker)
     const name = profile.name ?? 'worker'
     // A Scope assignment is stable across reconstruction. Direct callers that omit that context
     // still get isolation, but only Scope-backed calls claim durable external-session recovery.
@@ -80,7 +81,7 @@ export function workerFromBackend(
     const executionScope = spawnContext?.parentNodeId
     const boundBackend = bindReusableExecutorExecutionId(
       capturedBackend,
-      resumeSessionId ??
+      (capturedBackend.backend === 'bridge' ? resumeSessionId : undefined) ??
         externalExecutionId('supervised-worker', {
           assignmentId,
           ...(executionScope === undefined ? {} : { scope: executionScope }),
@@ -142,7 +143,7 @@ export function workerFromBackend(
       // session under its own id, which is what keeps a fresh → resume → resume chain on one
       // harness conversation.
       if (boundSessionId !== undefined && ctx.node?.nodeId !== undefined) {
-        bridgeSessionByWorker.set(ctx.node.nodeId, boundSessionId)
+        sessionByWorker.set(ctx.node.nodeId, boundSessionId)
       }
       // Caller-supplied seams sit UNDER the per-child seams the Scope seeds, so the scope's
       // recursion and trace context always win on a key collision. The peer-mail attachment sits
@@ -167,7 +168,12 @@ export function workerFromBackend(
             }
       const built = baseFactory(
         spec,
-        seamsForChild === ctx.seams ? ctx : { ...ctx, seams: seamsForChild },
+        providerResumeContext(
+          seamsForChild === ctx.seams ? ctx : { ...ctx, seams: seamsForChild },
+          boundBackend,
+          resumeSessionId,
+          sessionByWorker,
+        ),
       )
       return built
     }
@@ -184,22 +190,54 @@ export function workerFromBackend(
 }
 
 /**
- * The bridge session id a `'resume'` spawn re-attaches, or `undefined` for a fresh spawn.
- * Every refusal throws BEFORE a worker exists, which is what keeps the kernel's continuity
- * ledger true: a `'resume'` stamp can only appear over a session that was actually re-attached.
+ * A provider worker's session is known only once its retained environment is admitted: record it
+ * then under the worker's Scope id, and give a resumed worker the session it continues. A worker
+ * without a retained context (no journal, or a provider without retained control) records nothing,
+ * so a later resume of it is refused before any worker exists.
  */
-function bridgeResumeSessionId(
+function providerResumeContext(
+  ctx: ExecutorContext,
+  backend: ExecutorConfig,
+  resumeSessionId: string | undefined,
+  sessionByWorker: Map<string, string>,
+): ExecutorContext {
+  const retention = backend.backend === 'provider' ? retainedExecutorContext(ctx) : undefined
+  const workerId = ctx.node?.nodeId
+  if (retention === undefined || workerId === undefined) return ctx
+  return {
+    ...ctx,
+    seams: {
+      ...ctx.seams,
+      [retainedExecutorSeamKey]: {
+        ...retention,
+        ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
+        onAdmission: async (admission: Parameters<typeof retention.onAdmission>[0]) => {
+          await retention.onAdmission(admission)
+          if (admission.phase === 'environment') sessionByWorker.set(workerId, admission.sessionId)
+        },
+      },
+    },
+  }
+}
+
+/**
+ * The session id a `'resume'` spawn re-attaches, or `undefined` for a fresh spawn: the bridge
+ * session the prior worker was bound to, or the retained provider session its environment
+ * admission named. Every refusal throws BEFORE a worker exists, which is what keeps the kernel's
+ * continuity ledger true: a `'resume'` stamp can only appear over a session that was re-attached.
+ */
+function resumeSessionIdFor(
   backend: ExecutorConfig,
   spawnContext: WorkerSpawnContext | undefined,
   sessions: ReadonlyMap<string, string>,
 ): string | undefined {
   if (spawnContext?.continuity !== 'resume') return undefined
-  if (backend.backend !== 'bridge') {
+  if (backend.backend !== 'bridge' && backend.backend !== 'provider') {
     throw new ValidationError(
       `workerFromBackend: the '${backend.backend}' backend seam does not re-attach sessions and ` +
-        "cannot honor continuity: 'resume' — only the 'bridge' backend resumes here (cli-bridge " +
-        'keys the harness conversation by session id). Provide a makeWorkerAgent that resumes ' +
-        "(it receives spawnContext.resume.ofWorker), or use continuity: 'fresh'",
+        "cannot honor continuity: 'resume' — only the 'bridge' and 'provider' backends resume " +
+        'here (cli-bridge keys the harness conversation by session id). Provide a ' +
+        "makeWorkerAgent that resumes (it receives spawnContext.resume.ofWorker), or use continuity: 'fresh'",
     )
   }
   const ofWorker = spawnContext.resume?.ofWorker
@@ -212,8 +250,9 @@ function bridgeResumeSessionId(
   const prior = sessions.get(ofWorker)
   if (prior === undefined) {
     throw new ValidationError(
-      `workerFromBackend: no recorded bridge session for worker '${ofWorker}' — this seam ` +
-        're-attaches only sessions it bound in this process (the kernel resume boundary). ' +
+      `workerFromBackend: no recorded ${backend.backend} session for worker '${ofWorker}' — this ` +
+        'seam re-attaches only sessions it bound in this process (the kernel resume boundary), ' +
+        'and a provider worker records one only once its retained environment is admitted. ' +
         "Spawn the node fresh first, or use continuity: 'fresh'",
     )
   }

@@ -37,3 +37,31 @@ export function harnessRunsAgent<T extends string>(harness: T | null | undefined
 export function agentHarness<T extends string>(harness: T | null | undefined): T | undefined {
   return harnessRunsAgent(harness) ? harness : undefined
 }
+
+/**
+ * Agent harnesses whose own CLI continues an earlier conversation by its session id. cli-bridge
+ * records that id under the caller's `session_id` and starts the next turn with it (`claude
+ * --resume`, `codex exec resume`, and the cursor, gemini, kimi, opencode, pi and prime backends'
+ * equivalents). Its ACP harnesses (`acp`, `hermes`, `openclaw`) open a new session every turn, and
+ * the rest have no Bridge backend, so a resumed turn on any of them would continue nothing.
+ */
+const RESUMING_HARNESSES: ReadonlySet<string> = new Set<string>([
+  'claude-code',
+  'codex',
+  'cursor',
+  'gemini',
+  'kimi-code',
+  'opencode',
+  'pi',
+  'prime',
+] satisfies HarnessType[])
+
+/** The agent harnesses a `continuity: 'resume'` edge may target, in a stable order for messages. */
+export const resumingHarnesses: readonly string[] = [...RESUMING_HARNESSES]
+
+/** Whether an agent harness keeps a conversation a later turn can continue. `cli-base` runs no
+ *  agent, so it keeps no harness conversation either way; it is not refused here, because the host
+ *  that runs a no-agent node owns what that node remembers. */
+export function harnessResumesConversation(harness: string): boolean {
+  return !harnessRunsAgent(harness) || RESUMING_HARNESSES.has(harness)
+}

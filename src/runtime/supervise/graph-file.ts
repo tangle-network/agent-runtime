@@ -11,6 +11,7 @@ import { ValidationError } from '../../errors'
 import { assertJsonData } from '../../json-data'
 import type { AnalystRegistry } from '../../mcp/tools/coordination-analysts'
 import type { RouteWhen } from '../../mcp/tools/coordination-route-contracts'
+import { harnessResumesConversation, resumingHarnesses } from '../harness-role'
 import type { AgentGraph } from './graph'
 import { type graphFileNeedSchema, graphFileSchema } from './graph-file-schema'
 import { validateFlowGraph } from './graph-flow'
@@ -273,6 +274,42 @@ async function expandProfile(
   return parsed.data
 }
 
+/**
+ * A `continuity: 'resume'` edge continues its target's earlier harness conversation, so every
+ * harness the target may run on must keep one. Refusing here, before any node runs, is what keeps a
+ * resumed node from starting a new conversation partway through a run (#2755).
+ */
+function refuseUnresumableEdges(graph: Pick<StoredGraphInput, 'nodes' | 'edges'>): void {
+  const nodes = new Map(graph.nodes.map((node) => [node.id, node]))
+  for (const edge of graph.edges as ReadonlyArray<{
+    kind?: unknown
+    from?: unknown
+    to?: unknown
+    continuity?: unknown
+  }>) {
+    if (edge.continuity !== 'resume') continue
+    const targets = typeof edge.to === 'string' ? [edge.to] : Array.isArray(edge.to) ? edge.to : []
+    for (const id of targets) {
+      const node = typeof id === 'string' ? nodes.get(id) : undefined
+      if (node === undefined || node.check !== undefined) continue
+      const harnesses = Array.isArray(node.profile.seats)
+        ? node.profile.seats.map((seat) => seat.harness)
+        : [node.profile.harness]
+      const cannot = [...new Set(harnesses)].filter(
+        (harness) => harness !== undefined && !harnessResumesConversation(harness),
+      )
+      if (cannot.length === 0) continue
+      const from = Array.isArray(edge.from) ? edge.from.join(', ') : String(edge.from)
+      const starts = cannot.length === 1 ? 'starts' : 'start'
+      refuse(
+        `the ${String(edge.kind)} edge from ${from} resumes ${id}, but ${cannot.join(' and ')} ` +
+          `${starts} every turn in a new conversation; give ${id} a seat on ` +
+          `${resumingHarnesses.join(', ')}, or route it with continuity: fresh`,
+      )
+    }
+  }
+}
+
 /** Compile canonical YAML/JSON to content-addressed graph data. Host resolvers may perform I/O. */
 export async function loadGraphFile(
   file: string,
@@ -426,6 +463,7 @@ export async function loadGraphFile(
   const registry = options.registry ?? kernelPromptRegistry()
   if (content.entry) validateFlowGraph(content, registry, options.analysts)
   else validateGraphTopology(content.nodes, content.edges, registry, options.analysts)
+  refuseUnresumableEdges(content)
   const digest = graphDigest(content)
   if (bound.digest !== undefined && bound.digest !== digest)
     refuse('supplied digest does not match the materialized graph')
