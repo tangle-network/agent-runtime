@@ -123,7 +123,9 @@ async function fixture() {
     serving: { serve },
     outputDirectory: join(root, 'outputs'),
     maxCheckpointBytes: 1024,
-    timeoutMs: 10_000,
+    // No case here tests this deadline; it only bounds a hang below vitest's 60 s testTimeout.
+    // 10 s fired first on a loaded gate host (18.5 s run, "training deadline exceeded").
+    timeoutMs: 50_000,
     signal: controller.signal,
   }
   return { profile, options, controller, execute, serve }
