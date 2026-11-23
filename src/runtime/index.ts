@@ -493,9 +493,9 @@ export {
 } from './supervise/budget'
 // The chat-transport leaf (#721): a worker that IS a model conversation on a bare
 // OpenAI-compatible /v1/chat/completions endpoint — no sandbox. Ships with its session store and
-// the continuity-honoring `makeWorkerAgent` seam. `workerFromBackend` resumes only bridge-backed
-// workers; this leaf resumes its own sessions, so conversation graphs and chat-shot loops
-// compose from data on any transport.
+// the continuity-honoring `makeWorkerAgent` seam. `workerFromBackend` resumes bridge- and
+// provider-backed workers; this leaf resumes its own sessions, so conversation graphs and chat-shot
+// loops compose from data on any transport.
 export * from './supervise/chat-transport-executor'
 // ONE CHECK, ONE RESEND RULE, ONE NOTE: the check's verdict, the continuation policy a manager
 // with a check must declare, and the note Runtime writes from the verdict. The profile owns every

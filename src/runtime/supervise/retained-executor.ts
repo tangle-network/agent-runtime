@@ -37,6 +37,9 @@ export interface RetainedExecutorContext {
   /** Reuse only `priorSession`'s environment and start a new harness session in it, under the
    *  identity minted from this invocation's own keys (`continuation.session: 'fresh'`). */
   readonly newSession?: boolean
+  /** A `continuity: 'resume'` spawn: this invocation's first turn runs in a new environment but in
+   *  this earlier worker's provider session, which the provider keys its harness conversation by. */
+  readonly resumeSessionId?: string
   /** Cumulative committed spend before this invocation; restored without summing prior totals. */
   readonly priorSpent?: Spend
   /** Keep the retained provider environment alive across deliberate invocations. */

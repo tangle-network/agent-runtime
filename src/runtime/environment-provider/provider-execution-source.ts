@@ -73,7 +73,16 @@ function retainedDispatchMaterial(
     turn: { ...selectedTurn, turnId, ...(attachments ? { providerOptions } : {}) },
     preserveEnvironment: retention.preserveEnvironment,
     ...(priorSession === undefined
-      ? {}
+      ? retention.resumeSessionId === undefined
+        ? {}
+        : {
+            // A resumed worker's environment is new, so its earlier one may already be torn
+            // down; the conversation lives in the provider session, which this turn continues.
+            identity: {
+              sessionId: retention.resumeSessionId,
+              executionId: mintRetainedIdentity(environmentKey, turnId).executionId,
+            },
+          }
       : {
           existingEnvironmentId: priorSession.environmentId,
           // A new session in the same environment is minted from this invocation's own keys,
