@@ -204,8 +204,37 @@ for (const name of ['verify-official-optimizers', 'verify-runtime-bench'])
 const { scripts } = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'))
 assertEqual(scripts.test, 'pnpm run build && pnpm run typecheck && pnpm run lint && vitest run', 'complete source qualification')
 const releaseCheck = scripts['release:check']
-for (const command of ['check:publish-workflow', 'pnpm run test', 'check-release-archive.mjs', 'check-version-bump.mjs --archive', 'verify:official-optimizers', 'verify:bench'])
+const releaseCheckCommands = [
+  'check:publish-workflow',
+  'check-release-version-free.mjs',
+  'pnpm run test',
+  'check-release-archive.mjs',
+  'check-version-bump.mjs --archive',
+  'verify:official-optimizers',
+  'verify:bench',
+]
+for (const command of releaseCheckCommands)
   if (!releaseCheck.includes(command)) throw new Error(`release:check must include ${command}`)
+// The version check opens the registry-dependent steps and every one of them runs before the long
+// suite, so a taken version or a registry fault costs minutes, not the suite's 50; the chain ends
+// on the version check again, because a version taken while the suite ran must not pass
+// (agent-runtime 10.0.15, 2026-11-23).
+const releaseSteps = releaseCheck.split(' && ')
+const stepOf = (command) => {
+  const index = releaseSteps.findIndex((step) => step.includes(command))
+  if (index === -1) throw new Error(`release:check must include ${command}`)
+  return index
+}
+const versionCheck = stepOf('check-release-version-free.mjs')
+const suite = stepOf('pnpm run test')
+for (const command of ['check-version-bump.mjs --archive', 'verify-package-exports.mjs', 'verify:official-optimizers', 'verify:bench']) {
+  const step = stepOf(command)
+  if (step < versionCheck) throw new Error(`release:check must run the version check before ${command}`)
+  if (step > suite) throw new Error(`release:check must run ${command} before pnpm run test`)
+}
+if (versionCheck > suite) throw new Error('release:check must run the version check before pnpm run test')
+if (releaseSteps.at(-1) !== 'node scripts/check-release-version-free.mjs')
+  throw new Error('release:check must end on the version check')
 assertEqual(
   requireJob('publish-npm').if,
   "(startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.qualify.outputs.runtime-publication-pending == 'true'",

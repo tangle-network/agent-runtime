@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { installAcrossPropagation } from '../../scripts/lib/npm-registry.mjs'
 
 const execFileAsync = promisify(execFile)
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -265,10 +266,12 @@ for name in sorted(expected):
 
   // Intentionally resolve the declared ranges like a brand-new registry consumer.
   // The preceding frozen install + public typecheck cover the exact bench lockfile.
-  await run(
-    'npm',
-    ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'],
-    consumerDir,
+  await installAcrossPropagation(() =>
+    run(
+      'npm',
+      ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'],
+      consumerDir,
+    ),
   )
   await run('node', ['index.mjs'], consumerDir)
   await run('node', ['terminal-bench-absolute-venv.mjs'], consumerDir, {
@@ -280,18 +283,20 @@ for name in sorted(expected):
   if (typescript5.stdout.trim() !== `Version ${TYPESCRIPT_5}`) {
     throw new Error(`expected TypeScript ${TYPESCRIPT_5}, received ${typescript5.stdout.trim()}`)
   }
-  await run(
-    'npm',
-    [
-      'install',
-      '--ignore-scripts',
-      '--no-audit',
-      '--no-fund',
-      '--no-save',
-      '--package-lock=false',
-      `typescript@${TYPESCRIPT_6}`,
-    ],
-    consumerDir,
+  await installAcrossPropagation(() =>
+    run(
+      'npm',
+      [
+        'install',
+        '--ignore-scripts',
+        '--no-audit',
+        '--no-fund',
+        '--no-save',
+        '--package-lock=false',
+        `typescript@${TYPESCRIPT_6}`,
+      ],
+      consumerDir,
+    ),
   )
   await run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], consumerDir)
   const typescript6 = await run('npm', ['exec', '--', 'tsc', '--version'], consumerDir)

@@ -2,6 +2,7 @@ import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
+import { readRegistryVersion } from './lib/npm-registry.mjs'
 
 // The qualified archive owns identity and bytes. Only a definite registry 404
 // admits hosted publishing; retries verify the already served archive here.
@@ -14,16 +15,15 @@ async function checkPublication() {
   if (mode && createHash('sha256').update(readFileSync(archive)).digest('hex') !== process.env.EXPECTED_SHA256) throw new Error('Qualified archive digest mismatch')
   const { name, version } = JSON.parse(execFileSync('tar', ['-xOzf', archive, 'package/package.json'], { encoding: 'utf8' }))
   if (typeof name !== 'string' || typeof version !== 'string') throw new Error('Archive identity is missing')
-  const response = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, { signal: AbortSignal.timeout(15000) })
+  const record = await readRegistryVersion(name, version)
   let pending
-  if (response.status === 404) {
+  if (record.status === 'absent') {
     if (mode === '--require-published') throw new Error('npm registry returned HTTP 404', { cause: 404 })
     // verify-release-line.mjs, run from main, already required a superseded line's named consumer.
     execFileSync(process.execPath, ['scripts/check-version-bump.mjs', '--archive', archive, '--consumer', 'its CHANGELOG'], { stdio: 'inherit' })
     pending = true
   } else {
-    if (!response.ok) throw new Error(`npm registry returned HTTP ${response.status}`)
-    const metadata = await response.json()
+    const { metadata } = record
     const integrity = `sha512-${createHash('sha512').update(readFileSync(archive)).digest('base64')}`
     if (!metadata.dist?.integrity?.split(/\s+/).includes(integrity)) throw new Error('Published npm archive differs from the qualified bytes')
     if (typeof metadata.dist?.tarball !== 'string') throw new Error('npm metadata lacks its advertised archive')

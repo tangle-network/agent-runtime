@@ -21,6 +21,7 @@ const dynamicNonModelFetchOwners = new Set([
   'src/runtime/supervise/coordination-preflight.ts',
   'scripts/prove-platform-oidc.mjs',
   'scripts/check-npm-publication.mjs',
+  'scripts/lib/npm-registry.mjs',
   'scripts/prepare-release.mjs',
   'scripts/release-gate.mjs',
   'bench/src/search-tool.ts',
