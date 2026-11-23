@@ -20,6 +20,7 @@ import {
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
 } from './lib/packed-package-test.mjs'
+import { installAcrossPropagation } from './lib/npm-registry.mjs'
 
 const gepaVersion = '0.1.4'
 const gepaSourceRevision = 'f919db0a622e2e9f9204779b81fe00cc1b2d808f'
@@ -140,20 +141,22 @@ try {
     join(repoRoot, 'scripts', 'verify-official-optimizers-consumer.mjs'),
     join(appDir, 'verify.mjs'),
   )
-  run(
-    'npm',
-    [
-      'install',
-      '--strict-peer-deps',
-      '--loglevel=error',
-      '--ignore-scripts=false',
-      '--no-audit',
-      '--no-fund',
-      '--cache',
-      join(tempRoot, 'npm-cache'),
-      '--prefer-online',
-    ],
-    appDir,
+  await installAcrossPropagation(() =>
+    run(
+      'npm',
+      [
+        'install',
+        '--strict-peer-deps',
+        '--loglevel=error',
+        '--ignore-scripts=false',
+        '--no-audit',
+        '--no-fund',
+        '--cache',
+        join(tempRoot, 'npm-cache'),
+        '--prefer-online',
+      ],
+      appDir,
+    ),
   )
 
   assertInstalledVersion(appDir, '@tangle-network/agent-runtime', packageJson.version)

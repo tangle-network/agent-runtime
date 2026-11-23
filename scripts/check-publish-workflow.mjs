@@ -204,8 +204,13 @@ for (const name of ['verify-official-optimizers', 'verify-runtime-bench'])
 const { scripts } = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'))
 assertEqual(scripts.test, 'pnpm run build && pnpm run typecheck && pnpm run lint && vitest run', 'complete source qualification')
 const releaseCheck = scripts['release:check']
-for (const command of ['check:publish-workflow', 'pnpm run test', 'check-release-archive.mjs', 'check-version-bump.mjs --archive', 'verify:official-optimizers', 'verify:bench'])
+for (const command of ['check:publish-workflow', 'check-release-version-free.mjs', 'pnpm run test', 'check-release-archive.mjs', 'check-version-bump.mjs --archive', 'verify:official-optimizers', 'verify:bench'])
   if (!releaseCheck.includes(command)) throw new Error(`release:check must include ${command}`)
+// The version check and every registry-dependent step run before the long suite, so a taken
+// version or a registry fault costs minutes, not the suite's 50 (agent-runtime 10.0.15, 2026-11-23).
+for (const command of ['check-release-version-free.mjs', 'verify-package-exports.mjs', 'verify:official-optimizers', 'verify:bench'])
+  if (releaseCheck.indexOf(command) > releaseCheck.indexOf('pnpm run test'))
+    throw new Error(`release:check must run ${command} before pnpm run test`)
 assertEqual(
   requireJob('publish-npm').if,
   "(startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') && needs.qualify.outputs.runtime-publication-pending == 'true'",

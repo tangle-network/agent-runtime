@@ -27,6 +27,7 @@ import {
   requiredPackedPackageVersion,
   requiredPackedPeerCandidateVersion,
 } from './lib/packed-package-test.mjs'
+import { installAcrossPropagation } from './lib/npm-registry.mjs'
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-package-'))
 // Each run owns its npm cache under tempRoot: the host's shared ~/.npm/_cacache races between
@@ -247,7 +248,9 @@ try {
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
-  run('npm', ['install', '--strict-peer-deps', '--no-audit', '--no-fund'], appDir)
+  await installAcrossPropagation(() =>
+    run('npm', ['install', '--strict-peer-deps', '--no-audit', '--no-fund'], appDir),
+  )
   const installedScope = join(appDir, 'node_modules', '@tangle-network')
   const expectedFirstPartyVersions = {
     ...providerDependencies,
@@ -343,10 +346,8 @@ try {
       2,
     )}\n`,
   )
-  run(
-    'npm',
-    ['install', '--strict-peer-deps', '--no-audit', '--no-fund'],
-    standaloneAppDir,
+  await installAcrossPropagation(() =>
+    run('npm', ['install', '--strict-peer-deps', '--no-audit', '--no-fund'], standaloneAppDir),
   )
   const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
   assertPeerInstalled(
