@@ -24,6 +24,7 @@ import { loadGraphFile } from '../../src/runtime/supervise/graph-file'
 import { graphFromStored } from '../../src/runtime/supervise/graph-registry'
 
 const MARKER_PATTERN = /resume-marker-[0-9a-f]{16}/u
+const ROUTE = 'claude-code/anthropic/fixture-model'
 
 interface Dispatch {
   readonly node: string
@@ -46,7 +47,7 @@ function chunk(delta: Record<string, unknown>, finishReason: string | null): str
   return JSON.stringify({
     id: 'chatcmpl-resume-fixture',
     object: 'chat.completion.chunk',
-    model: 'claude-code/anthropic/fixture-model',
+    model: ROUTE,
     choices: [{ index: 0, delta, finish_reason: finishReason }],
   })
 }
@@ -79,7 +80,7 @@ async function startConversationBridge() {
         JSON.stringify({
           id: 'chatcmpl-resume-fixture',
           object: 'chat.completion',
-          model: 'claude-code/anthropic/fixture-model',
+          model: ROUTE,
           choices: [
             { index: 0, message: { role: 'assistant', content: run.text }, finish_reason: 'stop' },
           ],
@@ -284,7 +285,14 @@ describe('a continuity: resume route on the provider backend', () => {
       const loaded = await loadGraphFile(join(directory, 'repair.graph.json'), {
         source: repairGraph({ marker, buildHarness: 'claude-code', continuity: 'resume' }),
       })
-      const provider = createCliBridgeProvider({ baseUrl: bridge.url })
+      // The provider backend exactly as the local CLI builds it for a node's seat route.
+      const backend = {
+        backend: 'provider' as const,
+        provider: createCliBridgeProvider({ baseUrl: bridge.url, defaultModel: ROUTE }),
+        outputFormat: 'json' as const,
+        destroyOnSettle: false,
+        requireTerminalEvent: true,
+      }
       const events: string[] = []
       const trail = () =>
         JSON.stringify(
@@ -293,7 +301,7 @@ describe('a continuity: resume route on the provider backend', () => {
           1,
         )
       const running = runGraph(graphFromStored(loaded.graph, { trigger: {} }), {
-        makeLeafAgent: workerFromBackend({ backend: 'provider', provider, outputFormat: 'json' }),
+        makeLeafAgent: workerFromBackend(backend),
         runDir: join(directory, 'run'),
         runId: 'provider-resume-route',
         perWorker: { maxIterations: 1, maxTokens: 10_000 },
