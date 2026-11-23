@@ -316,7 +316,15 @@ describe('a continuity: resume route on the provider backend', () => {
         }),
         stalled,
       ]).finally(() => clearTimeout(stall))
-      const outcome = `${JSON.stringify(result.result).slice(0, 4000)}\n${trail()}`
+      const outcome = `${JSON.stringify({
+        ...result.result,
+        tree: result.result.tree.nodes.map(({ id, label, status, failure }) => ({
+          id,
+          label,
+          status,
+          failure,
+        })),
+      }).slice(0, 8000)}\n${trail()}`
       expect(result.result.kind, outcome).toBe('winner')
 
       // One dispatch per node visit: nothing was retried.
