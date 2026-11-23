@@ -303,7 +303,7 @@ describe('a continuity: resume route on the provider backend', () => {
         runId: 'provider-resume-route',
         perWorker: { maxIterations: 1, maxTokens: 10_000 },
         driverRetry: { enabled: false },
-        // A stalled run ends here with its trail, rather than at the test timeout with none.
+        // A stalled run ends here and fails with its trail, not at the test timeout with none.
         signal: AbortSignal.timeout(30_000),
         hooks: {
           onEvent: (event) => {
@@ -311,16 +311,9 @@ describe('a continuity: resume route on the provider backend', () => {
           },
         },
       })
-      let stall: NodeJS.Timeout | undefined
-      const stalled = new Promise<never>((_, reject) => {
-        stall = setTimeout(() => reject(new Error(`runGraph stalled\n${trail()}`)), 40_000)
+      const result = await running.catch((error: unknown) => {
+        throw new Error(`runGraph threw ${String(error)}\n${trail()}`, { cause: error })
       })
-      const result = await Promise.race([
-        running.catch((error: unknown) => {
-          throw new Error(`runGraph threw ${String(error)}\n${trail()}`, { cause: error })
-        }),
-        stalled,
-      ]).finally(() => clearTimeout(stall))
       const routeEvents: string[] = []
       if (result.result.kind !== 'winner') {
         const runDir = join(directory, 'run')
