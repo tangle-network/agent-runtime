@@ -311,6 +311,7 @@ process.exitCode = code;
                 messages: [
                   {
                     id: 'native-text',
+                    at: '2026-01-01T00:00:00.000Z',
                     role: 'assistant',
                     parts: [{ type: 'text', text: native.text }],
                   },
