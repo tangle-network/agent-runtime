@@ -60,6 +60,7 @@ async function startConversationBridge() {
   const runs = new Map<string, BridgeRun>()
   const conversations = new Map<string, string[]>()
   const dispatches: Dispatch[] = []
+  const requests: string[] = []
   let reviews = 0
   const json = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json' })
@@ -79,6 +80,7 @@ async function startConversationBridge() {
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://bridge.local')
+    requests.push(`${req.method} ${url.pathname}${url.search}`)
     if (req.method === 'GET' && url.pathname === '/v1/capabilities')
       return json(res, 200, defaultCliBridgeCapabilities('claude-code'))
     if (req.method === 'POST' && url.pathname === '/v1/chat/completions') {
@@ -193,6 +195,7 @@ async function startConversationBridge() {
   return {
     url: `http://127.0.0.1:${port}`,
     dispatches,
+    requests,
     async close() {
       server.closeAllConnections()
       await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -255,14 +258,40 @@ describe('a continuity: resume route on the provider backend', () => {
         source: repairGraph({ marker, buildHarness: 'claude-code', continuity: 'resume' }),
       })
       const provider = createCliBridgeProvider({ baseUrl: bridge.url })
-      const result = await runGraph(graphFromStored(loaded.graph, { trigger: {} }), {
+      const events: string[] = []
+      const trail = () =>
+        JSON.stringify(
+          { requests: bridge.requests, dispatches: bridge.dispatches, events: events.slice(-40) },
+          null,
+          1,
+        )
+      const running = runGraph(graphFromStored(loaded.graph, { trigger: {} }), {
         makeLeafAgent: workerFromBackend({ backend: 'provider', provider, outputFormat: 'json' }),
         runDir: join(directory, 'run'),
         runId: 'provider-resume-route',
         perWorker: { maxIterations: 1, maxTokens: 10_000 },
         driverRetry: { enabled: false },
+        // A stalled run ends here with its trail, rather than at the test timeout with none.
+        signal: AbortSignal.timeout(30_000),
+        hooks: {
+          onEvent: (event) => {
+            events.push(JSON.stringify(event).slice(0, 400))
+          },
+        },
       })
-      expect(result.result.kind, JSON.stringify(result.result)).toBe('winner')
+      let stall: NodeJS.Timeout | undefined
+      const stalled = new Promise<never>((_, reject) => {
+        stall = setTimeout(() => reject(new Error(`runGraph stalled\n${trail()}`)), 40_000)
+      })
+      const result = await Promise.race([
+        running.catch((error: unknown) => {
+          throw new Error(`runGraph threw ${String(error)}\n${trail()}`, { cause: error })
+        }),
+        stalled,
+      ]).finally(() => clearTimeout(stall))
+      expect(result.result.kind, `${JSON.stringify(result.result).slice(0, 4000)}\n${trail()}`).toBe(
+        'winner',
+      )
 
       // One dispatch per node visit: nothing was retried.
       expect(bridge.dispatches.map((dispatch) => dispatch.node)).toEqual([
