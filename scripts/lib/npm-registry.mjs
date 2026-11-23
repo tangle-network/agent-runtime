@@ -55,7 +55,7 @@ export async function installAcrossPropagation(
   const deadline = Date.now() + windowMs
   for (;;) {
     try {
-      return install()
+      return await install()
     } catch (error) {
       const archive = String(error?.message ?? '').match(ARCHIVE_404)?.[1]
       const target = archive === undefined ? undefined : archiveIdentity(archive)

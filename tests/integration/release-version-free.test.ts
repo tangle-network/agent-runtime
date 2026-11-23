@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { existsSync } from 'node:fs'
@@ -37,8 +37,9 @@ async function registry(handle: (req: IncomingMessage, res: ServerResponse) => v
   return { base, requests }
 }
 
+// Fixture repositories run no host hooks: a host pre-commit hook may refuse a throwaway identity.
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', args, {
+  execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], {
     cwd,
     encoding: 'utf8',
     env: {
@@ -240,29 +241,28 @@ async function packageRegistry(archiveAnswers: (reads: number) => number, listed
     join(app, 'package.json'),
     `${JSON.stringify({ private: true, dependencies: { 'fresh-dependency': '1.0.0' } })}\n`,
   )
-  // The same shape as the packed-consumer installs: npm's stderr travels in the thrown message.
-  const install = () => {
-    const result = spawnSync(
-      'npm',
-      [
-        'install',
-        '--no-audit',
-        '--no-fund',
-        '--registry',
-        npm.base,
-        '--cache',
-        join(app, 'npm-cache'),
-      ],
-      {
-        cwd: app,
-        encoding: 'utf8',
-        env: { ...process.env, npm_config_userconfig: join(app, 'empty.npmrc') },
-      },
-    )
-    if (result.status !== 0) {
-      throw new Error([`command failed: npm install`, result.stdout, result.stderr].join('\n'))
+  // npm runs asynchronously so this process's loopback registry can answer it; its stderr travels
+  // in the thrown message, as in the packed-consumer installs.
+  const install = async () => {
+    try {
+      const { stdout } = await exec(
+        'npm',
+        [
+          'install',
+          '--no-audit',
+          '--no-fund',
+          '--registry',
+          npm.base,
+          '--cache',
+          join(app, 'npm-cache'),
+        ],
+        { cwd: app, env: { ...process.env, npm_config_userconfig: join(app, 'empty.npmrc') } },
+      )
+      return stdout
+    } catch (error) {
+      const failed = error as { stdout?: string; stderr?: string }
+      throw new Error(['command failed: npm install', failed.stdout, failed.stderr].join('\n'))
     }
-    return result.stdout
   }
   return { app, install, archiveReads: () => archiveReads }
 }
