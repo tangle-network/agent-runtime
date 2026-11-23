@@ -34,6 +34,7 @@ interface Dispatch {
 }
 
 interface BridgeRun {
+  readonly text: string
   readonly headers: Record<string, string>
   readonly snapshot: Record<string, string>
   readonly frames: string[]
@@ -69,8 +70,23 @@ async function startConversationBridge() {
   const notify = (run: BridgeRun) => {
     for (const waiter of [...run.waiters]) waiter()
   }
-  // The Bridge streams a run on its dispatch response too; these turns are done at once.
-  const streamRun = (res: ServerResponse, run: BridgeRun) => {
+  // The Bridge answers a turn as a stream or, asked with `stream: false`, as one completion;
+  // these turns are done at once.
+  const answerRun = (res: ServerResponse, run: BridgeRun, stream: boolean) => {
+    if (!stream) {
+      res.writeHead(200, { ...run.headers, 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          id: 'chatcmpl-resume-fixture',
+          object: 'chat.completion',
+          model: 'claude-code/anthropic/fixture-model',
+          choices: [
+            { index: 0, message: { role: 'assistant', content: run.text }, finish_reason: 'stop' },
+          ],
+        }),
+      )
+      return
+    }
     res.writeHead(200, { ...run.headers, 'content-type': 'text/event-stream' })
     for (const [index, frame] of run.frames.entries())
       res.write(`id: ${index + 1}\ndata: ${frame}\n\n`)
@@ -95,6 +111,7 @@ async function startConversationBridge() {
       for await (const part of req) chunks.push(Buffer.from(part))
       const raw = Buffer.concat(chunks)
       const body = JSON.parse(raw.toString('utf8')) as {
+        stream?: boolean
         run_id: string
         provider: string
         environment_id: string
@@ -106,7 +123,7 @@ async function startConversationBridge() {
       const replayed = runs.get(body.run_id)
       // A run id the peer already holds is the same turn asked again (turn idempotency): replay it,
       // never a second turn of the conversation.
-      if (replayed) return streamRun(res, replayed)
+      if (replayed) return answerRun(res, replayed, body.stream !== false)
       const node = body.agent_profile?.name ?? 'unnamed'
       const prompt = JSON.stringify(body.messages)
       const conversation = [...(conversations.get(body.session_id) ?? []), prompt]
@@ -121,6 +138,7 @@ async function startConversationBridge() {
       })
       const requestDigest = `sha256:${createHash('sha256').update(raw).digest('hex')}`
       const run: BridgeRun = {
+        text: JSON.stringify(answer),
         headers: {
           'x-run-id': body.run_id,
           'x-run-request-digest': requestDigest,
@@ -145,7 +163,7 @@ async function startConversationBridge() {
         waiters: new Set(),
       }
       runs.set(body.run_id, run)
-      return streamRun(res, run)
+      return answerRun(res, run, body.stream !== false)
     }
     const events = url.pathname.match(/^\/v1\/runs\/([^/]+)\/events$/u)?.[1]
     if (req.method === 'GET' && events !== undefined) {
