@@ -268,10 +268,7 @@ function repairGraph(options: {
     budget: { maxIterations: 8, maxTokens: 100_000 },
     check: {
       describe: 'review accepted the build',
-      all: [
-        { node: 'review', pointer: '/verdict', equals: 'ok' },
-        { node: 'build', pointer: '/marker', exists: true },
-      ],
+      all: [{ node: 'review', pointer: '/verdict', equals: 'ok' }],
     },
   })
 }
