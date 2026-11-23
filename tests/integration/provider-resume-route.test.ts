@@ -69,6 +69,13 @@ async function startConversationBridge() {
   const notify = (run: BridgeRun) => {
     for (const waiter of [...run.waiters]) waiter()
   }
+  // The Bridge streams a run on its dispatch response too; these turns are done at once.
+  const streamRun = (res: ServerResponse, run: BridgeRun) => {
+    res.writeHead(200, { ...run.headers, 'content-type': 'text/event-stream' })
+    for (const [index, frame] of run.frames.entries())
+      res.write(`id: ${index + 1}\ndata: ${frame}\n\n`)
+    res.end('data: [DONE]\n\n')
+  }
   const answerFor = (node: string, conversation: readonly string[]): Record<string, unknown> => {
     if (node === 'build') {
       const marker = conversation.join('\n').match(MARKER_PATTERN)?.[0] ?? null
@@ -96,6 +103,10 @@ async function startConversationBridge() {
         messages: unknown
         agent_profile?: { name?: string }
       }
+      const replayed = runs.get(body.run_id)
+      // A run id the peer already holds is the same turn asked again (turn idempotency): replay it,
+      // never a second turn of the conversation.
+      if (replayed) return streamRun(res, replayed)
       const node = body.agent_profile?.name ?? 'unnamed'
       const prompt = JSON.stringify(body.messages)
       const conversation = [...(conversations.get(body.session_id) ?? []), prompt]
@@ -134,12 +145,7 @@ async function startConversationBridge() {
         waiters: new Set(),
       }
       runs.set(body.run_id, run)
-      // The Bridge streams a run on its dispatch response too; these turns are done at once.
-      res.writeHead(200, { ...run.headers, 'content-type': 'text/event-stream' })
-      for (const [index, frame] of run.frames.entries())
-        res.write(`id: ${index + 1}\ndata: ${frame}\n\n`)
-      res.end('data: [DONE]\n\n')
-      return
+      return streamRun(res, run)
     }
     const events = url.pathname.match(/^\/v1\/runs\/([^/]+)\/events$/u)?.[1]
     if (req.method === 'GET' && events !== undefined) {
