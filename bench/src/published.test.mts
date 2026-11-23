@@ -1,7 +1,8 @@
 /**
  * AutomationBench through its publisher's own runner and grader, at the registry's pinned commit, through `runPublished`.
  * A local OpenAI-compatible endpoint stands in for the target model: it plays the gold tool call for
- * `simple.email_sf_contact_phone_update` (update contact 003001's phone to +1-555-0101) or answers with no tool call.
+ * `simple.email_sf_contact_phone_update` (update contact 003001's phone to +1-555-0101) or answers with no tool call. The
+ * `limited_zapier` toolset offers the task's own tools directly (`zapier` puts them behind search and execute meta-tools).
  * The publisher's grader must pass the first and fail the second. Needs uv and network for the publisher's checkout.
  */
 import assert from 'node:assert/strict'
@@ -56,7 +57,7 @@ async function run(gold: boolean, cacheDir: string) {
   try {
     const result = await runPublished('automationbench', 'model:stand-in-model', {
       taskIds: [TASK], out, cacheDir,
-      args: ['--domains', 'simple', '--toolset', 'zapier', '--input-cost', '0', '--output-cost', '0'],
+      args: ['--domains', 'simple', '--toolset', 'limited_zapier', '--input-cost', '0', '--output-cost', '0'],
       env: { AGENT_BENCH_ROUTER_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, TANGLE_API_KEY: 'local-stand-in' },
     })
     return { result, requests, record: JSON.parse(await readFile(path.join(out, 'automationbench-run.json'), 'utf8')) }
