@@ -134,8 +134,11 @@ async function startConversationBridge() {
         waiters: new Set(),
       }
       runs.set(body.run_id, run)
+      // The Bridge streams a run on its dispatch response too; these turns are done at once.
       res.writeHead(200, { ...run.headers, 'content-type': 'text/event-stream' })
-      res.flushHeaders()
+      for (const [index, frame] of run.frames.entries())
+        res.write(`id: ${index + 1}\ndata: ${frame}\n\n`)
+      res.end('data: [DONE]\n\n')
       return
     }
     const events = url.pathname.match(/^\/v1\/runs\/([^/]+)\/events$/u)?.[1]
@@ -289,9 +292,8 @@ describe('a continuity: resume route on the provider backend', () => {
         }),
         stalled,
       ]).finally(() => clearTimeout(stall))
-      expect(result.result.kind, `${JSON.stringify(result.result).slice(0, 4000)}\n${trail()}`).toBe(
-        'winner',
-      )
+      const outcome = `${JSON.stringify(result.result).slice(0, 4000)}\n${trail()}`
+      expect(result.result.kind, outcome).toBe('winner')
 
       // One dispatch per node visit: nothing was retried.
       expect(bridge.dispatches.map((dispatch) => dispatch.node)).toEqual([
