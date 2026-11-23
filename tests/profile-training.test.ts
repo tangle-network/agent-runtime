@@ -114,7 +114,8 @@ async function withFixture(
         executionRef: sha256Utf8('test-execution'),
         serving: serve,
         outputDirectory: join(dir, 'outputs'),
-        // Bounds the real trainer process below vitest's 60 s testTimeout; 10 s fired on a loaded gate host.
+        // Bounds the real trainer process below vitest's 60 s testTimeout;
+        // 10 s fired on a loaded gate host.
         timeoutMs: 50_000,
         maxCheckpointBytes: 4096,
       },
