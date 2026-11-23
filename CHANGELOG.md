@@ -1,5 +1,9 @@
 ## 10.0.14
 
+A retained run's materialization bound now ends when `provider.create` settles. Before, its timeout signal reached providers that keep their create input for the environment's life, such as the CLI Bridge, and aborted every turn still running when the bound passed, 120 s after create by default (#2756).
+
+`tangle top` agent inspection now reads a provider-bound native transcript capture (`binding.kind: 'provider'` with its exact `controlRef`) against the node's environment materialization, instead of reporting it as a malformed Bridge binding with missing coverage.
+
 A root opted into `driverRetry.pauseRootStops` now settles `budget-exhausted` at once when its spent token or known resource channel has nothing reserved, instead of pausing for a refund that cannot come; it still pauses while a live reservation could return budget.
 
 ## 10.0.13
