@@ -295,14 +295,9 @@ function refuseUnresumableEdges(graph: Pick<StoredGraphInput, 'nodes' | 'edges'>
       const harnesses = Array.isArray(node.profile.seats)
         ? node.profile.seats.map((seat) => seat.harness)
         : [node.profile.harness]
-      const cannot = [
-        ...new Set(
-          harnesses.filter(
-            (harness): harness is string =>
-              typeof harness === 'string' && !harnessResumesConversation(harness),
-          ),
-        ),
-      ]
+      const cannot = [...new Set(harnesses)].filter(
+        (harness) => harness !== undefined && !harnessResumesConversation(harness),
+      )
       if (cannot.length === 0) continue
       const from = Array.isArray(edge.from) ? edge.from.join(', ') : String(edge.from)
       const starts = cannot.length === 1 ? 'starts' : 'start'
