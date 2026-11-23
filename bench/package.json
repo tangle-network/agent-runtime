@@ -9,6 +9,9 @@
     "directory": "bench"
   },
   "main": "./dist/index.js",
+  "bin": {
+    "agent-bench": "./dist/cli.js"
+  },
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
