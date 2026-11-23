@@ -8,7 +8,7 @@
  * new conversation every turn is refused when the graph loads, before any node runs.
  */
 import { createHash, randomBytes } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -316,7 +316,18 @@ describe('a continuity: resume route on the provider backend', () => {
         }),
         stalled,
       ]).finally(() => clearTimeout(stall))
-      const outcome = `${JSON.stringify({
+      const routeEvents: string[] = []
+      if (result.result.kind !== 'winner') {
+        const runDir = join(directory, 'run')
+        for (const entry of await readdir(runDir, { recursive: true })) {
+          if (!entry.endsWith('.jsonl')) continue
+          const text = await readFile(join(runDir, entry), 'utf8').catch(() => '')
+          for (const line of text.split('\n'))
+            if (/route|refus|resume/u.test(line))
+              routeEvents.push(`${entry}: ${line.slice(0, 600)}`)
+        }
+      }
+      const outcome = `${routeEvents.slice(-30).join('\n')}\n${JSON.stringify({
         ...result.result,
         tree: result.result.tree.nodes.map(({ id, label, status, failure }) => ({
           id,
