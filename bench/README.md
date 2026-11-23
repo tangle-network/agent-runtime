@@ -29,6 +29,20 @@ import { resolveAdapter } from '@tangle-network/agent-bench'
 const crag = resolveAdapter('crag')
 ```
 
+## Published benchmarks through their own runners
+
+`agent-bench run <benchmark> --target <target>` runs a published benchmark with its publisher's own runner and grader, unmodified, at the commit `src/published.ts` pins, and prints the publisher's score with what it measured:
+
+```bash
+TANGLE_API_KEY=... agent-bench run automationbench --target model:<router model> --tasks 5
+agent-bench list
+```
+
+- `model:<router model>` calls the Tangle Router; a `:free` model takes its free test lane.
+- `app:` and `profile:` targets are refused for model-shaped benchmarks until their fronts return tool calls to the caller; the refusal names the missing front.
+- Each run records `measured` (`model-shaped`: the target as a model calling the benchmark's tools; `own-loop`: the agent with its own loop and tools), the judge, and `official: false` whenever a judge was substituted.
+- Arguments after `--` go to the publisher's runner unchanged. Publisher checkouts are cached in `~/.cache/agent-bench/published`.
+
 ## SWE-bench judge setup (the one block not in HARNESS.md)
 
 ```bash
