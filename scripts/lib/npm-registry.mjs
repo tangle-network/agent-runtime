@@ -60,7 +60,13 @@ export async function installAcrossPropagation(
       const archive = String(error?.message ?? '').match(ARCHIVE_404)?.[1]
       const target = archive === undefined ? undefined : archiveIdentity(archive)
       if (target === undefined) throw error
-      const record = await readRegistryVersion(target.name, target.version, { registry: target.registry })
+      let record
+      try {
+        record = await readRegistryVersion(target.name, target.version, { registry: target.registry })
+      } catch (readError) {
+        // The install's own failure stays the error; the unreadable registry is added to it.
+        throw new Error(`${error.message}\nand ${readError.message}`, { cause: error })
+      }
       if (record.status !== 'present') throw error
       if (Date.now() + intervalMs > deadline) {
         throw new Error(

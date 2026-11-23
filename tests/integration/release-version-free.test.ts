@@ -188,7 +188,7 @@ describe('release version check', () => {
 })
 
 /** A loopback registry serving one package whose archive the test controls. */
-async function packageRegistry(archiveAnswers: (reads: number) => number, listed = true) {
+async function packageRegistry(archiveAnswers: (reads: number) => number, manifestStatus = 200) {
   const source = await scratch('fresh-dependency-')
   await writeFile(
     join(source, 'package.json'),
@@ -215,8 +215,8 @@ async function packageRegistry(archiveAnswers: (reads: number) => number, listed
       return
     }
     if (req.url === '/fresh-dependency/1.0.0') {
-      res.writeHead(listed ? 200 : 404, { 'content-type': 'application/json' })
-      res.end(listed ? JSON.stringify(manifest()) : '{}')
+      res.writeHead(manifestStatus, { 'content-type': 'application/json' })
+      res.end(manifestStatus === 200 ? JSON.stringify(manifest()) : '{}')
       return
     }
     if (req.url === '/fresh-dependency') {
@@ -287,7 +287,7 @@ describe('packed-consumer install across registry propagation', () => {
   }, 60_000)
 
   it('fails at once on an archive 404 for a version the registry does not list', async () => {
-    const fixture = await packageRegistry(() => 404, false)
+    const fixture = await packageRegistry(() => 404, 404)
     const lines: string[] = []
 
     await expect(
@@ -309,5 +309,16 @@ describe('packed-consumer install across registry propagation', () => {
     ).rejects.toThrow(
       'fresh-dependency@1.0.0 is listed on the npm registry but its archive still answered 404',
     )
+  }, 60_000)
+
+  it("keeps npm's error and adds the registry's when the registry cannot be read", async () => {
+    const fixture = await packageRegistry(() => 404, 500)
+
+    await expect(
+      installAcrossPropagation(fixture.install, { windowMs: 20_000, intervalMs: 200, log: () => {} }),
+    ).rejects.toThrow(
+      /404 Not Found - GET \S+fresh-dependency-1\.0\.0\.tgz[\s\S]*and could not read the npm registry for fresh-dependency@1\.0\.0: HTTP 500/,
+    )
+    expect(fixture.archiveReads()).toBe(1)
   }, 60_000)
 })
