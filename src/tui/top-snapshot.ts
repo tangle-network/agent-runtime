@@ -560,7 +560,10 @@ export function buildSupervisorView(
   // A sealed result reconciles all owned trees, including turns recorded under a nested driver run.
   const rootSpend = settled?.spentTotal ?? accounting?.totals.inclusive
   if (rootSpend) {
-    const spend = observerSpend(rootSpend, gaps?.flatMap((gap) => gap.channels))
+    const spend = observerSpend(
+      rootSpend,
+      gaps?.flatMap((gap) => gap.channels),
+    )
     Object.assign(totals, spend, { tokensTotal: spend.tokensInput + spend.tokensOutput })
   }
   return {
