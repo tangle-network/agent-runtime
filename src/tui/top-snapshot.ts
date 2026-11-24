@@ -24,7 +24,7 @@ import {
   supervisorRunsRoot,
 } from '../runtime/supervise/run-layout'
 import { rootCoordinationOwner } from '../runtime/supervise/supervise-identity'
-import type { Spend, SpendChannel } from '../runtime/supervise/types'
+import type { Spend, SpendChannel, SupervisedResult } from '../runtime/supervise/types'
 import { type RecordedEvents, readWorkerEventTails } from './top-transcript'
 import type {
   BudgetStats,
@@ -336,8 +336,10 @@ async function loadDurableTopSnapshot(
           now,
           tails.value,
           accounting,
+          settled?.tree.root === id ? settled : undefined,
         )
-        if (!accounting) Object.assign(view.totals, { usdKnown: false, tokensKnown: false })
+        if (!accounting && !(settled?.tree.root === id && settled.spentTotal))
+          Object.assign(view.totals, { usdKnown: false, tokensKnown: false })
         if (outcome)
           Object.assign(view, {
             outcome,
@@ -443,6 +445,7 @@ export function buildSupervisorView(
   now: number,
   workerEventTails = new Map<string, RecordedEvents>(),
   accounting?: PursuitRunProjection,
+  settled?: SupervisedResult<unknown>,
 ): SupervisorView {
   const workers = new Map<string, MutableWorker>()
   let driverSpend = emptySpend
@@ -520,12 +523,16 @@ export function buildSupervisorView(
     }
   }
 
-  if (accounting) {
-    driverSpend = observerSpend(accounting.totals.exclusiveByNode[accounting.runId])
+  const gaps = settled?.spentTotal ? settled.spendGaps : accounting?.spendGaps
+  if (accounting || settled?.spentTotal) {
+    driverSpend = observerSpend(
+      settled?.spentSplit?.root ?? accounting?.totals.exclusiveByNode[state.id],
+    )
+    const sealedNodes = new Map(settled?.tree.nodes?.map((node) => [node.id, node]))
     for (const worker of workers.values()) {
       worker.spend = observerSpend(
-        accounting.totals.exclusiveByNode[worker.id],
-        accounting.spendGaps?.find((gap) => gap.id === worker.id)?.channels,
+        sealedNodes.get(worker.id)?.ownSpent ?? accounting?.totals.exclusiveByNode[worker.id],
+        gaps?.find((gap) => gap.id === worker.id)?.channels,
       )
       worker.metered = emptySpend
     }
@@ -550,10 +557,12 @@ export function buildSupervisorView(
     .sort((a, b) => compareWorker(a, b))
 
   const totals = supervisorTotals(state, workerViews, driverSpend, now)
-  if (accounting) {
+  // A sealed result reconciles all owned trees, including turns recorded under a nested driver run.
+  const rootSpend = settled?.spentTotal ?? accounting?.totals.inclusive
+  if (rootSpend) {
     const spend = observerSpend(
-      accounting.totals.inclusive,
-      accounting.spendGaps?.flatMap((gap) => gap.channels),
+      rootSpend,
+      gaps?.flatMap((gap) => gap.channels),
     )
     Object.assign(totals, spend, { tokensTotal: spend.tokensInput + spend.tokensOutput })
   }
