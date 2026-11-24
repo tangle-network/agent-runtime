@@ -178,6 +178,33 @@ describe('FileCorpus transaction integrity', () => {
     expect(await new FileCorpus(path).append(record)).toEqual({ succeeded: true })
   }, 10000)
 
+  it('keeps a writer waiting while live owners each release inside the bounded lock wait', async () => {
+    const path = join(dir, 'corpus.jsonl')
+    const own = () => {
+      const acquired = tryAcquireAtomicFileLock({ lockPath: `${path}.lock` })
+      if (!acquired.acquired) throw new Error('test lock was unavailable')
+      return acquired.lock
+    }
+    let lock: ReturnType<typeof own> | undefined = own()
+    try {
+      const started = Date.now()
+      const appended = new FileCorpus(path).append(record)
+      // Together the owners hold the lock for longer than the 5000 ms one owner may, and each
+      // holds it for a small part of that. Release and the next acquisition share one synchronous
+      // step, so the waiting writer never finds the lock free between two owners.
+      while (Date.now() - started < 6000) {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        lock.release()
+        lock = own()
+      }
+      lock.release()
+      lock = undefined
+      expect(await appended).toEqual({ succeeded: true })
+    } finally {
+      lock?.release()
+    }
+  })
+
   it('returns storage errors through the append outcome', async () => {
     await writeFile(join(dir, 'blocked'), 'file blocks directory creation')
     expect(await new FileCorpus(join(dir, 'blocked', 'corpus.jsonl')).append(record)).toMatchObject(
