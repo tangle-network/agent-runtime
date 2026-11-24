@@ -187,7 +187,9 @@ function gymStandIn(gold: boolean) {
     const done = body.messages?.filter((message) => message.role === 'tool').length ?? 0
     const step = gold ? [
       { name: names.find((name) => name.endsWith('create_call')), args: { callbackUri: 'https://example.com/callback', requestedModalities: ['audio'],
-        mediaConfig: { _odata_type: '#microsoft.graph.serviceHostedMediaConfig' }, targets: [{ identity: { user: { id: 'alice.johnson', displayName: 'Alice Johnson' } } }] } },
+        mediaConfig: { _odata_type: '#microsoft.graph.serviceHostedMediaConfig' }, targets: [{ identity: { user: { id: 'alice.johnson', displayName: 'Alice Johnson' } } }],
+        // The gym stores `source` as given (null when omitted); its seeded calls name the caller as a user identity.
+        source: { identity: { user: { id: 'james.wilson', displayName: 'James Wilson' } } } } },
       { name: names.find((name) => name.endsWith('create_channel')), args: { teamId: 'team_techcorp_001', displayName: 'Project Updates', membershipType: 'standard' } },
     ][done] : undefined
     const message = step?.name
