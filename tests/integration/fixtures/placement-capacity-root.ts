@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createTangleProvider } from '@tangle-network/agent-provider-tangle'
 import { Sandbox } from '@tangle-network/sandbox'
-import { expect } from 'vitest'
+import { expect, type onTestFinished } from 'vitest'
 import { FileSpawnJournal } from '../../../src/durable/spawn-journal/journal-store'
 import { createFileRunContext, supervise } from '../../../src/runtime'
 import { runtimeToolDeclarations, testAgentProfile } from '../../kernel/test-agent-profile'
@@ -39,12 +39,13 @@ const placementTiming =
 export async function runPlacementCapacityRoot(
   end: 'success' | 'deadline',
   refusal: 'capacity' | 'keyed' = 'capacity',
+  finished?: typeof onTestFinished,
 ) {
   const { bundle, executables } = await prepareExecutables()
   const fixture = await ProcessFixture.start(
     `json-observation-long-create-capacity-${end}`,
     executables,
-    { coordinator: false },
+    { coordinator: false, ...(finished ? { onTestFinished: finished } : {}) },
   )
   const runId = `placement-${refusal}-${end}`
   const runDir = join(fixture.directory, 'run')

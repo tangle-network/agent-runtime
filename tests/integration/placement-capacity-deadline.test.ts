@@ -1,15 +1,15 @@
-import { expect, it } from 'vitest'
+import { it } from 'vitest'
 import { runPlacementCapacityRoot } from './fixtures/placement-capacity-root'
 
 // Each case starts its own service, provider and run directory; they wait out the same windows
-// together rather than one after the other.
-it.concurrent.each([
+// together rather than one after the other, each closing only its own fixture.
+it.concurrent.for([
   ['capacity', 'capacity_exhausted'],
   ['keyed', 'sandbox_create_reconciling'],
 ] as const)(
   'ends a run whose deadline passes while its create gets %s refusals with a typed capacity stop',
-  async (refusal, signal) => {
-    const { result, records } = await runPlacementCapacityRoot('deadline', refusal)
+  async ([refusal, signal], { expect, onTestFinished }) => {
+    const { result, records } = await runPlacementCapacityRoot('deadline', refusal, onTestFinished)
     expect(records).toEqual([
       expect.objectContaining({
         attempt: 1,
