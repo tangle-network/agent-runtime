@@ -189,6 +189,14 @@ test('AutomationBench on profile and app targets: its runner drives a harness lo
     assert.deepEqual(app.app?.productionModel, served.model)
     assert.deepEqual(app.app?.omittedMcp, ['crm-sync'])
     assert.match(app.app!.profileDigest, /^sha256:[0-9a-f]{64}$/)
+
+    // The same profile from a file (an export from a checkout, or an optimizer's candidate) runs as the same profile.
+    const file = path.join(root, 'bench-app-profile.json')
+    await writeFile(file, JSON.stringify(served))
+    const fromFile = await runPublished('automationbench', 'app:bench-app@claude-code/app-peer', { ...options, env: { ...options.env, AGENT_BENCH_APPS: JSON.stringify({ 'bench-app': file }) }, out: path.join(out, 'app-file') })
+    assert.deepEqual(fromFile.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+    assert.equal(fromFile.app?.profileDigest, app.app?.profileDigest)
+    assert.equal(fromFile.app?.profileUrl, file)
   } finally {
     appServer.close()
     const exited = new Promise((resolve) => server.once('exit', resolve))
@@ -364,7 +372,7 @@ test('PRBench: the publisher\'s rubric grader, with a substituted judge, scores 
       const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
       try {
         const result = await runPublished('prbench', 'model:stand-in-model', {
-          tasks: 1, out, cacheDir, judge: 'bridge/stand-in-judge', args: ['--split', 'legal'],
+          tasks: 1, out, cacheDir, judge: 'bridge/stand-in-judge', args: ['--split', 'legal', '--concurrency', '2'],
           env: { AGENT_BENCH_ROUTER_URL: url, TANGLE_API_KEY: 'local-stand-in', AGENT_BENCH_JUDGE_URL: url },
         })
         assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))

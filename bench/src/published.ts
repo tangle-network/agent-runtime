@@ -58,7 +58,8 @@ export interface AppProfile {
 /**
  * Agent apps a benchmark can target, each by the executable AgentProfile it serves in production: the projection its own
  * sandbox sends a harness (gtm-agent toExecutableAgentProfile, legal-agent slimSandboxProfile). `AGENT_BENCH_APPS`, a JSON
- * object of app name to profile URL, adds an app or points one at another deployment, such as staging.
+ * object of app name to profile URL or absolute file path, adds an app or points one at another source: a staging deployment,
+ * a profile exported from a checkout, or a candidate profile an optimizer is scoring.
  */
 export const AGENT_APPS: Readonly<Record<string, { profileUrl: string }>> = {
   'gtm-agent': { profileUrl: 'https://gtm.tangle.tools/api/tools/profile?definition=executable' },
@@ -69,7 +70,7 @@ function agentApps(env: NodeJS.ProcessEnv): Record<string, { profileUrl: string 
   if (!env.AGENT_BENCH_APPS) return { ...AGENT_APPS }
   const extra = JSON.parse(env.AGENT_BENCH_APPS) as unknown
   if (!extra || typeof extra !== 'object' || Array.isArray(extra) || !Object.values(extra).every((url) => typeof url === 'string')) {
-    throw new Error('AGENT_BENCH_APPS must be a JSON object of app name to profile URL')
+    throw new Error('AGENT_BENCH_APPS must be a JSON object of app name to profile URL or absolute file path')
   }
   return { ...AGENT_APPS, ...Object.fromEntries(Object.entries(extra as Record<string, string>).map(([name, profileUrl]) => [name, { profileUrl }])) }
 }
@@ -308,9 +309,7 @@ export async function resolveEndpoint(target: string, benchmark: PublishedBenchm
   if (!harness) throw new Error(`app:${name} needs @<harness/model>, the subscription harness that runs the app's profile, e.g. app:${name}@opencode/zai-coding-plan/glm-5.3`)
   const catalog = env.AGENT_BENCH_BRIDGE_PROFILES_DIR
   if (!catalog) throw new Error(`AGENT_BENCH_BRIDGE_PROFILES_DIR is not set: point it at the CLI Bridge's SANDBOX_PROFILES_DIR, where app:${name} writes its profile`)
-  const response = await fetch(app.profileUrl)
-  if (!response.ok) throw new Error(`${app.profileUrl} answered ${response.status}; app:${name} needs the profile the app serves`)
-  const { mcp, model, ...profile } = await response.json() as Record<string, unknown>
+  const { mcp, model, ...profile } = await readAppProfile(name, app.profileUrl)
   const text = JSON.stringify(profile)
   const digest = createHash('sha256').update(text).digest('hex')
   // Content-addressed: the Bridge rereads its catalog only for an id it does not know.
@@ -325,6 +324,14 @@ export async function resolveEndpoint(target: string, benchmark: PublishedBenchm
       omittedMcp: mcp && typeof mcp === 'object' ? Object.keys(mcp) : [],
     },
   }
+}
+
+/** An app's profile from its URL, or from an absolute file path. */
+async function readAppProfile(name: string, source: string): Promise<Record<string, unknown>> {
+  if (path.isAbsolute(source)) return JSON.parse(await readFile(source, 'utf8')) as Record<string, unknown>
+  const response = await fetch(source)
+  if (!response.ok) throw new Error(`${source} answered ${response.status}; app:${name} needs the profile the app serves`)
+  return await response.json() as Record<string, unknown>
 }
 
 /** Run one published benchmark against one target with the publisher's runner and grader, and record the result. */
