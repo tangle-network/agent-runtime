@@ -1,3 +1,7 @@
+## 10.0.17
+
+Interrupted graph command checks resume through their original check executor when the host supplies a model recovery backend.
+
 ## 10.0.16
 
 A graph with a small iteration budget can start a worker when one whole turn fits alongside the manager's reservation. The default per-worker allocation previously rounded a two-iteration graph down to zero worker turns.
