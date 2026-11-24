@@ -21,6 +21,12 @@ import { isAsyncIterable } from '../../src/runtime/util'
 import { nativeSeatProvider } from '../helpers/native-seat-provider'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
+// No case waits for a deadline to expire, and Vitest's timeout names a hang. The run and each grant
+// still carry a deadline because the resume case compares the grant's deadline clock across the
+// pause. A grant's deadline sits inside the run's, so a re-armed clock would show as a later one.
+const RUN_DEADLINE_MS = 600_000
+const GRANT_DEADLINE_MS = RUN_DEADLINE_MS / 2
+
 it.each(['resume', 'cancel', 'refuse'] as const)(
   'admits a second native turn only after the same paused grant regains funds and its slot (%s)',
   async (mode) => {
@@ -40,7 +46,11 @@ it.each(['resume', 'cancel', 'refuse'] as const)(
         },
       ],
     })
-    const ceiling = (tokens: number) => ({ maxTokens: tokens, maxIterations: 10, deadlineMs: 8000 })
+    const ceiling = (tokens: number) => ({
+      maxTokens: tokens,
+      maxIterations: 10,
+      deadlineMs: GRANT_DEADLINE_MS,
+    })
     const parentEvents = async () => (await context.journal.loadTree(runId))!
     const managerEvents = async () => (await context.journal.loadTree(`${runId}/${runId}:s0`)) ?? []
     const dispatches = async () =>
@@ -60,7 +70,9 @@ it.each(['resume', 'cancel', 'refuse'] as const)(
         args: ['-e', program],
         cwd: directory,
         signal: scope.signal,
-        timeoutMs: 5000,
+        // The process ends on its release file, or on the scope's signal at cancellation or the
+        // grant's deadline. The timer the runner requires adds no earlier cutoff.
+        timeoutMs: GRANT_DEADLINE_MS,
       })
       if (result.exitCode !== 0) throw new Error(result.stderr)
       if (tokens > 0)
@@ -226,7 +238,7 @@ it.each(['resume', 'cancel', 'refuse'] as const)(
         {
           ...context,
           runId,
-          budget: { maxTokens: 100, maxIterations: 100, deadlineMs: 10000 },
+          budget: { maxTokens: 100, maxIterations: 100, deadlineMs: RUN_DEADLINE_MS },
           workerSlots: 1,
           deadlineCheckIn: false,
           rootIdentity: {
