@@ -134,6 +134,10 @@ export function defaultPerWorker(
 ): Budget {
   const slots = typeof workerSlots === 'number' ? workerSlots : workerSlots?.max
   const share = (1 - ownerShare) / (slots !== undefined && slots > 0 ? slots : 4)
+  // A worker can use one whole turn when the pool can also retain the manager's share.
+  const iterations = budget.maxIterations
+  const minimum =
+    iterations !== undefined && iterations > Math.max(1, Math.ceil(iterations * ownerShare)) ? 1 : 0
   return {
     ...(budget.resources === undefined
       ? {}
@@ -145,9 +149,9 @@ export function defaultPerWorker(
             ]),
           ),
         }),
-    ...(budget.maxIterations === undefined
+    ...(iterations === undefined
       ? {}
-      : { maxIterations: Math.max(0, Math.floor(budget.maxIterations * share)) }),
+      : { maxIterations: Math.max(minimum, Math.floor(iterations * share)) }),
     ...(budget.maxTokens === undefined
       ? {}
       : { maxTokens: Math.max(0, Math.floor(budget.maxTokens * share)) }),
