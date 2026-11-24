@@ -144,6 +144,7 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
   const port = await freePort()
   // Its own process group, so the whole pnpm -> tsx -> node chain stops with it; no pipe keeps this test's process alive.
   const server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: bridge, detached: true, stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env,
+    TSX_TSCONFIG_PATH: path.join(bridge, 'tsconfig.json'),
     BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: String(port), BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
   const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
   const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-profile-out-'))

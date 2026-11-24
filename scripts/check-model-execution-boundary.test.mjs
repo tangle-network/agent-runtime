@@ -252,6 +252,12 @@ const generator = {
     expect(checkJavaScript('examples/local.ts', source)).toHaveLength(1)
   })
 
+  it('allows a test fetch to a loopback host on a templated port, and only in a test file', () => {
+    const source = 'await fetch(`http://127.0.0.1:${port}/health`)'
+    expect(checkJavaScript('bench/src/published.test.mts', source)).toEqual([])
+    expect(checkJavaScript('bench/src/published.ts', source)).toHaveLength(1)
+  })
+
   it('rejects executable Python and shell calls but ignores comments and docstrings', () => {
     expect(
       checkPython(`"""requests.post('/v1/chat/completions')"""\nclient.messages.create(model='x')`),
