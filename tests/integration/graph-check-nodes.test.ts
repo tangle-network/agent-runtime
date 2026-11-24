@@ -549,3 +549,48 @@ it('records incomplete retention as a failed check and keeps private recovery cu
   expect(result.requests).not.toContain('DELETE /v1/sandboxes/sandbox-check-box')
   expect(result.said).not.toContain('"source"')
 }, 60_000)
+
+it('resumes an interrupted command check when the host supplies a model recovery executor', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'interrupted-graph-check-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  await mkdir(join(directory, 'work'))
+  await writeFile(
+    join(directory, 'checks.yaml'),
+    `
+graph: interrupted-check
+workspace: cwd
+nodes:
+  - id: publish
+    check: { command: 'echo publish >> publishes' }
+  - id: verify
+    check:
+      command: 'if [ ! -f started ]; then touch started; kill -KILL "$(cat first-pid)"; exit 1; fi; echo verified'
+entry: [publish]
+edges:
+  - { kind: routes, from: publish, to: verify, directive: { surface: delegates/worker-brief, version: 1 } }
+budget: { maxIterations: 10 }
+check: { node: verify, pointer: /pass, equals: true }
+`,
+  )
+  const child = [
+    '--import',
+    'tsx',
+    'tests/integration/fixtures/interrupted-graph-check.ts',
+    directory,
+  ]
+  await expect(run(process.execPath, [...child, 'start'])).rejects.toMatchObject({
+    signal: 'SIGKILL',
+  })
+  await run(process.execPath, [...child, 'resume'])
+  expect(await readFile(join(directory, 'work', 'publishes'), 'utf8')).toBe('publish\n')
+  const receipts = join(directory, 'run', 'command-checks.jsonl')
+  expect(
+    parseCommittedJsonLines<{ nodeName: string; exitCode: number }>(
+      await readFile(receipts, 'utf8'),
+      receipts,
+    ).map(({ nodeName, exitCode }) => [nodeName, exitCode]),
+  ).toEqual([
+    ['publish', 0],
+    ['verify', 0],
+  ])
+}, 60_000)
