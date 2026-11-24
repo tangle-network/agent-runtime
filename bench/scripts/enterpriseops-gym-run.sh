@@ -4,7 +4,7 @@
 # Writes the sampled task configs exactly as evaluate.py writes them for --hf_dataset, starts each gym's MCP server image on the
 # port the configs name, writes an OpenAI-compatible (vllm provider) LLM config whose key comes from <key env var>, and runs
 # evaluate.py --configs_folder. The image digests used are recorded beside the results. The publisher's pyproject does not declare
-# aiohttp, which its utils/task_queue_worker.py imports, so each run adds it beside the openai extra.
+# aiohttp or nest_asyncio, which its code imports (every other third-party import is declared), so each run adds both.
 set -eu
 out=$1 base=$2 model=$3 keyvar=$4 tasks=$5 ids=$6
 shift 6
@@ -23,7 +23,7 @@ cleanup() { for c in $containers; do docker rm -f "$c" >/dev/null 2>&1 || true; 
 trap cleanup EXIT INT TERM
 mkdir -p "$out"
 
-uv run --extra openai --with aiohttp python - "$work/configs" "$mode" "$domain" "$tasks" "$ids" > "$work/servers" <<'PY'
+uv run --extra openai --with aiohttp --with nest_asyncio python - "$work/configs" "$mode" "$domain" "$tasks" "$ids" > "$work/servers" <<'PY'
 import json, os, sys
 from datasets import load_dataset
 folder, mode, domain, limit, ids = sys.argv[1:6]
@@ -78,5 +78,5 @@ with open(path, 'w') as handle:
     json.dump({'llm_provider': 'vllm', 'llm_model': model, 'llm_api_key': os.environ[os.environ['KEY_VAR']],
                'llm_api_endpoint': base, 'temperature': 0.0, 'max_tokens': 4096}, handle)
 PY
-uv run --extra openai --with aiohttp python evaluate.py --configs_folder "$work/configs" --llm_config "$work/llm.json" --output_folder "$out" \
+uv run --extra openai --with aiohttp --with nest_asyncio python evaluate.py --configs_folder "$work/configs" --llm_config "$work/llm.json" --output_folder "$out" \
   --orchestrator react --concurrency "$concurrency" --num_runs 1
