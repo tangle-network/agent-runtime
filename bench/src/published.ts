@@ -249,6 +249,44 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
       }))
     },
   },
+  prbench: {
+    name: 'prbench',
+    repository: 'https://github.com/scaleapi/PRBench.git',
+    ref: '7b2df0a28bf99ec51263c41b90dd510a740a7711',
+    version: '7b2df0a (no release tag)',
+    license: 'MIT (Scale AI); dataset ScaleAI/PRBench CC-BY-4.0',
+    terms: 'CC-BY-4.0 dataset, not gated, loaded from Hugging Face at run time; attribution required, no training restriction stated',
+    judge: 'openai/o4-mini (reasoning effort high), one call per rubric criterion',
+    judgeSubstitutable: true,
+    measured: 'model-shaped',
+    resultIsFolder: true,
+    // The publisher pins no dependency versions (requirements.txt), so a fresh install resolves them anew.
+    install: [['uv', 'venv', '--quiet', '--python', '3.12'], ['uv', 'pip', 'install', '--quiet', '-r', 'requirements.txt']],
+    // A sample runs --task ids or the first --tasks rows of the split (default legal; pass `-- --split finance`).
+    run: (endpoint, options, resultPath) => [
+      'sh', fileURLToPath(new URL('../scripts/prbench-run.sh', import.meta.url)),
+      resultPath, endpoint.baseUrl, endpoint.model, endpoint.apiKeyVar,
+      options.tasks === undefined ? 'all' : String(options.tasks), (options.taskIds ?? []).join(','), options.judge ?? 'publisher',
+      ...(options.args ?? []),
+    ],
+    // Per task, the publisher's clipped score: rubric points over the positive weights (negative criteria can take it below
+    // zero; clamped to 0..1 here). The publisher's aggregate, mean_clipped, is max(0, mean of the unclamped scores).
+    parse: async (resultPath) => {
+      const folder = path.join(resultPath, 'results')
+      const files = (await readdir(folder)).filter((file) => file.endsWith('.json'))
+      if (files.length !== 1) throw new Error(`PRBench wrote ${files.length} result files under ${folder}, expected one`)
+      const result = JSON.parse(await readFile(path.join(folder, files[0]!), 'utf8')) as { outputs?: Record<string, Record<string, { points?: unknown; weights?: unknown }>> }
+      const tasks = Object.values(result.outputs ?? {})[0]
+      if (!tasks) throw new Error(`PRBench result ${files[0]} has no outputs`)
+      return Object.entries(tasks).map(([id, task]) => {
+        const weights = Array.isArray(task.weights) ? task.weights.filter((weight): weight is number => typeof weight === 'number') : []
+        const best = weights.filter((weight) => weight > 0).reduce((sum, weight) => sum + weight, 0)
+        const points = typeof task.points === 'number' ? task.points : Number.NaN
+        if (!best || Number.isNaN(points)) throw new Error(`PRBench task ${id} has no points or weights`)
+        return { id, resolved: points >= best, score: Math.min(1, Math.max(0, points / best)), detail: `${points} of ${best} rubric points` }
+      })
+    },
+  },
 }
 
 /** Resolve a `model:`, `app:` or `profile:` target to the endpoint a publisher's runner calls. */
