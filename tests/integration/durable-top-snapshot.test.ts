@@ -125,6 +125,7 @@ function expectUnknownWorkerLog(
   snapshot: TopSnapshot,
   workerId: string | undefined,
   status: 'done' | 'down',
+  tokenDisplay = '?/?',
 ) {
   expect(workerId).toBeDefined()
   const supervisor = snapshot.supervisors.find((row) =>
@@ -145,7 +146,7 @@ function expectUnknownWorkerLog(
   const terminal = log
     ?.split('\n')
     .find((line) => line.includes(` ${status.toUpperCase()} `) && line.includes('unknown'))
-  expect(terminal).toContain('?/?')
+  expect(terminal).toContain(tokenDisplay)
 }
 
 it.each([
@@ -278,7 +279,7 @@ it.each([
       expect(frame).not.toContain('NaN')
       if (!known || fail) {
         expect(frame).toContain('unknown')
-        expectUnknownWorkerLog(snapshot, worker?.id, fail ? 'down' : 'done')
+        expectUnknownWorkerLog(snapshot, worker?.id, fail ? 'down' : 'done', fail ? '?/?' : '≥37?/≥11?')
       }
       const clipped = renderTopFrame(snapshot, { color: true, width: 88 })
       // Actual process data must remain bounded without emitting a partial terminal escape.
