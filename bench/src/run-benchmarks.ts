@@ -258,7 +258,10 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
   // supplied profile declared rather than being dropped when one is supplied. `buildBackendOptions`
   // now sends this provider/model pair on the create request and refuses a conflicting override,
   // so the two must be derived from the same profile.
-  const profileProvider = cell.profile?.model?.provider ?? 'tangle-router'
+  // A Bridge cell names the Bridge's own model id, `harness/provider/model`; its provider is the middle segment.
+  const bridgeRoute = cell.backend === 'bridge' && cell.model.startsWith(`${harness}/`) ? cell.model.slice(harness.length + 1) : undefined
+  const bridgeProvider = bridgeRoute?.includes('/') ? bridgeRoute.slice(0, bridgeRoute.indexOf('/')) : undefined
+  const profileProvider = cell.profile?.model?.provider ?? bridgeProvider ?? 'tangle-router'
   const profile: AgentProfile = {
     ...(cell.profile ?? { name: cell.label }),
     harness: harness as AgentProfile['harness'],
