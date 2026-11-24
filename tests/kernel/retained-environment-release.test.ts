@@ -499,12 +499,14 @@ describe('retained environments at root settlement', () => {
     {
       name: 'a named platform refusal settles refused before it ran, owned by the platform',
       code: 'HUB_CREDENTIAL_REFRESH_FAILED',
+      traceId: '1ab213af4c4a4011ae255e6f60bd4830',
       cause: 'request-rejected',
       failure: { code: 'request-rejected', owner: 'platform' },
     },
     {
       name: 'any other 503 stays a lost transport, in doubt',
       code: 'SERVER_ERROR',
+      traceId: '0'.repeat(32),
       cause: 'transport',
       failure: { code: 'transport', owner: 'platform' },
     },
@@ -517,6 +519,7 @@ describe('retained environments at root settlement', () => {
       Object.assign(new Error('HTTP 503: Sandbox Hub credential is temporarily unavailable.'), {
         name: 'ServerError',
         code: scenario.code,
+        traceId: scenario.traceId,
         status: 503,
         retryAfterMs: 5_000,
       })
@@ -547,10 +550,12 @@ describe('retained environments at root settlement', () => {
       providerStatus: 503,
       retryAfterMs: 5_000,
     }
-    expect(live.failure).toMatchObject(expected)
-    expect(result.tree.nodes.find((node) => node.id === 'refused:s0')?.failure).toMatchObject(
-      expected,
-    )
+    const treeFailure = result.tree.nodes.find((node) => node.id === 'refused:s0')?.failure
+    for (const failure of [live.failure, treeFailure]) {
+      expect(failure).toMatchObject(expected)
+      if (scenario.code === 'SERVER_ERROR') expect(failure).not.toHaveProperty('providerTraceId')
+      else expect(failure?.providerTraceId).toBe(scenario.traceId)
+    }
   })
 
   it('does not trip an armed intensity breaker with the released record', async () => {

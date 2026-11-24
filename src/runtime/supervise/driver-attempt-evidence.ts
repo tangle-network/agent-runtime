@@ -52,6 +52,8 @@ export interface DriverAttemptRecord {
   /** With `error`: the deepest cause's stack, redacted and bounded, so a failure the message
    *  alone cannot place still names its throw site (#2347). */
   readonly errorStack?: string
+  /** The upstream request's trace ID, when the provider supplied one for this attempt. */
+  readonly providerTraceId?: string
   /** Validated producer attribution, including its reset hint when supplied. */
   readonly failure?: AgentTurnFailure
   readonly classification?: DriverFailureClass

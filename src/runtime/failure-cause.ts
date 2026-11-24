@@ -2,7 +2,12 @@ import { z } from 'zod'
 import { AgentEvalError, BackendTransportError } from '../errors'
 import { ReservationWaitRefused } from './supervise/budget'
 import { isCredentialRefusal } from './supervise/credential-refusal'
-import { causeChain, errMessage } from './supervise/error-message'
+import {
+  causeChain,
+  errMessage,
+  providerTraceId,
+  providerTraceIdPattern,
+} from './supervise/error-message'
 import {
   PLATFORM_FAILURE_CODES,
   runtimeFailureRemediationSchema,
@@ -64,6 +69,8 @@ export const runtimeFailureCauseSchema = z
     cause: z.string().max(MAX_CAUSE_CHARS),
     /** The upstream or provider machine code the failure carried, when it carried one. */
     providerCode: z.string().regex(MACHINE_CODE_PATTERN).optional(),
+    /** The upstream request's trace ID, copied from the provider error. */
+    providerTraceId: z.string().regex(providerTraceIdPattern).optional(),
     /** The HTTP status the provider's typed error carried with that code. */
     providerStatus: z.number().int().min(100).max(599).optional(),
     /** The provider's typed retry-after hint, in milliseconds. A hint, never an automatic retry. */
@@ -198,6 +205,7 @@ export function runtimeFailureCause(
     const links = causeChain(error)
     // Prefer an upstream diagnosis across the whole chain over a wrapper's generic code.
     const providerCode = upstreamMachineCode(links)
+    const traceId = providerTraceId(links)
     const upstream = links.find(
       (link) =>
         link instanceof BackendTransportError &&
@@ -215,6 +223,7 @@ export function runtimeFailureCause(
       owner,
       cause,
       ...(providerCode === undefined ? {} : { providerCode }),
+      ...(traceId === undefined ? {} : { providerTraceId: traceId }),
       ...upstreamResponse(links, providerCode),
       ...(code === 'credential-refused' &&
       providerCode === 'subscription_required' &&
@@ -302,6 +311,14 @@ export function settlementFailureCause(down: {
   readonly failure?: RuntimeFailureCause
 }): RuntimeFailureCause {
   const cause = errMessage(down.reason).slice(0, MAX_CAUSE_CHARS)
+  const providerEvidence = {
+    ...(down.failure?.providerCode === undefined
+      ? {}
+      : { providerCode: down.failure.providerCode }),
+    ...(down.failure?.providerTraceId === undefined
+      ? {}
+      : { providerTraceId: down.failure.providerTraceId }),
+  }
   if (down.retainedPendingCause !== undefined) {
     const retained = retainedFailures[down.retainedPendingCause]
     // The failure classified where the executor threw agrees with the retained cause: keep its
@@ -312,9 +329,7 @@ export function settlementFailureCause(down: {
       ...retained,
       cause,
       // The retained cause names what to do; the provider's code still says what happened.
-      ...(down.failure?.providerCode === undefined
-        ? {}
-        : { providerCode: down.failure.providerCode }),
+      ...providerEvidence,
     }
   }
   if (down.failure !== undefined && down.failure.code !== 'unknown')
@@ -324,8 +339,6 @@ export function settlementFailureCause(down: {
       ? { code: 'work-failed' as const, owner: 'work' as const }
       : UNATTRIBUTED),
     cause,
-    ...(down.failure?.providerCode === undefined
-      ? {}
-      : { providerCode: down.failure.providerCode }),
+    ...providerEvidence,
   }
 }
