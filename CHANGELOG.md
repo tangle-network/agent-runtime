@@ -1,8 +1,10 @@
 ## 10.0.16
 
-Graph inspection reads settled token totals and per-worker usage from the reconciled run result, including inference recorded by nested drivers.
+The JSONL file lock behind `recordGraphRun`, `recordProfileRun`, the stored-graph check, the corpus append and the interactive delegation journal now waits up to 5000 ms for each live holder, instead of 5000 ms in total. A write queued behind other writers on a host with slow disk syncs is no longer refused with `journal file lock unavailable after 5000ms`.
 
 Driver attempt journals and inspected terminal failures retain the provider’s request trace ID when it is available.
+
+Graph inspection reads settled token totals and per-worker usage from the reconciled run result, including inference recorded by nested drivers.
 
 `loadGraphFile` now refuses a `continuity: resume` edge whose target can run on a harness that opens a new conversation every turn (cli-bridge's ACP harnesses `acp`, `hermes` and `openclaw`, and every harness with no cli-bridge backend), even when the host supplies its own resuming `makeWorkerAgent`; such a graph loaded before. A resume route now resumes on the provider backend, the path a local CLI graph run takes: the resumed worker gets a new environment and continues the earlier worker's harness conversation, which cli-bridge keys by session id. The CLI therefore refuses an unresumable graph at load and at `--dry-run`, instead of partway through a run.
 
