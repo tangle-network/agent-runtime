@@ -315,7 +315,7 @@ async function main(): Promise<void> {
       const failed = await runBenchmarks({
         benchmarks: ['boxy'], cells: [{ label: failure, model: 'm', backend: 'sandbox' }],
         routerBaseUrl: 'x', routerKey: 'x',
-        resolveAdapter: () => ({ ...boxAdapter, output: { parse: () => { throw new Error('parser failed') } } }),
+        resolveAdapter: () => ({ ...boxAdapter, runtime: { ...boxAdapter.runtime, output: { parse: () => { throw new Error('parser failed') } } } }),
         resolveClient: () => fakeClient as never,
       })
       assert.equal(failed.perTask[0]?.measurement, 'unavailable')
