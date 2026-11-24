@@ -279,7 +279,12 @@ it.each([
       expect(frame).not.toContain('NaN')
       if (!known || fail) {
         expect(frame).toContain('unknown')
-        expectUnknownWorkerLog(snapshot, worker?.id, fail ? 'down' : 'done', fail ? '?/?' : '≥37?/≥11?')
+        expectUnknownWorkerLog(
+          snapshot,
+          worker?.id,
+          fail ? 'down' : 'done',
+          fail ? '?/?' : '≥37?/≥11?',
+        )
       }
       const clipped = renderTopFrame(snapshot, { color: true, width: 88 })
       // Actual process data must remain bounded without emitting a partial terminal escape.
