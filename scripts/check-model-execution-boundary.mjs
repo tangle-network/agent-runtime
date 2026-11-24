@@ -197,8 +197,13 @@ function isLowLevelModelModule(moduleName) {
   )
 }
 
+// A loopback host is local whether its port is a literal or a template slot (`127.0.0.1:${port}/`):
+// a test's free port is only known at run time.
 function isLocalTestTarget(path, target) {
-  return isTestFile(path) && /(?:localhost|127\.0\.0\.1|\[::1\]|\.test)(?::\d+)?\//i.test(target)
+  return (
+    isTestFile(path) &&
+    /(?:localhost|127\.0\.0\.1|\[::1\]|\.test)(?::(?:\d+|\$\{[^}]+\}))?\//i.test(target)
+  )
 }
 
 function scriptKindOf(path) {
