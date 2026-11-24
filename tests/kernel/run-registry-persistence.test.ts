@@ -295,6 +295,8 @@ describe.each(['graph', 'profile'] as const)('%s registry shared persistence', (
     try {
       await Promise.all(children.map((child) => child.ready))
       for (const child of children) child.child.send('append')
+      // The forty appends run one at a time and each waits for the disk to sync its snapshot, so
+      // their wall time is the host's sync latency. The suite's timeout names a hang.
       await Promise.all(children.map((child) => child.completed))
       const saved = await f.list()
       expect(saved).toHaveLength(rows.length)
@@ -303,5 +305,5 @@ describe.each(['graph', 'profile'] as const)('%s registry shared persistence', (
     } finally {
       for (const child of children) child.child.kill()
     }
-  }, 30_000)
+  })
 })

@@ -160,7 +160,7 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
   await writeFile(claude, standInHarness)
   await chmod(claude, 0o755)
   const port = await freePort()
-  const server = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], { cwd: bridge, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env,
+  const server = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], { cwd: bridge, detached: true, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env,
     TSX_TSCONFIG_PATH: path.join(bridge, 'tsconfig.json'),
     BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: String(port), BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
   const closed = new Promise<void>((resolve) => server.once('close', () => resolve()))
@@ -176,8 +176,14 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
     assert.equal(result.measured, 'own-loop')
     assert.deepEqual(result.taskScores, [{ id: TASK, resolved: true, score: 1 }])
   } finally {
-    server.kill('SIGTERM')
-    const deadline = setTimeout(() => server.kill('SIGKILL'), 5000).unref()
+    const stopBridge = (signal: NodeJS.Signals) => {
+      if (server.pid === undefined) return
+      try { process.kill(-server.pid, signal) } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+      }
+    }
+    stopBridge('SIGTERM')
+    const deadline = setTimeout(() => stopBridge('SIGKILL'), 5000).unref()
     try { await closed } finally { clearTimeout(deadline) }
     await rm(root, { recursive: true, force: true })
     await rm(cacheDir, { recursive: true, force: true })

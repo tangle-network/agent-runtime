@@ -124,6 +124,12 @@ export { appendCommittedJsonLine } from './jsonl-append'
 /** Serialize JSONL file updates across processes and aliases using Eval's existing file lock.
  * The caller owns validation and the record format. The lock path names the canonical file,
  * including its first write, so two directory aliases cannot acquire different write heads.
+ *
+ * The wait bounds one live holder, not the queue. A holder that keeps the lock for the whole
+ * bound is stuck and the caller is told; the lock primitive itself takes over a dead holder.
+ * Writers that each release are progress, so a caller behind them keeps waiting. A bound on the
+ * queue would refuse a caller whenever the writers ahead of it together took that long, which a
+ * host with slow disk syncs does to a handful of concurrent writers.
  * @internal
  */
 export async function withJsonlFileLock<T>(
@@ -137,11 +143,19 @@ export async function withJsonlFileLock<T>(
   const file = await fs.open(path, 'a')
   await file.close()
   const canonicalPath = await fs.realpath(path)
-  const deadline = Date.now() + 5000
+  let holder: string | undefined
+  let heldSince = Date.now()
   for (;;) {
     const acquisition = tryAcquireAtomicFileLock({ lockPath: `${canonicalPath}.lock` })
     if (!acquisition.acquired) {
-      if (Date.now() >= deadline) {
+      // Each acquisition writes a new nonce, so a changed nonce is a later holder, also when the
+      // same process took the lock again. A recovery in progress names no holder, so the clock
+      // keeps running.
+      if (acquisition.reason === 'held' && acquisition.holder.nonce !== holder) {
+        holder = acquisition.holder.nonce
+        heldSince = Date.now()
+      }
+      if (Date.now() - heldSince >= 5000) {
         throw new Error(`journal file lock unavailable after 5000ms: ${canonicalPath}`)
       }
       await new Promise((resolve) => setTimeout(resolve, 25))

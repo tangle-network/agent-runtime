@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { tryAcquireAtomicFileLock } from '@tangle-network/agent-eval/ledger-core'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FileCorpus } from '../../src/runtime/personify/corpus'
 import type { CorpusRecord } from '../../src/runtime/personify/wave-types'
 
@@ -177,6 +177,41 @@ describe('FileCorpus transaction integrity', () => {
     }
     expect(await new FileCorpus(path).append(record)).toEqual({ succeeded: true })
   }, 10000)
+
+  it('keeps a writer waiting while live owners each release inside the bounded lock wait', async () => {
+    const path = join(dir, 'corpus.jsonl')
+    const own = () => {
+      const acquired = tryAcquireAtomicFileLock({ lockPath: `${path}.lock` })
+      if (!acquired.acquired) throw new Error('test lock was unavailable')
+      return acquired.lock
+    }
+    // The writer polls on real timers, and a pause gives it time to see the current owner. No
+    // assertion reads a pause: a writer that polls late has seen an owner for less time, not more.
+    const writerPolls = () => new Promise((resolve) => setTimeout(resolve, 100))
+    // The test owns the clock the lock wait reads, so a stalled host cannot age an owner.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    let lock: ReturnType<typeof own> | undefined
+    try {
+      lock = own()
+      const appended = new FileCorpus(path).append(record)
+      // Six owners hold the lock for 1000 ms each, together longer than the 5000 ms one owner may
+      // hold it. The next owner takes the lock in the same synchronous step as the release, so
+      // the writer never finds it free between two owners.
+      for (let owner = 0; owner < 6; owner += 1) {
+        await writerPolls()
+        vi.setSystemTime(Date.now() + 1000)
+        await writerPolls()
+        lock.release()
+        lock = own()
+      }
+      lock.release()
+      lock = undefined
+      expect(await appended).toEqual({ succeeded: true })
+    } finally {
+      lock?.release()
+      vi.useRealTimers()
+    }
+  })
 
   it('returns storage errors through the append outcome', async () => {
     await writeFile(join(dir, 'blocked'), 'file blocks directory creation')
