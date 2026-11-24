@@ -56,11 +56,13 @@ export interface AppProfile {
 }
 
 /**
- * Agent apps a benchmark can target, each by the AgentProfile it serves in production. `AGENT_BENCH_APPS`, a JSON object
- * of app name to profile URL, adds an app or points one at another deployment, such as staging.
+ * Agent apps a benchmark can target, each by the executable AgentProfile it serves in production: the projection its own
+ * sandbox sends a harness (gtm-agent toExecutableAgentProfile, legal-agent slimSandboxProfile). `AGENT_BENCH_APPS`, a JSON
+ * object of app name to profile URL, adds an app or points one at another deployment, such as staging.
  */
 export const AGENT_APPS: Readonly<Record<string, { profileUrl: string }>> = {
-  'gtm-agent': { profileUrl: 'https://gtm.tangle.tools/api/tools/profile?definition' },
+  'gtm-agent': { profileUrl: 'https://gtm.tangle.tools/api/tools/profile?definition=executable' },
+  'legal-agent': { profileUrl: 'https://legal.tangle.tools/api/tools/profile?definition=executable' },
 }
 
 function agentApps(env: NodeJS.ProcessEnv): Record<string, { profileUrl: string }> {
@@ -84,6 +86,11 @@ export interface PublishedRunOptions {
   env?: NodeJS.ProcessEnv
   /** Where publisher checkouts are cached; defaults to ~/.cache/agent-bench/published. */
   cacheDir?: string
+  /**
+   * Replace the publisher's judge with `bridge/<harness/model>`, a model on a subscription seat behind a CLI Bridge
+   * (AGENT_BENCH_JUDGE_URL, default the profile Bridge). The run is then not official, and its record says so.
+   */
+  judge?: string
 }
 
 export type PublishedTaskScore = BenchScore & { id: string }
@@ -98,6 +105,8 @@ export interface PublishedBenchmark {
   terms: string
   /** The judge model the publisher names, or null when the publisher's grader is deterministic. */
   judge: string | null
+  /** The benchmark's runner accepts a substituted judge (`--judge`). */
+  judgeSubstitutable?: boolean
   measured: Measured
   /** The runner writes a folder of results rather than one file. */
   resultIsFolder?: boolean
@@ -115,6 +124,8 @@ export interface PublishedRun {
   model: string
   measured: Measured
   judge: string | null
+  /** The judge the publisher names, kept beside a substituted one. */
+  publisherJudge: string | null
   /** True when the score comes from the publisher's own grader and judge; false whenever a judge was substituted. */
   official: boolean
   app?: AppProfile
@@ -198,6 +209,46 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
       }))
     },
   },
+  'harvey-lab': {
+    name: 'harvey-lab',
+    repository: 'https://github.com/harveyai/harvey-labs.git',
+    // v1.3.0, the latest tag: v1.0 has no OpenAI-compatible chat adapter; v1.3.0 ships baseten/ (chat completions with tools).
+    ref: '81d6a31b22d7c9f661cda4770cffcc12a5735dc2',
+    version: 'v1.3.0',
+    license: 'MIT (Harvey AI)',
+    terms: 'MIT: tasks and their synthetic documents ship in the repository; no training or redistribution restriction stated',
+    judge: 'claude-sonnet-4-6 + gpt-5.5 (LAB standard dual judge, all-pass per criterion)',
+    judgeSubstitutable: true,
+    measured: 'model-shaped',
+    resultIsFolder: true,
+    install: [
+      ['uv', 'sync', '--all-extras'],
+      // The publisher's own pinned pandoc, which its grader needs for .docx deliverables, into the checkout.
+      ['sh', 'lab_core/sandbox/install_pandoc.sh', '.agent-bench'],
+      ['sh', fileURLToPath(new URL('../scripts/harvey-lab-sandbox.sh', import.meta.url))],
+    ],
+    // A sample runs --task ids or the first --tasks in sorted task-id order (pass `-- --area <practice area>` to stay in one).
+    run: (endpoint, options, resultPath) => [
+      'sh', fileURLToPath(new URL('../scripts/harvey-lab-run.sh', import.meta.url)),
+      resultPath, endpoint.baseUrl, endpoint.model, endpoint.apiKeyVar,
+      options.tasks === undefined ? 'all' : String(options.tasks), (options.taskIds ?? []).join(','), options.judge ?? 'publisher',
+      ...(options.args ?? []),
+    ],
+    parse: async (resultPath) => {
+      const runs = (await readFile(path.join(resultPath, 'tasks.tsv'), 'utf8')).trim().split('\n').map((line) => line.split('\t') as [string, string])
+      return Promise.all(runs.map(async ([run, task]) => {
+        const read = (file: string) => readFile(path.join(resultPath, run, file), 'utf8').then((text) => JSON.parse(text) as Record<string, unknown>, () => null)
+        const dual = await read('scores_dual.json')
+        if (dual) return { id: task, resolved: dual.all_pass === true, score: Number(dual.dual_all_pass_rate), detail: `dual-judge criterion pass ${String(dual.dual_criterion_pass)}` }
+        const single = await read('scores.json')
+        if (single) {
+          return { id: task, resolved: single.all_pass === true, score: single.all_pass === true ? 1 : 0,
+            detail: `${String(single.n_passed)} of ${String(single.n_criteria)} criteria passed${single.n_grading_errors ? `; ${String(single.n_grading_errors)} grading errors` : ''}` }
+        }
+        return { id: task, resolved: false, score: 0, detail: 'no scores: the harness or the grader failed (see the runner log)' }
+      }))
+    },
+  },
 }
 
 /** Resolve a `model:`, `app:` or `profile:` target to the endpoint a publisher's runner calls. */
@@ -243,6 +294,11 @@ export async function runPublished(name: string, target: string, options: Publis
   const benchmark = PUBLISHED_BENCHMARKS[name]
   if (!benchmark) throw new Error(`no published benchmark '${name}'; registered: ${Object.keys(PUBLISHED_BENCHMARKS).join(', ')}`)
   const env = { ...process.env, ...options.env }
+  if (options.judge !== undefined && !benchmark.judgeSubstitutable) {
+    throw new Error(`${benchmark.name} grades ${benchmark.judge === null ? 'deterministically' : `with ${benchmark.judge}`}; this registry cannot substitute its judge`)
+  }
+  if (options.judge !== undefined && !options.judge.startsWith('bridge/')) throw new Error(`--judge must be bridge/<harness/model>, not '${options.judge}'`)
+  env.AGENT_BENCH_JUDGE_URL ??= env.AGENT_BENCH_BRIDGE_URL ?? 'http://127.0.0.1:3344/v1'
   const endpoint = await resolveEndpoint(target, benchmark, env)
   if (!env[endpoint.apiKeyVar]) throw new Error(`${endpoint.apiKeyVar} is not set; the ${target} endpoint needs it`)
   const checkout = await publisherCheckout(benchmark, options.cacheDir, env)
@@ -254,7 +310,8 @@ export async function runPublished(name: string, target: string, options: Publis
   const taskScores = await benchmark.parse(resultPath)
   const run: PublishedRun = {
     benchmark: benchmark.name, version: benchmark.version, ref: benchmark.ref, target, model: endpoint.model,
-    measured: endpoint.measured, judge: benchmark.judge, official: true, ...(endpoint.app ? { app: endpoint.app } : {}),
+    measured: endpoint.measured, judge: options.judge ?? benchmark.judge, publisherJudge: benchmark.judge, official: options.judge === undefined,
+    ...(endpoint.app ? { app: endpoint.app } : {}),
     tasks: taskScores.length, passed: taskScores.filter((task) => task.resolved).length,
     score: taskScores.length ? taskScores.reduce((sum, task) => sum + task.score, 0) / taskScores.length : 0,
     taskScores, resultPath, license: benchmark.license, terms: benchmark.terms, startedAt, finishedAt: new Date().toISOString(),

@@ -258,3 +258,68 @@ test('EnterpriseOps-Gym: the publisher\'s SQL verifiers pass the gold calls and 
     await rm(cacheDir, { recursive: true, force: true })
   }
 })
+
+/** firm-knowledge/tasks/012: one criterion, graded by the judge on the agent's response.md. */
+const HARVEY_TASK = 'firm-knowledge/tasks/012'
+const HARVEY_ANSWER = 'The firm has not done a financing with a springing lien.'
+
+/**
+ * One local endpoint plays the target and the substituted judge. A request offering tools is the target in Harvey's agent
+ * loop: with `gold` it writes response.md through Harvey's `write` tool, then calls `finish`; without, it finishes at once.
+ * A request with no tools is the judge (bridge/stand-in-judge): it passes the criterion only when the publisher's grader
+ * put the agent's answer into its prompt.
+ */
+function harveyStandIn(gold: boolean) {
+  const seen = { target: 0, judge: 0, answerJudged: false }
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}') as { model?: string; tools?: Array<{ function?: { name?: string } }>; messages?: Array<{ role: string; content?: unknown }> }
+    let message: Record<string, unknown>
+    if (body.tools?.length) {
+      seen.target++
+      const done = body.messages?.filter((entry) => entry.role === 'tool').length ?? 0
+      const calls = gold ? [['write', { file_path: 'response.md', content: HARVEY_ANSWER }], ['finish', { summary: 'answered', deliverables: ['response.md'] }]] : [['finish', { summary: 'no answer' }]]
+      const [name, args] = calls[Math.min(done, calls.length - 1)]!
+      message = { role: 'assistant', content: null, tool_calls: [{ id: `call_${done}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }
+    } else {
+      seen.judge++
+      const prompt = JSON.stringify(body.messages ?? [])
+      seen.answerJudged ||= prompt.includes(HARVEY_ANSWER)
+      message = { role: 'assistant', content: JSON.stringify({ reasoning: 'stand-in judge', verdict: prompt.includes(HARVEY_ANSWER) ? 'pass' : 'fail' }) }
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ id: 'chatcmpl-harvey', object: 'chat.completion', created: 0, model: body.model,
+      choices: [{ index: 0, message, finish_reason: 'tool_calls' in message ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }))
+  })
+  return { server, seen }
+}
+
+// The publisher checkout is about 5 GB with its sandbox image, so this test uses the shared cache (~/.cache/agent-bench/published).
+test('Harvey LAB: the publisher\'s harness and rubric grader, with a substituted judge, pass the written answer and fail none', { skip: uv && docker ? false : 'uv and docker are required', timeout: 40 * 60_000 }, async () => {
+  for (const gold of [true, false]) {
+    const { server, seen } = harveyStandIn(gold)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-harvey-'))
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+    try {
+      const result = await runPublished('harvey-lab', 'model:stand-in-model', {
+        taskIds: [HARVEY_TASK], out, judge: 'bridge/stand-in-judge', args: ['--max-turns', '5'],
+        env: { AGENT_BENCH_ROUTER_URL: url, TANGLE_API_KEY: 'local-stand-in', AGENT_BENCH_JUDGE_URL: url },
+      })
+      assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
+      assert.equal(result.taskScores[0]!.id, HARVEY_TASK)
+      assert.equal(result.taskScores[0]!.resolved, gold, JSON.stringify(result.taskScores[0]))
+      assert.equal(result.official, false)
+      assert.equal(result.judge, 'bridge/stand-in-judge')
+      assert.equal(result.publisherJudge, PUBLISHED_BENCHMARKS['harvey-lab']!.judge)
+      // Without a deliverable the grader may fail the criterion before any judge call.
+      assert.ok(seen.target > 0 && (!gold || seen.judge > 0), JSON.stringify(seen))
+      assert.equal(seen.answerJudged, gold, 'the judge saw the agent\'s answer only when the agent wrote one')
+    } finally {
+      server.closeAllConnections()
+      server.close()
+      await rm(out, { recursive: true, force: true })
+    }
+  }
+})

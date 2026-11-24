@@ -9,7 +9,7 @@
 import path from 'node:path'
 import { PUBLISHED_BENCHMARKS, runPublished } from './published'
 
-const usage = 'usage: agent-bench run <benchmark> --target <model:<router model>|app:<agent app>@<harness/model>|profile:<harness/model>> [--tasks N] [--task <id>]... [--out <dir>] [-- <runner args>]\n       agent-bench list'
+const usage = 'usage: agent-bench run <benchmark> --target <model:<router model>|app:<agent app>@<harness/model>|profile:<harness/model>> [--tasks N] [--task <id>]... [--judge bridge/<harness/model>] [--out <dir>] [-- <runner args>]\n       agent-bench list'
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -31,6 +31,7 @@ async function main(argv: string[]): Promise<number> {
   let tasks: number | undefined
   const taskIds: string[] = []
   let out: string | undefined
+  let judge: string | undefined
   for (let i = 0; i < own.length; i++) {
     const flag = own[i]
     const value = own[i + 1]
@@ -39,6 +40,7 @@ async function main(argv: string[]): Promise<number> {
     else if (flag === '--tasks') tasks = Number.parseInt(value, 10)
     else if (flag === '--task') taskIds.push(value)
     else if (flag === '--out') out = value
+    else if (flag === '--judge') judge = value
     else throw new Error(`unknown option ${flag}\n${usage}`)
     i++
   }
@@ -47,10 +49,11 @@ async function main(argv: string[]): Promise<number> {
   const run = await runPublished(name, target, {
     ...(tasks === undefined ? {} : { tasks }),
     ...(taskIds.length ? { taskIds } : {}),
+    ...(judge === undefined ? {} : { judge }),
     args: runnerArgs,
     out: path.resolve(out ?? path.join('agent-bench-runs', `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}`)),
   })
-  console.log(`${run.benchmark} ${run.version} on ${run.target}: ${run.passed} of ${run.tasks} passed, score ${run.score.toFixed(3)}, measured ${run.measured}, judge ${run.judge === null ? 'deterministic' : run.judge} (${run.official ? 'official' : 'substituted'})`)
+  console.log(`${run.benchmark} ${run.version} on ${run.target}: ${run.passed} of ${run.tasks} passed, score ${run.score.toFixed(3)}, measured ${run.measured}, judge ${run.judge === null ? 'deterministic' : run.judge} (${run.official ? 'official' : `substituted for ${run.publisherJudge}, not official`})`)
   if (run.app) {
     console.log(`app: ${run.app.app} profile ${run.app.profileName ?? '?'} ${run.app.profileVersion ?? ''} ${run.app.profileDigest.slice(0, 19)} from ${run.app.profileUrl}; ` +
       `its production model ${JSON.stringify(run.app.productionModel)} replaced by ${run.model}; its MCP servers not mounted: ${run.app.omittedMcp.join(', ') || 'none'}`)
