@@ -9,7 +9,8 @@ const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktr
 
 // The proofs that read RUNTIME_FULL_PLACEMENT_WINDOWS. With it set they wait out the SDK's and
 // Runtime's default placement windows (8 to 20 minutes of outage, little CPU), so release:check
-// runs this project as its own lane beside the rest of the check (scripts/run-beside.mjs).
+// runs this project as its own lane beside the rest of its vitest run (scripts/run-beside.mjs),
+// after its last build: provider-retained-observation-http loads dist/.
 const placementWindows = [
   'tests/integration/placement-capacity-deadline.test.ts',
   'tests/integration/placement-capacity-room.test.ts',

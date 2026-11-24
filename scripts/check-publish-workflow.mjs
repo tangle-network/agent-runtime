@@ -203,23 +203,21 @@ for (const name of ['verify-official-optimizers', 'verify-runtime-bench'])
   assertEqual(qualifierJobs[name], undefined, `${name} belongs to the local release gate`)
 const { scripts } = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'))
 assertEqual(scripts.test, 'pnpm run build && pnpm run typecheck && pnpm run lint && vitest run', 'complete source qualification')
-// The full-window placement proofs run as a lane beside the main chain; every check below reads
-// the chain with that step expanded, so the order rules hold for the steps that actually run.
-const besideStep = "node scripts/run-beside.mjs 'pnpm run test:placement-windows' pnpm run release:check:main"
-const releaseSteps = scripts['release:check'].split(' && ').flatMap((step) =>
-  step === besideStep ? scripts['release:check:main'].split(' && ') : [step],
+// release:check runs `pnpm run test`'s steps itself so that the full-window placement proofs, which
+// load dist/, start after its last build and run as a lane beside the rest of the vitest run.
+const releaseSteps = scripts['release:check'].split(' && ')
+const suiteStep = "node scripts/run-beside.mjs 'pnpm run test:placement-windows' vitest run --project parallel --project serial"
+const suite = releaseSteps.indexOf(suiteStep)
+if (suite === -1) throw new Error(`release:check must run its suite as ${suiteStep}`)
+assertEqual(
+  releaseSteps.slice(suite - 3, suite).join(' && '),
+  'pnpm run build && pnpm run typecheck && pnpm run lint',
+  'release:check runs pnpm run test with its vitest run split into two lanes',
 )
-if (releaseSteps.length === scripts['release:check'].split(' && ').length)
-  throw new Error(`release:check must run ${besideStep}`)
 assertEqual(
   scripts['test:placement-windows'],
   'RUNTIME_FULL_PLACEMENT_WINDOWS=1 vitest run --project placement-windows',
   'full placement windows lane',
-)
-assertEqual(
-  releaseSteps.find((step) => step.startsWith('pnpm run test')),
-  'pnpm run test --project parallel --project serial',
-  'the main suite leaves only the placement lane to its own run',
 )
 const vitestProjects = [
   ...readFileSync(resolve(repoRoot, 'vitest.config.ts'), 'utf8').matchAll(/test: \{\s*name: '([^']+)'/gu),
@@ -229,11 +227,11 @@ assertEqual(
   'parallel,placement-windows,serial',
   'vitest projects the two release lanes run between them',
 )
-const releaseCheck = releaseSteps.join(' && ')
+const releaseCheck = scripts['release:check']
 const releaseCheckCommands = [
   'check:publish-workflow',
   'check-release-version-free.mjs',
-  'pnpm run test',
+  'run-beside.mjs',
   'check-release-archive.mjs',
   'check-version-bump.mjs --archive',
   'verify:official-optimizers',
@@ -251,13 +249,12 @@ const stepOf = (command) => {
   return index
 }
 const versionCheck = stepOf('check-release-version-free.mjs')
-const suite = stepOf('pnpm run test')
 for (const command of ['check-version-bump.mjs --archive', 'verify-package-exports.mjs', 'verify:official-optimizers', 'verify:bench']) {
   const step = stepOf(command)
   if (step < versionCheck) throw new Error(`release:check must run the version check before ${command}`)
-  if (step > suite) throw new Error(`release:check must run ${command} before pnpm run test`)
+  if (step > suite) throw new Error(`release:check must run ${command} before the suite`)
 }
-if (versionCheck > suite) throw new Error('release:check must run the version check before pnpm run test')
+if (versionCheck > suite) throw new Error('release:check must run the version check before the suite')
 if (releaseSteps.at(-1) !== 'node scripts/check-release-version-free.mjs')
   throw new Error('release:check must end on the version check')
 assertEqual(

@@ -3,7 +3,7 @@
 // The lane's lines are prefixed with `[lane]`. When either side fails, the other is stopped and its
 // status is the result; otherwise the result waits for both. release:check uses it so the
 // full-window placement proofs (minutes of real outage time, little CPU) overlap the rest of the
-// check instead of setting its length.
+// suite instead of setting its length.
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 
