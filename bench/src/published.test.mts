@@ -142,7 +142,8 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
   await writeFile(claude, standInHarness)
   await chmod(claude, 0o755)
   const port = await freePort()
-  const server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: bridge, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env,
+  // Its own process group, so the whole pnpm -> tsx -> node chain stops with it; no pipe keeps this test's process alive.
+  const server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: bridge, detached: true, stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env,
     BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: String(port), BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
   const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
   const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-profile-out-'))
@@ -160,7 +161,9 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
     assert.equal(result.measured, 'own-loop')
     assert.deepEqual(result.taskScores, [{ id: TASK, resolved: true, score: 1 }])
   } finally {
-    server.kill('SIGTERM')
+    const exited = new Promise((resolve) => server.once('exit', resolve))
+    try { process.kill(-server.pid!, 'SIGTERM') } catch { /* already gone */ }
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 10_000))])
     await rm(root, { recursive: true, force: true })
     await rm(cacheDir, { recursive: true, force: true })
     await rm(out, { recursive: true, force: true })
