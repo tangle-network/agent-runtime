@@ -175,6 +175,11 @@ export function runVenvScriptStdin(
       stderr += c.toString('utf8')
     })
     child.on('error', (err) => reject(err))
+    // A driver that exits before reading its input closes the pipe under a pending write. Its
+    // exit code and output, read at close, are the failure; the closed pipe is not a second one.
+    child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EPIPE') reject(err)
+    })
     child.on('close', (code) => {
       if (code === 0) resolve(stdout)
       else reject(new Error((stderr || stdout || `exit ${code}`).slice(0, 1500)))

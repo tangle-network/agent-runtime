@@ -8,6 +8,7 @@ import {
   benchRoot,
   resolveBenchPython,
   runStagedJudge,
+  runVenvScriptStdin,
   venvBin,
   venvBinAt,
 } from './_harness'
@@ -189,5 +190,21 @@ test('runStagedJudge captures partial evaluator evidence before throwing', async
     )
   } finally {
     await rm(scratch, { recursive: true, force: true })
+  }
+})
+
+test('runVenvScriptStdin reports a driver that exits before reading its input, not the closed pipe', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'stdin-closed-'))
+  try {
+    const driver = join(dir, 'exits-at-once.mjs')
+    await writeFile(driver, "process.stderr.write('engine is not installed'); process.exit(3)\n")
+    // Larger than a pipe buffer, so the write is still pending when the driver exits.
+    const input = 'x'.repeat(8 * 1024 * 1024)
+    await assert.rejects(
+      () => runVenvScriptStdin(driver, [], input, { python: process.execPath }),
+      /engine is not installed/,
+    )
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
 })
