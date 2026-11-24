@@ -135,12 +135,14 @@ async function freePort(): Promise<number> {
 }
 
 async function waitForBridge(stdout: Readable): Promise<string> {
-  const lines = createInterface({ input: stdout, signal: AbortSignal.timeout(60_000) })
+  const signal = AbortSignal.timeout(60_000)
+  const lines = createInterface({ input: stdout, signal })
   try {
     for await (const line of lines) {
       const ready = /^\[cli-bridge\] listening on (http:\/\/127\.0\.0\.1:\d+) /.exec(line)
-      if (ready) return ready[1]
+      if (ready?.[1]) return ready[1]
     }
+    signal.throwIfAborted()
     throw new Error('CLI Bridge closed its output before announcing the loopback listener')
   } finally {
     lines.close()
