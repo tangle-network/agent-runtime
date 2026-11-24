@@ -166,3 +166,57 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
     await rm(out, { recursive: true, force: true })
   }
 })
+
+/** teams/oracle: an audio call from James Wilson to Alice Johnson, and a 'Project Updates' channel; two SQL state verifiers. */
+const EOG_TASK = 'task_20251121_134729_533_464ee3e0_2dcf2712'
+let docker = true
+try { execFileSync('docker', ['info'], { stdio: 'ignore' }) } catch { docker = false }
+
+/** The gold calls one at a time (create_call, then create_channel), named from the tools the runner offers; or no tool call. */
+function gymStandIn(gold: boolean) {
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}') as { model?: string; tools?: Array<{ function?: { name?: string } }>; messages?: Array<{ role: string }> }
+    const names = (body.tools ?? []).map((tool) => tool.function?.name ?? '')
+    const done = body.messages?.filter((message) => message.role === 'tool').length ?? 0
+    const step = gold ? [
+      { name: names.find((name) => name.endsWith('create_call')), args: { callbackUri: 'https://example.com/callback', requestedModalities: ['audio'],
+        mediaConfig: { _odata_type: '#microsoft.graph.serviceHostedMediaConfig' }, targets: [{ identity: { user: { id: 'alice.johnson', displayName: 'Alice Johnson' } } }] } },
+      { name: names.find((name) => name.endsWith('create_channel')), args: { teamId: 'team_techcorp_001', displayName: 'Project Updates', membershipType: 'standard' } },
+    ][done] : undefined
+    const message = step?.name
+      ? { role: 'assistant', content: null, tool_calls: [{ id: `call_gold_${done}`, type: 'function', function: { name: step.name, arguments: JSON.stringify(step.args) } }] }
+      : { role: 'assistant', content: 'Done.' }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ id: 'chatcmpl-gym', object: 'chat.completion', created: 0, model: body.model,
+      choices: [{ index: 0, message, finish_reason: 'tool_calls' in message ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }))
+  })
+  return server
+}
+
+test('EnterpriseOps-Gym: the publisher\'s SQL verifiers pass the gold calls and fail an answer with none', { skip: uv && docker ? false : 'uv and docker are required', timeout: 40 * 60_000 }, async () => {
+  const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
+  try {
+    for (const gold of [true, false]) {
+      const server = gymStandIn(gold)
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+      const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-eog-'))
+      try {
+        const result = await runPublished('enterpriseops-gym', 'model:stand-in-model', {
+          taskIds: [EOG_TASK], out, cacheDir, args: ['--domain', 'teams', '--mode', 'oracle', '--concurrency', '1'],
+          env: { AGENT_BENCH_ROUTER_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, TANGLE_API_KEY: 'local-stand-in' },
+        })
+        assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
+        assert.equal(result.taskScores[0]!.id, EOG_TASK)
+        assert.equal(result.taskScores[0]!.resolved, gold, JSON.stringify(result.taskScores[0]))
+        assert.equal(result.measured, 'model-shaped')
+      } finally {
+        server.close()
+        await rm(out, { recursive: true, force: true })
+      }
+    }
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true })
+  }
+})

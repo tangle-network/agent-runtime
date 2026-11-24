@@ -8,6 +8,10 @@
  * those servers, emitted as a single fenced ```json block of
  * `{ "calls": [ { "tool": ..., "arguments": {...}, "gym_name"?: ... } ] }`.
  *
+ * NOT COMPARABLE to published EnterpriseOps-Gym scores: here the agent writes its whole transcript without seeing any tool
+ * result and the driver replays it, while the publisher's runner has the agent call each tool and read its answer. For a number
+ * comparable to the publisher's, run the publisher's own runner: `agent-bench run enterpriseops-gym` (src/published.ts).
+ *
  * Judge = the benchmark's OWN deterministic state-checker. The driver replays the
  * transcript against a freshly-seeded gym server (mutating its database), then runs
  * each task's `database_state` verifier — an SQL SELECT executed via the gym
