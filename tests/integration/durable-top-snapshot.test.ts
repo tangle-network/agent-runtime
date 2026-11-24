@@ -423,7 +423,12 @@ it('admits a process worker with one turn from a two-iteration graph budget', as
     await writeFile(join(root, 'release'), '')
     const { result } = await superviseGraphPursuit(
       { ...graph, budget: { maxIterations: 2, maxTokens: 30000 } },
-      { runDir: join(root, 'durable'), makeLeafAgent: processLeaf(root, true, false) },
+      {
+        runDir: join(root, 'durable'),
+        pursuitId: 'small-budget-proof',
+        runId: 'small-budget-run',
+        makeLeafAgent: processLeaf(root, true, false),
+      },
     )
     expect(result.result.kind).toBe('winner')
     expect(result.result.tree.nodes).toHaveLength(1)
