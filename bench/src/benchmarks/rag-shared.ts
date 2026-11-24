@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
-import type { BenchScore, BenchTask, LoadOptions } from './types'
+import type { BenchEvaluation, BenchTask, LoadOptions } from './types'
 
 export const FINAL_ANSWER_SENTINEL = 'FINAL ANSWER:'
 
@@ -168,23 +168,20 @@ export function scoreAnswerArtifact(
   return best
 }
 
-export function answerScoreToBenchScore(
+export function answerScoreToEvaluation(
   score: RagAnswerScore,
   detail: Record<string, unknown>,
-): BenchScore {
-  return {
-    resolved: score.resolved,
-    score: score.score,
-    detail: JSON.stringify({
-      ...detail,
-      finalAnswer: score.finalAnswer,
-      bestGold: score.bestGold,
-      exact: score.exact,
-      numeric: score.numeric,
-      f1: score.f1,
-      threshold: score.threshold,
-    }),
+): BenchEvaluation {
+  const raw = {
+    ...detail,
+    finalAnswer: score.finalAnswer,
+    bestGold: score.bestGold,
+    exact: score.exact,
+    numeric: score.numeric,
+    f1: score.f1,
+    threshold: score.threshold,
   }
+  return { passed: score.resolved, score: score.score, notes: JSON.stringify(raw), raw }
 }
 
 export async function readJsonRows(path: string): Promise<unknown[]> {
@@ -219,7 +216,7 @@ export async function readJsonRows(path: string): Promise<unknown[]> {
 
 export function selectTasks(tasks: BenchTask[], opts: LoadOptions, label: string): BenchTask[] {
   let selected = tasks
-  if (opts.split) selected = selected.filter((task) => task.split === opts.split)
+  if (opts.subset) selected = selected.filter((task) => task.payload.subset === opts.subset)
   if (opts.ids) {
     const ids = new Set(opts.ids)
     selected = selected.filter((task) => ids.has(task.id))

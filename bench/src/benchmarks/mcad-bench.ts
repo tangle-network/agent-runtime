@@ -18,9 +18,9 @@
  * is not a closed solid has no well-defined volume or interior, so every downstream
  * number would be fiction. Otherwise the score is the fraction of ASSERTED spec
  * checks passed (each bbox axis, the volume band, the solids band, the triangle
- * floor, and EACH probe count as one check), and `resolved` requires all of them.
+ * floor, and EACH probe count as one check), and `passed` requires all of them.
  *
- * Requires `openscad` + `xvfb-run` on PATH at JUDGE time only; `loadTasks` and the
+ * Requires `openscad` + `xvfb-run` on PATH at JUDGE time only; `loadAll` and the
  * geometry engine below are dependency-free and run anywhere.
  *
  * Geometry checks 1-3 are ported from supervisor-lab's `bench/cad-stl-gate.ts`
@@ -35,7 +35,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { MCAD_GOLDS } from './mcad-golds'
 import { MCAD_TASKS, type McadSpec, type McadTask } from './mcad-tasks'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 
@@ -471,91 +471,97 @@ export async function compileAndMeasure(
   return { ok: true, geo: measureMesh(tris), tris, stlPath }
 }
 
-export function createMcadBenchAdapter(): BenchmarkAdapter {
-  return {
-    name: 'mcad',
+export function createMcadBenchAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'mcad',
 
-    async preflight() {
-      try {
-        await execFileAsync('xvfb-run', ['-a', 'openscad', '--version'], { timeout: 30_000 })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `mcad preflight failed: ${msg}\n` +
-            'Fix: install OpenSCAD + Xvfb (Debian/Ubuntu: sudo apt-get install -y openscad xvfb). ' +
-            'The judge runs `xvfb-run -a openscad --export-format=asciistl -o out.stl model.scad` — both must be on PATH.',
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       let tasks: McadTask[] = MCAD_TASKS
       if (opts.ids) tasks = tasks.filter((t) => opts.ids?.includes(t.id))
       if (opts.limit != null) tasks = tasks.slice(0, opts.limit)
       return tasks.map(
         (t): BenchTask => ({
           id: t.id,
-          prompt: t.prompt,
+          payload: { prompt: t.prompt },
           metadata: { spec: t.spec, source: t.source, calibrated: t.calibrated } satisfies McadTaskMeta,
         }),
       )
     },
 
-    async goldArtifact(task: BenchTask) {
-      return MCAD_GOLDS[task.id]
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const spec = (task.metadata as McadTaskMeta | undefined)?.spec
-      if (!spec) return { resolved: false, score: 0, detail: `task ${task.id} carries no mcad spec` }
+      if (!spec) return { passed: false, score: 0, notes: `task ${task.id} carries no mcad spec`, raw: {} }
 
       const src = stripCodeFence(artifact)
-      if (!src) return { resolved: false, score: 0, detail: 'empty artifact' }
+      if (!src) return { passed: false, score: 0, notes: 'empty artifact', raw: {} }
 
       const built = await compileAndMeasure(src)
-      if (!built.ok) return { resolved: false, score: 0, detail: built.detail }
+      if (!built.ok) return { passed: false, score: 0, notes: built.detail, raw: {} }
 
       const { geo, tris, stlPath } = built
       if (!geo.watertight) {
+        const raw = {
+          gate: 'watertight',
+          failed: [
+            {
+              name: 'watertight',
+              measured: `${geo.openEdges} edge(s) not shared by exactly two faces`,
+              expected: '0 open edges (closed 2-manifold solid)',
+            },
+          ],
+          geo: { triangles: geo.triangles, degenerateFaces: geo.degenerateFaces },
+          stlPath,
+        }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({
-            gate: 'watertight',
-            failed: [
-              {
-                name: 'watertight',
-                measured: `${geo.openEdges} edge(s) not shared by exactly two faces`,
-                expected: '0 open edges (closed 2-manifold solid)',
-              },
-            ],
-            geo: { triangles: geo.triangles, degenerateFaces: geo.degenerateFaces },
-            stlPath,
-          }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
 
       const scored = scoreAgainstSpec(geo, tris, spec)
-      return {
-        resolved: scored.resolved,
-        score: scored.score,
-        detail: JSON.stringify({
-          failed: scored.failed.map((c) => ({ name: c.name, measured: c.measured, expected: c.expected })),
-          checks: Object.fromEntries(scored.checks.map((c) => [c.name, c.ok])),
-          geo: {
-            triangles: geo.triangles,
-            solids: geo.solids,
-            volume: +geo.volume.toFixed(2),
-            degenerateFaces: geo.degenerateFaces,
-            bbox: {
-              x: +geo.bbox.size.x.toFixed(3),
-              y: +geo.bbox.size.y.toFixed(3),
-              z: +geo.bbox.size.z.toFixed(3),
-            },
+      const raw = {
+        failed: scored.failed.map((c) => ({ name: c.name, measured: c.measured, expected: c.expected })),
+        checks: Object.fromEntries(scored.checks.map((c) => [c.name, c.ok])),
+        geo: {
+          triangles: geo.triangles,
+          solids: geo.solids,
+          volume: +geo.volume.toFixed(2),
+          degenerateFaces: geo.degenerateFaces,
+          bbox: {
+            x: +geo.bbox.size.x.toFixed(3),
+            y: +geo.bbox.size.y.toFixed(3),
+            z: +geo.bbox.size.z.toFixed(3),
           },
-          stlPath,
-        }),
+        },
+        stlPath,
+      }
+      return {
+        passed: scored.resolved,
+        score: scored.score,
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        try {
+          await execFileAsync('xvfb-run', ['-a', 'openscad', '--version'], { timeout: 30_000 })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `mcad preflight failed: ${msg}\n` +
+              'Fix: install OpenSCAD + Xvfb (Debian/Ubuntu: sudo apt-get install -y openscad xvfb). ' +
+              'The judge runs `xvfb-run -a openscad --export-format=asciistl -o out.stl model.scad` — both must be on PATH.',
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return MCAD_GOLDS[task.id]
+      },
+    },
+  })
 }

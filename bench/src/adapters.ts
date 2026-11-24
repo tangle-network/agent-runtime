@@ -1,6 +1,6 @@
 /**
  * The benchmark registry — the single source of truth for every wired benchmark.
- * One key per benchmark; the value is its `BenchmarkAdapter` factory. `runBenchmarks`
+ * One key per benchmark; the value is its `RuntimeBenchmark` factory (an agent-eval `BenchmarkAdapter`). `runBenchmarks`
  * (the unifier) maps over this; `run.ts`, `rsi.ts`, and `corpus-replay.mts` all read it
  * here rather than each keeping their own copy.
  */
@@ -15,7 +15,6 @@ import { createCadGenBenchAdapter } from './benchmarks/cadgenbench'
 import { createCommit0Adapter } from './benchmarks/commit0'
 import { createCragAdapter } from './benchmarks/crag'
 import { createDabstepAdapter } from './benchmarks/dabstep'
-import { createEnterpriseOpsGymAdapter } from './benchmarks/enterpriseops-gym'
 import { createFinResearchBenchAdapter } from './benchmarks/finresearchbench'
 import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
@@ -37,13 +36,13 @@ import { createTerminalBenchAdapter } from './benchmarks/terminal-bench'
 import { createToolLlmAdapter } from './benchmarks/toollm'
 import { createTrataHedgeAdapter } from './benchmarks/trata-hedge'
 import { createWebArenaVerifiedAdapter } from './benchmarks/webarena-verified'
-import type { BenchmarkAdapter } from './benchmarks/types'
+import type { RuntimeBenchmark } from './benchmarks/types'
 
-export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
+export const ADAPTERS: Record<string, () => RuntimeBenchmark> = {
   'swe-bench': createSweBenchAdapter,
   'terminal-bench': createTerminalBenchAdapter,
   // Code-benches sharing ./benchmarks/_harness (stage → external evaluator → report).
-  // loadTasks fetches the REAL dataset (committed fixtures fallback offline); judge
+  // loadAll fetches the REAL dataset (committed fixtures fallback offline); evaluate
   // delegates to the benchmark's own harness and fails loud when it/Docker is absent.
   'aec-bench': createAecBenchAdapter,
   commit0: createCommit0Adapter,
@@ -59,7 +58,6 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   // AppWorld's native interactive protocol — the worker is the in-engine ReAct
   // episode (execution feedback every turn), the mode published baselines use.
   'appworld-react': createAppWorldReactAdapter,
-  'enterpriseops-gym': createEnterpriseOpsGymAdapter,
   'cad-design': createCadDesignAdapter,
   // Dimensioned mechanical parts: same OpenSCAD+xvfb judge deps as cad-design, but
   // the spec is metric (bbox / volume / body count / point-in-solid hole probes)
@@ -90,7 +88,7 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
 }
 
 /** Resolve a benchmark key to its adapter, failing loud with the known keys. */
-export function resolveAdapter(key: string): BenchmarkAdapter {
+export function resolveAdapter(key: string): RuntimeBenchmark {
   const make = ADAPTERS[key]
   if (!make) throw new Error(`unknown benchmark ${JSON.stringify(key)} (have: ${Object.keys(ADAPTERS).join(', ')})`)
   return make()

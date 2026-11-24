@@ -3,7 +3,7 @@
  *
  * These are CALIBRATION artifacts, not exemplar answers: their whole job is to
  * prove this adapter's accept direction fires. Every one has been run through
- * `createMcadCqAdapter().judge()` on this host, and a task is reported calibrated
+ * `createMcadCqAdapter().evaluate()` on this host, and a task is reported calibrated
  * only when its gold below scores 1.0 — including the `stepEmitted` check, so
  * every gold really does write a STEP file, which is the deviation v1 could not
  * close.

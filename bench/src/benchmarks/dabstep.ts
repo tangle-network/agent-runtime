@@ -17,7 +17,7 @@ import { isAbsolute, join } from 'node:path'
 import { access, readFile, stat } from 'node:fs/promises'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, runVenvPython, runVenvScriptStdin } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'dabstep.json')
 const DEFAULT_SPLIT = 'easy'
@@ -114,13 +114,15 @@ function rowToTask(row: DabstepFixtureRow, split: string, dir?: string): BenchTa
   }
   return {
     id: String(row.task_id),
-    split,
-    prompt: [
-      'Solve this DABStep data-analysis task using the mounted payment files.',
-      'Use code or shell commands as needed, then return only the final answer.',
-      '',
-      row.instructions,
-    ].join('\n'),
+    payload: {
+      subset: split,
+      prompt: [
+        'Solve this DABStep data-analysis task using the mounted payment files.',
+        'Use code or shell commands as needed, then return only the final answer.',
+        '',
+        row.instructions,
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -128,7 +130,7 @@ function rowToTask(row: DabstepFixtureRow, split: string, dir?: string): BenchTa
 function readMeta(task: BenchTask): DabstepMeta {
   const md = task.metadata
   if (!md || typeof md.taskId !== 'number' || !Array.isArray(md.golds)) {
-    throw new Error(`dabstep task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`dabstep task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as DabstepMeta
 }
@@ -196,43 +198,21 @@ print(json.dumps(out))
   return selectRows(JSON.parse(stdout) as DabstepFixtureRow[], opts, split, dir)
 }
 
-export function createDabstepAdapter(): BenchmarkAdapter {
+export function createDabstepAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.DABSTEP_FIXTURES === '1'
 
-  return {
-    name: 'dabstep',
-    output: dabstepAnswerOutput,
+  return runtimeBenchmark({
+    id: 'dabstep',
 
-    async preflight() {
-      if (fixturesMode) return
-      const dir = dabstepDir()
-      if (!dir) {
-        throw new Error(
-          'DABSTEP_DIR is required. Fix: clone https://github.com/EnvCommons/DABStep and set DABSTEP_DIR=/path/to/DABStep. ' +
-            datasetAcquisitionHint,
-        )
-      }
-      await assertOfficialFiles(dir, DEFAULT_SPLIT)
-      await loadOfficialTasks(dir, { limit: 1 }, DEFAULT_SPLIT)
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
-      const split = opts.split ?? DEFAULT_SPLIT
+    async loadAll(opts: LoadOptions = {}) {
+      const split = opts.subset ?? DEFAULT_SPLIT
       if (fixturesMode) return loadFixtures(opts, split)
       const dir = dabstepDir()
       if (!dir) throw new Error('DABSTEP_DIR is required to load official DABStep tasks')
       return loadOfficialTasks(dir, opts, split)
     },
 
-    async goldArtifact(task: BenchTask) {
-      const meta = readMeta(task)
-      const first = meta.golds[0]
-      if (!first) return undefined
-      const value = first.value
-      return value === undefined ? undefined : String(value)
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const dir = dabstepDir()
       if (!dir) throw new Error('DABSTEP_DIR is required to judge DABStep tasks with the official grade.py')
@@ -245,11 +225,38 @@ export function createDabstepAdapter(): BenchmarkAdapter {
       const report = JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}') as { correct?: boolean; score?: number; error?: string }
       if (report.error) throw new Error(`DABStep judge error for ${task.id}: ${report.error}`)
       const score = typeof report.score === 'number' ? report.score : 0
+      const raw = { taskId: meta.taskId, split: meta.split, correct: report.correct }
       return {
-        resolved: report.correct === true,
+        passed: report.correct === true,
         score,
-        detail: JSON.stringify({ taskId: meta.taskId, split: meta.split, correct: report.correct }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      output: dabstepAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) return
+        const dir = dabstepDir()
+        if (!dir) {
+          throw new Error(
+            'DABSTEP_DIR is required. Fix: clone https://github.com/EnvCommons/DABStep and set DABSTEP_DIR=/path/to/DABStep. ' +
+              datasetAcquisitionHint,
+          )
+        }
+        await assertOfficialFiles(dir, DEFAULT_SPLIT)
+        await loadOfficialTasks(dir, { limit: 1 }, DEFAULT_SPLIT)
+      },
+
+      async goldArtifact(task: BenchTask) {
+        const meta = readMeta(task)
+        const first = meta.golds[0]
+        if (!first) return undefined
+        const value = first.value
+        return value === undefined ? undefined : String(value)
+      },
+    },
+  })
 }

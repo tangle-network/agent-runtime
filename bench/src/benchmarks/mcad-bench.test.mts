@@ -287,21 +287,21 @@ describe('artifact handling', () => {
 
   it('loads tasks with spec/source/calibrated metadata and no openscad', async () => {
     const a = createMcadBenchAdapter()
-    const tasks = await a.loadTasks()
+    const tasks = await a.loadAll()
     expect(tasks).toHaveLength(MCAD_TASKS.length)
     for (const t of tasks) {
       const md = t.metadata as { spec: unknown; source: string; calibrated: boolean }
       expect(md.spec).toBeTruthy()
       expect(typeof md.source).toBe('string')
       expect(typeof md.calibrated).toBe('boolean')
-      expect(typeof (await a.goldArtifact(t))).toBe('string')
+      expect(typeof (await a.runtime.goldArtifact?.(t))).toBe('string')
     }
   })
 
   it('honours ids and limit', async () => {
     const a = createMcadBenchAdapter()
-    expect((await a.loadTasks({ ids: ['l-bracket'] })).map((t) => t.id)).toEqual(['l-bracket'])
-    expect(await a.loadTasks({ limit: 3 })).toHaveLength(3)
+    expect((await a.loadAll({ ids: ['l-bracket'] })).map((t) => t.id)).toEqual(['l-bracket'])
+    expect(await a.loadAll({ limit: 3 })).toHaveLength(3)
   })
 
   it('task 10 asks for separate bodies, never "one fused solid"', () => {
@@ -317,11 +317,11 @@ describe('artifact handling', () => {
 
   it('scores an empty artifact 0 without touching openscad', async () => {
     const a = createMcadBenchAdapter()
-    const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-    const s = await a.judge(t!, '   ')
-    expect(s.resolved).toBe(false)
+    const [t] = await a.loadAll({ ids: ['calibration-block'] })
+    const s = await a.evaluate(t!, '   ')
+    expect(s.passed).toBe(false)
     expect(s.score).toBe(0)
-    expect(s.detail).toBe('empty artifact')
+    expect(s.notes).toBe('empty artifact')
   })
 })
 
@@ -361,7 +361,7 @@ const BLOCK_SCALED_90 = `module gold() {\n${MCAD_GOLDS['calibration-block']}\n}\
 
 describe.skipIf(!OPENSCAD)('mcad judge, live openscad', () => {
   it('preflight passes when the toolchain is present', async () => {
-    await expect(createMcadBenchAdapter().preflight()).resolves.toBeUndefined()
+    await expect(createMcadBenchAdapter().runtime.preflight!()).resolves.toBeUndefined()
   })
 
   for (const task of MCAD_TASKS.filter((t) => t.calibrated)) {
@@ -369,14 +369,14 @@ describe.skipIf(!OPENSCAD)('mcad judge, live openscad', () => {
       `gold for ${task.id} resolves at score 1.0`,
       async () => {
         const a = createMcadBenchAdapter()
-        const [t] = await a.loadTasks({ ids: [task.id] })
-        const gold = await a.goldArtifact(t!)
+        const [t] = await a.loadAll({ ids: [task.id] })
+        const gold = await a.runtime.goldArtifact?.(t!)
         expect(typeof gold).toBe('string')
-        const s = await a.judge(t!, gold as string)
-        const failed = JSON.parse(s.detail ?? '{}').failed ?? []
+        const s = await a.evaluate(t!, gold as string)
+        const failed = JSON.parse(s.notes ?? '{}').failed ?? []
         expect(failed, `failed checks: ${JSON.stringify(failed)}`).toEqual([])
         expect(s.score).toBe(1)
-        expect(s.resolved).toBe(true)
+        expect(s.passed).toBe(true)
       },
       JUDGE_TIMEOUT,
     )
@@ -386,11 +386,11 @@ describe.skipIf(!OPENSCAD)('mcad judge, live openscad', () => {
     'MUST REJECT: the calibration block with its four holes removed fails the bore probes',
     async () => {
       const a = createMcadBenchAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, BLOCK_WITHOUT_HOLES)
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, BLOCK_WITHOUT_HOLES)
+      expect(s.passed).toBe(false)
       expect(s.score).toBeLessThan(1)
-      const failed = (JSON.parse(s.detail as string).failed as Array<{ name: string; measured: string }>).map(
+      const failed = (JSON.parse(s.notes as string).failed as Array<{ name: string; measured: string }>).map(
         (f) => f.name,
       )
       // all five "must be outside" probes now sit in solid material
@@ -408,10 +408,10 @@ describe.skipIf(!OPENSCAD)('mcad judge, live openscad', () => {
     'MUST REJECT: the calibration block scaled to 90 x 54 x 18 fails every bbox axis',
     async () => {
       const a = createMcadBenchAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, BLOCK_SCALED_90)
-      expect(s.resolved).toBe(false)
-      const detail = JSON.parse(s.detail as string) as {
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, BLOCK_SCALED_90)
+      expect(s.passed).toBe(false)
+      const detail = JSON.parse(s.notes as string) as {
         failed: Array<{ name: string; measured: string; expected: string }>
         geo: { bbox: { x: number; y: number; z: number } }
       }
@@ -431,11 +431,11 @@ describe.skipIf(!OPENSCAD)('mcad judge, live openscad', () => {
     'MUST REJECT: a non-watertight surface is scored 0 by the hard gate',
     async () => {
       const a = createMcadBenchAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, 'polyhedron(points=[[0,0,0],[10,0,0],[0,10,0]], faces=[[0,1,2]]);')
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, 'polyhedron(points=[[0,0,0],[10,0,0],[0,10,0]], faces=[[0,1,2]]);')
+      expect(s.passed).toBe(false)
       expect(s.score).toBe(0)
-      expect(JSON.parse(s.detail as string).gate).toBe('watertight')
+      expect(JSON.parse(s.notes as string).gate).toBe('watertight')
     },
     JUDGE_TIMEOUT,
   )
@@ -444,11 +444,11 @@ describe.skipIf(!OPENSCAD)('mcad judge, live openscad', () => {
     'MUST REJECT: source that does not compile is scored 0',
     async () => {
       const a = createMcadBenchAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, 'this is not openscad {{{')
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, 'this is not openscad {{{')
+      expect(s.passed).toBe(false)
       expect(s.score).toBe(0)
-      expect(s.detail).toMatch(/compile failed/)
+      expect(s.notes).toMatch(/compile failed/)
     },
     JUDGE_TIMEOUT,
   )

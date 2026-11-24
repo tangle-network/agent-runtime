@@ -63,7 +63,7 @@ export const SWE_SEED_PROMPT =
  * The WITH-TOOLS arm: the baseline prompt PLUS the run-tool workflow (write a failing repro, edit, re-run
  * until it passes). Only used when the environment is built with `enableRun`. Kept as a separate constant
  * so enabling the run tool never mutates the read/edit-only baseline. Also reconciles the now-active
- * confusion from loadTasks' userPrompt (which says the repo is "at /work, cd /work" — the container path
+ * confusion from loadAll's userPrompt (which says the repo is "at /work, cd /work" — the container path
  * from the sandbox path; here the run tool's cwd is the repo root and there is nothing to cd into).
  */
 // NOTE (WAF): the router sits behind a Cloudflare WAF whose RCE ruleset 403s any request body that
@@ -291,8 +291,8 @@ export async function createSweBenchEnvironment(
   // the established read/edit-only baseline byte-identical.
   const enableRun = opts.enableRun ?? false
   const pool = opts.ids?.length
-    ? await adapter.loadTasks({ ids: [...opts.ids], split: 'test' })
-    : await adapter.loadTasks({ limit: poolN, split: 'test' })
+    ? await adapter.loadAll({ ids: [...opts.ids], subset: 'test' })
+    : await adapter.loadAll({ limit: poolN, subset: 'test' })
   const byId = new Map(pool.map((t) => [t.id, t]))
   // Each environment owns its workspace registry so concurrent environments don't share state.
   const workspaces = new Map<string, Ws>()
@@ -518,8 +518,8 @@ export async function createSweBenchEnvironment(
       }
       if (!patch.trim()) return { passes: 0, total: 1, errored: 0 }
       try {
-        const s = await adapter.judge(ws.task, patch)
-        return { passes: s.resolved ? 1 : 0, total: 1, errored: 0 }
+        const s = await adapter.evaluate(ws.task, patch)
+        return { passes: s.passed ? 1 : 0, total: 1, errored: 0 }
       } catch {
         return { passes: 0, total: 1, errored: 1 }
       }
@@ -538,7 +538,7 @@ export async function createSweBenchEnvironment(
     return slice.map((bt) => ({
       id: bt.id,
       systemPrompt: enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT,
-      userPrompt: bt.prompt,
+      userPrompt: bt.payload.prompt,
       meta: { instanceId: bt.id },
     }))
   }

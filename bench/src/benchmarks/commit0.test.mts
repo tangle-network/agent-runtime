@@ -1,7 +1,7 @@
 /**
  * Offline commit0 adapter test. The judge needs the official `commit0` harness +
  * a Docker daemon, neither installed in CI, so this exercises the parts that run
- * offline (fixtures loadTasks, the diff OutputAdapter, goldArtifact) and asserts
+ * offline (fixtures loadAll, the diff OutputAdapter, goldArtifact) and asserts
  * the harness-backed path FAILS LOUD with the documented fix — never a fake score.
  * Run: COMMIT0_FIXTURES=1 npx tsx --test src/benchmarks/commit0.test.mts
  */
@@ -14,22 +14,22 @@ process.env.COMMIT0_FIXTURES = '1'
 type Events = Parameters<typeof commit0DiffOutput.parse>[0]
 const stream = (text: string): Events => [{ data: { finalText: text } }] as unknown as Events
 
-test('loadTasks (fixtures) yields stubbed-library tasks with diff-deliverable prompt + metadata', async () => {
+test('loadAll (fixtures) yields stubbed-library tasks with diff-deliverable prompt + metadata', async () => {
   const a = createCommit0Adapter()
-  const tasks = await a.loadTasks({ ids: ['commit-0/wcwidth'] })
+  const tasks = await a.loadAll({ ids: ['commit-0/wcwidth'] })
   assert.equal(tasks.length, 1)
   const t = tasks[0]
   assert.equal(t.id, 'commit-0/wcwidth')
-  assert.match(t.prompt, /```diff/)
+  assert.match(t.payload.prompt, /```diff/)
   const md = t.metadata as Record<string, unknown>
   assert.equal(md.instanceId, 'commit-0/wcwidth')
   assert.equal(typeof md.referenceCommit, 'string')
   assert.equal(md.srcDir, 'wcwidth/')
 })
 
-test('loadTasks limit slices the fixture set', async () => {
+test('loadAll limit slices the fixture set', async () => {
   const a = createCommit0Adapter()
-  const tasks = await a.loadTasks({ limit: 2 })
+  const tasks = await a.loadAll({ limit: 2 })
   assert.equal(tasks.length, 2)
 })
 
@@ -47,8 +47,8 @@ test('diff OutputAdapter: last fenced ```diff wins; fence-less falls back to tri
 
 test('goldArtifact is undefined — oracle is a git ref, documented, not a fabricated diff', async () => {
   const a = createCommit0Adapter()
-  const [t] = await a.loadTasks({ ids: ['commit-0/wcwidth'] })
-  assert.equal(await a.goldArtifact(t), undefined)
+  const [t] = await a.loadAll({ ids: ['commit-0/wcwidth'] })
+  assert.equal(await a.runtime.goldArtifact?.(t), undefined)
 })
 
 test('preflight FAILS LOUD with the install/Docker fix when the harness venv is absent', async () => {
@@ -59,7 +59,7 @@ test('preflight FAILS LOUD with the install/Docker fix when the harness venv is 
   process.env.COMMIT0_VENV = '.venv-commit0-does-not-exist'
   try {
     const a = createCommit0Adapter()
-    await assert.rejects(a.preflight(), (e: Error) => {
+    await assert.rejects(a.runtime.preflight!(), (e: Error) => {
       assert.match(e.message, /pip install commit0/)
       assert.match(e.message, /Docker daemon/)
       return true

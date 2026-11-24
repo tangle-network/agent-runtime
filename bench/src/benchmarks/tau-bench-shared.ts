@@ -13,7 +13,7 @@ import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { runVenvPython } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 
@@ -162,16 +162,18 @@ function rowToTask(row: TauRow, config: TauBenchConfig, split?: string, pin?: Ta
   }
   return {
     id: row.id,
-    split,
-    prompt: [
-      config.taskIntro,
-      `Run this task in the official ${row.domain} domain.`,
-      'The benchmark is a simulated multi-turn user/tool conversation.',
-      '',
-      typeof row.user_scenario === 'string' ? row.user_scenario : JSON.stringify(row.user_scenario ?? {}, null, 2),
-      '',
-      'Return the path to the official tau results.json or trajectory file containing this task run.',
-    ].join('\n'),
+    payload: {
+      subset: split,
+      prompt: [
+        config.taskIntro,
+        `Run this task in the official ${row.domain} domain.`,
+        'The benchmark is a simulated multi-turn user/tool conversation.',
+        '',
+        typeof row.user_scenario === 'string' ? row.user_scenario : JSON.stringify(row.user_scenario ?? {}, null, 2),
+        '',
+        'Return the path to the official tau results.json or trajectory file containing this task run.',
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -179,7 +181,7 @@ function rowToTask(row: TauRow, config: TauBenchConfig, split?: string, pin?: Ta
 function readMeta(task: BenchTask, benchName: string): TauMeta {
   const md = task.metadata
   if (!md || typeof md.taskId !== 'string' || typeof md.domain !== 'string') {
-    throw new Error(`${benchName} task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`${benchName} task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as TauMeta
 }
@@ -199,7 +201,7 @@ function selectRows(rows: TauRow[], opts: LoadOptions, config: TauBenchConfig, s
 async function loadFixtures(config: TauBenchConfig, opts: LoadOptions): Promise<BenchTask[]> {
   const rows = JSON.parse(await readFile(config.fixturePath, 'utf8')) as TauRow[]
   console.warn(`[${config.name}] ${config.fixturesEnv}=1 — loading ${rows.length} adapter fixtures`)
-  return selectRows(rows, opts, config, opts.split)
+  return selectRows(rows, opts, config, opts.subset)
 }
 
 async function loadOfficialTasks(config: TauBenchConfig, root: string, opts: LoadOptions): Promise<BenchTask[]> {
@@ -223,13 +225,13 @@ for task in tasks:
 print(json.dumps({"upstreamVersion": upstream_version, "rows": rows}))
 `
   const upstreamCommit = await resolveUpstreamCommit(root, config.name)
-  const stdout = await runVenvPython(script, [root, domain, opts.split ?? ''])
+  const stdout = await runVenvPython(script, [root, domain, opts.subset ?? ''])
   const report = JSON.parse(stdout) as { upstreamVersion?: unknown; rows?: unknown }
   if (typeof report.upstreamVersion !== 'string' || report.upstreamVersion.length === 0 || !Array.isArray(report.rows)) {
     throw new Error(`${config.name}: upstream task loader returned no pinned version/rows`)
   }
   const pin: TauUpstreamPin = { upstreamCommit, upstreamVersion: report.upstreamVersion }
-  return selectRows(report.rows as TauRow[], opts, config, opts.split, pin)
+  return selectRows(report.rows as TauRow[], opts, config, opts.subset, pin)
 }
 
 async function scoreOfficialTrajectory(root: string, meta: TauMeta, artifactPath: string): Promise<Record<string, unknown>> {
@@ -257,35 +259,20 @@ print(json.dumps({"count": len(scores), "score": sum(scores) / len(scores), "sco
   return JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}') as Record<string, unknown>
 }
 
-export function createTauBenchAdapter(config: TauBenchConfig): BenchmarkAdapter {
+export function createTauBenchAdapter(config: TauBenchConfig): RuntimeBenchmark {
   const fixturesMode = process.env[config.fixturesEnv] === '1'
 
-  return {
-    name: config.name,
-    output: tauResultsOutput,
+  return runtimeBenchmark({
+    id: config.name,
 
-    async preflight() {
-      if (fixturesMode) return
-      const dir = benchDir(config)
-      if (!dir) {
-        throw new Error(`${config.dirEnv} is required. Fix: ${config.installHint}`)
-      }
-      await assertPath(`${dir}/src/tau2/registry.py`, 'tau registry', config.name)
-      await loadOfficialTasks(config, dir, { limit: 1 })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(config, opts)
       const dir = benchDir(config)
       if (!dir) throw new Error(`${config.dirEnv} is required to load official ${config.name} tasks`)
       return loadOfficialTasks(config, dir, opts)
     },
 
-    async goldArtifact() {
-      return undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const dir = benchDir(config)
       if (!dir) throw new Error(`${config.dirEnv} is required to judge ${config.name} trajectory artifacts`)
       const meta = readMeta(task, config.name)
@@ -300,17 +287,37 @@ export function createTauBenchAdapter(config: TauBenchConfig): BenchmarkAdapter 
       const live: TauUpstreamPin = { upstreamCommit, upstreamVersion }
       assertTauUpstreamPinUnchanged(config.name, meta.taskId, meta, live)
       const score = typeof report.score === 'number' ? report.score : 0
+      const raw = {
+        taskId: meta.taskId,
+        domain: meta.domain,
+        count: report.count,
+        upstreamCommit,
+        upstreamVersion,
+      }
       return {
-        resolved: score === 1,
+        passed: score === 1,
         score,
-        detail: JSON.stringify({
-          taskId: meta.taskId,
-          domain: meta.domain,
-          count: report.count,
-          upstreamCommit,
-          upstreamVersion,
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      output: tauResultsOutput,
+
+      async preflight() {
+        if (fixturesMode) return
+        const dir = benchDir(config)
+        if (!dir) {
+          throw new Error(`${config.dirEnv} is required. Fix: ${config.installHint}`)
+        }
+        await assertPath(`${dir}/src/tau2/registry.py`, 'tau registry', config.name)
+        await loadOfficialTasks(config, dir, { limit: 1 })
+      },
+
+      async goldArtifact() {
+        return undefined
+      },
+    },
+  })
 }

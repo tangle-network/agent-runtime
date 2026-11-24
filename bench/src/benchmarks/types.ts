@@ -1,24 +1,37 @@
 /**
- * BenchmarkAdapter — the seam every external benchmark implements so the
- * agent-runtime loop can be A/B'd (blind vs steering vs steering+memory) against
- * a REAL, DETERMINISTIC judge. The worker produces an `artifact` (a patch, a
- * command transcript, a final state); the benchmark's own harness scores it.
+ * agent-bench's benchmarks are agent-eval `BenchmarkAdapter`s, the one benchmark contract, each with the
+ * `runtime` hooks an agent-runtime worker needs: the prompt, the deliverable parser, the in-box workspace
+ * setup and extraction, and, where the benchmark's own protocol is the worker, that worker.
  *
- * The point: no self-authored judge, no invented score noise. The number comes
- * from the benchmark's published evaluation harness.
+ * The point: no self-authored judge, no invented score noise. `evaluate` is the benchmark's published
+ * evaluation harness, run on the artifact the worker produced.
+ *
+ * A public benchmark reports every task, so each one also has `loadAll`, a loader that ignores agent-eval's
+ * search/dev/holdout splits, as agent-eval's own Harbor adapter has. `loadDataset(split)` serves the same
+ * tasks by agent-eval's deterministic split.
  */
 
-import type { AgentTurnUsage, OutputAdapter } from '@tangle-network/agent-runtime/kernel'
+import {
+  type BenchmarkAdapter,
+  type BenchmarkDatasetItem,
+  type BenchmarkEvaluation,
+  type BenchmarkLoadOptions,
+  type BenchmarkRuntimeHooks,
+  deterministicSplit,
+  selectBenchmarkItems,
+} from '@tangle-network/agent-eval/benchmarks'
+import type { RunSplitTag } from '@tangle-network/agent-eval'
+import type { AgentTurnUsage } from '@tangle-network/agent-runtime/kernel'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 
-export interface BenchTask {
-  /** Stable benchmark instance id. */
-  id: string
-  /** The task statement handed to the worker agent. */
+/** What the worker is handed, and the publisher's subset (domain, category, language, dataset version) the task is in. */
+export interface BenchPayload {
   prompt: string
-  split?: string
-  /** Benchmark-specific fields the worker/judge need (repo, base_commit, gold, …). */
-  metadata?: Record<string, unknown>
+  subset?: string
 }
+
+/** One benchmark instance. `metadata` carries the fields the worker and judge need (repo, base_commit, gold, …). */
+export type BenchTask = BenchmarkDatasetItem<BenchPayload>
 
 export interface JudgeArtifactFileReceipt {
   /** POSIX path relative to the capture directory. */
@@ -46,12 +59,9 @@ export interface JudgeArtifactReceipt {
   treeSha256: `sha256:${string}`
 }
 
-export interface BenchScore {
-  /** Did the deterministic judge pass (tests resolved / state correct)? */
-  resolved: boolean
-  /** 0..1 — 1 = fully resolved; partial credit where the harness supports it. */
-  score: number
-  detail?: string
+/** agent-eval's verdict (`passed`: the judge passed; `score` 0..1 with partial credit where the harness has it;
+ *  `notes`), plus the evidence agent-bench's judges keep. */
+export interface BenchEvaluation extends BenchmarkEvaluation {
   /** Present only when the caller explicitly requested durable judge evidence. */
   judgeArtifacts?: JudgeArtifactReceipt
   /** The judge model turn's exact Runtime usage record, present only when the
@@ -61,45 +71,46 @@ export interface BenchScore {
   judgeUsage?: AgentTurnUsage
 }
 
-export interface LoadOptions {
-  limit?: number
-  split?: string
-  ids?: string[]
+/** agent-eval's load options (`limit`, `ids`), plus the publisher's subset. */
+export interface LoadOptions extends BenchmarkLoadOptions {
+  subset?: string
 }
 
-export interface BenchmarkAdapter {
-  readonly name: string
-  /** Throw with actionable guidance when the harness/judge isn't installed/runnable. */
-  preflight(): Promise<void>
-  loadTasks(opts?: LoadOptions): Promise<BenchTask[]>
-  /** DETERMINISTIC judge: score the worker's produced artifact for a task. */
-  judge(task: BenchTask, artifact: string): Promise<BenchScore>
-  /** Gold/oracle artifact — lets us self-verify the judge before spending model tokens. */
-  goldArtifact(task: BenchTask): Promise<string | undefined>
-  /** How to extract the judged artifact from a run's event stream. Optional —
-   *  defaults to the agent's final answer text (the research/QA case). SWE sets
-   *  it to a patch parser. This is `benchmark = adapter` owning its deliverable,
-   *  so the gate runner (`runGate` / `runBenchmark`) needs no
-   *  per-benchmark branching. */
-  output?: OutputAdapter<string>
-  /** Post-shot deliverable extraction from the box FILESYSTEM, not the event stream.
-   *  When set, the shot runner execs `command` in the STILL-ALIVE box after the agent
-   *  turn drains and uses its stdout as the judged artifact — the durable way to capture
-   *  a git diff of the agent's in-box edits (standard SWE-bench practice: SWE-agent /
-   *  OpenHands read the diff from repo STATE), instead of hoping the model printed a
-   *  fenced diff in its reply. Empty stdout ⇒ the runner falls back to `output` (the
-   *  event-stream parse). `cwd` defaults to the box root. */
-  boxExtract?(task: BenchTask): { command: string; cwd?: string }
-  /** Optional workspace pre-stage run in the box BEFORE the agent shot (same
-   *  session as `boxExtract`). For repo-state benchmarks (SWE-bench) this clones
-   *  the instance repo at `base_commit` into a fixed path so the agent only edits
-   *  — the harness owns the checkout, not the (stochastic) model. A non-zero exit
-   *  fails the shot loud rather than letting the agent run against an empty box. */
-  boxSetup?(task: BenchTask): { command: string; cwd?: string }
-  /** Benchmark-owned worker leaf. Set when the benchmark's native protocol IS the
-   *  worker (e.g. AppWorld's interactive ReAct episode runs inside the engine,
-   *  not as a chat completion) — the experiment uses this instead of the
-   *  BACKEND-selected client; the steer still flows through the per-round prompt.
-   *  Typed loosely to avoid a runtime import cycle; the harness casts it. */
-  leafClient?: (cfg: { model: string; routerBaseUrl: string; routerKey: string }) => unknown
+/** The runtime hooks over agent-runtime's sandbox events. `workspaceSetup` runs in the box before the agent
+ *  shot (a non-zero exit fails the shot); `workspaceExtract` runs in the still-alive box after it, and its
+ *  stdout is the judged artifact (empty stdout falls back to `output`, then the final answer text). */
+export type BenchRuntime = BenchmarkRuntimeHooks<BenchPayload, string, SandboxEvent>
+
+/** An agent-eval `BenchmarkAdapter` an agent-runtime worker runs. */
+export interface RuntimeBenchmark extends BenchmarkAdapter<BenchTask, BenchPayload, string, SandboxEvent> {
+  readonly id: string
+  readonly runtime: BenchRuntime
+  /** Every task in the publisher's order, ignoring agent-eval's splits. */
+  loadAll(options?: LoadOptions): Promise<BenchTask[]>
+  /** The benchmark's own judge on the worker's artifact. */
+  evaluate(item: BenchTask, artifact: string): Promise<BenchEvaluation>
+}
+
+export type RuntimeBenchmarkSpec = Omit<RuntimeBenchmark, 'loadDataset' | 'assignSplit' | 'runtime'> & {
+  assignSplit?: RuntimeBenchmark['assignSplit']
+  /** `prompt` defaults to the task's `payload.prompt`. */
+  runtime?: Omit<BenchRuntime, 'prompt'> & Partial<Pick<BenchRuntime, 'prompt'>>
+}
+
+/** Build a `RuntimeBenchmark`: splits default to agent-eval's `deterministicSplit` over `<id>::<task id>`. */
+export function runtimeBenchmark(spec: RuntimeBenchmarkSpec): RuntimeBenchmark {
+  const assignSplit =
+    spec.assignSplit ?? ((itemId: string): RunSplitTag => deterministicSplit(`${spec.id}::${itemId}`))
+  return {
+    ...spec,
+    runtime: { prompt: (task) => task.payload.prompt, ...spec.runtime },
+    assignSplit,
+    async loadDataset(split, options) {
+      const tasks = await spec.loadAll(options?.ids?.length ? { ids: options.ids } : {})
+      const inSplit = tasks
+        .map((task) => ({ ...task, split: task.split ?? assignSplit(task.id) }))
+        .filter((task) => task.split === split)
+      return selectBenchmarkItems(inSplit, options)
+    },
+  }
 }

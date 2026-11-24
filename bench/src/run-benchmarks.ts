@@ -10,12 +10,12 @@
  * It owns no new mechanism. Each cell is one `openSandboxRun` shot (the same per-run primitive the
  * SWE worker uses) driven by `resolveBenchClient` (off-box router completion OR in-box Sandbox; the
  * harness rides `sandboxOverrides.backend.type`). The deliverable is the adapter's OWN parser
- * (`adapter.output`), defaulting to the final answer text — so `runBenchmarks` needs no
+ * (`adapter.runtime.output`), defaulting to the final answer text — so `runBenchmarks` needs no
  * per-benchmark branching. Concurrency is the shared `runPool`. The number comes from
- * `adapter.judge`, never a self-authored judge.
+ * `adapter.evaluate`, never a self-authored judge.
  *
- * Subset = the `benchmarks` and `cells` arrays plus `n`/`ids`/`split`. A benchmark whose
- * `preflight()` fails (missing Docker/venv/dataset) is recorded as unavailable and skipped — the
+ * Subset = the `benchmarks` and `cells` arrays plus `n`/`ids`/`subset`. A benchmark whose
+ * `runtime.preflight()` fails (missing Docker/venv/dataset) is recorded as unavailable and skipped — the
  * sweep never aborts because one bench's harness is absent.
  *
  *   const report = await runBenchmarks({
@@ -41,7 +41,7 @@ import type {
 import { openSandboxRun, SandboxRunAbortError, sumSandboxUsage } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { resolveAdapter } from './adapters'
-import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
+import type { BenchEvaluation, BenchTask, RuntimeBenchmark } from './benchmarks/types'
 import { runRefineLoop } from './refine-loop'
 import { resolveBenchClient } from './resolve-client'
 import { runPool } from './run-pool'
@@ -111,10 +111,10 @@ export interface BenchShotResult {
 
 /** Runs one (adapter, task, cell) shot. Defaults to `openSandboxRun`. */
 export type BenchShot = (input: {
-  readonly adapter: BenchmarkAdapter
+  readonly adapter: RuntimeBenchmark
   readonly task: BenchTask
   readonly cell: BenchCell
-  /** Prompt to hand to the worker. Defaults to `task.prompt`; looped runs pass revised prompts. */
+  /** Prompt to hand to the worker. Defaults to `adapter.runtime.prompt(task)`; looped runs pass revised prompts. */
   readonly prompt?: string
   /** 1-based attempt index for looped runs. */
   readonly attempt?: number
@@ -147,7 +147,8 @@ export interface RunBenchmarksOptions {
   /** Tasks per benchmark (the n). */
   readonly n?: number
   readonly ids?: string[]
-  readonly split?: string
+  /** The publisher's subset (domain, category, language), for benchmarks that have them. */
+  readonly subset?: string
   /** Replicates per (benchmark × cell × task). Default 1. */
   readonly reps?: number
   /** Bounded concurrency across all shots. Default 4. */
@@ -169,7 +170,7 @@ export interface RunBenchmarksOptions {
   /** Test seam: a deterministic shot runner. Defaults to the `openSandboxRun` leaf. */
   readonly runShot?: BenchShot
   /** Test seam: resolve a benchmark key to an adapter. Defaults to the registry `resolveAdapter`. */
-  readonly resolveAdapter?: (key: string) => BenchmarkAdapter
+  readonly resolveAdapter?: (key: string) => RuntimeBenchmark
   readonly onResult?: (r: BenchCellTaskResult) => void
 }
 
@@ -272,14 +273,14 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
     name: cell.label,
     taskToPrompt: () => '',
     sandboxOverrides: {
-      name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
+      name: `bench-${adapter.id}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
       backend: { type: harness as never, model: { provider: profileProvider, model: cell.model, baseUrl: routerBaseUrl, ...(modelApiKey === undefined ? {} : { apiKey: modelApiKey }) } },
     },
   }
   const deliverable: Deliverable<string> = {
     kind: 'events',
-    fromEvents: (events) => (adapter.output ? adapter.output.parse(events) : finalText(events)),
+    fromEvents: (events) => (adapter.runtime.output ? adapter.runtime.output.parse(events) : finalText(events)),
   }
   const controller = new AbortController()
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
@@ -287,14 +288,14 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
   const runOptions: OpenSandboxRunOptions = {
     agentRun,
     signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
-    runId: `bench:${adapter.name}:${task.id}:${uniq}`,
+    runId: `bench:${adapter.id}:${task.id}:${uniq}`,
     scenarioId: task.id,
     onSandboxEvent: (event) => { observedEvents.push(event) },
   }
-  const boxSetup = adapter.boxSetup
-  if (boxSetup) {
+  const workspaceSetup = adapter.runtime.workspaceSetup
+  if (workspaceSetup) {
     runOptions.beforeStart = async ({ box, sessionId }) => {
-      const setup = boxSetup(task)
+      const setup = workspaceSetup(task)
       const sres = await box.exec(setup.command, {
         timeoutMs: 300_000,
         sessionId,
@@ -302,7 +303,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
       })
       if (sres.exitCode !== 0)
         throw new Error(
-          `boxSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`,
+          `workspaceSetup failed (exit ${sres.exitCode}): ${(sres.stderr ?? '').slice(0, 200)}`,
         )
     }
   }
@@ -366,7 +367,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
       return pending
     }
     const context: BenchExecutionContext = {
-      prompt: prompt ?? task.prompt, profile: structuredClone(profile), benchmark: adapter.name, taskId: task.id, attempt,
+      prompt: prompt ?? adapter.runtime.prompt(task), profile: structuredClone(profile), benchmark: adapter.id, taskId: task.id, attempt,
       signal: runOptions.signal,
       run: {
         start: (input) => invoke('start', input),
@@ -398,16 +399,16 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
         terminalOutcome: turn.outcome.success ? 'succeeded' : turn.outcome.status === 'failed' ? 'failed' : 'incomplete',
       },
     }
-    // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
+    // Event-stream deliverable (adapter.runtime.output ?? finalText) — the FALLBACK.
     let artifact = (turn.out ?? '').trim()
-    let boxExtractError: string | undefined
+    let workspaceExtractError: string | undefined
     // Primary deliverable for benchmarks whose real artifact lives in the box FS
     // (SWE-bench: a git diff of the agent's edits). Run the adapter's extraction
     // command in the STILL-ALIVE box (valid until run.close() below) and prefer its
     // stdout; the event-stream parse remains the fallback when the box yields nothing.
-    if (adapter.boxExtract) {
+    if (adapter.runtime.workspaceExtract) {
       try {
-        const ex = adapter.boxExtract(task)
+        const ex = adapter.runtime.workspaceExtract(task)
         // The agent runs under a DRIVER SESSION whose workspace is a remapped
         // virtual root; an exec WITHOUT that sessionId lands on the host FS and
         // cannot see the agent's edits. Thread run.sessionId so the extraction
@@ -419,12 +420,12 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
         })
         const boxArtifact = (res.stdout ?? '').trim()
         if (res.exitCode !== 0)
-          boxExtractError = `exit ${res.exitCode}: ${(res.stderr ?? '').slice(0, 160)}`
+          workspaceExtractError = `exit ${res.exitCode}: ${(res.stderr ?? '').slice(0, 160)}`
         else if (boxArtifact.length > 0) artifact = boxArtifact
         if (process.env.BENCH_ARTIFACT_DIR) {
           try {
             mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
-            const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+            const safe = `${adapter.id}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
             const map = await run.box
               .exec(
                 'echo "PWD:"; pwd; echo "LS:"; ls -la; echo "GITROOTS:"; find / -maxdepth 5 -type d -name .git 2>/dev/null; echo "SETTINGS:"; find / -maxdepth 8 -name global_settings.py -path "*conf*" 2>/dev/null',
@@ -444,7 +445,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
           }
         }
       } catch (err) {
-        boxExtractError = err instanceof Error ? err.message.slice(0, 160) : String(err)
+        workspaceExtractError = err instanceof Error ? err.message.slice(0, 160) : String(err)
       }
     }
     const detail =
@@ -452,8 +453,8 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
         ? turn.outcome.error ?? `agent ended with status ${turn.outcome.status}`
         : turn.readError !== undefined
         ? `read: ${turn.readError.slice(0, 160)}`
-        : boxExtractError !== undefined
-          ? `boxExtract: ${boxExtractError}`
+        : workspaceExtractError !== undefined
+          ? `workspaceExtract: ${workspaceExtractError}`
           : undefined
     // Debug affordance: dump the judged artifact (the exact model_patch the judge
     // will score) so a scoring failure can be diagnosed off the real bytes without
@@ -461,7 +462,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
     if (process.env.BENCH_ARTIFACT_DIR) {
       try {
         mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
-        const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+        const safe = `${adapter.id}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
         writeFileSync(`${process.env.BENCH_ARTIFACT_DIR}/${safe}.patch`, artifact)
       } catch {
         // debug-only; never fail the shot on a dump error
@@ -469,9 +470,9 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt
     }
     result = {
       artifact,
-      ok: turn.outcome.success && artifact.length > 0 && turn.readError === undefined && boxExtractError === undefined,
+      ok: turn.outcome.success && artifact.length > 0 && turn.readError === undefined && workspaceExtractError === undefined,
       execution: result.execution,
-      artifactAvailable: turn.readError === undefined && boxExtractError === undefined,
+      artifactAvailable: turn.readError === undefined && workspaceExtractError === undefined,
       usage: result.usage,
       events: observedEvents,
       prompts,
@@ -543,11 +544,11 @@ function redactJudgeLeak(value: unknown): unknown {
   return out
 }
 
-function safeFeedback(score: BenchScore): Record<string, unknown> {
+function safeFeedback(score: BenchEvaluation): Record<string, unknown> {
   return {
-    resolved: score.resolved,
+    resolved: score.passed === true,
     score: score.score,
-    ...(score.detail ? { detail: redactJudgeLeak(parseMaybeJson(score.detail)) } : {}),
+    ...(score.notes ? { detail: redactJudgeLeak(parseMaybeJson(score.notes)) } : {}),
   }
 }
 
@@ -555,7 +556,7 @@ function truncate(value: string, max = 4_000): string {
   return value.length <= max ? value : `${value.slice(0, max)}\n...[truncated ${value.length - max} chars]`
 }
 
-function retryPrompt(task: BenchTask, history: ReadonlyArray<{ round: number; artifact: string }>, scores: ReadonlyMap<number, BenchScore>): string {
+function retryPrompt(prompt: string, history: ReadonlyArray<{ round: number; artifact: string }>, scores: ReadonlyMap<number, BenchEvaluation>): string {
   const attempts = history
     .map((h) => {
       const score = scores.get(h.round)
@@ -575,7 +576,7 @@ function retryPrompt(task: BenchTask, history: ReadonlyArray<{ round: number; ar
     'Return the corrected artifact in exactly the format requested by the original task.',
     '',
     'Original task:',
-    task.prompt,
+    prompt,
     '',
     'Previous attempts and safe checker feedback:',
     attempts,
@@ -587,14 +588,17 @@ async function loopedShot(
   shot: BenchShot,
   attempts: number,
 ): Promise<BenchShotResult> {
-  const scores = new Map<number, BenchScore>()
+  const scores = new Map<number, BenchEvaluation>()
   const shots = new Map<number, BenchShotResult>()
   let pendingShot = false
   let result: Awaited<ReturnType<typeof runRefineLoop<string>>>
   try {
     result = await runRefineLoop<string>({
       rounds: attempts,
-      prompt: (round, history) => (round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores)),
+      prompt: (round, history) => {
+        const original = input.adapter.runtime.prompt(input.task)
+        return round === 1 ? original : retryPrompt(original, history, scores)
+      },
       runShot: async (prompt, round) => {
         input.signal?.throwIfAborted()
         pendingShot = true
@@ -604,10 +608,10 @@ async function loopedShot(
         return { artifact: out.artifact, note: out.detail }
       },
       judge: async (artifact, round) => {
-        const score = await input.adapter.judge(input.task, artifact)
+        const score = await input.adapter.evaluate(input.task, artifact)
         scores.set(round, score)
         const succeeded = shots.get(round)?.ok === true
-        return { valid: succeeded && score.resolved, score: succeeded ? score.score : 0 }
+        return { valid: succeeded && score.passed === true, score: succeeded ? score.score : 0 }
       },
     })
   } catch (err) {
@@ -633,8 +637,8 @@ async function loopedShot(
     const b = scores.get(candidate.round)
     if (!a) return candidate
     if (!b) return winner
-    if (b.resolved && !a.resolved) return candidate
-    if (b.resolved === a.resolved && b.score > a.score) return candidate
+    if (b.passed && !a.passed) return candidate
+    if (!!b.passed === !!a.passed && b.score > a.score) return candidate
     return winner
   }, result.rounds[0]!)
   const bestScore = scores.get(best.round)
@@ -655,7 +659,7 @@ async function loopedShot(
       rounds: result.rounds.map((round) => ({
         attempt: round.round,
         score: scores.get(round.round)?.score ?? null,
-        resolved: scores.get(round.round)?.resolved ?? null,
+        resolved: scores.get(round.round)?.passed ?? null,
         note: round.note ?? null,
       })),
     }),
@@ -695,7 +699,7 @@ function combineDetails(runDetail: string | undefined, scoreDetail: string | und
 
 interface Job {
   readonly benchmark: string
-  readonly adapter: BenchmarkAdapter
+  readonly adapter: RuntimeBenchmark
   readonly cell: BenchCell
   readonly task: BenchTask
   readonly rep: number
@@ -705,29 +709,29 @@ interface Job {
  *  whose harness is absent or whose judge rejects its own gold is recorded unavailable, not run. */
 async function prepareBenchmarks(
   benchmarks: readonly string[],
-  resolve: (key: string) => BenchmarkAdapter,
-  opts: Pick<RunBenchmarksOptions, 'n' | 'ids' | 'split' | 'verifyJudge'>,
-): Promise<{ ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }>; unavailable: Array<{ benchmark: string; reason: string }> }> {
-  const ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }> = []
+  resolve: (key: string) => RuntimeBenchmark,
+  opts: Pick<RunBenchmarksOptions, 'n' | 'ids' | 'subset' | 'verifyJudge'>,
+): Promise<{ ready: Array<{ benchmark: string; adapter: RuntimeBenchmark; tasks: BenchTask[] }>; unavailable: Array<{ benchmark: string; reason: string }> }> {
+  const ready: Array<{ benchmark: string; adapter: RuntimeBenchmark; tasks: BenchTask[] }> = []
   const unavailable: Array<{ benchmark: string; reason: string }> = []
   for (const benchmark of benchmarks) {
     const adapter = resolve(benchmark) // throws on an unknown key — fail loud on a typo
     try {
-      await adapter.preflight()
-      const tasks = await adapter.loadTasks({
+      await adapter.runtime.preflight?.()
+      const tasks = await adapter.loadAll({
         ...(opts.n !== undefined ? { limit: opts.n } : {}),
         ...(opts.ids ? { ids: opts.ids } : {}),
-        ...(opts.split ? { split: opts.split } : {}),
+        ...(opts.subset ? { subset: opts.subset } : {}),
       })
       if (tasks.length === 0) {
-        unavailable.push({ benchmark, reason: 'loadTasks returned no tasks' })
+        unavailable.push({ benchmark, reason: 'loadAll returned no tasks' })
         continue
       }
       if (opts.verifyJudge !== false) {
-        const gold = await adapter.goldArtifact(tasks[0]!)
+        const gold = await adapter.runtime.goldArtifact?.(tasks[0]!)
         if (gold !== undefined) {
-          const verdict = await adapter.judge(tasks[0]!, gold)
-          if (!verdict.resolved) {
+          const verdict = await adapter.evaluate(tasks[0]!, gold)
+          if (!verdict.passed) {
             unavailable.push({ benchmark, reason: `judge rejected its own gold on ${tasks[0]!.id} — judge is miscalibrated` })
             continue
           }
@@ -780,18 +784,18 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
       }
       invoked = true
       out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
-      const score: BenchScore = await job.adapter.judge(job.task, out.artifact)
+      const score: BenchEvaluation = await job.adapter.evaluate(job.task, out.artifact)
       result = {
         benchmark: job.benchmark,
         cell: job.cell.label,
         taskId: job.task.id,
         rep: job.rep,
-        resolved: out.ok && score.resolved,
+        resolved: out.ok && score.passed === true,
         score: out.ok ? score.score : 0,
         ok: out.ok,
         execution: out.execution ?? { phase: out.ok ? 'started' : 'unknown', terminalOutcome: out.ok ? 'succeeded' : 'unknown' },
         measurement: (out.artifactAvailable ?? out.ok) ? 'available' : 'unavailable',
-        ...(out.detail ?? score.detail ? { detail: combineDetails(out.detail, score.detail) } : {}),
+        ...(out.detail ?? score.notes ? { detail: combineDetails(out.detail, score.notes) } : {}),
         wallMs: Date.now() - startedAt,
         artifact: out.artifact,
         ...(out.usage === undefined ? {} : { usage: out.usage }),

@@ -164,12 +164,12 @@ writeFileSync(
   )
   await writeFile(
     path.join(consumerDir, 'index.ts'),
-    "import { createSweBenchAdapter, executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, runStagedJudge, StagedJudgeError, type BenchmarkAdapter, type JudgeArtifactReceipt, type PierCandidateTrialController, type PierCandidateTrialHandle, type PierDockerConnection, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst captureAdapter: BenchmarkAdapter = createSweBenchAdapter({ captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({ destination: `/tmp/${taskId}/${attemptSequence}` }) })\nconst receipt = undefined as JudgeArtifactReceipt | undefined\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nconst dockerConnection = undefined as PierDockerConnection | undefined\nvoid adapter\nvoid captureAdapter\nvoid receipt\nvoid staged\nvoid trial\nvoid controller\nvoid dockerConnection\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\nvoid runStagedJudge\nvoid StagedJudgeError\n",
+    "import { createSweBenchAdapter, executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, runStagedJudge, StagedJudgeError, type RuntimeBenchmark, type JudgeArtifactReceipt, type PierCandidateTrialController, type PierCandidateTrialHandle, type PierDockerConnection, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: RuntimeBenchmark = resolveAdapter('swe-bench')\nconst captureAdapter: RuntimeBenchmark = createSweBenchAdapter({ captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({ destination: `/tmp/${taskId}/${attemptSequence}` }) })\nconst receipt = undefined as JudgeArtifactReceipt | undefined\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nconst dockerConnection = undefined as PierDockerConnection | undefined\nvoid adapter\nvoid captureAdapter\nvoid receipt\nvoid staged\nvoid trial\nvoid controller\nvoid dockerConnection\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\nvoid runStagedJudge\nvoid StagedJudgeError\n",
   )
   await writeFile(
     path.join(consumerDir, 'managed-execution.ts'),
     `import assert from 'node:assert/strict'
-import { runBenchmarks, type BenchExecution, type BenchExecutionContext, type BenchPromptResult } from '@tangle-network/agent-bench'
+import { runBenchmarks, runtimeBenchmark, type BenchExecution, type BenchExecutionContext, type BenchPromptResult } from '@tangle-network/agent-bench'
 
 const sessions: Array<string | undefined> = []
 let closed = 0
@@ -180,11 +180,11 @@ const execute: BenchExecution = async (context: BenchExecutionContext) => {
 const report = await runBenchmarks({
   benchmarks: ['fixture'], cells: [{ label: 'worker', model: 'fixture' }],
   routerBaseUrl: 'unused', routerKey: 'unused', verifyJudge: false, execute,
-  resolveAdapter: () => ({
-    name: 'fixture', preflight: async () => {},
-    loadTasks: async () => [{ id: 'task', prompt: 'initial' }],
-    goldArtifact: async () => undefined,
-    judge: async (_task, artifact) => ({ resolved: artifact === 'corrected', score: artifact === 'corrected' ? 1 : 0 }),
+  resolveAdapter: () => runtimeBenchmark({
+    id: 'fixture',
+    loadAll: async () => [{ id: 'task', payload: { prompt: 'initial' } }],
+    evaluate: async (_task, artifact) => ({ passed: artifact === 'corrected', score: artifact === 'corrected' ? 1 : 0, raw: {} }),
+    runtime: { preflight: async () => {}, goldArtifact: async () => undefined },
   }),
   resolveClient: () => ({
     create: async () => ({
@@ -212,19 +212,19 @@ assert.deepEqual(report.perTask[0]?.usage, { input: 4, output: 2, costUsd: 0.02 
   )
   await writeFile(
     path.join(consumerDir, 'index.mjs'),
-    "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').name !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\nprocess.env.TOOLLM_FIXTURES = '1'\nconst toolLlmTasks = await resolveAdapter('toollm').loadTasks({ limit: 1 })\nif (toolLlmTasks.length !== 1 || toolLlmTasks[0]?.id !== '1') throw new Error('packed ToolLLM fixture loading failed')\n",
+    "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').id !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\nprocess.env.TOOLLM_FIXTURES = '1'\nconst toolLlmTasks = await resolveAdapter('toollm').loadAll({ limit: 1 })\nif (toolLlmTasks.length !== 1 || toolLlmTasks[0]?.id !== '1') throw new Error('packed ToolLLM fixture loading failed')\n",
   )
   await writeFile(
     path.join(consumerDir, 'terminal-bench-absolute-venv.mjs'),
     `import { createTerminalBenchAdapter } from '@tangle-network/agent-bench/benchmarks/terminal-bench'
 
 const adapter = createTerminalBenchAdapter()
-const tasks = await adapter.loadTasks({ ids: ['installed-absolute-venv'] })
+const tasks = await adapter.loadAll({ ids: ['installed-absolute-venv'] })
 if (tasks.length !== 1 || tasks[0]?.id !== 'installed-absolute-venv') {
   throw new Error('packed Terminal-Bench adapter did not load through the absolute venv')
 }
-const score = await adapter.judge(tasks[0], 'echo installed-package-path')
-if (!score.resolved || score.score !== 1) {
+const score = await adapter.evaluate(tasks[0], 'echo installed-package-path')
+if (!score.passed || score.score !== 1) {
   throw new Error(\`packed Terminal-Bench adapter did not judge through the absolute venv: \${JSON.stringify(score)}\`)
 }
 `,

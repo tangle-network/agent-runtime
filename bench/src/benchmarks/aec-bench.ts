@@ -22,7 +22,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { benchRoot, preflightVenvImports, readJsonReport, runStagedJudge, stageFile, venvPython } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'aec-bench.json')
 
@@ -70,11 +70,13 @@ function recordToTask(rec: AecRecord): BenchTask {
   }
   return {
     id: rec.id,
-    split: rec.discipline,
-    // instruction.md is fully self-contained and already specifies the exact JSON
-    // output schema + the "write to /workspace/output.md" contract the verifier
-    // keys off — we pass it through verbatim so the verify.py extractor matches.
-    prompt: rec.instruction,
+    payload: {
+      subset: rec.discipline,
+      // instruction.md is fully self-contained and already specifies the exact JSON
+      // output schema + the "write to /workspace/output.md" contract the verifier
+      // keys off — we pass it through verbatim so the verify.py extractor matches.
+      prompt: rec.instruction,
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -83,7 +85,7 @@ function readMeta(task: BenchTask): AecMeta {
   const md = task.metadata
   // Gold is optional (goldenPassMd may be null) — only the verifier + id are required.
   if (!md || typeof md.verifyPy !== 'string' || typeof md.taskId !== 'string') {
-    throw new Error(`aec-bench task ${task.id} missing verifier metadata — loadTasks did not populate it`)
+    throw new Error(`aec-bench task ${task.id} missing verifier metadata — loadAll did not populate it`)
   }
   return md as unknown as AecMeta
 }
@@ -153,7 +155,7 @@ async function fetchInstance(id: string): Promise<AecRecord | null> {
 
 function selectFixtures(records: AecRecord[], opts: LoadOptions): BenchTask[] {
   let tasks = records.map(recordToTask)
-  if (opts.split) tasks = tasks.filter((t) => t.split === opts.split)
+  if (opts.subset) tasks = tasks.filter((t) => t.payload.subset === opts.subset)
   if (opts.ids) {
     const want = new Set(opts.ids)
     tasks = tasks.filter((t) => want.has(t.id))
@@ -187,7 +189,7 @@ async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
   }
   const limit = opts.limit ?? DEFAULT_LIMIT
   let ids = await listAllInstances()
-  if (opts.split) ids = ids.filter((id) => id.startsWith(`${opts.split}/`))
+  if (opts.subset) ids = ids.filter((id) => id.startsWith(`${opts.subset}/`))
   const records: AecRecord[] = []
   for (const id of ids) {
     if (records.length >= limit) break
@@ -201,7 +203,7 @@ async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
   }
   if (records.length === 0) {
     throw new Error(
-      `aec-bench loadTasks found no runnable instances for ${JSON.stringify(opts)} ` +
+      `aec-bench loadAll found no runnable instances for ${JSON.stringify(opts)} ` +
         `(no tests/verify.py matched the requested split). Set AEC_FIXTURES=1 to run offline.`,
     )
   }
@@ -217,7 +219,7 @@ async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
  * NOT a silent 0 — verify.py's own except-trap writes reward 0.0, so an absent /
  * non-numeric reward.json is a real bug, surfaced by readJsonReport).
  */
-async function runVerifier(meta: AecMeta, artifact: string): Promise<BenchScore> {
+async function runVerifier(meta: AecMeta, artifact: string): Promise<BenchEvaluation> {
   return runStagedJudge({
     tmpPrefix: 'aecbench-',
     timeoutMs: 120_000,
@@ -240,51 +242,25 @@ async function runVerifier(meta: AecMeta, artifact: string): Promise<BenchScore>
         () => ({}),
       )
       const score = Math.max(0, Math.min(1, reward))
+      const raw = { taskId: meta.taskId, discipline: meta.discipline, reward, fields: details }
       return {
-        // resolved = full credit (all fields within tolerance), matching aec-bench's perfect_rate.
-        resolved: score >= 1,
+        // passed = full credit (all fields within tolerance), matching aec-bench's perfect_rate.
+        passed: score >= 1,
         score,
-        detail: JSON.stringify({ taskId: meta.taskId, discipline: meta.discipline, reward, fields: details }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
   })
 }
 
-export function createAecBenchAdapter(): BenchmarkAdapter {
+export function createAecBenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.AEC_FIXTURES === '1'
 
-  return {
-    name: 'aec-bench',
+  return runtimeBenchmark({
+    id: 'aec-bench',
 
-    async preflight() {
-      // The verifier is python3 over the stdlib (math/json/re) — no pip install.
-      // Reuse the shared import-probe so the bench venv interpreter is proven to
-      // exist + run before any judge spawns verify.py.
-      await preflightVenvImports({
-        modules: ['math', 'json', 're'],
-        requireDocker: false,
-        fix: 'Fix: python3 -m venv bench/.venv (verify.py only needs the stdlib — no pip install).',
-      })
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8').catch((err) => {
-          throw new Error(`AEC_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`)
-        })
-        return
-      }
-      const res = await fetch(`${RAW}/README.md`, { method: 'HEAD' }).catch((err) => {
-        throw new Error(
-          `aec-bench preflight failed reaching ${RAW}: ${err instanceof Error ? err.message : err}\n` +
-            `Fix: ensure network access to raw.githubusercontent.com, or set AEC_FIXTURES=1 to run offline.`,
-        )
-      })
-      if (!res.ok) {
-        throw new Error(
-          `aec-bench preflight: ${REPO} README HEAD ${res.status}. Set AEC_FIXTURES=1 to run against committed fixtures.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       try {
         return await loadLive(opts)
@@ -301,19 +277,49 @@ export function createAecBenchAdapter(): BenchmarkAdapter {
       }
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold = the task's own golden_pass.md (scores reward 1.0 through the SAME
-      // verify.py the real artifact takes), proving the judge end-to-end. Tasks
-      // without a golden_pass.md (non-md ground truth) have no oracle artifact.
-      const meta = readMeta(task)
-      return meta.goldenPassMd ?? undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       // verify.py fail-closes an empty/unparseable artifact to reward 0.0 itself,
       // so we pass it straight through (no pre-judging here).
       return runVerifier(meta, artifact)
     },
-  }
+
+    runtime: {
+      async preflight() {
+        // The verifier is python3 over the stdlib (math/json/re) — no pip install.
+        // Reuse the shared import-probe so the bench venv interpreter is proven to
+        // exist + run before any judge spawns verify.py.
+        await preflightVenvImports({
+          modules: ['math', 'json', 're'],
+          requireDocker: false,
+          fix: 'Fix: python3 -m venv bench/.venv (verify.py only needs the stdlib — no pip install).',
+        })
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8').catch((err) => {
+            throw new Error(`AEC_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`)
+          })
+          return
+        }
+        const res = await fetch(`${RAW}/README.md`, { method: 'HEAD' }).catch((err) => {
+          throw new Error(
+            `aec-bench preflight failed reaching ${RAW}: ${err instanceof Error ? err.message : err}\n` +
+              `Fix: ensure network access to raw.githubusercontent.com, or set AEC_FIXTURES=1 to run offline.`,
+          )
+        })
+        if (!res.ok) {
+          throw new Error(
+            `aec-bench preflight: ${REPO} README HEAD ${res.status}. Set AEC_FIXTURES=1 to run against committed fixtures.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold = the task's own golden_pass.md (scores reward 1.0 through the SAME
+        // verify.py the real artifact takes), proving the judge end-to-end. Tasks
+        // without a golden_pass.md (non-md ground truth) have no oracle artifact.
+        const meta = readMeta(task)
+        return meta.goldenPassMd ?? undefined
+      },
+    },
+  })
 }

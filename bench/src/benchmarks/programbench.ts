@@ -7,7 +7,7 @@
  * harness: it extracts the submission, runs compile.sh in the per-task cleanroom
  * Docker image, then runs the HIDDEN behavioral pytest suites (pulled via
  * `programbench blob sync`). Score = fraction of non-ignored tests passed
- * (GRADED, applying the tests.json ignore mask); resolved = all non-ignored tests
+ * (GRADED, applying the tests.json ignore mask); passed = all non-ignored tests
  * pass. Fully deterministic — no LLM judge.
  *
  * OutputAdapter is stream-only, so the worker emits its codebase as fenced
@@ -27,7 +27,7 @@ import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'programbench.json')
 
@@ -56,7 +56,7 @@ function fixtureToTask(f: PbFixture): BenchTask {
   const meta: PbMeta = { instanceId: f.instance_id, imageName: f.image_name }
   return {
     id: f.instance_id,
-    prompt: PROMPT,
+    payload: { prompt: PROMPT },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -64,7 +64,7 @@ function fixtureToTask(f: PbFixture): BenchTask {
 function readMeta(task: BenchTask): PbMeta {
   const md = task.metadata
   if (!md || typeof md.instanceId !== 'string') {
-    throw new Error(`programbench task ${task.id} missing metadata.instanceId — loadTasks did not populate it`)
+    throw new Error(`programbench task ${task.id} missing metadata.instanceId — loadAll did not populate it`)
   }
   return md as unknown as PbMeta
 }
@@ -111,7 +111,7 @@ async function fetchInstanceIds(): Promise<PbFixture[]> {
  * then parses <instance_id>.eval.json applying the tests.json ignore mask via
  * `programbench info` logic. Emits {passed,total,resolved} as the last stdout line.
  */
-async function runHarness(meta: PbMeta, submission: string): Promise<BenchScore> {
+async function runHarness(meta: PbMeta, submission: string): Promise<BenchEvaluation> {
   const judge = join(benchRoot, 'scripts', 'programbench_judge.py')
   let stdout: string
   try {
@@ -134,10 +134,12 @@ async function runHarness(meta: PbMeta, submission: string): Promise<BenchScore>
     throw new Error(`programbench judge returned no {passed,total}: ${stdout.slice(0, 400)}`)
   }
   const score = report.total > 0 ? report.passed / report.total : 0
+  const raw = { instanceId: meta.instanceId, passed: report.passed, total: report.total }
   return {
-    resolved: report.resolved ?? (report.total > 0 && report.passed === report.total),
+    passed: report.resolved ?? (report.total > 0 && report.passed === report.total),
     score,
-    detail: JSON.stringify({ instanceId: meta.instanceId, passed: report.passed, total: report.total }),
+    notes: JSON.stringify(raw),
+    raw,
   }
 }
 
@@ -162,26 +164,13 @@ export const programbenchSubmissionOutput: OutputAdapter<string> = {
   },
 }
 
-export function createProgrambenchAdapter(): BenchmarkAdapter {
+export function createProgrambenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.PROGRAMBENCH_FIXTURES === '1'
 
-  return {
-    name: 'programbench',
-    output: programbenchSubmissionOutput,
+  return runtimeBenchmark({
+    id: 'programbench',
 
-    async preflight() {
-      await preflightVenvImports({
-        modules: ['programbench'],
-        requireDocker: true,
-        fix:
-          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install programbench ; ` +
-          `(2) Docker on linux/amd64 (per-task <image>:task_cleanroom images; will NOT run on ARM) ; ` +
-          `(3) HF access for the hidden test blobs (the driver runs \`programbench blob sync\`). ` +
-          `Set PROGRAMBENCH_FIXTURES=1 to list the committed instance ids offline.`,
-      })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       let fixtures: PbFixture[]
       try {
@@ -195,16 +184,32 @@ export function createProgrambenchAdapter(): BenchmarkAdapter {
       return selectTasks(fixtures, opts)
     },
 
-    async goldArtifact() {
-      // The oracle is the original repo's source (stripped from the task image),
-      // not redistributable as a portable submission string. Judge correctness is
-      // proven by running the real harness on a real solve, not a synthetic gold.
-      return undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       return runHarness(meta, artifact)
     },
-  }
+
+    runtime: {
+      output: programbenchSubmissionOutput,
+
+      async preflight() {
+        await preflightVenvImports({
+          modules: ['programbench'],
+          requireDocker: true,
+          fix:
+            `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install programbench ; ` +
+            `(2) Docker on linux/amd64 (per-task <image>:task_cleanroom images; will NOT run on ARM) ; ` +
+            `(3) HF access for the hidden test blobs (the driver runs \`programbench blob sync\`). ` +
+            `Set PROGRAMBENCH_FIXTURES=1 to list the committed instance ids offline.`,
+        })
+      },
+
+      async goldArtifact() {
+        // The oracle is the original repo's source (stripped from the task image),
+        // not redistributable as a portable submission string. Judge correctness is
+        // proven by running the real harness on a real solve, not a synthetic gold.
+        return undefined
+      },
+    },
+  })
 }

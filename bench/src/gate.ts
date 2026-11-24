@@ -12,8 +12,8 @@
  *
  * The gate's two non-negotiables, enforced structurally here:
  *  - DEPLOYABLE selector. Each fanout child SOLVES via the router, then is graded by the
- *    benchmark's OWN deterministic `adapter.judge` (a runnable checker — NOT an LLM judge, NOT
- *    the answer oracle). That `BenchScore` becomes the child's `DefaultVerdict`, and `fanout`'s
+ *    benchmark's OWN deterministic `adapter.evaluate` (a runnable checker — NOT an LLM judge, NOT
+ *    the answer oracle). That `BenchEvaluation` becomes the child's `DefaultVerdict`, and `fanout`'s
  *    single-sourced `defaultSelectWinner` picks the best-scoring candidate. Selection therefore
  *    reads only the deployable verifier — selector ≠ oracle by construction.
  *  - EQUAL k. Both arms open the SAME number of children (k = strategies.length; blind = k
@@ -55,10 +55,10 @@ import {
   runPersonified,
   trajectoryReport,
 } from '@tangle-network/agent-runtime/kernel'
-import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
+import type { BenchTask, RuntimeBenchmark } from './benchmarks/types'
 
 /** A fanout child's task: the prompt to solve with + the instance to grade against. The instance
- *  travels with the prompt so the solve-and-grade leaf can run `adapter.judge` without a closure
+ *  travels with the prompt so the solve-and-grade leaf can run `adapter.evaluate` without a closure
  *  over the per-task state (the registry closes only over the adapter + router config). */
 export interface SolveTask {
   readonly prompt: string
@@ -68,7 +68,7 @@ export interface SolveTask {
 /** What `benchSolverRegistry` needs to build a solve-and-grade leaf. The router config is the
  *  cheapest leaf (one chat completion, no box); the adapter supplies the deployable judge. */
 interface BenchSolverOptions {
-  readonly adapter: BenchmarkAdapter
+  readonly adapter: RuntimeBenchmark
   readonly routerBaseUrl: string
   readonly routerKey: string
 }
@@ -93,16 +93,16 @@ const fnv = (prefix: string, value: unknown): string => {
  *  (e.g. the last fenced ```json block for a transcript bench), so the gate leaf honors
  *  `benchmark = adapter owns its deliverable`. Falls back to the trimmed reply when the adapter
  *  defines no output parser (the research/QA case). */
-function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
-  if (!adapter.output) return content.trim()
+function extractArtifact(adapter: RuntimeBenchmark, content: string): string {
+  if (!adapter.runtime.output) return content.trim()
   const events = [{ type: 'agent', data: { finalText: content } }] as unknown as SandboxEvent[]
-  return adapter.output.parse(events)
+  return adapter.runtime.output.parse(events)
 }
 
 /**
  * A single solve-and-grade leaf executor. Solves the task with ONE router completion, extracts
  * the deliverable via the adapter, then grades it with the benchmark's deterministic judge and
- * surfaces that `BenchScore` as the child's `DefaultVerdict`. The verdict is what `fanout`'s
+ * surfaces that `BenchEvaluation` as the child's `DefaultVerdict`. The verdict is what `fanout`'s
  * deployable selector ranks on. Reports REAL token usage; a missing-usage provider records zero
  * tokens but still one iteration (never a fabricated priced cost). Fail-loud: a router non-2xx or
  * a judge throw rejects the leaf (the scope types it into a `down` settlement — never a silent 0).
@@ -118,14 +118,14 @@ function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: Executor
       const raw = result.out as { content?: unknown }
       const content = typeof raw?.content === 'string' ? raw.content : ''
       const candidate = extractArtifact(opts.adapter, content)
-      const score = await opts.adapter.judge(t.instance, candidate)
+      const score = await opts.adapter.evaluate(t.instance, candidate)
       return {
         outRef: fnv('bench', { id: t.instance.id, candidate }),
         out: candidate,
         verdict: {
-          valid: score.resolved,
+          valid: score.passed === true,
           score: score.score,
-          ...(score.detail ? { notes: score.detail } : {}),
+          ...(score.notes ? { notes: score.notes } : {}),
         },
       }
     })
@@ -173,10 +173,10 @@ function defineSolverPersona(
 /** The blind/diverse `fanout` over k children. Each item is a strategy directive appended to the
  *  task prompt; the blind arm passes k empty strategies (k identical prompts = the compute
  *  control). No `synthesize` → the deployable `defaultSelectWinner` returns the best-graded child. */
-function solveFanout(strategies: ReadonlyArray<string>, instance: BenchTask): CombinatorShape<unknown, string> {
+function solveFanout(strategies: ReadonlyArray<string>, instance: BenchTask, prompt: string): CombinatorShape<unknown, string> {
   return fanout<unknown, string, string>(strategies, {
     itemTask: (strategy): SolveTask => ({
-      prompt: strategy.length > 0 ? `${instance.prompt}\n\n${strategy}` : instance.prompt,
+      prompt: strategy.length > 0 ? `${prompt}\n\n${strategy}` : prompt,
       instance,
     }),
     label: (_s, i) => `solve:${i}`,
@@ -184,7 +184,7 @@ function solveFanout(strategies: ReadonlyArray<string>, instance: BenchTask): Co
 }
 
 interface RunGateOptions {
-  readonly adapter: BenchmarkAdapter
+  readonly adapter: RuntimeBenchmark
   /** The ONE specificity: who the solver is (prompt / model / tools). */
   readonly profile: AgentProfile
   /**
@@ -198,7 +198,8 @@ interface RunGateOptions {
   /** How many benchmark instances to run (the paired n). */
   readonly n?: number
   readonly ids?: string[]
-  readonly split?: string
+  /** The publisher's subset (domain, category, language), for benchmarks that have them. */
+  readonly subset?: string
   /** Per-child token ceiling the conserved pool reserves. Default 60_000. */
   readonly perChildTokens?: number
   /** Per-child wall-clock deadline (ms) forwarded to the root budget. */
@@ -288,13 +289,13 @@ export async function runGate(opts: RunGateOptions): Promise<GateReport> {
     throw new Error('runGate: need >= 2 strategies (k = strategies.length fixes both arms’ child count)')
   }
   const k = opts.strategies.length
-  await opts.adapter.preflight()
-  const tasks = await opts.adapter.loadTasks({
+  await opts.adapter.runtime.preflight?.()
+  const tasks = await opts.adapter.loadAll({
     ...(opts.n !== undefined ? { limit: opts.n } : {}),
     ...(opts.ids ? { ids: opts.ids } : {}),
-    ...(opts.split ? { split: opts.split } : {}),
+    ...(opts.subset ? { subset: opts.subset } : {}),
   })
-  if (tasks.length === 0) throw new Error('runGate: adapter.loadTasks returned no tasks')
+  if (tasks.length === 0) throw new Error('runGate: adapter.loadAll returned no tasks')
 
   const registry = opts.solverRegistry ?? benchSolverRegistry(opts)
   const perChildTokens = opts.perChildTokens ?? 60_000
@@ -330,7 +331,7 @@ export async function runGate(opts: RunGateOptions): Promise<GateReport> {
       const runId = `gate:${armDef.label}:${task.id}`
       const result: SupervisedResult<Outcome<string>> = await runPersonified<unknown, string>({
         persona,
-        shape: solveFanout(armDef.strategies, task),
+        shape: solveFanout(armDef.strategies, task, opts.adapter.runtime.prompt(task)),
         task: undefined,
         budget,
         shapeBudget: { fanout: k, perChild },
@@ -395,7 +396,7 @@ export async function runGate(opts: RunGateOptions): Promise<GateReport> {
   const blind = arms.find((a) => a.label === 'blind')!
   const diverse = arms.find((a) => a.label === 'diverse')!
   return {
-    benchmark: opts.adapter.name,
+    benchmark: opts.adapter.id,
     k,
     n: tasks.length,
     perTask,

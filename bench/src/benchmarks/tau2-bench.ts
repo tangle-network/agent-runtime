@@ -9,13 +9,13 @@
 import { join } from 'node:path'
 import { benchRoot } from './_harness'
 import { createTauBenchAdapter, tauResultsOutput } from './tau-bench-shared'
-import type { BenchmarkAdapter } from './types'
+import type { RuntimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'tau2-bench.json')
 
 export const tau2ResultsOutput = tauResultsOutput
 
-export function createTau2BenchAdapter(): BenchmarkAdapter {
+export function createTau2BenchAdapter(): RuntimeBenchmark {
   return createTauBenchAdapter({
     name: 'tau2-bench',
     fixturePath: FIXTURES,

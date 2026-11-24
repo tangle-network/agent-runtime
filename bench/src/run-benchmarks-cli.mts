@@ -8,7 +8,7 @@
  *
  * A cell is `harness/model` (in-box: that coding harness runs the model) or a bare `model`
  * (off-box: a router completion is the worker). The number is the adapter's OWN deterministic
- * judge — pick benchmarks whose `adapter.judge` is a runnable checker. Output is a leaderboard:
+ * judge — pick benchmarks whose `adapter.evaluate` is a runnable checker. Output is a leaderboard:
  * resolve-rate and mean graded score per (benchmark × cell), with any unavailable benchmark
  * (missing Docker/venv/dataset) listed, never silently dropped.
  */
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     ...(process.env.SANDBOX_BASE ? { sandboxBaseUrl: process.env.SANDBOX_BASE } : {}),
     n: Number(process.env.N ?? 10),
     ...(process.env.IDS ? { ids: process.env.IDS.split(',') } : {}),
-    ...(process.env.SPLIT ? { split: process.env.SPLIT } : {}),
+    ...(process.env.SUBSET ? { subset: process.env.SUBSET } : {}),
     ...(process.env.REPS ? { reps: Number(process.env.REPS) } : {}),
     ...(process.env.LOOP_ATTEMPTS ? { loopAttempts: Number(process.env.LOOP_ATTEMPTS) } : {}),
     concurrency: Number(process.env.CONCURRENCY ?? 4),

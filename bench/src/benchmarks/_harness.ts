@@ -1,13 +1,13 @@
 /**
  * Shared code-bench harness. The "stage the artifact → run the benchmark's own
  * evaluator in an external process (mkdtemp / execFile / .venv python / Docker)
- * → read its JSON report → { resolved, score }" spine that swe-bench,
+ * → read its JSON report → { passed, score }" spine that swe-bench,
  * terminal-bench, commit0, programbench and aec-bench all need. Factored out so
  * the Docker/venv/report-reading logic lives in ONE place instead of being
  * copy-pasted per adapter.
  *
  * It owns NO benchmark policy: each adapter passes the argv for its evaluator
- * and a `parseReport` that maps that evaluator's report JSON → a BenchScore. The
+ * and a `parseReport` that maps that evaluator's report JSON → a BenchEvaluation. The
  * harness owns process spawning, temp-dir lifecycle, large-buffer/timeout config
  * and fail-loud diagnostics.
  *
@@ -36,7 +36,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type {
-  BenchScore,
+  BenchEvaluation,
   JudgeArtifactFileReceipt,
   JudgeArtifactReceipt,
 } from './types'
@@ -205,10 +205,10 @@ export interface StagedRunSpec {
   /** Hard timeout for the evaluator (ms); 0 = none. */
   timeoutMs?: number
   /**
-   * Read the evaluator's report(s) out of `dir` and map to a BenchScore. Throws
+   * Read the evaluator's report(s) out of `dir` and map to a BenchEvaluation. Throws
    * if the expected report is absent/malformed (fail loud — no default score).
    */
-  parseReport(dir: string): Promise<BenchScore>
+  parseReport(dir: string): Promise<BenchEvaluation>
   /**
    * Copy the complete evaluator directory plus raw process stdout/stderr to this
    * caller-owned directory before cleanup. The destination must not exist.
@@ -368,12 +368,12 @@ function processBytes(value: unknown): Buffer {
  * cleanup. The evaluator's stdout/stderr is surfaced on failure; the temp dir is
  * always removed in `finally` unless `keepTmp`.
  */
-export async function runStagedJudge(spec: StagedRunSpec): Promise<BenchScore> {
+export async function runStagedJudge(spec: StagedRunSpec): Promise<BenchEvaluation> {
   const dir = await mkdtemp(join(tmpdir(), spec.tmpPrefix))
   let stdout: Buffer<ArrayBufferLike> = Buffer.alloc(0)
   let stderr: Buffer<ArrayBufferLike> = Buffer.alloc(0)
   let evaluatorSucceeded = false
-  let score: BenchScore | undefined
+  let score: BenchEvaluation | undefined
   let failure: unknown
   try {
     try {

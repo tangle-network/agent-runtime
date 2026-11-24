@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import type { AgentTurnUsage } from '@tangle-network/agent-runtime/kernel'
 import { runBenchRouterTurn } from '../router-turn'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'finresearchbench.json')
 
@@ -100,13 +100,15 @@ function rowToTask(row: FinResearchRecord, fixturesMode: boolean): BenchTask {
   }
   return {
     id: row.id,
-    split: row.category,
-    prompt: [
-      'Complete this FinResearchBench financial research task.',
-      'Produce a decision-grade research answer with explicit reasoning, evidence, and final conclusion.',
-      '',
-      row.question,
-    ].join('\n'),
+    payload: {
+      subset: row.category,
+      prompt: [
+        'Complete this FinResearchBench financial research task.',
+        'Produce a decision-grade research answer with explicit reasoning, evidence, and final conclusion.',
+        '',
+        row.question,
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -114,14 +116,14 @@ function rowToTask(row: FinResearchRecord, fixturesMode: boolean): BenchTask {
 function readMeta(task: BenchTask): FinResearchMeta {
   const md = task.metadata
   if (!md || typeof md.question !== 'string') {
-    throw new Error(`FinResearchBench task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`FinResearchBench task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as FinResearchMeta
 }
 
 function selectRows(rows: FinResearchRecord[], opts: LoadOptions, fixturesMode: boolean): BenchTask[] {
   let tasks = rows.map((row) => rowToTask(row, fixturesMode))
-  if (opts.split) tasks = tasks.filter((task) => task.split === opts.split)
+  if (opts.subset) tasks = tasks.filter((task) => task.payload.subset === opts.subset)
   if (opts.ids) {
     const want = new Set(opts.ids)
     tasks = tasks.filter((task) => want.has(task.id))
@@ -180,7 +182,7 @@ function parseJudgeScore(content: string): { score: number; raw: unknown } {
 }
 
 /**
- * Map one drained judge turn to a BenchScore. The judge turn's exact Runtime
+ * Map one drained judge turn to a BenchEvaluation. The judge turn's exact Runtime
  * usage record lands on `judgeUsage` verbatim, so an unproven token count or
  * dollar amount stays flagged (`tokensKnown`/`usdKnown` false) instead of
  * reading as a known zero cost.
@@ -189,20 +191,22 @@ export function scoreOfficialJudgeTurn(
   task: BenchTask,
   turn: Readonly<{ finalText?: string; usage: AgentTurnUsage }>,
   requestedJudgeModel: string,
-): BenchScore {
+): BenchEvaluation {
   const meta = readMeta(task)
   const content = turn.finalText
   if (!content) throw new Error('FinResearchBench judge returned no message content')
   const { score, raw } = parseJudgeScore(content)
+  const detail = { scoring: meta.scoring, category: meta.category, judgeModel: requestedJudgeModel, raw }
   return {
-    resolved: score >= Number(process.env.FINRESEARCHBENCH_PASS_THRESHOLD ?? 0.8),
+    passed: score >= Number(process.env.FINRESEARCHBENCH_PASS_THRESHOLD ?? 0.8),
     score,
-    detail: JSON.stringify({ scoring: meta.scoring, category: meta.category, judgeModel: requestedJudgeModel, raw }),
+    notes: JSON.stringify(detail),
+    raw: detail,
     judgeUsage: turn.usage,
   }
 }
 
-async function runOfficialJudge(task: BenchTask, meta: FinResearchMeta, response: string): Promise<BenchScore> {
+async function runOfficialJudge(task: BenchTask, meta: FinResearchMeta, response: string): Promise<BenchEvaluation> {
   if (!meta.judgeSystemPrompt) throw new Error(`FinResearchBench task ${meta.id} missing judge_system_prompt`)
   const router = routerConfig()
   const turn = await runBenchRouterTurn(
@@ -229,62 +233,68 @@ function normalizeText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-function scoreFixture(meta: FinResearchMeta, artifact: string): BenchScore {
+function scoreFixture(meta: FinResearchMeta, artifact: string): BenchEvaluation {
   const answer = normalizeText(meta.referenceAnswer || meta.referenceReport)
   const response = normalizeText(artifact)
   const score = answer.length > 0 && response.includes(answer) ? 1 : 0
+  const raw = { scoring: meta.scoring, category: meta.category }
   return {
-    resolved: score === 1,
+    passed: score === 1,
     score,
-    detail: JSON.stringify({ scoring: meta.scoring, category: meta.category }),
+    notes: JSON.stringify(raw),
+    raw,
   }
 }
 
-export function createFinResearchBenchAdapter(): BenchmarkAdapter {
+export function createFinResearchBenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.FINRESEARCHBENCH_FIXTURES === '1'
 
-  return {
-    name: 'finresearchbench',
+  return runtimeBenchmark({
+    id: 'finresearchbench',
 
-    async preflight() {
-      if (fixturesMode) {
-        await assertReadable(FIXTURES, 'fixture file')
-        return
-      }
-      const file = dataFile()
-      if (!file) {
-        throw new Error(
-          'FINRESEARCHBENCH_DATA_FILE is required. Fix: export the official FinResearchBench rows as JSON/JSONL with judge_system_prompt and judge_prompt_template fields, then set FINRESEARCHBENCH_DATA_FILE=/path/to/export.jsonl.',
-        )
-      }
-      routerConfig()
-      await assertReadable(file, 'data file')
-      await loadOfficialTasks(file, { limit: 1 })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const file = dataFile()
       if (!file) throw new Error('FINRESEARCHBENCH_DATA_FILE is required to load FinResearchBench rows')
       return loadOfficialTasks(file, opts)
     },
 
-    async goldArtifact(task: BenchTask) {
-      const meta = readMeta(task)
-      return meta.referenceReport || meta.referenceAnswer || undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       if (fixturesMode) return scoreFixture(meta, artifact)
       if (artifact.trim().length === 0) {
+        const raw = { scoring: meta.scoring, category: meta.category, reason: 'empty answer' }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({ scoring: meta.scoring, category: meta.category, reason: 'empty answer' }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
       return runOfficialJudge(task, meta, artifact)
     },
-  }
+
+    runtime: {
+      async preflight() {
+        if (fixturesMode) {
+          await assertReadable(FIXTURES, 'fixture file')
+          return
+        }
+        const file = dataFile()
+        if (!file) {
+          throw new Error(
+            'FINRESEARCHBENCH_DATA_FILE is required. Fix: export the official FinResearchBench rows as JSON/JSONL with judge_system_prompt and judge_prompt_template fields, then set FINRESEARCHBENCH_DATA_FILE=/path/to/export.jsonl.',
+          )
+        }
+        routerConfig()
+        await assertReadable(file, 'data file')
+        await loadOfficialTasks(file, { limit: 1 })
+      },
+
+      async goldArtifact(task: BenchTask) {
+        const meta = readMeta(task)
+        return meta.referenceReport || meta.referenceAnswer || undefined
+      },
+    },
+  })
 }

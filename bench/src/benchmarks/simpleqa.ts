@@ -9,12 +9,12 @@
  *   A = CORRECT       — fully contains the gold, no contradiction
  *   B = INCORRECT     — contradicts / contains a different factual value
  *   C = NOT_ATTEMPTED — hedged, non-committal, or no value given
- * resolved = (grade == CORRECT). score = 1 for CORRECT else 0. The grade letter
- * (with its label) rides in `detail`; NOT_ATTEMPTED is surfaced distinctly from
+ * passed = (grade == CORRECT). score = 1 for CORRECT else 0. The grade letter
+ * (with its label) rides in `notes`; NOT_ATTEMPTED is surfaced distinctly from
  * INCORRECT so the scorecard can separate abstention from error.
  *
  * There is no deterministic tier: SimpleQA's rubric (containment + abstention)
- * is the grader's job by design, so judge() always calls the pinned grader model
+ * is the grader's job by design, so evaluate() always calls the pinned grader model
  * (temperature 0) and fails loud on unparseable grader output. The final-answer
  * extraction IS deterministic (FINAL ANSWER: sentinel, fail-closed to '').
  *
@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { runBenchRouterTurn } from '../router-turn'
 import { FINAL_ANSWER_SENTINEL, parseCitations, parseFinalAnswer } from './rag-shared'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -206,8 +206,7 @@ function rowToTask(row: SimpleQaRow, index: number): BenchTask {
   }
   return {
     id: `simpleqa-${index}`,
-    split: 'test',
-    prompt: row.problem + WORKER_CONTRACT,
+    payload: { prompt: row.problem + WORKER_CONTRACT, subset: 'test' },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -215,7 +214,7 @@ function rowToTask(row: SimpleQaRow, index: number): BenchTask {
 function readMeta(task: BenchTask): SimpleQaMeta {
   const md = task.metadata
   if (!md || typeof md.gold !== 'string' || typeof md.question !== 'string') {
-    throw new Error(`SimpleQA task ${task.id} missing metadata.gold/question — loadTasks did not populate it`)
+    throw new Error(`SimpleQA task ${task.id} missing metadata.gold/question — loadAll did not populate it`)
   }
   return md as unknown as SimpleQaMeta
 }
@@ -239,7 +238,7 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
  * Load the live test set: fetch the public CSV via the bench venv python, parse
  * with `csv` (handles quoted/embedded-comma fields) and `ast.literal_eval` for
  * the python-repr `metadata` dict. Emits the same normalized SimpleQaRow shape
- * the fixtures use, so loadTasks/judge share one parse path.
+ * the fixtures use, so loadAll/evaluate share one parse path.
  */
 async function loadLive(opts: LoadOptions): Promise<BenchTask[]> {
   const script = `
@@ -265,94 +264,100 @@ print(json.dumps(out))
   return selectTasks(rows.map(rowToTask), opts)
 }
 
-export function createSimpleQaAdapter(): BenchmarkAdapter {
+export function createSimpleQaAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.SIMPLEQA_FIXTURES === '1'
 
-  return {
-    name: 'simpleqa',
+  return runtimeBenchmark({
+    id: 'simpleqa',
 
-    async preflight() {
-      // The grader router must be configured in both modes — SimpleQA's score is
-      // defined by the grader, so a run without it is meaningless.
-      graderRouter()
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8').catch((err) => {
-          throw new Error(
-            `SIMPLEQA_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`,
-          )
-        })
-        return
-      }
-      try {
-        await py(
-          `from urllib.request import urlopen
-with urlopen(${JSON.stringify(DATASET_URL)}, timeout=120) as resp:
-    head = resp.read(64).decode('utf-8', 'replace')
-assert head.startswith('metadata,problem,answer'), 'unexpected CSV header: ' + head[:40]
-print('ok')`,
-        )
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `simpleqa preflight failed: ${msg}\n` +
-            `Fix: (1) ensure the bench venv exists (python3 -m venv bench/.venv) ; ` +
-            `(2) ensure network access to ${DATASET_URL} ; ` +
-            `or set SIMPLEQA_FIXTURES=1 to run against the committed fixtures offline.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       return loadLive(opts)
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold artifact = the worker-contract serialization of the gold answer, so
-      // verify-judge proves gold→CORRECT through the SAME parse path the real
-      // artifact takes.
-      const meta = readMeta(task)
-      return `${FINAL_ANSWER_SENTINEL} ${meta.gold}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const finalAnswer = parseFinalAnswer(artifact)
       const citations = parseCitations(artifact)
 
       if (finalAnswer.length === 0) {
         // No parseable value committed — NOT_ATTEMPTED by construction, no grader call.
+        const raw = {
+          grade: 'NOT_ATTEMPTED',
+          gradeLetter: 'C',
+          reason: 'no parseable answer',
+          gold: meta.gold,
+          topic: meta.topic,
+          answerType: meta.answerType,
+          citationCount: citations.length,
+        }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({
-            grade: 'NOT_ATTEMPTED',
-            gradeLetter: 'C',
-            reason: 'no parseable answer',
-            gold: meta.gold,
-            topic: meta.topic,
-            answerType: meta.answerType,
-            citationCount: citations.length,
-          }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
 
       const grade = await gradeAnswer(meta.question, meta.gold, finalAnswer, graderRouter())
       const gradeLetter = grade === 'CORRECT' ? 'A' : grade === 'INCORRECT' ? 'B' : 'C'
       const resolved = grade === 'CORRECT'
+      const raw = {
+        grade,
+        gradeLetter,
+        gold: meta.gold,
+        predicted: finalAnswer,
+        topic: meta.topic,
+        answerType: meta.answerType,
+        citationCount: citations.length,
+      }
       return {
-        resolved,
+        passed: resolved,
         score: resolved ? 1 : 0,
-        detail: JSON.stringify({
-          grade,
-          gradeLetter,
-          gold: meta.gold,
-          predicted: finalAnswer,
-          topic: meta.topic,
-          answerType: meta.answerType,
-          citationCount: citations.length,
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        // The grader router must be configured in both modes — SimpleQA's score is
+        // defined by the grader, so a run without it is meaningless.
+        graderRouter()
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8').catch((err) => {
+            throw new Error(
+              `SIMPLEQA_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`,
+            )
+          })
+          return
+        }
+        try {
+          await py(
+            `from urllib.request import urlopen
+with urlopen(${JSON.stringify(DATASET_URL)}, timeout=120) as resp:
+    head = resp.read(64).decode('utf-8', 'replace')
+assert head.startswith('metadata,problem,answer'), 'unexpected CSV header: ' + head[:40]
+print('ok')`,
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `simpleqa preflight failed: ${msg}\n` +
+              `Fix: (1) ensure the bench venv exists (python3 -m venv bench/.venv) ; ` +
+              `(2) ensure network access to ${DATASET_URL} ; ` +
+              `or set SIMPLEQA_FIXTURES=1 to run against the committed fixtures offline.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold artifact = the worker-contract serialization of the gold answer, so
+        // verify-judge proves gold→CORRECT through the SAME parse path the real
+        // artifact takes.
+        const meta = readMeta(task)
+        return `${FINAL_ANSWER_SENTINEL} ${meta.gold}`
+      },
+    },
+  })
 }

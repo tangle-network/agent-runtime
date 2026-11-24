@@ -28,7 +28,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 
@@ -341,39 +341,21 @@ difference(){
   },
 ]
 
-export function createCadDesignAdapter(): BenchmarkAdapter {
-  return {
-    name: 'cad-design',
+export function createCadDesignAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'cad-design',
 
-    async preflight() {
-      try {
-        await execFileAsync('xvfb-run', ['-a', 'openscad', '--version'], { timeout: 30_000 })
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `cad-design preflight failed: ${msg}\n` +
-            `Fix: install OpenSCAD + Xvfb (Debian/Ubuntu: sudo apt-get install -y openscad xvfb). ` +
-            `The judge runs \`xvfb-run -a openscad -o out.stl model.scad\` — both must be on PATH.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       let tasks = TASKS
       if (opts.ids) tasks = tasks.filter((t) => opts.ids!.includes(t.id))
       if (opts.limit != null) tasks = tasks.slice(0, opts.limit)
-      return tasks.map((t): BenchTask => ({ id: t.id, prompt: t.prompt, metadata: t.meta as unknown as Record<string, unknown> }))
+      return tasks.map((t): BenchTask => ({ id: t.id, payload: { prompt: t.prompt }, metadata: t.meta as unknown as Record<string, unknown> }))
     },
 
-    async goldArtifact(task: BenchTask) {
-      const meta = task.metadata as unknown as CadTaskMeta | undefined
-      return meta?.gold
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const spec = (task.metadata as unknown as CadTaskMeta).spec
       const src = artifact.trim()
-      if (!src) return { resolved: false, score: 0, detail: 'empty artifact' }
+      if (!src) return { passed: false, score: 0, notes: 'empty artifact', raw: {} }
 
       const dir = await mkdtemp(join(tmpdir(), 'cad-'))
       const scad = join(dir, 'model.scad')
@@ -388,7 +370,7 @@ export function createCadDesignAdapter(): BenchmarkAdapter {
         stderr = r.stderr
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        return { resolved: false, score: 0, detail: `compile failed: ${msg.slice(0, 300)}` }
+        return { passed: false, score: 0, notes: `compile failed: ${msg.slice(0, 300)}`, raw: {} }
       }
 
       // Render a PNG alongside (the artifact run-capsule animates). Non-fatal.
@@ -405,13 +387,13 @@ export function createCadDesignAdapter(): BenchmarkAdapter {
       try {
         stl = await readFile(stlPath, 'utf8')
       } catch {
-        return { resolved: false, score: 0, detail: 'compiled but produced no STL (empty geometry)' }
+        return { passed: false, score: 0, notes: 'compiled but produced no STL (empty geometry)', raw: {} }
       }
       const volumes = Number(/Volumes:\s*(\d+)/.exec(stderr)?.[1] ?? '1')
       const geo = measureStl(stl, volumes)
       const { checks, score } = scoreGeometry(geo, spec)
       const resolved = score === 1
-      const detail = JSON.stringify({
+      const raw = {
         checks,
         geo: {
           triangles: geo.triangles,
@@ -422,8 +404,28 @@ export function createCadDesignAdapter(): BenchmarkAdapter {
         },
         renderPath: pngPath,
         stlPath,
-      })
-      return { resolved, score, detail }
+      }
+      return { passed: resolved, score, notes: JSON.stringify(raw), raw }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        try {
+          await execFileAsync('xvfb-run', ['-a', 'openscad', '--version'], { timeout: 30_000 })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `cad-design preflight failed: ${msg}\n` +
+              `Fix: install OpenSCAD + Xvfb (Debian/Ubuntu: sudo apt-get install -y openscad xvfb). ` +
+              `The judge runs \`xvfb-run -a openscad -o out.stl model.scad\` — both must be on PATH.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        const meta = task.metadata as unknown as CadTaskMeta | undefined
+        return meta?.gold
+      },
+    },
+  })
 }

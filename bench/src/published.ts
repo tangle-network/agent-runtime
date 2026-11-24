@@ -2,7 +2,7 @@
  * Published benchmarks, run by their publishers' own runners, unmodified, at a pinned commit.
  *
  * One registry entry per benchmark: the publisher's repository and commit, its install and run commands, a parser from the
- * publisher's result file to `BenchScore`, the license, the data terms, and the judge the publisher names. Nothing here loads
+ * publisher's result file to per-task scores (agent-eval's verdict names: `passed`, `score`, `notes`), the license, the data terms, and the judge the publisher names. Nothing here loads
  * tasks, drives an agent loop, or grades: the publisher's runner does all three. A target becomes the OpenAI-compatible
  * endpoint that runner calls:
  *
@@ -25,7 +25,6 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { canonicalJson, RunRecordValidationError, UNKNOWN_MODEL, validateRunRecord, type RunRecord } from '@tangle-network/agent-eval'
-import type { BenchScore } from './benchmarks/types'
 
 export type Measured = 'model-shaped' | 'own-loop'
 
@@ -98,7 +97,13 @@ export interface PublishedRunOptions {
 }
 
 /** One task's score; `raw` carries the publisher's numeric per-task detail (Harvey LAB: `crit.<id>` 1|0, criteria counts). */
-export type PublishedTaskScore = BenchScore & { id: string; raw?: Record<string, number> }
+export interface PublishedTaskScore {
+  id: string
+  passed: boolean
+  score: number
+  notes?: string
+  raw?: Record<string, number>
+}
 
 export interface PublishedBenchmark {
   name: string
@@ -175,7 +180,7 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
         if (typeof task.name !== 'string' || typeof task.score !== 'number' || typeof task.passed !== 'boolean') {
           throw new Error(`AutomationBench task result is malformed: ${JSON.stringify(task).slice(0, 200)}`)
         }
-        return { id: task.name, resolved: task.passed, score: task.score }
+        return { id: task.name, passed: task.passed, score: task.score }
       })
     },
   },
@@ -210,8 +215,8 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
         if (typeof success !== 'number') throw new Error(`EnterpriseOps-Gym result ${file} has no statistics.overall_success_rate`)
         const error = result.runs?.find((run) => run.error)?.error
         return {
-          id: file.slice('results_'.length, -'.json'.length).split('__').pop()!, resolved: success === 1, score: success,
-          detail: `verifier pass rate ${typeof verifiers === 'number' ? verifiers : 'unknown'}${error ? `; runner error: ${String(error).slice(0, 200)}` : ''}`,
+          id: file.slice('results_'.length, -'.json'.length).split('__').pop()!, passed: success === 1, score: success,
+          notes: `verifier pass rate ${typeof verifiers === 'number' ? verifiers : 'unknown'}${error ? `; runner error: ${String(error).slice(0, 200)}` : ''}`,
         }
       }))
     },
@@ -246,16 +251,16 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
       return Promise.all(runs.map(async ([run, task]) => {
         const read = (file: string) => readFile(path.join(resultPath, run, file), 'utf8').then((text) => JSON.parse(text) as Record<string, unknown>, () => null)
         const dual = await read('scores_dual.json')
-        if (dual) return { id: task, resolved: dual.all_pass === true, score: Number(dual.dual_all_pass_rate), detail: `dual-judge criterion pass ${String(dual.dual_criterion_pass)}` }
+        if (dual) return { id: task, passed: dual.all_pass === true, score: Number(dual.dual_all_pass_rate), notes: `dual-judge criterion pass ${String(dual.dual_criterion_pass)}` }
         const single = await read('scores.json')
         if (single) {
           const criteria = Array.isArray(single.criteria_results) ? single.criteria_results as Array<{ id?: unknown; verdict?: unknown }> : []
-          return { id: task, resolved: single.all_pass === true, score: single.all_pass === true ? 1 : 0,
-            detail: `${String(single.n_passed)} of ${String(single.n_criteria)} criteria passed${single.n_grading_errors ? `; ${String(single.n_grading_errors)} grading errors` : ''}`,
+          return { id: task, passed: single.all_pass === true, score: single.all_pass === true ? 1 : 0,
+            notes: `${String(single.n_passed)} of ${String(single.n_criteria)} criteria passed${single.n_grading_errors ? `; ${String(single.n_grading_errors)} grading errors` : ''}`,
             raw: { criteria_passed: Number(single.n_passed) || 0, criteria_total: Number(single.n_criteria) || 0,
               ...Object.fromEntries(criteria.filter((c) => typeof c.id === 'string').map((c) => [`crit.${String(c.id)}`, c.verdict === 'pass' ? 1 : 0])) } }
         }
-        return { id: task, resolved: false, score: 0, detail: 'no scores: the harness or the grader failed (see the runner log)' }
+        return { id: task, passed: false, score: 0, notes: 'no scores: the harness or the grader failed (see the runner log)' }
       }))
     },
   },
@@ -293,7 +298,7 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
         const best = weights.filter((weight) => weight > 0).reduce((sum, weight) => sum + weight, 0)
         const points = typeof task.points === 'number' ? task.points : Number.NaN
         if (!best || Number.isNaN(points)) throw new Error(`PRBench task ${id} has no points or weights`)
-        return { id, resolved: points >= best, score: Math.min(1, Math.max(0, points / best)), detail: `${points} of ${best} rubric points` }
+        return { id, passed: points >= best, score: Math.min(1, Math.max(0, points / best)), notes: `${points} of ${best} rubric points` }
       })
     },
   },
@@ -366,7 +371,7 @@ export async function runPublished(name: string, target: string, options: Publis
     benchmark: benchmark.name, version: benchmark.version, ref: benchmark.ref, target, model: endpoint.model,
     measured: endpoint.measured, judge: options.judge ?? benchmark.judge, publisherJudge: benchmark.judge, official: options.judge === undefined,
     ...(endpoint.app ? { app: endpoint.app } : {}),
-    tasks: taskScores.length, passed: taskScores.filter((task) => task.resolved).length,
+    tasks: taskScores.length, passed: taskScores.filter((task) => task.passed).length,
     score: taskScores.length ? taskScores.reduce((sum, task) => sum + task.score, 0) / taskScores.length : 0,
     taskScores, resultPath, runRecords: path.resolve(options.out, `${benchmark.name}-runrecords.jsonl`),
     license: benchmark.license, terms: benchmark.terms, startedAt, finishedAt: new Date().toISOString(),
@@ -395,7 +400,7 @@ function runRecords(run: PublishedRun, options: PublishedRunOptions): RunRecord[
       wallMs: Math.max(0, Date.parse(run.finishedAt) - Date.parse(run.startedAt)),
       costUsd: null, costProvenance: { kind: 'uncaptured', usd: null }, tokenUsage: { input: 0, output: 0, tokensKnown: false },
       terminalOutcome: 'succeeded',
-      outcome: { [split === 'holdout' ? 'holdoutScore' : 'searchScore']: task.score, raw: { resolved: task.resolved ? 1 : 0, ...task.raw } },
+      outcome: { [split === 'holdout' ? 'holdoutScore' : 'searchScore']: task.score, raw: { passed: task.passed ? 1 : 0, ...task.raw } },
       splitTag: split, scenarioId: `${run.benchmark}:${task.id}`,
     }
     try {

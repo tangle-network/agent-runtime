@@ -79,10 +79,10 @@ test('SWE setup and extraction stay in the session workspace and exclude test ed
     const base = git(['hash-object', '-t', 'commit', '-w', '--stdin'],
       `tree ${tree}\nauthor Fixture <fixture@example.invalid> 1 +0000\ncommitter Fixture <fixture@example.invalid> 1 +0000\n\nfixture\n`)
     git(['update-ref', 'HEAD', base])
-    const task = { id: taskId, prompt: 'fix', metadata: { repo: 'fixture/repo', base_commit: base } }
+    const task = { id: taskId, payload: { prompt: 'fix' }, metadata: { repo: 'fixture/repo', base_commit: base } }
     const adapter = createSweBenchAdapter()
-    const setup = adapter.boxSetup!(task)
-    const extract = adapter.boxExtract!(task)
+    const setup = adapter.runtime.workspaceSetup!(task)
+    const extract = adapter.runtime.workspaceExtract!(task)
     assert.match(setup.command, /^rm -rf '\.\//)
     assert.equal(setup.cwd, undefined)
     assert.equal(extract.cwd, undefined)
