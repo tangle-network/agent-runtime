@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import { runtimeFailureCause } from '../runtime/failure-cause'
 import { FileCoordinationLog } from '../runtime/supervise/coordination-log'
+import { causeChain, providerTraceId } from '../runtime/supervise/error-message'
 import {
   type AgentGraph,
   type GraphResult,
@@ -382,6 +383,7 @@ async function runDurablePursuit<Result>(
           // The root's stream is already on disk whether or not the run settled; the record names
           // it so a root that died mid-turn keeps what it had streamed.
           const rootStream = await readRootStreamReceipt(runDir)
+          const traceId = providerTraceId(causeChain(error))
           await writeFailureRecord(runDir, {
             runId,
             pursuitId,
@@ -389,6 +391,7 @@ async function runDurablePursuit<Result>(
             error: {
               name: error instanceof Error ? error.name : 'NonError',
               message: errorMessage(error),
+              ...(traceId === undefined ? {} : { providerTraceId: traceId }),
             },
             ...(rootStream === undefined ? {} : { rootStream }),
           })

@@ -270,9 +270,22 @@ async function loadDurableTopSnapshot(
           settled?.tree.root === id
             ? settled.kind === 'winner'
               ? { kind: 'winner' }
-              : { kind: 'no-winner', reason: settled.reason }
+              : {
+                  kind: 'no-winner',
+                  reason: settled.reason,
+                  ...(settled.reason === 'driver-failed' &&
+                  settled.error.failure?.providerTraceId !== undefined
+                    ? { providerTraceId: settled.error.failure.providerTraceId }
+                    : {}),
+                }
             : failure?.runId === id && accounting?.status === 'down'
-              ? { kind: 'failed', reason: failure.error.message }
+              ? {
+                  kind: 'failed',
+                  reason: failure.error.message,
+                  ...(failure.error.providerTraceId === undefined
+                    ? {}
+                    : { providerTraceId: failure.error.providerTraceId }),
+                }
               : undefined
         const prior =
           spawn?.kind === 'spawned' && spawn.identity

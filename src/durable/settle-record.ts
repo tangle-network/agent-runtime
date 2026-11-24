@@ -9,6 +9,7 @@ import {
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
 } from '../runtime/supervise/durable-file'
+import { providerTraceIdPattern } from '../runtime/supervise/error-message'
 import { terminalAccounting } from '../runtime/supervise/supervisor-accounting'
 import type { RootStreamReceipt, SupervisedResult } from '../runtime/supervise/types'
 import { registerDurableErrorClass } from './durable-writer'
@@ -31,7 +32,11 @@ export interface DurableFailureRecord {
   readonly pursuitId: string
   /** ISO instant the throw was recorded. */
   readonly at: string
-  readonly error: { readonly name: string; readonly message: string }
+  readonly error: {
+    readonly name: string
+    readonly message: string
+    readonly providerTraceId?: string
+  }
   /** The root's retained provider stream at the time of the throw, when the directory holds one:
    *  a root that died mid-turn keeps what it had streamed, and this names it. */
   readonly rootStream?: RootStreamReceipt
@@ -209,6 +214,9 @@ export async function readFailureRecord(runDir: string): Promise<DurableFailureR
       typeof record.at !== 'string' ||
       typeof record.error?.name !== 'string' ||
       typeof record.error.message !== 'string' ||
+      (record.error.providerTraceId !== undefined &&
+        (typeof record.error.providerTraceId !== 'string' ||
+          !providerTraceIdPattern.test(record.error.providerTraceId))) ||
       (record.rootStream !== undefined &&
         (typeof record.rootStream.ref !== 'string' || typeof record.rootStream.events !== 'number'))
     ) {

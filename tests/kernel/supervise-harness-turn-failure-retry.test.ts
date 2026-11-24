@@ -12,7 +12,7 @@ import {
   createCommandModelCredentialResolver,
   TangleCredentialCapacityError,
 } from '@tangle-network/agent-provider-tangle/node'
-import { Sandbox, TimeoutError } from '@tangle-network/sandbox'
+import { Sandbox, TimeoutError } from 'sandbox-trace-test'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
