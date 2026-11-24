@@ -942,6 +942,7 @@ export function superviseAgentGraph(
         : {
             routeFlow: routeFlowOf(validated),
             ...(checkNodes && { checkNodes }),
+            ...(checkNodes?.recoverExecutor && { recoverExecutor: checkNodes.recoverExecutor }),
             ...(opts.decideGate && {
               decideGate: journaledGateDecider(opts.decideGate, journal, runId),
             }),

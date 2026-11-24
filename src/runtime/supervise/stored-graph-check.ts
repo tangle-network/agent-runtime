@@ -29,8 +29,12 @@ import {
 import type { CompletionCheckContext } from './completion-gate'
 import { runtimeCheckFactory } from './flow-brain'
 import type { AgentGraph, RunGraphOptions } from './graph'
-import { retainedExecutorContext } from './retained-executor'
-import type { Agent, AgentSpec, ExecutorFactory, ExecutorResult } from './types'
+import {
+  prepareRetainedExecutor,
+  registerRetainedExecutorPreparation,
+  retainedExecutorContext,
+} from './retained-executor'
+import type { AgentSpec, ExecutorFactory, ExecutorResult } from './types'
 
 /** An environment-owned check command, run outside the agent's conversation. */
 export interface GraphCommandCheck {
@@ -625,7 +629,7 @@ async function replayCheckReceipt(
 export function bindGraphCheckNodes(
   graph: AgentGraph,
   options: RunGraphOptions,
-): GraphCheckNodes | undefined {
+): (GraphCheckNodes & { recoverExecutor?: ExecutorFactory<unknown> }) | undefined {
   const checks = new Map(
     graph.nodes.flatMap((node) => (node.check === undefined ? [] : [[node.id, node.check]])),
   )
@@ -667,7 +671,7 @@ export function bindGraphCheckNodes(
   const runDir = context ? undefined : (local?.runDir ?? driverRunDir(options, workspace))
   const file = runDir === undefined ? undefined : join(runDir, 'command-checks.jsonl')
   const runId = options.runId ?? options.runContext?.runId
-  const leaf: MakeWorkerAgent = (profile, spawn) => {
+  const leaf = (...[profile, spawn]: Parameters<MakeWorkerAgent>) => {
     const id = profile.name as string
     const check = checks.get(id)
     if (check === undefined) throw new ValidationError(`runGraph: ${id} is not a check node`)
@@ -789,14 +793,34 @@ export function bindGraphCheckNodes(
         },
       }
     }
-    const spec: AgentSpec = {
+    const spec = {
       profile,
       harness: null,
       executorFactory: runtimeCheckFactory(executorFactory),
-    }
-    return { name: id, act: async () => '', executorSpec: spec } as Agent<unknown, unknown> & {
-      executorSpec: AgentSpec
-    }
+    } satisfies AgentSpec
+    return { name: id, act: async () => '', executorSpec: spec }
   }
-  return { names: [...checks.keys()], leaf }
+  const fallback = options.recoverExecutor
+  // The host recovers model seats. A command check belongs to this graph and its original assignment.
+  const recoverExecutor =
+    fallback &&
+    registerRetainedExecutorPreparation(
+      (spec, context) => fallback(spec, context),
+      (input) => {
+        const { spawned, profile, task } = input
+        if (spawned.runtime !== 'graph-check' || spawned.parent !== runId)
+          return prepareRetainedExecutor(fallback, input)
+        if (!spawned.parent || !spawned.assignmentId || !profile.name || !checks.has(profile.name))
+          throw new ValidationError(`runGraph: cannot reconstruct check assignment ${spawned.id}`)
+        const { executorSpec: spec } = leaf(profile, {
+          parentNodeId: spawned.parent,
+          assignmentId: spawned.assignmentId,
+          label: spawned.label,
+          budget: spawned.budget,
+          task,
+        })
+        return { spec, factory: spec.executorFactory }
+      },
+    )
+  return { names: [...checks.keys()], leaf, ...(recoverExecutor && { recoverExecutor }) }
 }
