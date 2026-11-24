@@ -56,6 +56,7 @@ import type {
   SpawnJournal,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { loadTopSnapshot } from '../../src/tui/top-snapshot'
 import { durableRetainedProvider } from '../helpers/durable-retained-provider'
 import { waitForState } from '../helpers/observable-state'
 import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
@@ -439,6 +440,23 @@ describe('supervisePursuit durable terminal records', () => {
     expect(await exists(join(runDir, RUN_DIRECTORY_LOCK_FILE))).toBe(false)
   })
 
+  it('shows the provider request trace on the inspected terminal outcome', async () => {
+    const runId = 'run:record:trace'
+    const traceId = 'ed764427c95548e4b72d66225d7af080'
+    await run(runDir, runId, {
+      driverRetry: { enabled: false },
+      driveHarness: async () => {
+        throw Object.assign(new Error('upstream timed out'), { traceId })
+      },
+    })
+    const snapshot = await loadTopSnapshot(runDir, { runDir })
+    expect(snapshot.supervisors.find((row) => row.id === runId)?.outcome).toMatchObject({
+      kind: 'no-winner',
+      reason: 'driver-failed',
+      providerTraceId: traceId,
+    })
+  })
+
   it('records a throw in failure.json, lets a corrected call re-enter, and keeps the attempts apart', async () => {
     const runId = 'run:record:retry'
     // r1's first attempt: the budget refused before any spawn, then the corrected input resumed.
@@ -802,6 +820,7 @@ describe('supervisePursuit root stream', () => {
     // The root drives to completion, then the settlement's journal read fails: the shape of a
     // root that ran and whose run died at its barrier (fourier-e, 2026-09-14: 63 children, a
     // 607-byte failure.json, and nothing of the root).
+    const traceId = '96cb9bb5d45a462a9e037563b18ed72d'
     let armed = false
     const journalPath = join(runDir, 'spawn-journal.jsonl')
     const file = new FileSpawnJournal(journalPath)
@@ -809,7 +828,8 @@ describe('supervisePursuit root stream', () => {
       beginTree: file.beginTree.bind(file),
       appendEvent: file.appendEvent.bind(file),
       loadTree: async (root) => {
-        if (armed) throw new Error('spawn journal unreadable at settlement')
+        if (armed)
+          throw Object.assign(new Error('spawn journal unreadable at settlement'), { traceId })
         return file.loadTree(root)
       },
     }
@@ -828,9 +848,15 @@ describe('supervisePursuit root stream', () => {
     const lines = await readStreamLines()
     expect(lines.slice(0, rootProgress.length).map((line) => line.event)).toEqual(rootProgress)
     const bytes = await readFile(streamPath())
-    const failure = (await readFailureRecord(runDir)) as
-      | { rootStream?: { ref: string; events: number } }
-      | undefined
+    const failure = await readFailureRecord(runDir)
+    expect(failure?.error.providerTraceId).toBe(traceId)
+    const snapshot = await loadTopSnapshot(runDir, { runDir })
+    expect(
+      snapshot.supervisors.find((row) => row.id === 'root-stream-failure')?.outcome,
+    ).toMatchObject({
+      kind: 'failed',
+      providerTraceId: traceId,
+    })
     expect(failure?.rootStream).toEqual({ ref: sha256Bytes(bytes), events: lines.length })
     expect(await exists(join(runDir, SETTLE_RECORD_FILE))).toBe(false)
   })

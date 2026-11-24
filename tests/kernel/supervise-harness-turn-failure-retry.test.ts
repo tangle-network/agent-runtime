@@ -1,4 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -11,6 +12,7 @@ import {
   createCommandModelCredentialResolver,
   TangleCredentialCapacityError,
 } from '@tangle-network/agent-provider-tangle/node'
+import { Sandbox, TimeoutError } from 'sandbox-trace-test'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-attempt-evidence'
 import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-cancellation'
@@ -330,6 +332,63 @@ describe('a root harness turn that ends with a failed outcome', () => {
     expect(ofKind(events, 'driver-attempt')[0]?.record.error).toContain(failure)
     expect(readRunCancellation(fixture.runDir, 'stop-dispatch-retries')?.effect).toBe('cancelled')
   })
+
+  it.each([true, false])(
+    'retains the SDK request trace across a cold journal read (tracing %s)',
+    async (traced) => {
+      const runId = `sandbox-timeout-trace-${traced}`
+      const requests: Array<string | undefined> = []
+      const peer = createServer((req, response) => {
+        requests.push(req.headers.traceparent?.split('-')[1])
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.write('{')
+      })
+      try {
+        await new Promise<void>((resolve) => peer.listen(0, '127.0.0.1', resolve))
+        const address = peer.address()
+        if (!address || typeof address === 'string') throw new Error('expected a TCP port')
+        const sandbox = new Sandbox({
+          baseUrl: `http://127.0.0.1:${address.port}`,
+          apiKey: 'loopback-test',
+          lifecycleTraceContext: traced,
+          timeoutMs: 500,
+        })
+        const fixture = await harnessFailureFixture({
+          runId,
+          failures: () => undefined,
+          createFailure: async () => {
+            try {
+              const response = await sandbox.fetch('/deadline', { headers: { 'x-no-retry': '1' } })
+              await response.text()
+            } catch (error) {
+              if (!(error instanceof TimeoutError)) throw error
+              return new Error('sandbox setup failed', { cause: error })
+            }
+            throw new Error('expected the stalled response to time out')
+          },
+        })
+        const { result } = await fixture.run({ enabled: false })
+        expect(requests).toHaveLength(1)
+        if (traced) expect(requests[0]).toMatch(/^[0-9a-f]{32}$/)
+        else expect(requests[0]).toBeUndefined()
+        const cold = createFileRunContext(fixture.runDir)
+        const events = (await cold.journal.loadTree(runId)) ?? []
+        const record = ofKind(events, 'driver-attempt')[0]?.record
+        expect(record?.error).toContain('sandbox setup failed')
+        expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+        if (result.kind !== 'no-winner' || result.reason !== 'driver-failed')
+          throw new Error('expected a driver failure')
+        for (const evidence of [record, result.error.failure]) {
+          expect(evidence).toBeDefined()
+          if (traced) expect(evidence).toHaveProperty('providerTraceId', requests[0])
+          else expect(evidence).not.toHaveProperty('providerTraceId')
+        }
+      } finally {
+        peer.closeAllConnections()
+        await new Promise<void>((resolve) => peer.close(() => resolve()))
+      }
+    },
+  )
 
   it('bounds and redacts a rejected dispatch before journaling its error', async () => {
     const runId = 'dispatch-failure-redacted'

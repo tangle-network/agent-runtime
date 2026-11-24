@@ -320,6 +320,9 @@ importers:
       publint:
         specifier: 'catalog:'
         version: 0.3.25
+      sandbox-trace-test:
+        specifier: npm:@tangle-network/sandbox@1.0.575
+        version: '@tangle-network/sandbox@1.0.575(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))'
       tsdown:
         specifier: 'catalog:'
         version: 0.23.5(@arethetypeswrong/core@0.18.5)(publint@0.3.25)(tsx@4.23.15)(typescript@6.0.3)
@@ -2463,6 +2466,26 @@ packages:
 
   '@tangle-network/sandbox@1.0.395':
     resolution: {integrity: sha512-U5eKFPs5da0epY2ZFv0x9MqYDF9Cml4/bv4PrAzf72Ua6Let2xJVACawUDzGKLIsSduoD9PGgxmrON+elB7m2g==}
+    peerDependencies:
+      '@mastra/core': ^1.36.0
+      '@modelcontextprotocol/sdk': ^1.30.0
+      ai: ^6.0.175 || ^7.0.107
+      openai: ^6.36.0
+      viem: ^2.0.0
+    peerDependenciesMeta:
+      '@mastra/core':
+        optional: true
+      '@modelcontextprotocol/sdk':
+        optional: true
+      ai:
+        optional: true
+      openai:
+        optional: true
+      viem:
+        optional: true
+
+  '@tangle-network/sandbox@1.0.575':
+    resolution: {integrity: sha512-W6V0H0Wu45tv4hYs+Sce0p4Y39SOJV0jUbycixqv6RYV4OYQ88xHP14cRoiSXk6aJHh2NhETs0IVu1W+S/j01g==}
     peerDependencies:
       '@mastra/core': ^1.36.0
       '@modelcontextprotocol/sdk': ^1.30.0
@@ -6613,6 +6636,22 @@ snapshots:
       zod: 4.6.7
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.32.2(supports-color@10.2.2)(zod@4.6.7)
+      viem: 2.56.9(typescript@6.0.3)(zod@4.6.7)
+    transitivePeerDependencies:
+      - bare-abort-controller
+      - bare-buffer
+      - react-native-b4a
+
+  '@tangle-network/sandbox@1.0.575(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))(viem@2.56.9(typescript@6.0.3)(zod@4.6.7))':
+    dependencies:
+      '@tangle-network/agent-core': 1.0.3(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))
+      '@tangle-network/agent-interface': 5.10.28
+      '@tangle-network/agent-trace-contract': 2.2.2
+      tar-stream: 3.2.2
+      zod: 4.6.7
+    optionalDependencies:
+      '@modelcontextprotocol/sdk': 1.32.2(supports-color@10.2.2)(zod@4.6.7)
+      undici: 8.12.3
       viem: 2.56.9(typescript@6.0.3)(zod@4.6.7)
     transitivePeerDependencies:
       - bare-abort-controller

@@ -78,7 +78,11 @@ export interface SupervisorView extends SupervisorBase {
   readonly stateDir: string
   readonly outcome?:
     | { readonly kind: 'winner' }
-    | { readonly kind: 'no-winner' | 'failed'; readonly reason: string }
+    | {
+        readonly kind: 'no-winner' | 'failed'
+        readonly reason: string
+        readonly providerTraceId?: string
+      }
   readonly lastRoute?: Extract<RouteFlowEvent, { kind: 'stopped' | 'unrouted' }>
   /** Epoch milliseconds of actual recorded executor activity, independent of tail truncation. */
   readonly lastActivityAt?: number

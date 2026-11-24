@@ -101,14 +101,29 @@ export function causeChain(error: unknown): object[] {
   return chain
 }
 
+/** The upstream request's W3C trace ID, when the provider supplied one. */
+export const providerTraceIdPattern = /^(?!0{32}$)[0-9a-f]{32}$/u
+
+export function providerTraceId(links: readonly object[]): string | undefined {
+  for (const link of links) {
+    try {
+      const id: unknown = Reflect.get(link, 'traceId')
+      if (typeof id === 'string' && providerTraceIdPattern.test(id)) return id
+    } catch {
+      // A provider accessor may throw. A nested cause can still carry a usable ID.
+    }
+  }
+  return undefined
+}
+
 const maxStackFrames = 40
 
 /** The deepest cause's stack that has one, redacted and bounded to {@link maxStackFrames} frames,
  *  so a failure the messages alone cannot place still names its throw site (#2347). Outer
  *  wrappers' stacks are skipped: they restate the wrap site the record's own fields name. */
-export function errorStack(error: unknown): string | undefined {
+export function errorStack(links: readonly object[]): string | undefined {
   let found: string | undefined
-  for (const value of causeChain(error)) {
+  for (const value of links) {
     if (!(value instanceof Error)) continue
     const stack = errorProperty(value, 'stack')
     if (stack !== undefined && stack !== '[unreadable error stack]') found = stack

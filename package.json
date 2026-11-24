@@ -165,6 +165,7 @@
     "@tangle-network/agent-provider-e2b": "0.7.0",
     "@tangle-network/agent-provider-tangle": "5.0.16",
     "@tangle-network/sandbox": "1.0.395",
+    "sandbox-trace-test": "npm:@tangle-network/sandbox@1.0.575",
     "@tangle-network/sandbox-ui": "7.0.9",
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.5",

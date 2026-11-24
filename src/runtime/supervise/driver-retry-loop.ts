@@ -23,7 +23,7 @@ import type {
   DriverRetryPolicy,
   DriverRetryRun,
 } from './driver-retry'
-import { causeChain, errMessage, errorStack } from './error-message'
+import { causeChain, errMessage, errorStack, providerTraceId } from './error-message'
 import { turnFailureOf } from './executor-outcome'
 import { RetainedExecutionPendingError } from './retained-executor'
 import {
@@ -381,12 +381,15 @@ export class DriverRetryLoop {
 
   private failureRecord(failure: DriverFailure) {
     const producerFailure = turnFailureOf(failure.error)
-    const stack = errorStack(failure.error)
+    const links = causeChain(failure.error)
+    const traceId = providerTraceId(links)
+    const stack = errorStack(links)
     return {
       attempt: failure.attempt,
       durationMs: failure.durationMs,
       error: errMessage(failure.error),
       ...(stack === undefined ? {} : { errorStack: stack }),
+      ...(traceId === undefined ? {} : { providerTraceId: traceId }),
       ...(producerFailure === undefined ? {} : { failure: producerFailure }),
       classification: failure.classification,
       ...(failure.classification === 'transient'
