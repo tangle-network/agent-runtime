@@ -88,27 +88,32 @@ test('AutomationBench: the publisher\'s grader passes the gold tool call and fai
   }
 })
 
-test('agent-bench run refuses an app target and names the fronts that do not forward tools', () => {
+test('agent-bench run refuses an app target without the harness that runs its profile', () => {
   const cli = path.join(path.dirname(new URL(import.meta.url).pathname), 'cli.ts')
   let failure: { status: number | null; stderr: string } | undefined
   try {
-    execFileSync(process.execPath, ['--import', 'tsx', cli, 'run', 'automationbench', '--target', 'app:legal-agent'], { stdio: 'pipe', env: { ...process.env, TANGLE_API_KEY: 'unused' } })
+    execFileSync(process.execPath, ['--import', 'tsx', cli, 'run', 'automationbench', '--target', 'app:gtm-agent'], { stdio: 'pipe', env: { ...process.env, AGENT_BENCH_BRIDGE_KEY: 'unused' } })
   } catch (error) {
     failure = { status: (error as { status: number | null }).status, stderr: String((error as { stderr: Buffer }).stderr) }
   }
   assert.equal(failure?.status, 1)
-  assert.match(failure!.stderr, /do not forward the caller's tools/)
+  assert.match(failure!.stderr, /app:gtm-agent needs @<harness\/model>/)
 })
 
-/** The CLI Bridge commit that serves caller-executed tools (drewstone/cli-bridge#397). */
-const BRIDGE_REF = '3a81c8f651c93a89d997e2652a863ef687edbb69'
+/** The CLI Bridge commit that serves caller-executed tools (#397) and cataloged profiles at /profiles/<id>/v1 (#408, #410). */
+const BRIDGE_REF = '857673f6e36cb53b353d0d1c8006bef812669eec'
 
-/** A stand-in `claude`: it calls the gold tool through the Bridge's caller MCP server, then finishes the turn. */
-const standInHarness = String.raw`#!/usr/bin/env node
+/**
+ * A stand-in `claude`: it calls the gold tool through the Bridge's caller MCP server, then finishes the turn. Started as
+ * `app-peer`, it first requires the system prompt the app serves, so an app run passes only when the app's profile ran.
+ */
+const standInHarness = (appPrompt: string) => String.raw`#!/usr/bin/env node
 const fs = require('node:fs')
 if (process.argv.includes('--version')) { console.log('own-loop-peer 1.0'); process.exit(0) }
 async function main() {
   const argv = process.argv.slice(2)
+  const prompt = argv.includes('--system-prompt') ? argv[argv.indexOf('--system-prompt') + 1] : ''
+  if (argv[argv.indexOf('--model') + 1] === 'app-peer' && !prompt.startsWith(${JSON.stringify(appPrompt)})) throw new Error('the app profile did not reach the harness')
   const caller = JSON.parse(fs.readFileSync(argv[argv.indexOf('--mcp-config') + 1], 'utf8')).mcpServers.caller
   const rpc = async (id, method, params) => (await (await fetch(caller.url, { method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
@@ -132,19 +137,30 @@ async function freePort(): Promise<number> {
   return port
 }
 
-test('AutomationBench on a profile target: its runner drives a harness loop through a CLI Bridge, and the publisher\'s grader passes the gold tool call', { skip: uv ? false : 'uv is not installed', timeout: 20 * 60_000 }, async () => {
+test('AutomationBench on profile and app targets: its runner drives a harness loop through a CLI Bridge, and the publisher\'s grader passes the gold tool call', { skip: uv ? false : 'uv is not installed', timeout: 20 * 60_000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'agent-bench-profile-'))
   const bridge = path.join(root, 'cli-bridge')
   execFileSync('git', ['clone', '--quiet', '--filter=blob:none', '--no-checkout', 'https://github.com/drewstone/cli-bridge.git', bridge])
   execFileSync('git', ['checkout', '--quiet', '--detach', BRIDGE_REF], { cwd: bridge })
   execFileSync('pnpm', ['install', '--frozen-lockfile', '--silent'], { cwd: bridge, stdio: 'inherit' })
+  // A stand-in app deployment serving its AgentProfile the way gtm-agent does (/api/tools/profile?definition): a Router
+  // model and an MCP server of its own, which an app target records and leaves out, and a skill it keeps.
+  const appPrompt = 'You are the bench app, a revenue operations agent.'
+  const served = {
+    name: 'bench-app', version: '1.0.0', model: { default: 'gemini-3.7-flash' }, prompt: { systemPrompt: `${appPrompt} Keep CRM records exact.` },
+    mcp: { 'crm-sync': { transport: 'stdio', command: 'node', args: ['./scripts/mcp/crm-sync.mjs'] } },
+    resources: { skills: [{ kind: 'inline', name: 'crm-hygiene', content: '---\nname: crm-hygiene\ndescription: Keep CRM fields exact\n---\nCheck ids before updating.\n' }] },
+  }
+  const appServer = createServer((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(served)) })
+  await new Promise<void>((resolve) => appServer.listen(0, '127.0.0.1', resolve))
   const claude = path.join(root, 'claude')
-  await writeFile(claude, standInHarness)
+  await writeFile(claude, standInHarness(appPrompt))
   await chmod(claude, 0o755)
+  const profiles = path.join(root, 'profiles')
   const port = await freePort()
   // Its own process group, so the whole pnpm -> tsx -> node chain stops with it; no pipe keeps this test's process alive.
   const server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: bridge, detached: true, stdio: ['ignore', 'ignore', 'inherit'], env: { ...process.env,
-    TSX_TSCONFIG_PATH: path.join(bridge, 'tsconfig.json'),
+    TSX_TSCONFIG_PATH: path.join(bridge, 'tsconfig.json'), SANDBOX_PROFILES_DIR: profiles,
     BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: String(port), BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
   const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
   const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-profile-out-'))
@@ -154,14 +170,27 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
       ready = await fetch(`http://127.0.0.1:${port}/health`).then((response) => response.ok, () => false)
       if (!ready) await new Promise((resolve) => setTimeout(resolve, 500))
     }
-    const result = await runPublished('automationbench', 'profile:claude-code/own-loop-peer', {
-      taskIds: [TASK], out, cacheDir,
+    const options = {
+      taskIds: [TASK], cacheDir,
       args: ['--domains', 'simple', '--toolset', 'limited_zapier', '--input-cost', '0', '--output-cost', '0'],
-      env: { AGENT_BENCH_BRIDGE_URL: `http://127.0.0.1:${port}/v1`, AGENT_BENCH_BRIDGE_KEY: 'loopback' },
-    })
+      env: { AGENT_BENCH_BRIDGE_URL: `http://127.0.0.1:${port}/v1`, AGENT_BENCH_BRIDGE_KEY: 'loopback', AGENT_BENCH_BRIDGE_PROFILES_DIR: profiles },
+    }
+    const result = await runPublished('automationbench', 'profile:claude-code/own-loop-peer', { ...options, out: path.join(out, 'profile') })
     assert.equal(result.measured, 'own-loop')
     assert.deepEqual(result.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+
+    const apps = JSON.stringify({ 'bench-app': `http://127.0.0.1:${(appServer.address() as AddressInfo).port}/api/tools/profile?definition` })
+    const app = await runPublished('automationbench', 'app:bench-app@claude-code/app-peer', { ...options, env: { ...options.env, AGENT_BENCH_APPS: apps }, out: path.join(out, 'app') })
+    assert.equal(app.measured, 'own-loop')
+    assert.deepEqual(app.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+    assert.equal(app.model, 'claude-code/app-peer')
+    assert.equal(app.app?.app, 'bench-app')
+    assert.equal(app.app?.profileVersion, '1.0.0')
+    assert.deepEqual(app.app?.productionModel, served.model)
+    assert.deepEqual(app.app?.omittedMcp, ['crm-sync'])
+    assert.match(app.app!.profileDigest, /^sha256:[0-9a-f]{64}$/)
   } finally {
+    appServer.close()
     const exited = new Promise((resolve) => server.once('exit', resolve))
     try { process.kill(-server.pid!, 'SIGTERM') } catch { /* already gone */ }
     const stopped = await Promise.race([exited.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 10_000))])
