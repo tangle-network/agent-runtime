@@ -83,7 +83,7 @@ function processLeaf(cwd: string, known: boolean, fail: boolean, iterations = 1)
             verdict: { valid: true, score: 1 },
             spent: {
               iterations,
-              tokens: { input: 0, output: 0 },
+              tokens: { input: 37, output: 11 },
               usd: 0,
               tokensKnown: known,
               usdKnown: known,
@@ -201,10 +201,34 @@ it.each([
       expect(liveWorker?.status).toBe('running')
       expect(liveWorker?.spend.usdKnown).toBe(false)
       expect(renderTopFrame(live, { color: false, width: 180 })).toContain('unknown')
+      const liveObserver = await readFile(join(runDir, 'observer.jsonl'))
       await writeFile(join(root, 'release'), '')
       const finished = await pending
       const snapshot = await loadTopSnapshot(root, { runDir })
       expect(snapshot.pursuit).toEqual(finished.pursuit)
+      if (known && !refuse) {
+        // The observer may still have only the live prefix after result.json was sealed.
+        const observerPath = join(runDir, 'observer.jsonl')
+        const completeObserver = await readFile(observerPath)
+        try {
+          await writeFile(observerPath, liveObserver)
+          const reopened = await loadTopSnapshot(root, { runDir })
+          const supervisor = reopened.supervisors.find((row) => row.id === runId)
+          const tokens = finished.result.result.spentTotal.tokens
+          expect(tokens).toMatchObject({ input: 37, output: 11 })
+          expect(supervisor?.totals).toMatchObject({
+            tokensInput: 37,
+            tokensOutput: 11,
+            tokensTotal: 48,
+            tokensKnown: true,
+          })
+          expect(supervisor?.workers.find((row) => row.id === liveWorker?.id)?.spend).toMatchObject(
+            { tokensInput: 37, tokensOutput: 11 },
+          )
+        } finally {
+          await writeFile(observerPath, completeObserver)
+        }
+      }
       const rootView = snapshot.supervisors.find((row) => row.id === runId)
       expect(rootView?.outcome?.kind).toBe(finished.result.result.kind)
       if (refuse) {
