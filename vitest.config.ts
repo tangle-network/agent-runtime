@@ -7,6 +7,15 @@ import { HANG_BOUND_MS } from './tests/helpers/observable-state'
 // source and reports their failures as ours.
 const exclude = ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktrees/**', '**/_wt/**']
 
+// The proofs that read RUNTIME_FULL_PLACEMENT_WINDOWS. With it set they wait out the SDK's and
+// Runtime's default placement windows (8 to 20 minutes of outage, little CPU), so release:check
+// runs this project as its own lane beside the rest of the check (scripts/run-beside.mjs).
+const placementWindows = [
+  'tests/integration/placement-capacity-deadline.test.ts',
+  'tests/integration/placement-capacity-room.test.ts',
+  'tests/integration/provider-retained-observation-http.test.ts',
+]
+
 // Keep the process/deadline suites and the whole real-subprocess contention class out of the
 // parallel pool. They spawn real OS processes (seat-pause spawn+poll, the tangle Sandbox provider,
 // the in-place CLI harness) and gate on output in `expect.poll` windows; under pool contention
@@ -96,7 +105,11 @@ export default defineConfig({
     // for the state's arrival and failed while it was on its way on a loaded gate host.
     expect: { poll: { timeout: HANG_BOUND_MS } },
     projects: [
-      { extends: true, test: { name: 'parallel', exclude: [...exclude, ...serial] } },
+      {
+        extends: true,
+        test: { name: 'parallel', exclude: [...exclude, ...serial, ...placementWindows] },
+      },
+      { extends: true, test: { name: 'placement-windows', include: placementWindows, exclude } },
       {
         extends: true,
         plugins: [

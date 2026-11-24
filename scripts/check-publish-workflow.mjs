@@ -203,7 +203,33 @@ for (const name of ['verify-official-optimizers', 'verify-runtime-bench'])
   assertEqual(qualifierJobs[name], undefined, `${name} belongs to the local release gate`)
 const { scripts } = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'))
 assertEqual(scripts.test, 'pnpm run build && pnpm run typecheck && pnpm run lint && vitest run', 'complete source qualification')
-const releaseCheck = scripts['release:check']
+// The full-window placement proofs run as a lane beside the main chain; every check below reads
+// the chain with that step expanded, so the order rules hold for the steps that actually run.
+const besideStep = "node scripts/run-beside.mjs 'pnpm run test:placement-windows' pnpm run release:check:main"
+const releaseSteps = scripts['release:check'].split(' && ').flatMap((step) =>
+  step === besideStep ? scripts['release:check:main'].split(' && ') : [step],
+)
+if (releaseSteps.length === scripts['release:check'].split(' && ').length)
+  throw new Error(`release:check must run ${besideStep}`)
+assertEqual(
+  scripts['test:placement-windows'],
+  'RUNTIME_FULL_PLACEMENT_WINDOWS=1 vitest run --project placement-windows',
+  'full placement windows lane',
+)
+assertEqual(
+  releaseSteps.find((step) => step.startsWith('pnpm run test')),
+  'pnpm run test --project parallel --project serial',
+  'the main suite leaves only the placement lane to its own run',
+)
+const vitestProjects = [
+  ...readFileSync(resolve(repoRoot, 'vitest.config.ts'), 'utf8').matchAll(/test: \{\s*name: '([^']+)'/gu),
+].map((match) => match[1])
+assertEqual(
+  vitestProjects.toSorted().join(','),
+  'parallel,placement-windows,serial',
+  'vitest projects the two release lanes run between them',
+)
+const releaseCheck = releaseSteps.join(' && ')
 const releaseCheckCommands = [
   'check:publish-workflow',
   'check-release-version-free.mjs',
@@ -219,7 +245,6 @@ for (const command of releaseCheckCommands)
 // suite, so a taken version or a registry fault costs minutes, not the suite's 50; the chain ends
 // on the version check again, because a version taken while the suite ran must not pass
 // (agent-runtime 10.0.15, 2026-11-23).
-const releaseSteps = releaseCheck.split(' && ')
 const stepOf = (command) => {
   const index = releaseSteps.findIndex((step) => step.includes(command))
   if (index === -1) throw new Error(`release:check must include ${command}`)

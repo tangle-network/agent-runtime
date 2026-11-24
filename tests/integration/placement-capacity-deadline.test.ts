@@ -1,7 +1,9 @@
 import { expect, it } from 'vitest'
 import { runPlacementCapacityRoot } from './fixtures/placement-capacity-root'
 
-it.each([
+// Each case starts its own service, provider and run directory; they wait out the same windows
+// together rather than one after the other.
+it.concurrent.each([
   ['capacity', 'capacity_exhausted'],
   ['keyed', 'sandbox_create_reconciling'],
 ] as const)(
