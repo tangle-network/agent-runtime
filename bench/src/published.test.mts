@@ -9,6 +9,8 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { createInterface } from 'node:readline'
+import type { Readable } from 'node:stream'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -124,12 +126,18 @@ async function main() {
 main().catch((error) => { console.error('own-loop peer failed: ' + error.message); process.exitCode = 1 })
 `
 
-async function freePort(): Promise<number> {
-  const probe = createServer()
-  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve))
-  const { port } = probe.address() as AddressInfo
-  await new Promise<void>((resolve) => probe.close(() => resolve()))
-  return port
+async function waitForBridge(stdout: Readable): Promise<string> {
+  const lines = createInterface({ input: stdout, signal: AbortSignal.timeout(60_000) })
+  try {
+    for await (const line of lines) {
+      const ready = /^\[cli-bridge\] listening on (http:\/\/127\.0\.0\.1:\d+) /.exec(line)
+      if (ready) return ready[1]
+    }
+    throw new Error('CLI Bridge closed its output before announcing the loopback listener')
+  } finally {
+    lines.close()
+    stdout.resume()
+  }
 }
 
 test('AutomationBench on a profile target: its runner drives a harness loop through a CLI Bridge, and the publisher\'s grader passes the gold tool call', { skip: uv ? false : 'uv is not installed', timeout: 20 * 60_000 }, async () => {
@@ -141,21 +149,16 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
   const claude = path.join(root, 'claude')
   await writeFile(claude, standInHarness)
   await chmod(claude, 0o755)
-  const port = await freePort()
   const server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: bridge, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env,
-    BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: String(port), BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
+    BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: '0', BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
   const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
   const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-profile-out-'))
   try {
-    for (let ready = false, attempt = 0; !ready; attempt++) {
-      assert.ok(attempt < 120, 'the CLI Bridge did not answer /health within 60 s')
-      ready = await fetch(`http://127.0.0.1:${port}/health`).then((response) => response.ok, () => false)
-      if (!ready) await new Promise((resolve) => setTimeout(resolve, 500))
-    }
+    const bridgeUrl = await waitForBridge(server.stdout)
     const result = await runPublished('automationbench', 'profile:claude-code/own-loop-peer', {
       taskIds: [TASK], out, cacheDir,
       args: ['--domains', 'simple', '--toolset', 'limited_zapier', '--input-cost', '0', '--output-cost', '0'],
-      env: { AGENT_BENCH_BRIDGE_URL: `http://127.0.0.1:${port}/v1`, AGENT_BENCH_BRIDGE_KEY: 'loopback' },
+      env: { AGENT_BENCH_BRIDGE_URL: `${bridgeUrl}/v1`, AGENT_BENCH_BRIDGE_KEY: 'loopback' },
     })
     assert.equal(result.measured, 'own-loop')
     assert.deepEqual(result.taskScores, [{ id: TASK, resolved: true, score: 1 }])
