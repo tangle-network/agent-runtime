@@ -637,7 +637,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ##### outcome?
 
-> `readonly` `optional` **outcome?**: \{ `kind`: `"winner"`; \} \| \{ `kind`: `"failed"` \| `"no-winner"`; `reason`: `string`; \}
+> `readonly` `optional` **outcome?**: \{ `kind`: `"winner"`; \} \| \{ `kind`: `"failed"` \| `"no-winner"`; `reason`: `string`; `providerTraceId?`: `string`; \}
 
 **`Experimental`**
 
@@ -1780,7 +1780,7 @@ Combine supervisor projections and source diagnostics into one snapshot.
 
 ### projectTopSupervisor()
 
-> **projectTopSupervisor**(`state`, `stateDir`, `events`, `progressTail`, `now`, `workerEventTails?`, `accounting?`): [`SupervisorView`](#supervisorview)
+> **projectTopSupervisor**(`state`, `stateDir`, `events`, `progressTail`, `now`, `workerEventTails?`, `accounting?`, `settled?`): [`SupervisorView`](#supervisorview)
 
 **`Experimental`**
 
@@ -1815,6 +1815,10 @@ readonly `string`[]
 ##### accounting?
 
 [`PursuitRunProjection`](durable.md#pursuitrunprojection)
+
+##### settled?
+
+[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\>
 
 #### Returns
 
