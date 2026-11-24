@@ -416,3 +416,23 @@ it.each([
   },
   90000,
 )
+
+it('admits a process worker with one turn from a two-iteration graph budget', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'small-graph-budget-'))
+  try {
+    await writeFile(join(root, 'release'), '')
+    const { result } = await superviseGraphPursuit(
+      { ...graph, budget: { maxIterations: 2, maxTokens: 30000 } },
+      { runDir: join(root, 'durable'), makeLeafAgent: processLeaf(root, true, false) },
+    )
+    expect(result.result.kind).toBe('winner')
+    expect(result.result.tree.nodes).toHaveLength(1)
+    expect(result.result.tree.nodes[0]).toMatchObject({
+      budget: { maxIterations: 1, maxTokens: 7500 },
+      ownSpent: { iterations: 1 },
+    })
+    expect(result.result.spentTotal.iterations).toBeLessThanOrEqual(2)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
