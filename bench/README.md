@@ -39,7 +39,8 @@ agent-bench list
 ```
 
 - `model:<router model>` calls the Tangle Router; a `:free` model takes its free test lane.
-- `app:` and `profile:` targets are refused for model-shaped benchmarks until their fronts return tool calls to the caller; the refusal names the missing front.
+- `profile:<harness/model>` runs that harness with its own loop and tools through a CLI Bridge (`AGENT_BENCH_BRIDGE_URL`, default `http://127.0.0.1:3344/v1`, key in `AGENT_BENCH_BRIDGE_KEY`); the benchmark's tools reach it as caller-executed MCP tools, so the run measures `own-loop`.
+- `app:` targets are refused until the agent gateway and the sandbox sidecar forward the caller's tools; the refusal names them.
 - Each run records `measured` (`model-shaped`: the target as a model calling the benchmark's tools; `own-loop`: the agent with its own loop and tools), the judge, and `official: false` whenever a judge was substituted.
 - Arguments after `--` go to the publisher's runner unchanged. Publisher checkouts are cached in `~/.cache/agent-bench/published`.
 

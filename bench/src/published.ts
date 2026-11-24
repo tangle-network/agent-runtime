@@ -6,9 +6,10 @@
  * tasks, drives an agent loop, or grades: the publisher's runner does all three. A target becomes the OpenAI-compatible
  * endpoint that runner calls:
  *
- *   model:<router model>   the Tangle Router with `TANGLE_API_KEY`; a `:free` model takes the Router's free test lane.
- *   app:<agent app>        refused for model-shaped benchmarks until the app's gateway passes the caller's tools through.
- *   profile:<profile>      refused for model-shaped benchmarks until cli-bridge returns tool calls to the caller.
+ *   model:<router model>       the Tangle Router with `TANGLE_API_KEY`; the target is a model driving the benchmark's tools.
+ *   profile:<harness/model>    a CLI Bridge (`AGENT_BENCH_BRIDGE_URL`, default http://127.0.0.1:3344/v1) running that harness with
+ *                              its own loop and tools; the benchmark's tools reach it as caller-executed MCP tools (cli-bridge#397).
+ *   app:<agent app>            refused until the agent gateway and the sandbox sidecar forward the caller's tools.
  *
  * Every run says what it measured: `model-shaped` (the target as a model calling the benchmark's tools, which the
  * benchmark executes) or `own-loop` (the agent with its own loop and tools). The two are never compared as one.
@@ -29,6 +30,8 @@ export interface Endpoint {
   model: string
   /** The environment variable that holds the endpoint's key; the runner reads it, nothing here prints it. */
   apiKeyVar: string
+  /** What a run through this endpoint measures. */
+  measured: Measured
 }
 
 export interface PublishedRunOptions {
@@ -124,15 +127,13 @@ export function resolveEndpoint(target: string, benchmark: PublishedBenchmark, e
   if (!match) throw new Error(`target must be model:<router model>, app:<agent app> or profile:<agent profile>, not '${target}'`)
   const [, kind, id] = match as unknown as [string, 'model' | 'app' | 'profile', string]
   if (kind === 'model') {
-    return { target, model: id, baseUrl: env.AGENT_BENCH_ROUTER_URL ?? 'https://router.tangle.tools/v1', apiKeyVar: 'TANGLE_API_KEY' }
+    return { target, model: id, baseUrl: env.AGENT_BENCH_ROUTER_URL ?? 'https://router.tangle.tools/v1', apiKeyVar: 'TANGLE_API_KEY', measured: benchmark.measured }
   }
-  if (benchmark.measured === 'model-shaped') {
-    const missing = kind === 'app'
-      ? '@tangle-network/agent-gateway takes chat messages only (src/chat-input.ts) and never returns tool calls'
-      : 'cli-bridge runs a caller\'s tools as MCP servers itself (src/backends/claude.ts) and never returns tool calls'
-    throw new Error(`${benchmark.name} executes its own tools from the target's tool calls; an ${kind} target cannot answer with them yet: ${missing}. Use model:<router model> until that front passes tools through.`)
+  if (kind === 'profile') {
+    // A loopback Bridge without a bearer accepts any key; the runner still needs one to send.
+    return { target, model: id, baseUrl: env.AGENT_BENCH_BRIDGE_URL ?? 'http://127.0.0.1:3344/v1', apiKeyVar: 'AGENT_BENCH_BRIDGE_KEY', measured: 'own-loop' }
   }
-  throw new Error(`${kind} targets are not wired for own-loop benchmarks yet`)
+  throw new Error(`${benchmark.name} executes its own tools from the target's tool calls, and an app target cannot return them yet: @tangle-network/agent-gateway (src/chat-input.ts) and the agent-container sidecar (apps/sidecar/src/routes/agent-invoke-chat.ts) do not forward the caller's tools. Use profile:<harness/model> to measure the same harness through a CLI Bridge.`)
 }
 
 /** Run one published benchmark against one target with the publisher's runner and grader, and record the result. */
@@ -151,7 +152,7 @@ export async function runPublished(name: string, target: string, options: Publis
   const taskScores = benchmark.parse(await readFile(resultPath, 'utf8'))
   const run: PublishedRun = {
     benchmark: benchmark.name, version: benchmark.version, ref: benchmark.ref, target, model: endpoint.model,
-    measured: benchmark.measured, judge: benchmark.judge, official: true,
+    measured: endpoint.measured, judge: benchmark.judge, official: true,
     tasks: taskScores.length, passed: taskScores.filter((task) => task.resolved).length,
     score: taskScores.length ? taskScores.reduce((sum, task) => sum + task.score, 0) / taskScores.length : 0,
     taskScores, resultPath, license: benchmark.license, terms: benchmark.terms, startedAt, finishedAt: new Date().toISOString(),
