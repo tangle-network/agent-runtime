@@ -18,12 +18,13 @@
  * benchmark executes) or `own-loop` (the agent with its own loop and tools). The two are never compared as one.
  */
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { canonicalJson, RunRecordValidationError, UNKNOWN_MODEL, validateRunRecord, type RunRecord } from '@tangle-network/agent-eval'
 import type { BenchScore } from './benchmarks/types'
 
 export type Measured = 'model-shaped' | 'own-loop'
@@ -92,9 +93,12 @@ export interface PublishedRunOptions {
    * (AGENT_BENCH_JUDGE_URL, default the profile Bridge). The run is then not official, and its record says so.
    */
   judge?: string
+  /** The agent-eval RunRecord identity each task row carries; defaults: experiment `<benchmark>@<ref>`, candidate the target, split holdout. */
+  record?: { experimentId?: string; candidateId?: string; splitTag?: 'search' | 'dev' | 'holdout' }
 }
 
-export type PublishedTaskScore = BenchScore & { id: string }
+/** One task's score; `raw` carries the publisher's numeric per-task detail (Harvey LAB: `crit.<id>` 1|0, criteria counts). */
+export type PublishedTaskScore = BenchScore & { id: string; raw?: Record<string, number> }
 
 export interface PublishedBenchmark {
   name: string
@@ -136,6 +140,8 @@ export interface PublishedRun {
   score: number
   taskScores: PublishedTaskScore[]
   resultPath: string
+  /** One agent-eval RunRecord per task (JSON lines), for the ledgers, dashboards and promotion gates every other run feeds. */
+  runRecords: string
   license: string
   terms: string
   startedAt: string
@@ -243,8 +249,11 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
         if (dual) return { id: task, resolved: dual.all_pass === true, score: Number(dual.dual_all_pass_rate), detail: `dual-judge criterion pass ${String(dual.dual_criterion_pass)}` }
         const single = await read('scores.json')
         if (single) {
+          const criteria = Array.isArray(single.criteria_results) ? single.criteria_results as Array<{ id?: unknown; verdict?: unknown }> : []
           return { id: task, resolved: single.all_pass === true, score: single.all_pass === true ? 1 : 0,
-            detail: `${String(single.n_passed)} of ${String(single.n_criteria)} criteria passed${single.n_grading_errors ? `; ${String(single.n_grading_errors)} grading errors` : ''}` }
+            detail: `${String(single.n_passed)} of ${String(single.n_criteria)} criteria passed${single.n_grading_errors ? `; ${String(single.n_grading_errors)} grading errors` : ''}`,
+            raw: { criteria_passed: Number(single.n_passed) || 0, criteria_total: Number(single.n_criteria) || 0,
+              ...Object.fromEntries(criteria.filter((c) => typeof c.id === 'string').map((c) => [`crit.${String(c.id)}`, c.verdict === 'pass' ? 1 : 0])) } }
         }
         return { id: task, resolved: false, score: 0, detail: 'no scores: the harness or the grader failed (see the runner log)' }
       }))
@@ -359,10 +368,43 @@ export async function runPublished(name: string, target: string, options: Publis
     ...(endpoint.app ? { app: endpoint.app } : {}),
     tasks: taskScores.length, passed: taskScores.filter((task) => task.resolved).length,
     score: taskScores.length ? taskScores.reduce((sum, task) => sum + task.score, 0) / taskScores.length : 0,
-    taskScores, resultPath, license: benchmark.license, terms: benchmark.terms, startedAt, finishedAt: new Date().toISOString(),
+    taskScores, resultPath, runRecords: path.resolve(options.out, `${benchmark.name}-runrecords.jsonl`),
+    license: benchmark.license, terms: benchmark.terms, startedAt, finishedAt: new Date().toISOString(),
   }
+  await writeFile(run.runRecords, runRecords(run, options).map((record) => JSON.stringify(record)).join('\n') + '\n')
   await writeFile(path.resolve(options.out, `${benchmark.name}-run.json`), `${JSON.stringify(run, null, 2)}\n`)
   return run
+}
+
+/**
+ * One agent-eval RunRecord per task, validated by agent-eval's own validator. The publisher's runner makes the model calls,
+ * so cost and tokens are uncaptured, never zero. A RunRecord's model must name a served snapshot; a subscription harness
+ * reports none, and a snapshot invented from the date would be false, so such rows record `unknown` with terminal outcome
+ * `unknown` and keep the requested model in `candidateId`. A pinned model id (a Router snapshot) is recorded as served.
+ */
+function runRecords(run: PublishedRun, options: PublishedRunOptions): RunRecord[] {
+  const split = options.record?.splitTag ?? 'holdout'
+  const sha = (value: string) => `sha256:${createHash('sha256').update(value).digest('hex')}`
+  const configHash = sha(canonicalJson({ benchmark: run.benchmark, ref: run.ref, target: run.target, judge: run.judge, args: options.args ?? [] }))
+  return run.taskScores.map((task) => {
+    const row = {
+      runId: randomUUID(), experimentId: options.record?.experimentId ?? `${run.benchmark}@${run.ref}`,
+      candidateId: options.record?.candidateId ?? run.target, seed: 0, model: run.model,
+      // The publisher owns the prompt; an app run's prompt is its profile.
+      promptHash: run.app?.profileDigest ?? sha(run.target), configHash, commitSha: run.ref,
+      wallMs: Math.max(0, Date.parse(run.finishedAt) - Date.parse(run.startedAt)),
+      costUsd: null, costProvenance: { kind: 'uncaptured', usd: null }, tokenUsage: { input: 0, output: 0, tokensKnown: false },
+      terminalOutcome: 'succeeded',
+      outcome: { [split === 'holdout' ? 'holdoutScore' : 'searchScore']: task.score, raw: { resolved: task.resolved ? 1 : 0, ...task.raw } },
+      splitTag: split, scenarioId: `${run.benchmark}:${task.id}`,
+    }
+    try {
+      return validateRunRecord(row)
+    } catch (error) {
+      if (!(error instanceof RunRecordValidationError) || error.path !== 'model') throw error
+      return validateRunRecord({ ...row, model: UNKNOWN_MODEL, terminalOutcome: 'unknown' })
+    }
+  })
 }
 
 /** The publisher's repository at the pinned commit, installed once per cache. */

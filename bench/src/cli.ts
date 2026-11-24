@@ -9,7 +9,7 @@
 import path from 'node:path'
 import { PUBLISHED_BENCHMARKS, runPublished } from './published'
 
-const usage = 'usage: agent-bench run <benchmark> --target <model:<router model>|app:<agent app>@<harness/model>|profile:<harness/model>> [--tasks N] [--task <id>]... [--judge bridge/<harness/model>] [--out <dir>] [-- <runner args>]\n       agent-bench list'
+const usage = 'usage: agent-bench run <benchmark> --target <model:<router model>|app:<agent app>@<harness/model>|profile:<harness/model>> [--tasks N] [--task <id>]... [--judge bridge/<harness/model>] [--experiment <id>] [--candidate <id>] [--split search|dev|holdout] [--out <dir>] [-- <runner args>]\n       agent-bench list'
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -32,6 +32,7 @@ async function main(argv: string[]): Promise<number> {
   const taskIds: string[] = []
   let out: string | undefined
   let judge: string | undefined
+  const record: { experimentId?: string; candidateId?: string; splitTag?: 'search' | 'dev' | 'holdout' } = {}
   for (let i = 0; i < own.length; i++) {
     const flag = own[i]
     const value = own[i + 1]
@@ -41,6 +42,9 @@ async function main(argv: string[]): Promise<number> {
     else if (flag === '--task') taskIds.push(value)
     else if (flag === '--out') out = value
     else if (flag === '--judge') judge = value
+    else if (flag === '--experiment') record.experimentId = value
+    else if (flag === '--candidate') record.candidateId = value
+    else if (flag === '--split') record.splitTag = value as 'search' | 'dev' | 'holdout'
     else throw new Error(`unknown option ${flag}\n${usage}`)
     i++
   }
@@ -50,6 +54,7 @@ async function main(argv: string[]): Promise<number> {
     ...(tasks === undefined ? {} : { tasks }),
     ...(taskIds.length ? { taskIds } : {}),
     ...(judge === undefined ? {} : { judge }),
+    ...(Object.keys(record).length ? { record } : {}),
     args: runnerArgs,
     out: path.resolve(out ?? path.join('agent-bench-runs', `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}`)),
   })
@@ -59,6 +64,7 @@ async function main(argv: string[]): Promise<number> {
       `its production model ${JSON.stringify(run.app.productionModel)} replaced by ${run.model}; its MCP servers not mounted: ${run.app.omittedMcp.join(', ') || 'none'}`)
   }
   console.log(`record: ${path.join(path.dirname(run.resultPath), `${run.benchmark}-run.json`)}`)
+  console.log(`run records: ${run.runRecords}`)
   return 0
 }
 
