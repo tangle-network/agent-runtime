@@ -1,6 +1,6 @@
 #!/bin/sh
 # PRBench through its publisher's own runner and rubric grader (scaleapi/PRBench evals.py), from the publisher checkout:
-#   prbench-run.sh <result folder> <base url> <model> <key env var> <task count|all> <task ids,> <judge> [--split legal|finance|legal_hard|finance_hard]
+#   prbench-run.sh <result folder> <base url> <model> <key env var> <task count|all> <task ids,> <judge> [--split legal|finance|legal_hard|finance_hard] [--concurrency n]
 # Writes the publisher's config (target <model> at <base url>, the Responses API in the foreground, no cache, no web search)
 # with its key file from <key env var> (mode 600, removed after), and runs evals.run_evals_off_platform through prbench_run.py.
 # <judge> is `publisher` (openai/o4-mini through the same endpoint, as the publisher configures it) or bridge/<harness/model>,
@@ -12,6 +12,7 @@ split=legal
 while [ $# -gt 0 ]; do
   case $1 in
     --split) split=$2; shift 2 ;;
+    --concurrency) AGENT_BENCH_MAX_CONCURRENCY=$2; export AGENT_BENCH_MAX_CONCURRENCY; shift 2 ;;
     *) echo "prbench-run: unknown option $1" >&2; exit 2 ;;
   esac
 done
