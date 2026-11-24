@@ -13,6 +13,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { validateRunRecord } from '@tangle-network/agent-eval'
 import { runPublished, PUBLISHED_BENCHMARKS } from './published'
 
 const TASK = 'simple.email_sf_contact_phone_update'
@@ -60,7 +61,8 @@ async function run(gold: boolean, cacheDir: string) {
       args: ['--domains', 'simple', '--toolset', 'limited_zapier', '--input-cost', '0', '--output-cost', '0'],
       env: { AGENT_BENCH_ROUTER_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, TANGLE_API_KEY: 'local-stand-in' },
     })
-    return { result, requests, record: JSON.parse(await readFile(path.join(out, 'automationbench-run.json'), 'utf8')) }
+    const runRecords = (await readFile(result.runRecords, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>)
+    return { result, requests, record: JSON.parse(await readFile(path.join(out, 'automationbench-run.json'), 'utf8')), runRecords }
   } finally {
     server.close()
     await rm(out, { recursive: true, force: true })
@@ -78,6 +80,15 @@ test('AutomationBench: the publisher\'s grader passes the gold tool call and fai
     assert.equal(gold.result.ref, PUBLISHED_BENCHMARKS.automationbench!.ref)
     assert.ok(gold.requests.some((request) => request.tools > 0), 'the publisher runner offered its tools to the endpoint')
     assert.equal(gold.record.passed, 1)
+    // One agent-eval RunRecord per task, valid by agent-eval's own validator. The stand-in reports no served snapshot,
+    // so the row records the model as unknown rather than inventing one, and keeps the target as its candidate.
+    assert.equal(gold.runRecords.length, 1)
+    const row = validateRunRecord(gold.runRecords[0])
+    assert.equal(row.scenarioId, `automationbench:${TASK}`)
+    assert.equal(row.outcome.holdoutScore, 1)
+    assert.equal(row.outcome.raw.resolved, 1)
+    assert.equal(row.candidateId, 'model:stand-in-model')
+    assert.deepEqual([row.model, row.terminalOutcome, row.costUsd], ['unknown', 'unknown', null])
 
     const none = await run(false, cacheDir)
     assert.equal(none.result.tasks, 1)
@@ -324,6 +335,10 @@ test('Harvey LAB: the publisher\'s harness and rubric grader, with a substituted
       // Without a deliverable the grader may fail the criterion before any judge call.
       assert.ok(seen.target > 0 && (!gold || seen.judge > 0), JSON.stringify(seen))
       assert.equal(seen.answerJudged, gold, 'the judge saw the agent\'s answer only when the agent wrote one')
+      // The publisher's per-criterion verdict reaches the run's raw detail and its RunRecord (what an optimizer reads).
+      assert.equal(result.taskScores[0]!.raw?.['crit.C-001'], gold ? 1 : 0)
+      const row = validateRunRecord(JSON.parse((await readFile(result.runRecords, 'utf8')).trim()))
+      assert.equal(row.outcome.raw['crit.C-001'], gold ? 1 : 0)
     } finally {
       server.closeAllConnections()
       server.close()
