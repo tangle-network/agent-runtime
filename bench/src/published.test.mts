@@ -126,6 +126,14 @@ async function main() {
 main().catch((error) => { console.error('own-loop peer failed: ' + error.message); process.exitCode = 1 })
 `
 
+async function freePort(): Promise<number> {
+  const probe = createServer()
+  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve))
+  const { port } = probe.address() as AddressInfo
+  await new Promise<void>((resolve) => probe.close(() => resolve()))
+  return port
+}
+
 async function waitForBridge(stdout: Readable): Promise<string> {
   const lines = createInterface({ input: stdout, signal: AbortSignal.timeout(60_000) })
   try {
@@ -149,8 +157,9 @@ test('AutomationBench on a profile target: its runner drives a harness loop thro
   const claude = path.join(root, 'claude')
   await writeFile(claude, standInHarness)
   await chmod(claude, 0o755)
+  const port = await freePort()
   const server = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: bridge, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env,
-    BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: '0', BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
+    BRIDGE_HOST: '127.0.0.1', BRIDGE_PORT: String(port), BRIDGE_DATA_DIR: path.join(root, 'state'), BRIDGE_BACKENDS: 'claude', BRIDGE_JAIL_MODE: 'off', CLAUDE_BIN: claude } })
   const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
   const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-profile-out-'))
   try {
