@@ -16,9 +16,10 @@
  */
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { BenchScore } from './benchmarks/types'
 
 export type Measured = 'model-shaped' | 'own-loop'
@@ -61,9 +62,12 @@ export interface PublishedBenchmark {
   /** The judge model the publisher names, or null when the publisher's grader is deterministic. */
   judge: string | null
   measured: Measured
+  /** The runner writes a folder of results rather than one file. */
+  resultIsFolder?: boolean
   install: string[][]
   run(endpoint: Endpoint, options: PublishedRunOptions, resultPath: string): string[]
-  parse(result: string): PublishedTaskScore[]
+  /** Read the publisher's result (a file or a folder) into one score per task, as the publisher's grader reported it. */
+  parse(resultPath: string): Promise<PublishedTaskScore[]>
 }
 
 export interface PublishedRun {
@@ -108,8 +112,8 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
       '--export-json', resultPath,
       ...(options.args ?? []),
     ],
-    parse: (result) => {
-      const tasks = (JSON.parse(result) as { tasks?: Array<{ name?: unknown; score?: unknown; passed?: unknown }> }).tasks
+    parse: async (resultPath) => {
+      const tasks = (JSON.parse(await readFile(resultPath, 'utf8')) as { tasks?: Array<{ name?: unknown; score?: unknown; passed?: unknown }> }).tasks
       if (!Array.isArray(tasks)) throw new Error('AutomationBench result has no tasks array')
       return tasks.map((task) => {
         if (typeof task.name !== 'string' || typeof task.score !== 'number' || typeof task.passed !== 'boolean') {
@@ -117,6 +121,43 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
         }
         return { id: task.name, resolved: task.passed, score: task.score }
       })
+    },
+  },
+  'enterpriseops-gym': {
+    name: 'enterpriseops-gym',
+    repository: 'https://github.com/ServiceNow/EnterpriseOps-Gym.git',
+    ref: '271f2c357f763376997dfd16807fcde2474ae41b',
+    version: '271f2c3 (no release tag)',
+    license: 'Apache-2.0 (ServiceNow; code and the ServiceNow-AI/EnterpriseOps-Gym dataset)',
+    terms: 'Apache-2.0: tasks may be redistributed with attribution',
+    judge: null,
+    measured: 'model-shaped',
+    resultIsFolder: true,
+    install: [['uv', 'sync', '--extra', 'openai'], ['python3', '-c', "import zipfile; zipfile.ZipFile('gym_dbs.zip').extractall('.')"]],
+    // A sample runs `--task` ids or the first --tasks of the domain (default teams, mode oracle; pass `-- --domain d --mode m`).
+    run: (endpoint, options, resultPath) => [
+      'sh', fileURLToPath(new URL('../scripts/enterpriseops-gym-run.sh', import.meta.url)),
+      resultPath, endpoint.baseUrl, endpoint.model, endpoint.apiKeyVar,
+      options.tasks === undefined ? 'all' : String(options.tasks), (options.taskIds ?? []).join(','),
+      ...(options.args ?? []),
+    ],
+    parse: async (resultPath) => {
+      const folder = path.join(resultPath, 'run_1')
+      const files = (await readdir(folder)).filter((file) => file.startsWith('results_') && file.endsWith('.json')).sort()
+      if (!files.length) throw new Error(`EnterpriseOps-Gym wrote no task results under ${folder}`)
+      return Promise.all(files.map(async (file) => {
+        const result = JSON.parse(await readFile(path.join(folder, file), 'utf8')) as {
+          statistics?: { overall_success_rate?: unknown; verifier_level_pass_rate?: unknown }; runs?: Array<{ error?: unknown }>
+        }
+        const success = result.statistics?.overall_success_rate
+        const verifiers = result.statistics?.verifier_level_pass_rate
+        if (typeof success !== 'number') throw new Error(`EnterpriseOps-Gym result ${file} has no statistics.overall_success_rate`)
+        const error = result.runs?.find((run) => run.error)?.error
+        return {
+          id: file.slice('results_'.length, -'.json'.length).split('__').pop()!, resolved: success === 1, score: success,
+          detail: `verifier pass rate ${typeof verifiers === 'number' ? verifiers : 'unknown'}${error ? `; runner error: ${String(error).slice(0, 200)}` : ''}`,
+        }
+      }))
     },
   },
 }
@@ -145,11 +186,11 @@ export async function runPublished(name: string, target: string, options: Publis
   if (!env[endpoint.apiKeyVar]) throw new Error(`${endpoint.apiKeyVar} is not set; the ${target} endpoint needs it`)
   const checkout = await publisherCheckout(benchmark, options.cacheDir, env)
   await mkdir(options.out, { recursive: true })
-  const resultPath = path.resolve(options.out, `${benchmark.name}-result.json`)
+  const resultPath = path.resolve(options.out, `${benchmark.name}-result${benchmark.resultIsFolder ? '' : '.json'}`)
   const startedAt = new Date().toISOString()
   const [command, ...args] = benchmark.run(endpoint, options, resultPath)
   await execute(command!, args, checkout, env)
-  const taskScores = benchmark.parse(await readFile(resultPath, 'utf8'))
+  const taskScores = await benchmark.parse(resultPath)
   const run: PublishedRun = {
     benchmark: benchmark.name, version: benchmark.version, ref: benchmark.ref, target, model: endpoint.model,
     measured: endpoint.measured, judge: benchmark.judge, official: true,
