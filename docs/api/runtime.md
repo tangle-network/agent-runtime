@@ -1236,7 +1236,7 @@ One flattened node with the journal tree that owns its records.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerTraceId?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
 
@@ -2377,7 +2377,7 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerTraceId?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Why a `down` worker failed, as values: branch on `code` and `owner`, never on `reason`.
 
@@ -19618,7 +19618,7 @@ Agents in this child's own subtree, itself excluded.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerTraceId?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Typed terminal diagnosis, beside status and never a replacement for lifecycle reason.
 
@@ -20545,7 +20545,7 @@ Serializable act() rejection; non-Errors retain name NonError and their message.
 
 ##### failure?
 
-> `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerTraceId?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 Structural failure evidence captured before the rejection becomes message text.
 
@@ -21304,6 +21304,12 @@ Absent when the attempt completed.
 
 With `error`: the deepest cause's stack, redacted and bounded, so a failure the message
  alone cannot place still names its throw site (#2347).
+
+##### providerTraceId?
+
+> `readonly` `optional` **providerTraceId?**: `string`
+
+The upstream request's trace ID, when the provider supplied one for this attempt.
 
 ##### failure?
 
@@ -25866,7 +25872,7 @@ Minimal agent identity and topology returned by the protected reader.
 
 ##### failure?
 
-> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
+> `readonly` `optional` **failure?**: `Readonly`\<\{ `code`: `"unknown"` \| `"aborted"` \| `"budget-exhausted"` \| `"provider-contract"` \| `"request-rejected"` \| `"transport"` \| `"nested-recovery"` \| `"deadline-exceeded"` \| `"credential-refused"` \| `"upstream-unavailable"` \| `"retained-unobservable"` \| `"platform"` \| `"work-failed"`; `owner`: `"provider"` \| `"runtime"` \| `"unknown"` \| `"caller"` \| `"work"` \| `"platform"`; `cause`: `string`; `providerCode?`: `string`; `providerTraceId?`: `string`; `providerStatus?`: `number`; `retryAfterMs?`: `number`; `remediation?`: `Readonly`\<\{ `cause`: `"api_key_selected"` \| `"provider_unresolved"` \| `"subscription_unverified"` \| `"not_authenticated"`; `fix`: `string`; `harness`: `string`; `provider`: `string` \| `null`; \}\>; \}\>
 
 ***
 

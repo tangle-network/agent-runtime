@@ -637,7 +637,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ##### outcome?
 
-> `readonly` `optional` **outcome?**: \{ `kind`: `"winner"`; \} \| \{ `kind`: `"failed"` \| `"no-winner"`; `reason`: `string`; \}
+> `readonly` `optional` **outcome?**: \{ `kind`: `"winner"`; \} \| \{ `kind`: `"failed"` \| `"no-winner"`; `reason`: `string`; `providerTraceId?`: `string`; \}
 
 **`Experimental`**
 
