@@ -323,3 +323,64 @@ test('Harvey LAB: the publisher\'s harness and rubric grader, with a substituted
     }
   }
 })
+
+/**
+ * PRBench: one local Responses API endpoint plays the target (stand-in-model) and the substituted judge (stand-in-judge).
+ * The target answers the first legal task with a marked answer, or with none; the judge, called once per rubric criterion
+ * by the publisher's grader, meets a criterion only when the conversation it grades holds the marked answer.
+ */
+const PRBENCH_ANSWER = 'AGENT-BENCH-PRBENCH-ANSWER: the analysis the client asked for.'
+
+function prbenchStandIn(answered: boolean) {
+  const seen = { target: 0, judge: 0 }
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}') as { model?: string; input?: unknown }
+    let text: string
+    if (body.model === 'stand-in-judge') {
+      seen.judge++
+      text = `{"explanation": "stand-in judge", "criteria_met": ${JSON.stringify(body.input).includes('AGENT-BENCH-PRBENCH-ANSWER')}}`
+    } else {
+      seen.target++
+      text = answered ? PRBENCH_ANSWER : 'I cannot help with that.'
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ id: 'resp_stand_in', object: 'response', created_at: 0, model: body.model, status: 'completed',
+      output: [{ type: 'message', id: 'msg_stand_in', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] }],
+      usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } }))
+  })
+  return { server, seen }
+}
+
+test('PRBench: the publisher\'s rubric grader, with a substituted judge, scores the answered task above zero and the unanswered at zero', { skip: uv ? false : 'uv is not installed', timeout: 30 * 60_000 }, async () => {
+  const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
+  try {
+    const scores: number[] = []
+    for (const answered of [true, false]) {
+      const { server, seen } = prbenchStandIn(answered)
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+      const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-prbench-'))
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+      try {
+        const result = await runPublished('prbench', 'model:stand-in-model', {
+          tasks: 1, out, cacheDir, judge: 'bridge/stand-in-judge', args: ['--split', 'legal'],
+          env: { AGENT_BENCH_ROUTER_URL: url, TANGLE_API_KEY: 'local-stand-in', AGENT_BENCH_JUDGE_URL: url },
+        })
+        assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
+        assert.equal(result.official, false)
+        assert.equal(result.publisherJudge, PUBLISHED_BENCHMARKS.prbench!.judge)
+        assert.ok(seen.target === 1 && seen.judge > 1, JSON.stringify(seen))
+        scores.push(result.taskScores[0]!.score)
+      } finally {
+        server.closeAllConnections()
+        server.close()
+        await rm(out, { recursive: true, force: true })
+      }
+    }
+    assert.ok(scores[0]! > 0, `the answered task scored ${scores[0]}`)
+    assert.equal(scores[1], 0)
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true })
+  }
+})
