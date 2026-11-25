@@ -71,7 +71,12 @@ export class ProcessFixture {
   static async start(
     scenario: Scenario,
     executables: Executables,
-    options: FixtureOptions & { directory?: string; coordinator?: false } = {},
+    options: FixtureOptions & {
+      directory?: string
+      coordinator?: false
+      // A concurrent test passes its own hook; the global one binds to whichever test is current.
+      onTestFinished?: typeof onTestFinished
+    } = {},
   ): Promise<ProcessFixture> {
     const directory =
       options.directory ?? (await mkdtemp(join(tmpdir(), 'uncertain-create-integration-')))
@@ -81,7 +86,7 @@ export class ProcessFixture {
       ...(maxDriverAttempts === undefined ? {} : { maxDriverAttempts }),
     })
     // A timed-out test never reaches its own cleanup; ending its processes ends its waits too.
-    onTestFinished(() => fixture.close())
+    ;(options.onTestFinished ?? onTestFinished)(() => fixture.close())
     try {
       fixture.credentialMode(
         scenario === 'unsupported-intent',

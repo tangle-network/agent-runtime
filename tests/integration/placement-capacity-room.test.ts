@@ -1,10 +1,16 @@
-import { expect, it } from 'vitest'
+import { it } from 'vitest'
 import { runPlacementCapacityRoot } from './fixtures/placement-capacity-root'
 
-it.each(['capacity', 'keyed'] as const)(
+// Each case starts its own service, provider and run directory; they wait out the same windows
+// together rather than one after the other, each closing only its own fixture.
+it.concurrent.for(['capacity', 'keyed'] as const)(
   'waits out successive %s create refusals on one drive and completes when room returns',
-  async (refusal) => {
-    const { result, records, state } = await runPlacementCapacityRoot('success', refusal)
+  async (refusal, { expect, onTestFinished }) => {
+    const { result, records, state } = await runPlacementCapacityRoot(
+      'success',
+      refusal,
+      onTestFinished,
+    )
     // The create waited inside the first drive: no attempt failed, paused or was charged.
     expect(records).toEqual([expect.objectContaining({ attempt: 1, stop: 'completed' })])
     expect(records[0]).not.toHaveProperty('error')
