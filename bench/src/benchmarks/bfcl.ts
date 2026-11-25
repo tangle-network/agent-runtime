@@ -13,7 +13,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'bfcl.json')
 const DEFAULT_CATEGORY = 'BFCL_v4_simple_python'
@@ -141,15 +141,17 @@ function rowToTask(row: BfclRow, answer: BfclAnswerRow, category: string): Bench
   }
   return {
     id: row.id,
-    split: category,
-    prompt: [
-      'Solve this BFCL function-calling task.',
-      'Return only JSON: {"function_calls":[{"name":"...","arguments":{...}}]}.',
-      '',
-      questionText(row.question),
-      '',
-      `Available functions: ${JSON.stringify(row.function, null, 2)}`,
-    ].join('\n'),
+    payload: {
+      subset: category,
+      prompt: [
+        'Solve this BFCL function-calling task.',
+        'Return only JSON: {"function_calls":[{"name":"...","arguments":{...}}]}.',
+        '',
+        questionText(row.question),
+        '',
+        `Available functions: ${JSON.stringify(row.function, null, 2)}`,
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -157,14 +159,14 @@ function rowToTask(row: BfclRow, answer: BfclAnswerRow, category: string): Bench
 function readMeta(task: BenchTask): BfclMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.expected)) {
-    throw new Error(`BFCL task ${task.id} missing expected calls — loadTasks did not populate metadata`)
+    throw new Error(`BFCL task ${task.id} missing expected calls — loadAll did not populate metadata`)
   }
   return md as unknown as BfclMeta
 }
 
 function selectTasks(tasks: BenchTask[], opts: LoadOptions): BenchTask[] {
   let out = tasks
-  if (opts.split) out = out.filter((task) => task.split === opts.split)
+  if (opts.subset) out = out.filter((task) => task.payload.subset === opts.subset)
   if (opts.ids) {
     const want = new Set(opts.ids)
     out = out.filter((task) => want.has(task.id))
@@ -271,7 +273,7 @@ function callMatches(expected: BfclAllowedCall, actual: BfclActualCall): boolean
   return true
 }
 
-function scoreCalls(task: BenchTask, artifact: string): BenchScore {
+function scoreCalls(task: BenchTask, artifact: string): BenchEvaluation {
   const meta = readMeta(task)
   const actual = extractActualCalls(artifact)
   const used = new Set<number>()
@@ -286,61 +288,66 @@ function scoreCalls(task: BenchTask, artifact: string): BenchScore {
   const recall = meta.expected.length === 0 ? 0 : matched / meta.expected.length
   const precision = actual.length === 0 ? 0 : matched / actual.length
   const score = recall
+  const raw = {
+    scoring: meta.scoring,
+    category: meta.category,
+    expected: meta.expected,
+    actual,
+    precision,
+    recall,
+    fullBfclLeaderboardScore: null,
+  }
   return {
-    resolved: recall === 1 && precision === 1,
+    passed: recall === 1 && precision === 1,
     score,
-    detail: JSON.stringify({
-      scoring: meta.scoring,
-      category: meta.category,
-      expected: meta.expected,
-      actual,
-      precision,
-      recall,
-      fullBfclLeaderboardScore: null,
-    }),
+    notes: JSON.stringify(raw),
+    raw,
   }
 }
 
-export function createBfclAdapter(): BenchmarkAdapter {
+export function createBfclAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.BFCL_FIXTURES === '1'
 
-  return {
-    name: 'bfcl',
-    output: bfclOutput,
+  return runtimeBenchmark({
+    id: 'bfcl',
 
-    async preflight() {
-      if (fixturesMode) return
-      const dir = bfclDir()
-      if (!dir) {
-        throw new Error(
-          'BFCL_DIR is required. Fix: clone https://github.com/ShishirPatil/gorilla, set BFCL_DIR=/path/to/gorilla/berkeley-function-call-leaderboard, and optionally set BFCL_CATEGORY=BFCL_v4_simple_python.',
-        )
-      }
-      const category = bfclCategory()
-      await assertPath(taskFile(dir, category), 'BFCL task JSONL')
-      await assertPath(answerFile(dir, category), 'BFCL possible_answer JSONL')
-      await loadOfficialTasks(dir, { limit: 1 })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const dir = bfclDir()
       if (!dir) throw new Error('BFCL_DIR is required to load official BFCL rows')
       return loadOfficialTasks(dir, opts)
     },
 
-    async goldArtifact(task: BenchTask) {
-      const meta = readMeta(task)
-      return JSON.stringify({
-        function_calls: meta.expected.map((call) => ({
-          name: call.name,
-          arguments: Object.fromEntries(Object.entries(call.arguments).map(([key, values]) => [key, values[0]])),
-        })),
-      }, null, 2)
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       return scoreCalls(task, artifact)
     },
-  }
+
+    runtime: {
+      output: bfclOutput,
+
+      async preflight() {
+        if (fixturesMode) return
+        const dir = bfclDir()
+        if (!dir) {
+          throw new Error(
+            'BFCL_DIR is required. Fix: clone https://github.com/ShishirPatil/gorilla, set BFCL_DIR=/path/to/gorilla/berkeley-function-call-leaderboard, and optionally set BFCL_CATEGORY=BFCL_v4_simple_python.',
+          )
+        }
+        const category = bfclCategory()
+        await assertPath(taskFile(dir, category), 'BFCL task JSONL')
+        await assertPath(answerFile(dir, category), 'BFCL possible_answer JSONL')
+        await loadOfficialTasks(dir, { limit: 1 })
+      },
+
+      async goldArtifact(task: BenchTask) {
+        const meta = readMeta(task)
+        return JSON.stringify({
+          function_calls: meta.expected.map((call) => ({
+            name: call.name,
+            arguments: Object.fromEntries(Object.entries(call.arguments).map(([key, values]) => [key, values[0]])),
+          })),
+        }, null, 2)
+      },
+    },
+  })
 }

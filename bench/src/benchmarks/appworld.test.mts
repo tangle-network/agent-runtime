@@ -1,9 +1,9 @@
 /**
  * Offline AppWorld adapter test. AppWorld has NO committed fixture (task data
  * exists only after `appworld download data`; fabricating a task would be a fake),
- * so loadTasks/judge both require the live engine. This exercises the only offline
+ * so loadAll/evaluate both require the live engine. This exercises the only offline
  * surface (the solution OutputAdapter, goldArtifact) and asserts preflight + the
- * engine-backed loadTasks FAIL LOUD with the documented install steps — never a
+ * engine-backed loadAll FAIL LOUD with the documented install steps — never a
  * fabricated task or score. Run: npx tsx --test src/benchmarks/appworld.test.mts
  */
 import assert from 'node:assert/strict'
@@ -30,13 +30,13 @@ test('solution OutputAdapter: last fenced ```python wins; fence-less falls back 
 
 test('goldArtifact is undefined — reference solution ships only inside the engine bundle, not portable', async () => {
   const a = createAppWorldAdapter()
-  assert.equal(await a.goldArtifact({ id: 't', prompt: '', metadata: { taskId: 't', split: 'dev' } }), undefined)
+  assert.equal(await a.runtime.goldArtifact!({ id: 't', payload: { prompt: '' }, metadata: { taskId: 't', split: 'dev' } }), undefined)
 })
 
 test('preflight passes when installed or FAILS LOUD with the install + download-data fix', async () => {
   const a = createAppWorldAdapter()
   try {
-    await a.preflight()
+    await a.runtime.preflight!()
   } catch (err) {
     const e = err as Error
     assert.match(e.message, /pip install appworld/)
@@ -44,13 +44,13 @@ test('preflight passes when installed or FAILS LOUD with the install + download-
   }
 })
 
-test('loadTasks either enumerates live engine rows or FAILS LOUD without fabricating tasks', async () => {
+test('loadAll either enumerates live engine rows or FAILS LOUD without fabricating tasks', async () => {
   const a = createAppWorldAdapter()
   try {
-    const tasks = await a.loadTasks({ limit: 1 })
+    const tasks = await a.loadAll({ limit: 1 })
     assert.equal(tasks.length, 1)
     assert.ok(tasks[0].id.length > 0)
-    assert.match(tasks[0].prompt, /Solve this by writing Python/)
+    assert.match(tasks[0].payload.prompt, /Solve this by writing Python/)
   } catch (err) {
     assert.match((err as Error).message, /appworld driver failed|appworld import failed/)
   }

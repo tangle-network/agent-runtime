@@ -8,23 +8,23 @@
  * and {response} (the student answer) placeholders. We faithfully REPLICATE the
  * benchmark's judge — fill the template, run it under the record's system prompt
  * via the pinned router (temperature 0), and parse the JSON the judge emits. The
- * judge returns an `answer_score` field; 1/positive = resolved, else not.
+ * judge returns an `answer_score` field; 1/positive = passed, else not.
  * This matches the FinSearchComp leaderboard (Grok-4-web 68.9%).
  *
  * There is NO deterministic Tier-1 path here: the gold answer is prose with
  * region-specific units, embedded tolerances ("允许1%的误差"), and multi-point
  * scoring criteria. The benchmark intends its own LLM judge to be the arbiter,
  * so the judge IS the score — fail loud on unparseable judge output (never
- * default to resolved).
+ * default to passed).
  *
  * SCOPE: T2 (Simple_Historical_Lookup) + T3 (Complex_Historical_Investigation)
  * are fully self-contained and supported. T1 (Time_Sensitive_Data_Fetching)
  * needs a live market snapshot / akshare ground truth to fill the judge's
- * {ground_truth} slot — it is SKIPPED in loadTasks and flagged in preflight.
+ * {ground_truth} slot — it is SKIPPED in loadAll and flagged in preflight.
  * See {@link T1Seam}.
  *
  * Requires for a live run: network access to the GitHub-hosted dataset JSON and
- * a TANGLE_API_KEY for the judge. For offline/CI verification, loadTasks falls back
+ * a TANGLE_API_KEY for the judge. For offline/CI verification, loadAll falls back
  * to the committed fixtures (bench/fixtures/finsearchcomp.json) with an explicit
  * console.warn — never a silent fallback.
  */
@@ -33,7 +33,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runBenchRouterTurn } from '../router-turn'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const FIXTURES = join(BENCH_ROOT, 'fixtures', 'finsearchcomp.json')
@@ -64,7 +64,7 @@ const WORKER_CONTRACT = [
  * live market snapshot the judge consumes via a {ground_truth} template slot;
  * the adapter does NOT fabricate that snapshot. Wiring T1 means supplying a
  * resolver that fetches the akshare/market value for the record at judge time
- * and filling {ground_truth}. Until then T1 is excluded from loadTasks.
+ * and filling {ground_truth}. Until then T1 is excluded from loadAll.
  */
 export interface T1Seam {
   promptId: string
@@ -119,8 +119,7 @@ function recordToTask(rec: FinSearchRecord): BenchTask {
   }
   return {
     id: rec.prompt_id,
-    split: taskType,
-    prompt: rec.prompt + WORKER_CONTRACT,
+    payload: { prompt: rec.prompt + WORKER_CONTRACT, subset: taskType },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -134,7 +133,7 @@ function readMeta(task: BenchTask): FinSearchMeta {
     typeof md.judgeSystemPrompt !== 'string' ||
     typeof md.rawPrompt !== 'string'
   ) {
-    throw new Error(`FinSearchComp task ${task.id} missing judge metadata — loadTasks did not populate it`)
+    throw new Error(`FinSearchComp task ${task.id} missing judge metadata — loadAll did not populate it`)
   }
   return md as unknown as FinSearchMeta
 }
@@ -206,7 +205,7 @@ function parseJudgeOutput(content: string): { resolved: boolean; score: number; 
 }
 
 /** Run the record's own judge via the router. Fail loud on transport/parse errors. */
-async function runRecordJudge(meta: FinSearchMeta, response: string, router: JudgeRouter): Promise<BenchScore> {
+async function runRecordJudge(meta: FinSearchMeta, response: string, router: JudgeRouter): Promise<BenchEvaluation> {
   const turn = await runBenchRouterTurn(
     {
       routerBaseUrl: router.baseUrl,
@@ -227,15 +226,17 @@ async function runRecordJudge(meta: FinSearchMeta, response: string, router: Jud
   const content = turn.finalText
   if (!content) throw new Error('FinSearchComp judge returned no message content')
   const { resolved, score, raw } = parseJudgeOutput(content)
+  const evidence = {
+    taskType: meta.taskType,
+    region: meta.region,
+    answerScore: raw,
+    judgeModel: router.model,
+  }
   return {
-    resolved,
+    passed: resolved,
     score,
-    detail: JSON.stringify({
-      taskType: meta.taskType,
-      region: meta.region,
-      answerScore: raw,
-      judgeModel: router.model,
-    }),
+    notes: JSON.stringify(evidence),
+    raw: evidence,
   }
 }
 
@@ -243,7 +244,7 @@ function selectRecords(records: FinSearchRecord[], opts: LoadOptions): BenchTask
   let tasks = records
     .filter((r) => SUPPORTED_TYPES.has(parseTaskType(r.prompt_id)))
     .map(recordToTask)
-  if (opts.split) tasks = tasks.filter((t) => t.split === opts.split)
+  if (opts.subset) tasks = tasks.filter((t) => t.payload.subset === opts.subset)
   if (opts.ids) {
     const want = new Set(opts.ids)
     tasks = tasks.filter((t) => want.has(t.id))
@@ -292,45 +293,13 @@ async function fetchDataset(): Promise<FinSearchRecord[]> {
   return data
 }
 
-export function createFinsearchcompAdapter(): BenchmarkAdapter {
+export function createFinsearchcompAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.FINSEARCHCOMP_FIXTURES === '1'
 
-  return {
-    name: 'finsearchcomp',
+  return runtimeBenchmark({
+    id: 'finsearchcomp',
 
-    async preflight() {
-      // The per-record LLM judge is the arbiter in both modes — its router
-      // config must exist or no score can be produced.
-      judgeRouter()
-      console.warn(
-        '[finsearchcomp] T1 (Time_Sensitive_Data_Fetching) is NOT scored: it needs a live ' +
-          'market snapshot / akshare ground truth for the judge {ground_truth} slot. ' +
-          'loadTasks supports T2 + T3 only; wire T1Seam to add T1.',
-      )
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8').catch((err) => {
-          throw new Error(
-            `FINSEARCHCOMP_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`,
-          )
-        })
-        return
-      }
-      const res = await fetch(DATASET_URL, { method: 'HEAD' }).catch((err) => {
-        throw new Error(
-          `finsearchcomp preflight failed reaching ${DATASET_URL}: ${err instanceof Error ? err.message : err}\n` +
-            `Fix: ensure network access to raw.githubusercontent.com, or set FINSEARCHCOMP_FIXTURES=1 ` +
-            `to run against the committed fixtures offline.`,
-        )
-      })
-      if (!res.ok) {
-        throw new Error(
-          `finsearchcomp preflight: dataset HEAD ${res.status} for ${DATASET_URL}. ` +
-            `Set FINSEARCHCOMP_FIXTURES=1 to run against the committed fixtures offline.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       let records: FinSearchRecord[]
       try {
@@ -345,27 +314,63 @@ export function createFinsearchcompAdapter(): BenchmarkAdapter {
       return selectRecords(records, opts)
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold artifact = the record's response_reference fed back as the student
-      // answer, so verify-judge proves gold→resolved through the SAME per-record
-      // judge the real artifact takes. The reference may carry tolerance/criteria
-      // prose; the judge is built to read the value out of it.
-      const meta = readMeta(task)
-      return meta.responseReference
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const response = artifact.trim()
       if (response.length === 0) {
         // Fail-closed — the benchmark's own judges score an empty answer 0.
+        const raw = { taskType: meta.taskType, region: meta.region, reason: 'empty answer' }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({ taskType: meta.taskType, region: meta.region, reason: 'empty answer' }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
       return runRecordJudge(meta, response, judgeRouter())
     },
-  }
+
+    runtime: {
+      async preflight() {
+        // The per-record LLM judge is the arbiter in both modes — its router
+        // config must exist or no score can be produced.
+        judgeRouter()
+        console.warn(
+          '[finsearchcomp] T1 (Time_Sensitive_Data_Fetching) is NOT scored: it needs a live ' +
+            'market snapshot / akshare ground truth for the judge {ground_truth} slot. ' +
+            'loadAll supports T2 + T3 only; wire T1Seam to add T1.',
+        )
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8').catch((err) => {
+            throw new Error(
+              `FINSEARCHCOMP_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`,
+            )
+          })
+          return
+        }
+        const res = await fetch(DATASET_URL, { method: 'HEAD' }).catch((err) => {
+          throw new Error(
+            `finsearchcomp preflight failed reaching ${DATASET_URL}: ${err instanceof Error ? err.message : err}\n` +
+              `Fix: ensure network access to raw.githubusercontent.com, or set FINSEARCHCOMP_FIXTURES=1 ` +
+              `to run against the committed fixtures offline.`,
+          )
+        })
+        if (!res.ok) {
+          throw new Error(
+            `finsearchcomp preflight: dataset HEAD ${res.status} for ${DATASET_URL}. ` +
+              `Set FINSEARCHCOMP_FIXTURES=1 to run against the committed fixtures offline.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold artifact = the record's response_reference fed back as the student
+        // answer, so verify-judge proves gold→passed through the SAME per-record
+        // judge the real artifact takes. The reference may carry tolerance/criteria
+        // prose; the judge is built to read the value out of it.
+        const meta = readMeta(task)
+        return meta.responseReference
+      },
+    },
+  })
 }

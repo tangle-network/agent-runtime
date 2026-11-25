@@ -237,10 +237,10 @@ A result for one coordinate or task family does not decide the value of every ot
 > benchmark forks its own loop.**
 
 An adapter supplies exactly:
-- **task loader** (`loadTasks`),
+- **task loader** (`loadAll`; the adapter is agent-eval's `BenchmarkAdapter`, so `loadDataset(split)` serves the same tasks),
 - **worker profile** (the agent + sandbox backend that does the task),
 - **judge** (deterministic, or verified-stable LLM; external/write-only). Today it
-  returns a single `{resolved, score}` on the *correctness* axis. The target contract is
+  returns agent-eval's `{passed, score}` on the *correctness* axis. The target contract is
   a **verdict vector** — one component per objective the task exposes (correctness via
   tests, latency via a clock, safety via a scanner, cost via the meter), each its own
   deployable checker (§0.5.2-3). Where a bench only has correctness, the vector is

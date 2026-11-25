@@ -74,7 +74,7 @@ test('AutomationBench: the publisher\'s grader passes the gold tool call and fai
   try {
     const gold = await run(true, cacheDir)
     assert.equal(gold.result.tasks, 1)
-    assert.deepEqual(gold.result.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+    assert.deepEqual(gold.result.taskScores, [{ id: TASK, passed: true, score: 1 }])
     assert.equal(gold.result.measured, 'model-shaped')
     assert.equal(gold.result.official, true)
     assert.equal(gold.result.ref, PUBLISHED_BENCHMARKS.automationbench!.ref)
@@ -86,14 +86,14 @@ test('AutomationBench: the publisher\'s grader passes the gold tool call and fai
     const row = validateRunRecord(gold.runRecords[0])
     assert.equal(row.scenarioId, `automationbench:${TASK}`)
     assert.equal(row.outcome.holdoutScore, 1)
-    assert.equal(row.outcome.raw.resolved, 1)
+    assert.equal(row.outcome.raw.passed, 1)
     assert.equal(row.candidateId, 'model:stand-in-model')
     assert.deepEqual([row.model, row.terminalOutcome, row.costUsd], ['unknown', 'unknown', null])
 
     const none = await run(false, cacheDir)
     assert.equal(none.result.tasks, 1)
     assert.equal(none.result.passed, 0)
-    assert.equal(none.result.taskScores[0]!.resolved, false)
+    assert.equal(none.result.taskScores[0]!.passed, false)
   } finally {
     await rm(cacheDir, { recursive: true, force: true })
   }
@@ -188,12 +188,12 @@ test('AutomationBench on profile and app targets: its runner drives a harness lo
     }
     const result = await runPublished('automationbench', 'profile:claude-code/own-loop-peer', { ...options, out: path.join(out, 'profile') })
     assert.equal(result.measured, 'own-loop')
-    assert.deepEqual(result.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+    assert.deepEqual(result.taskScores, [{ id: TASK, passed: true, score: 1 }])
 
     const apps = JSON.stringify({ 'bench-app': `http://127.0.0.1:${(appServer.address() as AddressInfo).port}/api/tools/profile?definition` })
     const app = await runPublished('automationbench', 'app:bench-app@claude-code/app-peer', { ...options, env: { ...options.env, AGENT_BENCH_APPS: apps }, out: path.join(out, 'app') })
     assert.equal(app.measured, 'own-loop')
-    assert.deepEqual(app.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+    assert.deepEqual(app.taskScores, [{ id: TASK, passed: true, score: 1 }])
     assert.equal(app.model, 'claude-code/app-peer')
     assert.equal(app.app?.app, 'bench-app')
     assert.equal(app.app?.profileVersion, '1.0.0')
@@ -205,7 +205,7 @@ test('AutomationBench on profile and app targets: its runner drives a harness lo
     const file = path.join(root, 'bench-app-profile.json')
     await writeFile(file, JSON.stringify(served))
     const fromFile = await runPublished('automationbench', 'app:bench-app@claude-code/app-peer', { ...options, env: { ...options.env, AGENT_BENCH_APPS: JSON.stringify({ 'bench-app': file }) }, out: path.join(out, 'app-file') })
-    assert.deepEqual(fromFile.taskScores, [{ id: TASK, resolved: true, score: 1 }])
+    assert.deepEqual(fromFile.taskScores, [{ id: TASK, passed: true, score: 1 }])
     assert.equal(fromFile.app?.profileDigest, app.app?.profileDigest)
     assert.equal(fromFile.app?.profileUrl, file)
   } finally {
@@ -265,7 +265,7 @@ test('EnterpriseOps-Gym: the publisher\'s SQL verifiers pass the gold calls and 
         })
         assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
         assert.equal(result.taskScores[0]!.id, EOG_TASK)
-        assert.equal(result.taskScores[0]!.resolved, gold, JSON.stringify(result.taskScores[0]))
+        assert.equal(result.taskScores[0]!.passed, gold, JSON.stringify(result.taskScores[0]))
         assert.equal(result.measured, 'model-shaped')
       } finally {
         server.closeAllConnections()
@@ -328,7 +328,7 @@ test('Harvey LAB: the publisher\'s harness and rubric grader, with a substituted
       })
       assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
       assert.equal(result.taskScores[0]!.id, HARVEY_TASK)
-      assert.equal(result.taskScores[0]!.resolved, gold, JSON.stringify(result.taskScores[0]))
+      assert.equal(result.taskScores[0]!.passed, gold, JSON.stringify(result.taskScores[0]))
       assert.equal(result.official, false)
       assert.equal(result.judge, 'bridge/stand-in-judge')
       assert.equal(result.publisherJudge, PUBLISHED_BENCHMARKS['harvey-lab']!.judge)

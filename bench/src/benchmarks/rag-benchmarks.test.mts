@@ -30,7 +30,7 @@ async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => P
 
 test('RAG benchmark adapters are registered', () => {
   for (const key of ['ragbench', 'crag', 'nomiracl', 'open-rag-bench', 't2-ragbench']) {
-    assert.equal(resolveAdapter(key).name, key)
+    assert.equal(resolveAdapter(key).id, key)
   }
 })
 
@@ -51,50 +51,50 @@ test('RAG JSON reader accepts object-starting JSONL exports', async () => {
 test('RAGBench fixture mode loads rows and scores final answers', async () => {
   await withEnv({ RAGBENCH_FIXTURES: '1', RAGBENCH_DATA_FILE: undefined }, async () => {
     const adapter = createRagBenchAdapter()
-    await adapter.preflight()
-    const [task] = await adapter.loadTasks({ limit: 1 })
+    await adapter.runtime.preflight!()
+    const [task] = await adapter.loadAll({ limit: 1 })
     assert.equal(task.id, 'ragbench-fixture-0')
-    const gold = await adapter.goldArtifact(task)
-    assert.equal((await adapter.judge(task, gold ?? '')).resolved, true)
-    assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} 90 days`)).resolved, false)
+    const gold = await adapter.runtime.goldArtifact!(task)
+    assert.equal((await adapter.evaluate(task, gold ?? '')).passed, true)
+    assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} 90 days`)).passed, false)
   })
 
   await withEnv({ RAGBENCH_FIXTURES: undefined, RAGBENCH_DATA_FILE: undefined }, async () => {
-    await assert.rejects(() => createRagBenchAdapter().preflight(), /RAGBENCH_DATA_FILE is required/)
+    await assert.rejects(() => createRagBenchAdapter().runtime.preflight!(), /RAGBENCH_DATA_FILE is required/)
   })
 })
 
 test('CRAG fixture mode exposes domain slices and answer judging', async () => {
   await withEnv({ CRAG_FIXTURES: '1', CRAG_DATA_FILE: undefined }, async () => {
     const adapter = createCragAdapter()
-    await adapter.preflight()
-    const [task] = await adapter.loadTasks({ limit: 1 })
-    assert.equal(task.split, 'finance')
-    assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} 12.4 billion dollars`)).score, 1)
-    assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} 9 billion dollars`)).resolved, false)
+    await adapter.runtime.preflight!()
+    const [task] = await adapter.loadAll({ limit: 1 })
+    assert.equal(task.payload.subset, 'finance')
+    assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} 12.4 billion dollars`)).score, 1)
+    assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} 9 billion dollars`)).passed, false)
   })
 
   await withEnv({ CRAG_FIXTURES: undefined, CRAG_DATA_FILE: undefined }, async () => {
-    await assert.rejects(() => createCragAdapter().preflight(), /CRAG_DATA_FILE is required/)
+    await assert.rejects(() => createCragAdapter().runtime.preflight!(), /CRAG_DATA_FILE is required/)
   })
 })
 
 test('NoMIRACL fixture mode scores answerable and unanswerable classifications', async () => {
   await withEnv({ NOMIRACL_FIXTURES: '1', NOMIRACL_DATA_FILE: undefined }, async () => {
     const adapter = createNoMiraclAdapter()
-    await adapter.preflight()
-    const tasks = await adapter.loadTasks({})
+    await adapter.runtime.preflight!()
+    const tasks = await adapter.loadAll({})
     const relevant = tasks.find((task) => task.id === 'nomiracl-fixture-relevant')
     const nonRelevant = tasks.find((task) => task.id === 'nomiracl-fixture-non-relevant')
     assert.ok(relevant)
     assert.ok(nonRelevant)
-    assert.equal((await adapter.judge(relevant, 'ANSWERABLE')).score, 1)
-    assert.equal((await adapter.judge(nonRelevant, 'UNANSWERABLE')).score, 1)
-    assert.equal((await adapter.judge(nonRelevant, 'ANSWERABLE')).score, 0)
+    assert.equal((await adapter.evaluate(relevant, 'ANSWERABLE')).score, 1)
+    assert.equal((await adapter.evaluate(nonRelevant, 'UNANSWERABLE')).score, 1)
+    assert.equal((await adapter.evaluate(nonRelevant, 'ANSWERABLE')).score, 0)
   })
 
   await withEnv({ NOMIRACL_FIXTURES: undefined, NOMIRACL_DATA_FILE: undefined }, async () => {
-    await assert.rejects(() => createNoMiraclAdapter().preflight(), /NOMIRACL_DATA_FILE is required/)
+    await assert.rejects(() => createNoMiraclAdapter().runtime.preflight!(), /NOMIRACL_DATA_FILE is required/)
   })
 })
 
@@ -103,11 +103,11 @@ test('Open RAG Bench fixture mode keeps PDF modality metadata and scores answers
     { OPEN_RAG_BENCH_FIXTURES: '1', OPEN_RAG_BENCH_DATA_FILE: undefined },
     async () => {
       const adapter = createOpenRagBenchAdapter()
-      await adapter.preflight()
-      const [task] = await adapter.loadTasks({ limit: 1 })
-      assert.equal(task.split, 'table')
-      assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} Hybrid BM25`)).resolved, true)
-      assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} Dense`)).resolved, false)
+      await adapter.runtime.preflight!()
+      const [task] = await adapter.loadAll({ limit: 1 })
+      assert.equal(task.payload.subset, 'table')
+      assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} Hybrid BM25`)).passed, true)
+      assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} Dense`)).passed, false)
     },
   )
 
@@ -115,7 +115,7 @@ test('Open RAG Bench fixture mode keeps PDF modality metadata and scores answers
     { OPEN_RAG_BENCH_FIXTURES: undefined, OPEN_RAG_BENCH_DATA_FILE: undefined },
     async () => {
       await assert.rejects(
-        () => createOpenRagBenchAdapter().preflight(),
+        () => createOpenRagBenchAdapter().runtime.preflight!(),
         /OPEN_RAG_BENCH_DATA_FILE is required/,
       )
     },
@@ -125,14 +125,14 @@ test('Open RAG Bench fixture mode keeps PDF modality metadata and scores answers
 test('T2-RAGBench fixture mode scores numeric text-table answers', async () => {
   await withEnv({ T2_RAGBENCH_FIXTURES: '1', T2_RAGBENCH_DATA_FILE: undefined }, async () => {
     const adapter = createT2RagBenchAdapter()
-    await adapter.preflight()
-    const [task] = await adapter.loadTasks({ limit: 1 })
-    assert.equal(task.split, 'finqa')
-    assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} 12.0 percent`)).resolved, true)
-    assert.equal((await adapter.judge(task, `${FINAL_ANSWER_SENTINEL} 8 percent`)).resolved, false)
+    await adapter.runtime.preflight!()
+    const [task] = await adapter.loadAll({ limit: 1 })
+    assert.equal(task.payload.subset, 'finqa')
+    assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} 12.0 percent`)).passed, true)
+    assert.equal((await adapter.evaluate(task, `${FINAL_ANSWER_SENTINEL} 8 percent`)).passed, false)
   })
 
   await withEnv({ T2_RAGBENCH_FIXTURES: undefined, T2_RAGBENCH_DATA_FILE: undefined }, async () => {
-    await assert.rejects(() => createT2RagBenchAdapter().preflight(), /T2_RAGBENCH_DATA_FILE is required/)
+    await assert.rejects(() => createT2RagBenchAdapter().runtime.preflight!(), /T2_RAGBENCH_DATA_FILE is required/)
   })
 })

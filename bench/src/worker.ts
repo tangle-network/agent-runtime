@@ -79,7 +79,7 @@ export async function solveShot(
     '',
     'Resolve this issue by editing the SOURCE (never the tests):',
     '',
-    String(md.problem_statement ?? task.prompt),
+    String(md.problem_statement ?? task.payload.prompt),
     steer ? `\n--- Guidance from a prior failed attempt ---\n${steer}\n` : '',
     '',
     `When finished, from the repo root run EXACTLY:`,

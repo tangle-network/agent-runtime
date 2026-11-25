@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 import {
   contextBlock,
   contextsFrom,
@@ -84,16 +84,18 @@ function rowToTask(raw: unknown, index: number): BenchTask {
   }
   return {
     id,
-    split: stringFrom(raw.split) ?? language,
-    prompt: [
-      'Classify this NoMIRACL RAG relevance case.',
-      'Return exactly one word: ANSWERABLE if at least one supplied passage contains enough evidence to answer the query, otherwise UNANSWERABLE.',
-      '',
-      `Query: ${query}`,
-      contexts.length > 0 ? `\nPassages:\n${contextBlock(contexts)}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    payload: {
+      subset: stringFrom(raw.split) ?? language,
+      prompt: [
+        'Classify this NoMIRACL RAG relevance case.',
+        'Return exactly one word: ANSWERABLE if at least one supplied passage contains enough evidence to answer the query, otherwise UNANSWERABLE.',
+        '',
+        `Query: ${query}`,
+        contexts.length > 0 ? `\nPassages:\n${contextBlock(contexts)}` : undefined,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -101,7 +103,7 @@ function rowToTask(raw: unknown, index: number): BenchTask {
 function readMeta(task: BenchTask): NoMiraclMeta {
   const md = task.metadata
   if (!md || typeof md.answerable !== 'boolean') {
-    throw new Error(`NoMIRACL task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`NoMIRACL task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as NoMiraclMeta
 }
@@ -127,54 +129,59 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return selectTasks(rows.map(rowToTask), opts, 'NoMIRACL')
 }
 
-export function createNoMiraclAdapter(): BenchmarkAdapter {
+export function createNoMiraclAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.NOMIRACL_FIXTURES === '1'
 
-  return {
-    name: 'nomiracl',
-    output: ragAnswerOutput,
+  return runtimeBenchmark({
+    id: 'nomiracl',
 
-    async preflight() {
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8')
-        return
-      }
-      const path = dataFile()
-      if (!path) {
-        throw new Error(
-          'NOMIRACL_DATA_FILE is required. Fix: export project-miracl/nomiracl rows to JSONL and set NOMIRACL_DATA_FILE=/path/to/nomiracl.jsonl, or set NOMIRACL_FIXTURES=1 for adapter plumbing.',
-        )
-      }
-      await loadRows(path)
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const path = dataFile()
       if (!path) throw new Error('NOMIRACL_DATA_FILE is required to load NoMIRACL tasks')
       return selectTasks((await loadRows(path)).map(rowToTask), opts, 'NoMIRACL')
     },
 
-    async goldArtifact(task: BenchTask) {
-      return readMeta(task).answerable ? 'ANSWERABLE' : 'UNANSWERABLE'
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const got = parseClassification(artifact)
       const resolved = got === meta.answerable
+      const raw = {
+        benchmark: meta.benchmark,
+        language: meta.language,
+        subset: meta.subset,
+        expected: meta.answerable ? 'ANSWERABLE' : 'UNANSWERABLE',
+        got: got === null ? null : got ? 'ANSWERABLE' : 'UNANSWERABLE',
+        contextCount: meta.contexts.length,
+      }
       return {
-        resolved,
+        passed: resolved,
         score: resolved ? 1 : 0,
-        detail: JSON.stringify({
-          benchmark: meta.benchmark,
-          language: meta.language,
-          subset: meta.subset,
-          expected: meta.answerable ? 'ANSWERABLE' : 'UNANSWERABLE',
-          got: got === null ? null : got ? 'ANSWERABLE' : 'UNANSWERABLE',
-          contextCount: meta.contexts.length,
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      output: ragAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8')
+          return
+        }
+        const path = dataFile()
+        if (!path) {
+          throw new Error(
+            'NOMIRACL_DATA_FILE is required. Fix: export project-miracl/nomiracl rows to JSONL and set NOMIRACL_DATA_FILE=/path/to/nomiracl.jsonl, or set NOMIRACL_FIXTURES=1 for adapter plumbing.',
+          )
+        }
+        await loadRows(path)
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return readMeta(task).answerable ? 'ANSWERABLE' : 'UNANSWERABLE'
+      },
+    },
+  })
 }

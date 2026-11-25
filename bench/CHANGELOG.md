@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.0.0
+
+Breaking: every adapter is now agent-eval's `BenchmarkAdapter` (agent-eval `^2.0.11`), the one benchmark contract, and agent-bench's own `BenchmarkAdapter`, `BenchScore` and the old `BenchTask` shape are gone.
+An adapter is a `RuntimeBenchmark`, built with `runtimeBenchmark({ id, loadAll, evaluate, runtime })`:
+- `name` is `id`.
+- `loadTasks` is `loadAll`, and its `split` option is `subset` (the publisher's domain, category, language or dataset split).
+- `judge` is `evaluate`, returning agent-eval's verdict `{ passed, score, notes, raw }` plus `judgeArtifacts` and `judgeUsage` (`resolved` is `passed`, `detail` is `notes`).
+- `preflight`, `goldArtifact` and `output` move under `runtime`; `boxSetup`, `boxExtract` and `leafClient` are `runtime.workspaceSetup`, `runtime.workspaceExtract` and `runtime.worker`.
+- A task is agent-eval's `BenchmarkDatasetItem`: the prompt is `payload.prompt` (read it with `runtime.prompt(task)`), and the publisher's subset is `payload.subset`.
+- `loadDataset(split)` and `assignSplit` serve the same tasks by agent-eval's `deterministicSplit`, so agent-eval's benchmark runners take any adapter as is.
+
+`answerScoreToBenchScore` is `answerScoreToEvaluation`.
+`runBenchmarks` and `runGate` take `subset` for `split`, and the CLIs read `SUBSET` for `SPLIT`; `gate-cli` requires `BENCH`.
+`agent-bench run` task scores and RunRecords say `passed` and `notes` for `resolved` and `detail`.
+The reimplemented EnterpriseOps-Gym adapter is deleted: `agent-bench run enterpriseops-gym` runs ServiceNow's own runner and grader.
+
 ## 2.0.0
 
 Breaking: the public types now come from `@tangle-network/agent-runtime` `^9.0.3` (was `^8.0.1`); consumers move to agent-runtime 9 with it. 1.0.3 to 1.0.5 were tagged, never published, and their changes ship here. Recorded runs are graded with a fresh terminal-bench cache (#2550). Default judge and worker models move to the newest Router model in their tier: `deepseek/deepseek-v4.1-flash` for `deepseek-v4-flash` (bare `deepseek-v4.1-flash` where a slash would select a harness), `gemini-3.1-pro-preview` for the Trata hedge judge's `gemini-2.5-pro`, and `opencode/zai-coding-plan/glm-5.3` for atom-mcp-e2e's `glm-5-turbo`, which the bridge no longer serves. The Trata hedge and CADBench judges and the generated-eval discrimination gate now build profiles Runtime accepts (`maxVisibleOutputTokens`, `harness: 'cli-base'`); before, each was refused before any model call.

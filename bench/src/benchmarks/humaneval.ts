@@ -21,7 +21,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const humanevalUrl = 'https://github.com/openai/human-eval/raw/master/data/HumanEval.jsonl.gz'
 const dockerImage = 'python:3.12-slim'
@@ -279,7 +279,7 @@ function toBenchTask(t: HumanEvalTask): BenchTask {
     entryPoint: t.entryPoint,
     ...(t.canonicalSolution ? { canonicalSolution: t.canonicalSolution } : {}),
   }
-  return { id: t.taskId, prompt: basePrompt(t), metadata }
+  return { id: t.taskId, payload: { prompt: basePrompt(t) }, metadata }
 }
 
 function taskFromMeta(task: BenchTask): HumanEvalTask {
@@ -291,46 +291,48 @@ function taskFromMeta(task: BenchTask): HumanEvalTask {
 }
 
 /** The HumanEval `BenchmarkAdapter`. OFFSET (env) selects the correctable middle
- *  band; loadTasks honors `limit`/`ids`. The judge is the Docker deployable checker. */
-export function createHumanEvalAdapter(): BenchmarkAdapter {
-  return {
-    name: 'humaneval',
-    async preflight() {
-      // Prove the daemon and exact local image before any model call. Scoring uses
-      // --pull=never so a registry or cold pull cannot become a candidate outcome.
-      await new Promise<void>((resolve, reject) => {
-        execFile('docker', ['version', '--format', '{{.Server.Version}}'], (err) => {
-          if (err) reject(new Error('HumanEval judge needs a running Docker daemon (python:3.12-slim, --network=none)'))
-          else resolve()
-        })
-      })
-      await new Promise<void>((resolve, reject) => {
-        execFile('docker', ['image', 'inspect', dockerImage], (err) => {
-          if (err) reject(new Error(`HumanEval judge needs the cached Docker image ${dockerImage}`))
-          else resolve()
-        })
-      })
-    },
-    async loadTasks(opts?: LoadOptions) {
+ *  band; loadAll honors `limit`/`ids`. The judge is the Docker deployable checker. */
+export function createHumanEvalAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'humaneval',
+    async loadAll(opts?: LoadOptions) {
       const offset = Number(process.env.OFFSET ?? 0)
       // Pull a generous window when filtering by id, else exactly `limit` from offset.
       const all = await loadHumanEval(opts?.ids ? 164 : (opts?.limit ?? 8), offset)
       const picked = opts?.ids ? all.filter((t) => opts.ids?.includes(t.taskId)) : all
       return picked.map(toBenchTask)
     },
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const { pass } = await runChecker(taskFromMeta(task), extractCode(artifact))
-      return { resolved: pass === 1, score: pass, detail: pass === 1 ? 'tests passed' : 'tests failed' }
+      return { passed: pass === 1, score: pass, notes: pass === 1 ? 'tests passed' : 'tests failed', raw: {} }
     },
-    async goldArtifact(task: BenchTask) {
-      const m = task.metadata as HumanEvalMeta | undefined
-      const sol = m?.canonicalSolution
-      // Return the COMPLETE function (signature header + canonical body), i.e. what a
-      // real worker emits — NOT the body alone. The judge runs `extractCode`, whose
-      // unfenced fallback is `reply.trim()`; trimming a body-only string strips its
-      // leading indent and breaks it, so a body-only gold fails its own judge. A full
-      // def starts at column 0, trims safely, and self-verifies.
-      return sol ? `${m!.promptHeader}${sol}` : undefined
+    runtime: {
+      async preflight() {
+        // Prove the daemon and exact local image before any model call. Scoring uses
+        // --pull=never so a registry or cold pull cannot become a candidate outcome.
+        await new Promise<void>((resolve, reject) => {
+          execFile('docker', ['version', '--format', '{{.Server.Version}}'], (err) => {
+            if (err) reject(new Error('HumanEval judge needs a running Docker daemon (python:3.12-slim, --network=none)'))
+            else resolve()
+          })
+        })
+        await new Promise<void>((resolve, reject) => {
+          execFile('docker', ['image', 'inspect', dockerImage], (err) => {
+            if (err) reject(new Error(`HumanEval judge needs the cached Docker image ${dockerImage}`))
+            else resolve()
+          })
+        })
+      },
+      async goldArtifact(task: BenchTask) {
+        const m = task.metadata as HumanEvalMeta | undefined
+        const sol = m?.canonicalSolution
+        // Return the COMPLETE function (signature header + canonical body), i.e. what a
+        // real worker emits — NOT the body alone. The judge runs `extractCode`, whose
+        // unfenced fallback is `reply.trim()`; trimming a body-only string strips its
+        // leading indent and breaks it, so a body-only gold fails its own judge. A full
+        // def starts at column 0, trims safely, and self-verifies.
+        return sol ? `${m!.promptHeader}${sol}` : undefined
+      },
     },
-  }
+  })
 }

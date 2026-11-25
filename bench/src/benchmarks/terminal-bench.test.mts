@@ -9,8 +9,8 @@ import { createTerminalBenchAdapter } from './terminal-bench'
 
 test('goldArtifact returns portable shell solutions and rejects missing ones', async () => {
   const a = createTerminalBenchAdapter()
-  assert.equal(await a.goldArtifact({ id: 'with-solution', prompt: '', metadata: { solution: 'echo ok\n' } }), 'echo ok\n')
-  assert.equal(await a.goldArtifact({ id: 'without-solution', prompt: '', metadata: {} }), undefined)
+  assert.equal(await a.runtime.goldArtifact!({ id: 'with-solution', payload: { prompt: '' }, metadata: { solution: 'echo ok\n' } }), 'echo ok\n')
+  assert.equal(await a.runtime.goldArtifact!({ id: 'without-solution', payload: { prompt: '' }, metadata: {} }), undefined)
 })
 
 test('preflight FAILS LOUD with isolated Terminal-Bench venv instructions when harness is absent', async () => {
@@ -18,7 +18,7 @@ test('preflight FAILS LOUD with isolated Terminal-Bench venv instructions when h
   process.env.TERMINAL_BENCH_VENV = '.venv-terminal-bench-does-not-exist'
   try {
     const a = createTerminalBenchAdapter()
-    await assert.rejects(a.preflight(), (e: Error) => {
+    await assert.rejects(a.runtime.preflight!(), (e: Error) => {
       assert.match(e.message, /pip install terminal-bench/)
       assert.match(e.message, /ISOLATED venv/)
       assert.match(e.message, /TERMINAL_BENCH_VENV/)

@@ -30,13 +30,13 @@
 import { readFile } from 'node:fs/promises'
 import { argv } from 'node:process'
 import { fileURLToPath } from 'node:url'
-import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
+import type { BenchEvaluation, BenchTask, RuntimeBenchmark } from './benchmarks/types'
 import { ADAPTERS } from './adapters'
 import type { BenchRunRecord } from './corpus'
 import { selfConsistencySelect, summarizeSelector, summarizeVerifierSelector } from './selector'
 
 /** The benchmark's own judge - the EXTERNAL, write-only anchor (learning-flywheel.md). */
-export type Judge = (task: BenchTask, artifact: string) => Promise<BenchScore>
+export type Judge = (task: BenchTask, artifact: string) => Promise<BenchEvaluation>
 
 /**
  * The recorded FINAL output of a controller-run: the last attempt that actually
@@ -88,7 +88,7 @@ export async function scoreCandidateOffline(
     )
   }
   const verdict = await judge(task, candidateOutput)
-  return { resolved: verdict.resolved === true, score: verdict.score }
+  return { resolved: verdict.passed === true, score: verdict.score }
 }
 
 /** Parse the corpus JSONL; fail loud on empty/unreadable. */
@@ -115,12 +115,12 @@ async function readCorpus(corpusPath: string): Promise<BenchRunRecord[]> {
 
 /**
  * Resolve every recorded instanceId for one benchmark to its BenchTask in a single
- * loadTasks call (the judge needs the task's gold/judge metadata). Fail loud when a
+ * loadAll call (the judge needs the task's gold/judge metadata). Fail loud when a
  * recorded instance is absent from the live/fixture dataset - that is corpus/dataset
  * drift, not a replayable record.
  */
-async function loadTaskMap(adapter: BenchmarkAdapter, ids: string[]): Promise<Map<string, BenchTask>> {
-  const tasks = await adapter.loadTasks({ ids })
+async function loadTaskMap(adapter: RuntimeBenchmark, ids: string[]): Promise<Map<string, BenchTask>> {
+  const tasks = await adapter.loadAll({ ids })
   const byId = new Map<string, BenchTask>()
   for (const t of tasks) byId.set(t.id, t)
   return byId
@@ -249,7 +249,7 @@ async function main(): Promise<void> {
 
     // --judge: preflight, resolve recorded instances -> BenchTask, re-run the judge
     // on each recorded final output, compare the replayed verdict to record.resolved.
-    await adapter.preflight()
+    await adapter.runtime.preflight?.()
     const ids = [...new Set(replayable.map((r) => r.instanceId))]
     const taskMap = await loadTaskMap(adapter, ids)
 
@@ -265,9 +265,9 @@ async function main(): Promise<void> {
         console.warn(`[${bench}] instance ${r.instanceId} not in dataset - corpus/dataset drift; skipping`)
         continue
       }
-      const verdict = await adapter.judge(task, out)
+      const verdict = await adapter.evaluate(task, out)
       judged += 1
-      if ((verdict.resolved === true) === (r.resolved === true)) agree += 1
+      if ((verdict.passed === true) === (r.resolved === true)) agree += 1
     }
     const rate = judged > 0 ? agree / judged : 0
     console.log(

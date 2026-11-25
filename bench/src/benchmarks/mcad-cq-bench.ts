@@ -65,7 +65,7 @@ import {
 } from './mcad-bench'
 import { MCAD_CQ_GOLDS, MCAD_CQ_UNCALIBRATED } from './mcad-cq-golds'
 import { MCAD_DELIVERABLE, MCAD_DELIVERABLE_MULTIBODY, MCAD_TASKS, type McadTask } from './mcad-tasks'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 
@@ -320,32 +320,18 @@ export function withStepCheck(scored: McadScoring, stepEmitted: boolean): McadSc
 // Adapter
 // ---------------------------------------------------------------------------
 
-export function createMcadCqAdapter(): BenchmarkAdapter {
-  return {
-    name: 'mcad-cq',
+export function createMcadCqAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'mcad-cq',
 
-    async preflight() {
-      const python = resolveCadqueryPython()
-      if (!existsSync(python)) throw cadqueryMissingError(python)
-      try {
-        await execFileAsync(python, ['-c', 'import cadquery; print(cadquery.__version__)'], {
-          timeout: 300_000,
-          env: scriptEnv(tmpdir()),
-        })
-      } catch (err) {
-        const e = err as NodeJS.ErrnoException & { stderr?: string }
-        throw cadqueryMissingError(python, `\`import cadquery\` failed: ${(e.stderr ?? e.message ?? '').trim().slice(-800)}`)
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       let tasks: McadTask[] = MCAD_TASKS
       if (opts.ids) tasks = tasks.filter((t) => opts.ids?.includes(t.id))
       if (opts.limit != null) tasks = tasks.slice(0, opts.limit)
       return tasks.map(
         (t): BenchTask => ({
           id: t.id,
-          prompt: toCadQueryPrompt(t),
+          payload: { prompt: toCadQueryPrompt(t) },
           metadata: {
             spec: t.spec,
             source: t.source,
@@ -357,67 +343,87 @@ export function createMcadCqAdapter(): BenchmarkAdapter {
       )
     },
 
-    async goldArtifact(task: BenchTask) {
-      return MCAD_CQ_GOLDS[task.id]
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const spec = (task.metadata as McadTaskMeta | undefined)?.spec
-      if (!spec) return { resolved: false, score: 0, detail: `task ${task.id} carries no mcad spec` }
+      if (!spec) return { passed: false, score: 0, notes: `task ${task.id} carries no mcad spec`, raw: {} }
 
       const src = stripCodeFence(artifact)
-      if (!src) return { resolved: false, score: 0, detail: 'empty artifact' }
+      if (!src) return { passed: false, score: 0, notes: 'empty artifact', raw: {} }
 
       const built = await runAndMeasureCadQuery(src)
       if (!built.ok) {
-        return { resolved: false, score: 0, detail: `${built.detail} [dir ${built.dir}, stepEmitted ${built.stepEmitted}]` }
+        return { passed: false, score: 0, notes: `${built.detail} [dir ${built.dir}, stepEmitted ${built.stepEmitted}]`, raw: {} }
       }
 
       const { geo, tris, stlPath, stepEmitted, dir } = built
       if (!geo.watertight) {
+        const raw = {
+          gate: 'watertight',
+          failed: [
+            {
+              name: 'watertight',
+              measured: `${geo.openEdges} edge(s) not shared by exactly two faces`,
+              expected: '0 open edges (closed 2-manifold solid)',
+            },
+          ],
+          geo: { triangles: geo.triangles, degenerateFaces: geo.degenerateFaces },
+          stepEmitted,
+          stlPath,
+          dir,
+        }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({
-            gate: 'watertight',
-            failed: [
-              {
-                name: 'watertight',
-                measured: `${geo.openEdges} edge(s) not shared by exactly two faces`,
-                expected: '0 open edges (closed 2-manifold solid)',
-              },
-            ],
-            geo: { triangles: geo.triangles, degenerateFaces: geo.degenerateFaces },
-            stepEmitted,
-            stlPath,
-            dir,
-          }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
 
       const scored = withStepCheck(scoreAgainstSpec(geo, tris, spec), stepEmitted)
-      return {
-        resolved: scored.resolved,
-        score: scored.score,
-        detail: JSON.stringify({
-          failed: scored.failed.map((c) => ({ name: c.name, measured: c.measured, expected: c.expected })),
-          checks: Object.fromEntries(scored.checks.map((c) => [c.name, c.ok])),
-          geo: {
-            triangles: geo.triangles,
-            solids: geo.solids,
-            volume: +geo.volume.toFixed(2),
-            degenerateFaces: geo.degenerateFaces,
-            bbox: {
-              x: +geo.bbox.size.x.toFixed(3),
-              y: +geo.bbox.size.y.toFixed(3),
-              z: +geo.bbox.size.z.toFixed(3),
-            },
+      const raw = {
+        failed: scored.failed.map((c) => ({ name: c.name, measured: c.measured, expected: c.expected })),
+        checks: Object.fromEntries(scored.checks.map((c) => [c.name, c.ok])),
+        geo: {
+          triangles: geo.triangles,
+          solids: geo.solids,
+          volume: +geo.volume.toFixed(2),
+          degenerateFaces: geo.degenerateFaces,
+          bbox: {
+            x: +geo.bbox.size.x.toFixed(3),
+            y: +geo.bbox.size.y.toFixed(3),
+            z: +geo.bbox.size.z.toFixed(3),
           },
-          stepEmitted,
-          stlPath,
-          dir,
-        }),
+        },
+        stepEmitted,
+        stlPath,
+        dir,
+      }
+      return {
+        passed: scored.resolved,
+        score: scored.score,
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        const python = resolveCadqueryPython()
+        if (!existsSync(python)) throw cadqueryMissingError(python)
+        try {
+          await execFileAsync(python, ['-c', 'import cadquery; print(cadquery.__version__)'], {
+            timeout: 300_000,
+            env: scriptEnv(tmpdir()),
+          })
+        } catch (err) {
+          const e = err as NodeJS.ErrnoException & { stderr?: string }
+          throw cadqueryMissingError(python, `\`import cadquery\` failed: ${(e.stderr ?? e.message ?? '').trim().slice(-800)}`)
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return MCAD_CQ_GOLDS[task.id]
+      },
+    },
+  })
 }

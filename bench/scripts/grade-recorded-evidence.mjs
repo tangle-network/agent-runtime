@@ -38,13 +38,13 @@ for (const [benchmark, id, artifact, resolved, parserResults] of [
   terminal('hello-world'), terminal('fix-permissions'), swe('astropy__astropy-12907'),
 ]) {
   const adapter = resolveAdapter(benchmark)
-  await adapter.preflight()
-  const [task] = await adapter.loadTasks({ ids: [id] })
+  await adapter.runtime.preflight?.()
+  const [task] = await adapter.loadAll({ ids: [id] })
   assert.equal(task?.id, id, `${benchmark} did not load ${id}`)
-  const score = await adapter.judge(task, artifact)
-  const line = `official grade ${benchmark} ${id}: ${score.resolved ? 'resolved' : 'unresolved'} ${score.detail}`
+  const score = await adapter.evaluate(task, artifact)
+  const line = `official grade ${benchmark} ${id}: ${score.passed ? 'resolved' : 'unresolved'} ${score.notes}`
   console.log(line)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- ${line}\n`)
-  assert.equal(score.resolved, resolved, `${id} grade differs from its recorded official verdict`)
-  if (parserResults) assert.deepEqual(JSON.parse(score.detail), parserResults, `${id} checks differ from the recorded run`)
+  assert.equal(score.passed, resolved, `${id} grade differs from its recorded official verdict`)
+  if (parserResults) assert.deepEqual(JSON.parse(score.notes), parserResults, `${id} checks differ from the recorded run`)
 }

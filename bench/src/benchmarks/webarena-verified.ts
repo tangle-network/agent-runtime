@@ -11,7 +11,7 @@ import { access, readFile, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, runVenvPython } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'webarena-verified.json')
 const DATASET_REL = join('assets', 'dataset', 'webarena-verified.json')
@@ -78,17 +78,19 @@ function rowToTask(row: WebArenaRow): BenchTask {
   }
   return {
     id: String(row.task_id),
-    prompt: [
-      'Run this WebArena-Verified browser task in the official environment.',
-      `Goal: ${row.intent}`,
-      row.start_urls?.length ? `Start URL templates: ${row.start_urls.join(', ')}` : undefined,
-      row.sites?.length ? `Sites: ${row.sites.join(', ')}` : undefined,
-      '',
-      'Return the path to the official WebArena-Verified run output directory for this task.',
-      'The judge expects that directory to contain the task response and network trace files.',
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    payload: {
+      prompt: [
+        'Run this WebArena-Verified browser task in the official environment.',
+        `Goal: ${row.intent}`,
+        row.start_urls?.length ? `Start URL templates: ${row.start_urls.join(', ')}` : undefined,
+        row.sites?.length ? `Sites: ${row.sites.join(', ')}` : undefined,
+        '',
+        'Return the path to the official WebArena-Verified run output directory for this task.',
+        'The judge expects that directory to contain the task response and network trace files.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -96,7 +98,7 @@ function rowToTask(row: WebArenaRow): BenchTask {
 function readMeta(task: BenchTask): WebArenaMeta {
   const md = task.metadata
   if (!md || typeof md.taskId !== 'number') {
-    throw new Error(`webarena-verified task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`webarena-verified task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as WebArenaMeta
 }
@@ -147,41 +149,20 @@ print(json.dumps(json.loads(result_path.read_text())))
   return JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}') as Record<string, unknown>
 }
 
-export function createWebArenaVerifiedAdapter(): BenchmarkAdapter {
+export function createWebArenaVerifiedAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.WEBARENA_VERIFIED_FIXTURES === '1'
 
-  return {
-    name: 'webarena-verified',
-    output: webarenaOutputDirOutput,
+  return runtimeBenchmark({
+    id: 'webarena-verified',
 
-    async preflight() {
-      if (fixturesMode) return
-      const dir = webarenaDir()
-      if (!dir) {
-        throw new Error(
-          'WEBARENA_VERIFIED_DIR is required. Fix: clone https://github.com/ServiceNow/webarena-verified, install its deps in bench/.venv, and set WEBARENA_VERIFIED_DIR=/path/to/webarena-verified.',
-        )
-      }
-      await assertFile(join(dir, DATASET_REL), 'official dataset')
-      await assertFile(join(dir, 'src', 'webarena_verified', '__main__.py'), 'official CLI module')
-      await runVenvPython(
-        'import sys; sys.path.insert(0, sys.argv[1]); import webarena_verified; print("ok")',
-        [join(dir, 'src')],
-      )
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const dir = webarenaDir()
       if (!dir) throw new Error('WEBARENA_VERIFIED_DIR is required to load official WebArena-Verified tasks')
       return loadOfficialRows(dir, opts)
     },
 
-    async goldArtifact() {
-      return undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const dir = webarenaDir()
       if (!dir) throw new Error('WEBARENA_VERIFIED_DIR is required to judge WebArena-Verified artifacts')
       const outputDir = resolve(artifact.trim())
@@ -190,11 +171,37 @@ export function createWebArenaVerifiedAdapter(): BenchmarkAdapter {
       const report = await runOfficialEval(dir, meta.taskId, outputDir)
       const score = typeof report.score === 'number' ? report.score : 0
       const status = typeof report.status === 'string' ? report.status : 'unknown'
+      const raw = { taskId: meta.taskId, status, outputDir }
       return {
-        resolved: score === 1,
+        passed: score === 1,
         score,
-        detail: JSON.stringify({ taskId: meta.taskId, status, outputDir }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      output: webarenaOutputDirOutput,
+
+      async preflight() {
+        if (fixturesMode) return
+        const dir = webarenaDir()
+        if (!dir) {
+          throw new Error(
+            'WEBARENA_VERIFIED_DIR is required. Fix: clone https://github.com/ServiceNow/webarena-verified, install its deps in bench/.venv, and set WEBARENA_VERIFIED_DIR=/path/to/webarena-verified.',
+          )
+        }
+        await assertFile(join(dir, DATASET_REL), 'official dataset')
+        await assertFile(join(dir, 'src', 'webarena_verified', '__main__.py'), 'official CLI module')
+        await runVenvPython(
+          'import sys; sys.path.insert(0, sys.argv[1]); import webarena_verified; print("ok")',
+          [join(dir, 'src')],
+        )
+      },
+
+      async goldArtifact() {
+        return undefined
+      },
+    },
+  })
 }

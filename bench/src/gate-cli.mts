@@ -2,12 +2,12 @@
  * Run the diverse-vs-blind gate THROUGH the recursive atom, end to end, in two lines:
  *
  *   export TANGLE_API_KEY=...        # router + the deployable judge's creds
- *   BENCH=enterpriseops-gym EOPS_FIXTURES=1 N=20 K=4 tsx src/gate-cli.mts
+ *   BENCH=swe-bench N=20 K=4 tsx src/gate-cli.mts
  *
  * The arms are equal-k by construction (both open K children; blind = K identical copies,
  * diverse = K distinct strategy directives). The deployable selector is the benchmark's OWN
- * judge — pick a benchmark whose `adapter.judge` is a runnable checker (enterpriseops-gym,
- * swe-bench, terminal-bench), NOT an LLM-judge bench (finsearchcomp), or the selector is not
+ * judge — pick a benchmark whose `adapter.evaluate` is a runnable checker (swe-bench,
+ * terminal-bench), NOT an LLM-judge bench (finsearchcomp), or the selector is not
  * deployable and the result does not answer the gate.
  *
  * Output is a verdict-first report: the headline delta, the per-arm resolve table, the equal-k
@@ -35,7 +35,7 @@ const defaultStrategies: ReadonlyArray<string> = [
 ]
 
 async function main(): Promise<void> {
-  const benchKey = process.env.BENCH ?? 'enterpriseops-gym'
+  const benchKey = must('BENCH')
   const adapter = resolveAdapter(benchKey)
   const model = process.env.WORKER_MODEL ?? 'deepseek/deepseek-v4.1-flash'
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     routerKey,
     n: Number(process.env.N ?? 20),
     ...(process.env.IDS ? { ids: process.env.IDS.split(',') } : {}),
-    ...(process.env.SPLIT ? { split: process.env.SPLIT } : {}),
+    ...(process.env.SUBSET ? { subset: process.env.SUBSET } : {}),
     ...(process.env.PER_CHILD_TOKENS ? { perChildTokens: Number(process.env.PER_CHILD_TOKENS) } : {}),
   })
 

@@ -4,34 +4,36 @@
  * the fail-loud guards — without a model, sandbox, or dataset. Run: `tsx bench/src/run-benchmarks.test.mts`.
  */
 import assert from 'node:assert/strict'
-import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
+import { type BenchEvaluation, type BenchTask, type RuntimeBenchmark, runtimeBenchmark } from './benchmarks/types'
 import { runBenchmarks, type BenchShot, type BenchExecution, type BenchExecutionContext } from './run-benchmarks'
 
-function stubAdapter(name: string, n: number): BenchmarkAdapter {
+function stubAdapter(name: string, n: number): RuntimeBenchmark {
   const tasks: BenchTask[] = Array.from({ length: n }, (_, i) => ({
     id: `${name}-${i}`,
-    prompt: `solve ${name} ${i}`,
+    payload: { prompt: `solve ${name} ${i}` },
     metadata: { gold: `GOLD-${name}-${i}` },
   }))
-  return {
-    name,
-    preflight: async () => {},
-    loadTasks: async (o) => {
+  return runtimeBenchmark({
+    id: name,
+    loadAll: async (o) => {
       let t = tasks
       if (o?.ids) t = t.filter((x) => o.ids!.includes(x.id))
       if (o?.limit !== undefined) t = t.slice(0, o.limit)
       return t
     },
-    judge: async (task, artifact): Promise<BenchScore> => {
+    evaluate: async (task, artifact): Promise<BenchEvaluation> => {
       const gold = String(task.metadata?.gold)
-      return { resolved: artifact === gold, score: artifact === gold ? 1 : 0 }
+      return { passed: artifact === gold, score: artifact === gold ? 1 : 0, raw: {} }
     },
-    goldArtifact: async (task) => String(task.metadata?.gold),
-  }
+    runtime: {
+      preflight: async () => {},
+      goldArtifact: async (task) => String(task.metadata?.gold),
+    },
+  })
 }
 
-const REGISTRY: Record<string, BenchmarkAdapter> = { alpha: stubAdapter('alpha', 4), beta: stubAdapter('beta', 4) }
-const resolveStub = (key: string): BenchmarkAdapter => {
+const REGISTRY: Record<string, RuntimeBenchmark> = { alpha: stubAdapter('alpha', 4), beta: stubAdapter('beta', 4) }
+const resolveStub = (key: string): RuntimeBenchmark => {
   const a = REGISTRY[key]
   if (!a) throw new Error(`unknown benchmark: ${key}`)
   return a
@@ -72,7 +74,7 @@ async function main(): Promise<void> {
   const judgeFailure = await runBenchmarks({
     benchmarks: ['alpha'], cells: [{ label: 'measured', model: 'm' }],
     routerBaseUrl: 'x', routerKey: 'x', n: 1, verifyJudge: false,
-    resolveAdapter: () => ({ ...REGISTRY.alpha!, judge: async () => { throw new Error('judge unavailable') } }),
+    resolveAdapter: () => ({ ...REGISTRY.alpha!, evaluate: async () => { throw new Error('judge unavailable') } }),
     runShot: async () => ({ artifact: 'PATCH', ok: true, usage: { input: 23, output: 7, costUsd: 0.04 } }),
   })
   assert.equal(judgeFailure.perTask[0]?.ok, false)
@@ -146,7 +148,7 @@ async function main(): Promise<void> {
   // Looped cells feed safe failure feedback into the next attempt and stop once the judge passes.
   let prompts: string[] = []
   const retryShot: BenchShot = async ({ task, prompt }) => {
-    prompts.push(prompt ?? task.prompt)
+    prompts.push(prompt ?? task.payload.prompt)
     return { artifact: prompts.length === 1 ? 'WRONG' : String(task.metadata?.gold), ok: true, usage: { input: 11, output: 3, costUsd: 0.02 } }
   }
   const oneShot = await runBenchmarks({
@@ -214,17 +216,20 @@ async function main(): Promise<void> {
 
   // A benchmark's detail may include hidden answer fields; those must never be fed back as hints.
   const leakyGold = 'SECRET-GOLD'
-  const leaky: BenchmarkAdapter = {
-    name: 'leaky',
-    preflight: async () => {},
-    loadTasks: async () => [{ id: 'leaky-0', prompt: 'Answer the hidden task.', metadata: { gold: leakyGold } }],
-    judge: async (_task, artifact) => ({
-      resolved: artifact === leakyGold,
+  const leaky: RuntimeBenchmark = runtimeBenchmark({
+    id: 'leaky',
+    loadAll: async () => [{ id: 'leaky-0', payload: { prompt: 'Answer the hidden task.' }, metadata: { gold: leakyGold } }],
+    evaluate: async (_task, artifact) => ({
+      passed: artifact === leakyGold,
       score: artifact === leakyGold ? 1 : 0,
-      detail: JSON.stringify({ bestGold: leakyGold, expectedAnswer: leakyGold, publicHint: 'retry' }),
+      notes: JSON.stringify({ bestGold: leakyGold, expectedAnswer: leakyGold, publicHint: 'retry' }),
+      raw: {},
     }),
-    goldArtifact: async () => leakyGold,
-  }
+    runtime: {
+      preflight: async () => {},
+      goldArtifact: async () => leakyGold,
+    },
+  })
   const leakyPrompts: string[] = []
   const leakyShot: BenchShot = async ({ prompt }) => {
     leakyPrompts.push(prompt ?? '')
@@ -270,15 +275,17 @@ async function main(): Promise<void> {
         }
       },
     }
-    const boxAdapter: BenchmarkAdapter = {
-      name: 'boxy',
-      preflight: async () => {},
-      loadTasks: async () => [{ id: 'boxy-0', prompt: 'edit repo', metadata: {} }],
-      judge: async (_task, artifact) => ({ resolved: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0 }),
-      goldArtifact: async () => 'PATCH',
-      boxSetup: () => ({ command: 'setup-repo' }),
-      boxExtract: () => ({ command: 'extract-patch' }),
-    }
+    const boxAdapter: RuntimeBenchmark = runtimeBenchmark({
+      id: 'boxy',
+      loadAll: async () => [{ id: 'boxy-0', payload: { prompt: 'edit repo' }, metadata: {} }],
+      evaluate: async (_task, artifact) => ({ passed: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0, raw: {} }),
+      runtime: {
+        preflight: async () => {},
+        goldArtifact: async () => 'PATCH',
+        workspaceSetup: () => ({ command: 'setup-repo' }),
+        workspaceExtract: () => ({ command: 'extract-patch' }),
+      },
+    })
     const boxy = await runBenchmarks({
       benchmarks: ['boxy'],
       cells: [{ label: 'default-shot', model: 'm', backend: 'sandbox' }],
@@ -291,7 +298,7 @@ async function main(): Promise<void> {
         return fakeClient as never
       },
     })
-    assert.equal(boxy.rows[0]!.resolveRate, 1, 'boxExtract artifact is judged instead of fallback text')
+    assert.equal(boxy.rows[0]!.resolveRate, 1, 'workspaceExtract artifact is judged instead of fallback text')
     assert.equal(boxy.perTask[0]?.artifact, 'PATCH')
     assert.deepEqual(boxy.perTask[0]?.usage, { input: 23, output: 7, costUsd: 0.04 })
     assert.deepEqual(boxy.perTask[0]?.execution, { phase: 'started', terminalOutcome: 'succeeded' })
@@ -308,7 +315,7 @@ async function main(): Promise<void> {
       const failed = await runBenchmarks({
         benchmarks: ['boxy'], cells: [{ label: failure, model: 'm', backend: 'sandbox' }],
         routerBaseUrl: 'x', routerKey: 'x',
-        resolveAdapter: () => ({ ...boxAdapter, output: { parse: () => { throw new Error('parser failed') } } }),
+        resolveAdapter: () => ({ ...boxAdapter, runtime: { ...boxAdapter.runtime, output: { parse: () => { throw new Error('parser failed') } } } }),
         resolveClient: () => fakeClient as never,
       })
       assert.equal(failed.perTask[0]?.measurement, 'unavailable')
@@ -349,9 +356,10 @@ async function main(): Promise<void> {
   }
 
   // An unavailable benchmark (preflight throws) is skipped, not fatal; the sweep still runs the rest.
-  const flaky: Record<string, BenchmarkAdapter> = {
+  const down = stubAdapter('down', 2)
+  const flaky: Record<string, RuntimeBenchmark> = {
     ok: stubAdapter('ok', 2),
-    down: { ...stubAdapter('down', 2), preflight: async () => { throw new Error('no docker') } },
+    down: { ...down, runtime: { ...down.runtime, preflight: async () => { throw new Error('no docker') } } },
   }
   const mixed = await runBenchmarks({
     benchmarks: ['ok', 'down'], cells: [{ label: 'perfect', model: 'm' }],
@@ -363,7 +371,7 @@ async function main(): Promise<void> {
   assert.ok(mixed.rows.every((r) => r.benchmark === 'ok'), 'only the available benchmark produced rows')
 
   // Judge self-verification: a miscalibrated judge (rejects its own gold) marks the bench unavailable.
-  const miscalibrated: BenchmarkAdapter = { ...stubAdapter('mis', 2), judge: async () => ({ resolved: false, score: 0 }) }
+  const miscalibrated: RuntimeBenchmark = { ...stubAdapter('mis', 2), evaluate: async () => ({ passed: false, score: 0, raw: {} }) }
   const guarded = await runBenchmarks({
     benchmarks: ['mis'], cells: [{ label: 'perfect', model: 'm' }],
     routerBaseUrl: 'x', routerKey: 'x', runShot: shot,
@@ -429,19 +437,21 @@ async function managedExecutionProof(): Promise<void> {
         }
       },
     }
-    const adapter: BenchmarkAdapter = {
-      name: 'managed',
-      preflight: async () => {},
-      loadTasks: async () => [{ id: 'task', prompt: 'fix the branch', metadata: { gold: 'PRIVATE FINAL ORACLE' } }],
-      boxSetup: () => ({ command: 'setup' }),
-      boxExtract: () => ({ command: 'extract' }),
-      goldArtifact: async () => 'PATCH',
-      judge: async (_task, artifact) => {
+    const adapter: RuntimeBenchmark = runtimeBenchmark({
+      id: 'managed',
+      loadAll: async () => [{ id: 'task', payload: { prompt: 'fix the branch' }, metadata: { gold: 'PRIVATE FINAL ORACLE' } }],
+      evaluate: async (_task, artifact) => {
         grades += 1
         operations.push('judge')
-        return { resolved: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0 }
+        return { passed: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0, raw: {} }
       },
-    }
+      runtime: {
+        preflight: async () => {},
+        workspaceSetup: () => ({ command: 'setup' }),
+        workspaceExtract: () => ({ command: 'extract' }),
+        goldArtifact: async () => 'PATCH',
+      },
+    })
     return {
       operations, requests, get creates() { return creates }, get grades() { return grades },
       run: (execute?: BenchExecution, loopAttempts = 1) => runBenchmarks({

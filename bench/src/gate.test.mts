@@ -4,7 +4,7 @@
  * drives the `Supervisor`, the per-child deployable verdict drives selection, the paired metric is
  * derived from the run's own trajectory, and the conserved pool yields equal-k across arms.
  *
- * The LIVE solve-and-grade path (`benchSolverRegistry` → router + `adapter.judge`) is exercised
+ * The LIVE solve-and-grade path (`benchSolverRegistry` → router + `adapter.evaluate`) is exercised
  * by a real gate run against a deployable-checker domain, not here.
  *
  *   tsx bench/src/gate.test.mts
@@ -21,7 +21,7 @@ import type {
   ExecutorFactory,
   ExecutorResult,
 } from '@tangle-network/agent-runtime/kernel'
-import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
+import { type BenchEvaluation, type BenchTask, type RuntimeBenchmark, runtimeBenchmark } from './benchmarks/types'
 import { runGate, type SolveTask } from './gate'
 
 /** A child whose verdict is decided purely by whether its prompt carries the STRONG marker — so a
@@ -62,23 +62,25 @@ const stubRegistry: ExecutorRegistry = {
   },
 }
 
-function stubAdapter(n: number): BenchmarkAdapter {
+function stubAdapter(n: number): RuntimeBenchmark {
   const tasks: BenchTask[] = Array.from({ length: n }, (_v, i) => ({
     id: `t${i}`,
-    prompt: `solve instance ${i}`,
+    payload: { prompt: `solve instance ${i}` },
   }))
-  return {
-    name: 'stub-bench',
-    preflight: () => Promise.resolve(),
-    loadTasks: (opts) =>
+  return runtimeBenchmark({
+    id: 'stub-bench',
+    loadAll: (opts) =>
       Promise.resolve(opts?.limit !== undefined ? tasks.slice(0, opts.limit) : tasks),
-    // judge is NOT exercised on the injected-registry path (the stub leaf sets verdicts directly);
+    // evaluate is NOT exercised on the injected-registry path (the stub leaf sets verdicts directly);
     // a real run reaches the adapter judge through benchSolverRegistry.
-    judge: (): Promise<BenchScore> => {
+    evaluate: (): Promise<BenchEvaluation> => {
       throw new Error('stub judge must not be called on the injected-registry path')
     },
-    goldArtifact: () => Promise.resolve(undefined),
-  }
+    runtime: {
+      preflight: () => Promise.resolve(),
+      goldArtifact: () => Promise.resolve(undefined),
+    },
+  })
 }
 
 const profile = {
