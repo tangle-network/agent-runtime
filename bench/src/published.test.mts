@@ -472,3 +472,63 @@ test('HealthBench Professional: the publisher\'s rubric grader, with a substitut
     await rm(cacheDir, { recursive: true, force: true })
   }
 })
+
+/** Chat completions for the MLCR target and a substituted judge: the judge finds the answered run complete and accurate,
+ *  and the other neither. The target answers briefly, inside the publisher's conciseness gate. */
+function mlcrStandIn(answered: boolean) {
+  const seen = { target: 0, judge: 0 }
+  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    let raw = ''
+    for await (const chunk of req) raw += chunk
+    const body = JSON.parse(raw || '{}') as { model?: string }
+    let text: string
+    if (body.model === 'stand-in-judge') {
+      seen.judge++
+      text = JSON.stringify({ complete: answered, accurate: answered, rationale: 'stand-in judge' })
+    } else {
+      seen.target++
+      text = answered ? 'A brief answer.' : 'I cannot help.'
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ id: 'chatcmpl-stand-in', object: 'chat.completion', created: 0, model: body.model,
+      choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }))
+  })
+  return { server, seen }
+}
+
+test('MLCR: the publisher\'s runner and scorer, with a substituted judge, pass the row the jury finds correct and fail the other', { skip: uv ? false : 'uv is not installed', timeout: 30 * 60_000 }, async () => {
+  const cacheDir = await mkdtemp(path.join(tmpdir(), 'agent-bench-published-cache-'))
+  try {
+    const verdicts: Array<{ passed: boolean; score: number }> = []
+    for (const answered of [true, false]) {
+      const { server, seen } = mlcrStandIn(answered)
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+      const out = await mkdtemp(path.join(tmpdir(), 'agent-bench-mlcr-'))
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`
+      try {
+        const result = await runPublished('mlcr', 'model:stand-in-model', {
+          tasks: 1, out, cacheDir, judge: 'bridge/stand-in-judge',
+          env: { AGENT_BENCH_ROUTER_URL: url, TANGLE_API_KEY: 'local-stand-in', AGENT_BENCH_JUDGE_URL: url },
+        })
+        assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
+        assert.equal(result.official, false)
+        assert.equal(result.publisherJudge, PUBLISHED_BENCHMARKS.mlcr!.judge)
+        assert.ok(seen.target === 1 && seen.judge === 1, JSON.stringify(seen))
+        const [row] = (await readFile(result.runRecords, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { scenarioId: string })
+        assert.equal(row!.scenarioId, `mlcr:${result.taskScores[0]!.id}`)
+        verdicts.push(result.taskScores[0]!)
+      } finally {
+        server.closeAllConnections()
+        server.close()
+        await rm(out, { recursive: true, force: true })
+      }
+    }
+    assert.equal(verdicts[0]!.passed, true, JSON.stringify(verdicts[0]))
+    assert.equal(verdicts[0]!.score, 1)
+    assert.equal(verdicts[1]!.passed, false)
+    assert.equal(verdicts[1]!.score, 0)
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true })
+  }
+})

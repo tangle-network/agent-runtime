@@ -346,6 +346,44 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
       }))
     },
   },
+  mlcr: {
+    name: 'mlcr',
+    repository: 'https://github.com/Wisedocs-AI/medical-long-context-reasoning.git',
+    ref: 'ca822de2d274184bb0cd5bf280ff917922f3716f',
+    version: 'v1.1 (ca822de, the release commit; no tag), data Wisedocs/mlcr-dataset@1198206e',
+    license: 'none: neither the code nor the Wisedocs/mlcr-dataset release carries a license (the dataset card says "other")',
+    terms: 'No license: run locally for evaluation only, never committed, redistributed, or used for training or prompt optimization. The dataset is not gated and is fetched from Hugging Face at the pinned revision at run time.',
+    judge: "jury of gemini-3.1-pro-preview, claude-opus-4-8-gcp and gpt-5.5 (majority vote, medium thinking) on the publisher's Vertex, Anthropic-on-GCP and Azure OpenAI providers, after a conciseness gate",
+    judgeSubstitutable: true,
+    measured: 'model-shaped',
+    resultIsFolder: true,
+    install: [['uv', 'venv', '--quiet', '--python', '3.12'], ['uv', 'pip', 'install', '--quiet', '-e', '.[all]']],
+    // A sample is the runner's first --tasks rows of the publisher's smoke experiment; MLCR names rows by matrix cell, not id.
+    run: (endpoint, options, resultPath) => [
+      'sh', fileURLToPath(new URL('../scripts/mlcr-run.sh', import.meta.url)),
+      resultPath, endpoint.baseUrl, endpoint.model, endpoint.apiKeyVar,
+      options.tasks === undefined ? 'all' : String(options.tasks), (options.taskIds ?? []).join(','), options.judge ?? 'publisher',
+      ...(options.args ?? []),
+    ],
+    // Per row, the jury's verdict: correct (complete and accurate by majority) after the conciseness gate.
+    parse: async (resultPath) => {
+      const result = JSON.parse(await readFile(path.join(resultPath, 'result.json'), 'utf8')) as {
+        examples?: Array<{ id: string; concise: string; complete: string; accurate: string; correct: string; judge_error: boolean; response_chars: number }>
+      }
+      if (!result.examples?.length) throw new Error(`MLCR wrote no scored rows under ${resultPath}`)
+      const verdict = (value: string) => (value === '' ? undefined : Number(value))
+      return result.examples.map((example) => {
+        if (example.correct === '') throw new Error(`MLCR row ${example.id} has no jury verdict${example.judge_error ? ' (the judge failed)' : ''}`)
+        const raw = Object.fromEntries(Object.entries({ concise: verdict(example.concise), complete: verdict(example.complete), accurate: verdict(example.accurate), correct: verdict(example.correct) })
+          .filter((entry): entry is [string, number] => entry[1] !== undefined))
+        return {
+          id: example.id, passed: example.correct === '1', score: example.correct === '1' ? 1 : 0,
+          notes: `concise ${example.concise || '-'}, complete ${example.complete || '-'}, accurate ${example.accurate || '-'}; ${example.response_chars} characters`,
+          raw: { ...raw, response_chars: example.response_chars },
+        }
+      })
+    },
+  },
 }
 
 /** Resolve a `model:`, `app:` or `profile:` target to the endpoint a publisher's runner calls. */
