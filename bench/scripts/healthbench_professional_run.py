@@ -57,6 +57,8 @@ with open(converted, 'w', encoding='utf-8') as handle:
     for row in rows:
         handle.write(json.dumps(healthbench_row(row)) + '\n')
 
+# The publisher's samplers build a default OpenAI client on construction; each is replaced with its endpoint's client below.
+os.environ.setdefault('OPENAI_API_KEY', 'replaced-per-sampler')
 target = ChatCompletionSampler(model=model, system_message=OPENAI_SYSTEM_MESSAGE_API, max_tokens=2048)
 target.client = OpenAI(base_url=base, api_key=os.environ[keyvar])
 if judge_url == '-':
