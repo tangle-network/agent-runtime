@@ -58,7 +58,7 @@ async function main(argv: string[]): Promise<number> {
     args: runnerArgs,
     out: path.resolve(out ?? path.join('agent-bench-runs', `${name}-${new Date().toISOString().replace(/[:.]/g, '-')}`)),
   })
-  console.log(`${run.benchmark} ${run.version} on ${run.target}: ${run.passed} of ${run.tasks} passed, score ${run.score.toFixed(3)}, measured ${run.measured}, judge ${run.judge === null ? 'deterministic' : run.judge} (${run.official ? 'official' : `substituted for ${run.publisherJudge}, not official`})`)
+  console.log(`${run.benchmark} ${run.version} on ${run.target}: ${run.passed} of ${run.tasks} passed, score ${run.score.toFixed(3)}, measured ${run.measured}, judge ${run.judge === null ? 'deterministic' : run.judge} (${run.official ? 'official' : `${[run.judge !== run.publisherJudge ? `substituted for ${run.publisherJudge}` : undefined, run.unofficial].filter(Boolean).join('; ')}, not official`})`)
   if (run.app) {
     console.log(`app: ${run.app.app} profile ${run.app.profileName ?? '?'} ${run.app.profileVersion ?? ''} ${run.app.profileDigest.slice(0, 19)} from ${run.app.profileUrl}; ` +
       `its production model ${JSON.stringify(run.app.productionModel)} replaced by ${run.model}; its MCP servers not mounted: ${run.app.omittedMcp.join(', ') || 'none'}`)
