@@ -117,6 +117,8 @@ export interface PublishedBenchmark {
   judge: string | null
   /** The benchmark's runner accepts a substituted judge (`--judge`). */
   judgeSubstitutable?: boolean
+  /** Why no run of this entry is official, when the publisher reports from an implementation it does not release. */
+  unofficial?: string
   measured: Measured
   /** The runner writes a folder of results rather than one file. */
   resultIsFolder?: boolean
@@ -138,6 +140,8 @@ export interface PublishedRun {
   publisherJudge: string | null
   /** True when the score comes from the publisher's own grader and judge; false whenever a judge was substituted. */
   official: boolean
+  /** Why the entry is never official (`PublishedBenchmark.unofficial`). */
+  unofficial?: string
   app?: AppProfile
   tasks: number
   passed: number
@@ -302,6 +306,46 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
       })
     },
   },
+  'healthbench-professional': {
+    name: 'healthbench-professional',
+    repository: 'https://github.com/openai/simple-evals.git',
+    ref: '652c89d0ca9df547706735883097e9537d40dc47',
+    version: '652c89d (no release tag), data openai/healthbench-professional@349962fd',
+    license: 'MIT (OpenAI simple-evals); dataset openai/healthbench-professional MIT',
+    terms: 'MIT dataset, not gated, fetched from Hugging Face at the pinned revision at run time and never committed: the authors ask that examples not be revealed in plain text or images online. No training restriction stated.',
+    judge: 'gpt-5.4-2026-03-05 (reasoning effort low), one call per rubric item; length-adjusted (center 2000 characters, 1.47 points per 500)',
+    judgeSubstitutable: true,
+    unofficial: 'OpenAI reports HealthBench Professional from an internal implementation it does not release; simple-evals with its Professional settings is the reference implementation',
+    measured: 'model-shaped',
+    resultIsFolder: true,
+    // The publisher pins no dependency versions and ships no requirements file; these are the imports HealthBenchEval needs.
+    install: [['uv', 'venv', '--quiet', '--python', '3.12'], ['uv', 'pip', 'install', '--quiet', 'openai', 'blobfile', 'numpy', 'pandas', 'jinja2', 'requests', 'tqdm']],
+    // A sample runs the publisher's seeded sample of --tasks examples, or the --task ids.
+    run: (endpoint, options, resultPath) => [
+      'sh', fileURLToPath(new URL('../scripts/healthbench-professional-run.sh', import.meta.url)),
+      resultPath, endpoint.baseUrl, endpoint.model, endpoint.apiKeyVar,
+      options.tasks === undefined ? 'all' : String(options.tasks), (options.taskIds ?? []).join(','), options.judge ?? 'publisher',
+      ...(options.args ?? []),
+    ],
+    // Per task, the publisher's length-adjusted rubric score, clamped to 0..1 (the publisher clips the mean, not each task).
+    // Passed: every positive criterion met and no negative one.
+    parse: async (resultPath) => {
+      const result = JSON.parse(await readFile(path.join(resultPath, 'result.json'), 'utf8')) as {
+        examples?: Array<{ prompt_id: string; overall_score: number; length_adjusted: number; response_chars: number; positive_met: number; positive_total: number; negative_met: number }>
+      }
+      if (!result.examples?.length) throw new Error(`HealthBench Professional wrote no examples under ${resultPath}`)
+      return result.examples.map((example) => ({
+        id: example.prompt_id,
+        passed: example.positive_met === example.positive_total && example.negative_met === 0,
+        score: Math.min(1, Math.max(0, example.length_adjusted)),
+        notes: `${example.positive_met} of ${example.positive_total} positive criteria met, ${example.negative_met} negative met; rubric score ${example.overall_score.toFixed(3)}, length-adjusted for ${example.response_chars} characters`,
+        raw: {
+          overall_score: example.overall_score, length_adjusted: example.length_adjusted, response_chars: example.response_chars,
+          positive_met: example.positive_met, positive_total: example.positive_total, negative_met: example.negative_met,
+        },
+      }))
+    },
+  },
 }
 
 /** Resolve a `model:`, `app:` or `profile:` target to the endpoint a publisher's runner calls. */
@@ -369,7 +413,9 @@ export async function runPublished(name: string, target: string, options: Publis
   const taskScores = await benchmark.parse(resultPath)
   const run: PublishedRun = {
     benchmark: benchmark.name, version: benchmark.version, ref: benchmark.ref, target, model: endpoint.model,
-    measured: endpoint.measured, judge: options.judge ?? benchmark.judge, publisherJudge: benchmark.judge, official: options.judge === undefined,
+    measured: endpoint.measured, judge: options.judge ?? benchmark.judge, publisherJudge: benchmark.judge,
+    official: options.judge === undefined && benchmark.unofficial === undefined,
+    ...(benchmark.unofficial ? { unofficial: benchmark.unofficial } : {}),
     ...(endpoint.app ? { app: endpoint.app } : {}),
     tasks: taskScores.length, passed: taskScores.filter((task) => task.passed).length,
     score: taskScores.length ? taskScores.reduce((sum, task) => sum + task.score, 0) / taskScores.length : 0,

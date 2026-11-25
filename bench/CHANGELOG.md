@@ -16,6 +16,8 @@ An adapter is a `RuntimeBenchmark`, built with `runtimeBenchmark({ id, loadAll, 
 `agent-bench run` task scores and RunRecords say `passed` and `notes` for `resolved` and `detail`.
 The reimplemented EnterpriseOps-Gym adapter is deleted: `agent-bench run enterpriseops-gym` runs ServiceNow's own runner and grader.
 
+`agent-bench run healthbench-professional` runs openai/simple-evals' HealthBenchEval with its HealthBench Professional settings (GPT-5.4 low grader, length adjustment) on the openai/healthbench-professional release, fetched at a pinned revision at run time and never committed. OpenAI releases no official implementation, so these runs are never official; a registry entry's new `unofficial` names why.
+
 ## 2.0.0
 
 Breaking: the public types now come from `@tangle-network/agent-runtime` `^9.0.3` (was `^8.0.1`); consumers move to agent-runtime 9 with it. 1.0.3 to 1.0.5 were tagged, never published, and their changes ship here. Recorded runs are graded with a fresh terminal-bench cache (#2550). Default judge and worker models move to the newest Router model in their tier: `deepseek/deepseek-v4.1-flash` for `deepseek-v4-flash` (bare `deepseek-v4.1-flash` where a slash would select a harness), `gemini-3.1-pro-preview` for the Trata hedge judge's `gemini-2.5-pro`, and `opencode/zai-coding-plan/glm-5.3` for atom-mcp-e2e's `glm-5-turbo`, which the bridge no longer serves. The Trata hedge and CADBench judges and the generated-eval discrimination gate now build profiles Runtime accepts (`maxVisibleOutputTokens`, `harness: 'cli-base'`); before, each was refused before any model call.
