@@ -7,7 +7,7 @@
  * Judge is the published Mind2Web step metric, FULLY DETERMINISTIC — no LLM:
  *   element correct  ⇔ predicted backend_node_id ∈ pos_candidates ids
  *   operation correct ⇔ op-type matches AND (TYPE/SELECT) the value matches
- *   resolved (Step-SR) ⇔ element correct AND operation correct
+ *   passed (Step-SR) ⇔ element correct AND operation correct
  *   score = 0.6·element + 0.4·operation  (a gradient for the optimizer; the right
  *           element is most of the credit, mirroring Element-Acc ≫ Op as the lever)
  * This is the low-noise reward a certifiable directive-lift needs: the number is a
@@ -31,7 +31,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -189,8 +189,10 @@ function rowToTask(row: Mind2WebRow): BenchTask {
   }
   return {
     id: `mind2web-${row.id}`,
-    split: DEFAULT_SPLIT,
-    prompt: buildPrompt(row),
+    payload: {
+      subset: DEFAULT_SPLIT,
+      prompt: buildPrompt(row),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -198,7 +200,7 @@ function rowToTask(row: Mind2WebRow): BenchTask {
 function readMeta(task: BenchTask): Mind2WebMeta {
   const md = task.metadata
   if (!md || !Array.isArray((md as { goldIds?: unknown }).goldIds)) {
-    throw new Error(`mind2web task ${task.id} missing metadata.goldIds — loadTasks did not populate it`)
+    throw new Error(`mind2web task ${task.id} missing metadata.goldIds — loadAll did not populate it`)
   }
   return md as unknown as Mind2WebMeta
 }
@@ -215,7 +217,7 @@ interface ParsedAction {
 }
 
 /** Parse the worker artifact's ELEMENT / ACTION / VALUE sentinel lines.
- *  Fail-closed: a missing ELEMENT or ACTION returns null (judge → resolved=false). */
+ *  Fail-closed: a missing ELEMENT or ACTION returns null (judge → passed=false). */
 export function parseAction(artifact: string): ParsedAction | null {
   const elem = /ELEMENT:\s*\[?(\d+)\]?/i.exec(artifact)
   const op = /ACTION:\s*(CLICK|TYPE|SELECT)/i.exec(artifact)
@@ -224,36 +226,15 @@ export function parseAction(artifact: string): ParsedAction | null {
   return { elementId: elem[1], op: op[1].toUpperCase(), value: (val?.[1] ?? '').trim() }
 }
 
-export function createMind2WebAdapter(): BenchmarkAdapter {
+export function createMind2WebAdapter(): RuntimeBenchmark {
   const split = DEFAULT_SPLIT
 
-  return {
-    name: 'mind2web',
+  return runtimeBenchmark({
+    id: 'mind2web',
 
-    async preflight() {
-      try {
-        await py(
-          `import os, sys
-from datasets import load_dataset
-import PIL
-ds = load_dataset(${JSON.stringify(DATASET)}, split=${JSON.stringify(split)}, streaming=True)
-next(iter(ds))
-print('ok'); sys.stdout.flush(); os._exit(0)`,
-        )
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `mind2web preflight failed: ${msg}\n` +
-            `Fix: (1) a python with datasets + pillow (python3 -m venv bench/.venv && bench/.venv/bin/pip install datasets pillow) ; ` +
-            `(2) network access to Hugging Face for ${DATASET} (split ${split}) ; ` +
-            `point M2W_PYTHON at the python if not bench/.venv.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       const cfg = {
-        split: opts.split ?? split,
+        split: opts.subset ?? split,
         limit: opts.ids ? undefined : (opts.limit ?? 10),
         cap: CANDIDATE_CAP,
         shotsDir: SHOTS_DIR,
@@ -265,24 +246,16 @@ print('ok'); sys.stdout.flush(); os._exit(0)`,
       return rows.map(rowToTask)
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold = the worker-contract serialization of the ground-truth action, so
-      // verify-judge proves gold→resolved through the SAME parse path the real
-      // artifact takes. The first accepted positive id is the canonical target.
-      const meta = readMeta(task)
-      const id = meta.goldIds[0]
-      if (!id) return undefined
-      return `ELEMENT: ${id}\nACTION: ${meta.op}\nVALUE: ${meta.value}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const parsed = parseAction(artifact)
       if (!parsed) {
+        const raw = { reason: 'no parseable ELEMENT/ACTION', goldOp: meta.op, goldIds: meta.goldIds }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({ reason: 'no parseable ELEMENT/ACTION', goldOp: meta.op, goldIds: meta.goldIds }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
       const elementCorrect = meta.goldIds.includes(parsed.elementId)
@@ -291,21 +264,56 @@ print('ok'); sys.stdout.flush(); os._exit(0)`,
       const operationCorrect = opMatch && valueMatch
       const resolved = elementCorrect && operationCorrect
       const score = 0.6 * (elementCorrect ? 1 : 0) + 0.4 * (operationCorrect ? 1 : 0)
+      const raw = {
+        elementCorrect,
+        opMatch,
+        valueMatch,
+        predicted: parsed,
+        goldOp: meta.op,
+        goldValue: meta.value,
+        goldIds: meta.goldIds,
+        website: meta.website,
+        domain: meta.domain,
+      }
       return {
-        resolved,
+        passed: resolved,
         score,
-        detail: JSON.stringify({
-          elementCorrect,
-          opMatch,
-          valueMatch,
-          predicted: parsed,
-          goldOp: meta.op,
-          goldValue: meta.value,
-          goldIds: meta.goldIds,
-          website: meta.website,
-          domain: meta.domain,
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        try {
+          await py(
+            `import os, sys
+from datasets import load_dataset
+import PIL
+ds = load_dataset(${JSON.stringify(DATASET)}, split=${JSON.stringify(split)}, streaming=True)
+next(iter(ds))
+print('ok'); sys.stdout.flush(); os._exit(0)`,
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `mind2web preflight failed: ${msg}\n` +
+              `Fix: (1) a python with datasets + pillow (python3 -m venv bench/.venv && bench/.venv/bin/pip install datasets pillow) ; ` +
+              `(2) network access to Hugging Face for ${DATASET} (split ${split}) ; ` +
+              `point M2W_PYTHON at the python if not bench/.venv.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold = the worker-contract serialization of the ground-truth action, so
+        // verify-judge proves gold→passed through the SAME parse path the real
+        // artifact takes. The first accepted positive id is the canonical target.
+        const meta = readMeta(task)
+        const id = meta.goldIds[0]
+        if (!id) return undefined
+        return `ELEMENT: ${id}\nACTION: ${meta.op}\nVALUE: ${meta.value}`
+      },
+    },
+  })
 }

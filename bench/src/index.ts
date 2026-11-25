@@ -5,10 +5,12 @@
  * and scores its agent's artifact against a real, deterministic judge — without owning the benchmark:
  *
  *   import { resolveAdapter } from '@tangle-network/agent-bench'
- *   const verdict = await resolveAdapter('commit0').judge(task, myAgentsDiff)
+ *   const verdict = await resolveAdapter('commit0').evaluate(task, myAgentsDiff)
  *
- * Each adapter fails loud in `preflight()` when its harness/deps (Docker, a venv, a dataset) are
- * absent, so importing the registry is cheap; running a specific benchmark pulls only its deps.
+ * Every adapter is an agent-eval `BenchmarkAdapter` (`RuntimeBenchmark`: its `runtime` hooks, and
+ * `loadAll`, which ignores agent-eval's splits). Each fails loud in `runtime.preflight()` when its
+ * harness/deps (Docker, a venv, a dataset) are absent, so importing the registry is cheap; running a
+ * specific benchmark pulls only its deps.
  */
 export { ADAPTERS, resolveAdapter } from './adapters'
 export { createCragAdapter } from './benchmarks/crag'
@@ -17,7 +19,7 @@ export { createOpenRagBenchAdapter } from './benchmarks/open-rag-bench'
 export { createRagBenchAdapter } from './benchmarks/ragbench'
 export {
   FINAL_ANSWER_SENTINEL,
-  answerScoreToBenchScore,
+  answerScoreToEvaluation,
   contextBlock,
   contextsFrom,
   normalizeAnswer,
@@ -46,13 +48,17 @@ export {
   type StagedRunCaptureSpec,
   type StagedRunSpec,
 } from './benchmarks/_harness'
-export type {
-  BenchmarkAdapter,
-  BenchScore,
-  BenchTask,
-  JudgeArtifactFileReceipt,
-  JudgeArtifactReceipt,
-  LoadOptions,
+export {
+  runtimeBenchmark,
+  type BenchEvaluation,
+  type BenchPayload,
+  type BenchRuntime,
+  type BenchTask,
+  type JudgeArtifactFileReceipt,
+  type JudgeArtifactReceipt,
+  type LoadOptions,
+  type RuntimeBenchmark,
+  type RuntimeBenchmarkSpec,
 } from './benchmarks/types'
 
 /**

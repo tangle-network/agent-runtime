@@ -25,7 +25,7 @@ import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPythonAt } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'commit0.json')
 
@@ -103,15 +103,17 @@ function rowToTask(row: Commit0Row): BenchTask {
   }
   return {
     id: row.instance_id,
-    split: DATASET_SPLIT,
-    prompt: [
-      `Clone https://github.com/${row.repo} into /work, then \`cd /work && git checkout ${row.base_commit}\`.`,
-      `This is the STUBBED library: the public functions/classes under \`${row.src_dir}\` have empty bodies (\`pass\`/\`...\`).`,
-      `Fill in COMPLETE implementations under \`${row.src_dir}\` so the existing test suite under \`${row.test.test_dir}\` passes. Read those tests and the spec to learn the required behavior.`,
-      `Specification / docs: ${row.setup.specification}`,
-      'Do NOT edit the test files — the evaluation re-runs the existing tests on a fresh clone. Implement only the source.',
-      `When done, from /work run EXACTLY: \`git add -A && git diff --cached -- ${row.src_dir}\` and END your reply with its COMPLETE output as the LAST thing, fenced exactly as \`\`\`diff … \`\`\` (nothing after the closing fence). That fenced diff (against ${row.base_commit}) is the only deliverable.`,
-    ].join('\n'),
+    payload: {
+      subset: DATASET_SPLIT,
+      prompt: [
+        `Clone https://github.com/${row.repo} into /work, then \`cd /work && git checkout ${row.base_commit}\`.`,
+        `This is the STUBBED library: the public functions/classes under \`${row.src_dir}\` have empty bodies (\`pass\`/\`...\`).`,
+        `Fill in COMPLETE implementations under \`${row.src_dir}\` so the existing test suite under \`${row.test.test_dir}\` passes. Read those tests and the spec to learn the required behavior.`,
+        `Specification / docs: ${row.setup.specification}`,
+        'Do NOT edit the test files — the evaluation re-runs the existing tests on a fresh clone. Implement only the source.',
+        `When done, from /work run EXACTLY: \`git add -A && git diff --cached -- ${row.src_dir}\` and END your reply with its COMPLETE output as the LAST thing, fenced exactly as \`\`\`diff … \`\`\` (nothing after the closing fence). That fenced diff (against ${row.base_commit}) is the only deliverable.`,
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -119,7 +121,7 @@ function rowToTask(row: Commit0Row): BenchTask {
 function readMeta(task: BenchTask): Commit0Meta {
   const md = task.metadata
   if (!md || typeof md.instanceId !== 'string' || typeof md.referenceCommit !== 'string' || typeof md.srcDir !== 'string') {
-    throw new Error(`commit0 task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`commit0 task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as Commit0Meta
 }
@@ -176,7 +178,7 @@ async function fetchRows(opts: LoadOptions): Promise<Commit0Row[]> {
  * not reimplemented. The driver script lives in scripts/commit0_judge.py so the
  * harness call + report parse are one auditable python entrypoint.
  */
-async function runHarness(meta: Commit0Meta, artifact: string): Promise<BenchScore> {
+async function runHarness(meta: Commit0Meta, artifact: string): Promise<BenchEvaluation> {
   const judge = join(benchRoot, 'scripts', 'commit0_judge.py')
   let stdout: string
   try {
@@ -208,34 +210,22 @@ async function runHarness(meta: Commit0Meta, artifact: string): Promise<BenchSco
     throw new Error(`commit0 judge measured no tests for ${meta.instanceId} (total=0): ${stdout.slice(0, 400)}`)
   }
   const score = report.passed / report.total
+  const raw = { instanceId: meta.instanceId, passed: report.passed, total: report.total }
   return {
-    resolved: report.passed === report.total,
+    passed: report.passed === report.total,
     score,
-    detail: JSON.stringify({ instanceId: meta.instanceId, passed: report.passed, total: report.total }),
+    notes: JSON.stringify(raw),
+    raw,
   }
 }
 
-export function createCommit0Adapter(): BenchmarkAdapter {
+export function createCommit0Adapter(): RuntimeBenchmark {
   const fixturesMode = process.env.COMMIT0_FIXTURES === '1'
 
-  return {
-    name: 'commit0',
-    output: commit0DiffOutput,
+  return runtimeBenchmark({
+    id: 'commit0',
 
-    async preflight() {
-      await preflightVenvImports({
-        modules: ['commit0'],
-        requireDocker: true,
-        python: commit0Python(),
-        fix:
-          `Fix: (1) python3 -m venv bench/${commit0VenvDir()} && bench/${commit0VenvDir()}/bin/pip install commit0 datasets ` +
-          `(an ISOLATED venv — commit0's deps conflict with the shared bench/.venv; override the dir with COMMIT0_VENV) ; ` +
-          `(2) ensure the Docker daemon is running (commit0 --backend local builds per-repo images). ` +
-          `Dataset rows come from the HF rows server; set COMMIT0_FIXTURES=1 to list the committed lite rows offline.`,
-      })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       let rows: Commit0Row[]
       try {
@@ -249,18 +239,35 @@ export function createCommit0Adapter(): BenchmarkAdapter {
       return selectRows(rows, opts)
     },
 
-    async goldArtifact() {
-      // The oracle is the reference_commit's src_dir, which the commit0 harness
-      // checks out by ref — not expressible as a portable diff string without
-      // cloning. verify-judge against this adapter requires the live harness, so
-      // we return undefined (no offline gold-diff). Judge correctness is proven by
-      // running the harness on a real solve, not by a synthetic gold patch.
-      return undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       return runHarness(meta, artifact)
     },
-  }
+
+    runtime: {
+      output: commit0DiffOutput,
+
+      async preflight() {
+        await preflightVenvImports({
+          modules: ['commit0'],
+          requireDocker: true,
+          python: commit0Python(),
+          fix:
+            `Fix: (1) python3 -m venv bench/${commit0VenvDir()} && bench/${commit0VenvDir()}/bin/pip install commit0 datasets ` +
+            `(an ISOLATED venv — commit0's deps conflict with the shared bench/.venv; override the dir with COMMIT0_VENV) ; ` +
+            `(2) ensure the Docker daemon is running (commit0 --backend local builds per-repo images). ` +
+            `Dataset rows come from the HF rows server; set COMMIT0_FIXTURES=1 to list the committed lite rows offline.`,
+        })
+      },
+
+      async goldArtifact() {
+        // The oracle is the reference_commit's src_dir, which the commit0 harness
+        // checks out by ref — not expressible as a portable diff string without
+        // cloning. verify-judge against this adapter requires the live harness, so
+        // we return undefined (no offline gold-diff). Judge correctness is proven by
+        // running the harness on a real solve, not by a synthetic gold patch.
+        return undefined
+      },
+    },
+  })
 }

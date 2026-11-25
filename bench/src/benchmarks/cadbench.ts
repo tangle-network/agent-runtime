@@ -12,7 +12,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import type { BenchScore, BenchTask, BenchmarkAdapter, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 import { renderBpy } from '../worker-blender'
 import { runBenchRouterTurn } from '../router-turn'
 
@@ -81,7 +81,7 @@ async function judgeCriteria(
   return { passed, note: `${passed.filter(Boolean).length}/${criteria.length} criteria` }
 }
 
-export function createCadBenchAdapter(): BenchmarkAdapter {
+export function createCadBenchAdapter(): RuntimeBenchmark {
   let cache: Array<{ id: string; instruction: string; meta: CadBenchMeta }> | null = null
 
   async function load(): Promise<typeof cache & object> {
@@ -99,48 +99,50 @@ export function createCadBenchAdapter(): BenchmarkAdapter {
     return cache
   }
 
-  return {
-    name: 'cadbench',
+  return runtimeBenchmark({
+    id: 'cadbench',
 
-    async preflight() {
-      const { execFile } = await import('node:child_process')
-      const { promisify } = await import('node:util')
-      const exec = promisify(execFile)
-      try {
-        await exec('xvfb-run', ['-a', 'blender', '--version'], { timeout: 30_000 })
-      } catch (err) {
-        throw new Error(
-          `cadbench preflight failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}\n` +
-            `Fix: install Blender + Xvfb (sudo apt-get install -y blender xvfb). The judge runs \`xvfb-run -a blender --background --python\`.`,
-        )
-      }
-      await load()
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       let rows = await load()
       if (opts.ids) rows = rows.filter((r) => opts.ids!.includes(r.id))
       // TYPE filter (Simulative|Wild) via env, applied before limit.
       const t = process.env.CADBENCH_TYPE
       if (t) rows = rows.filter((r) => r.meta.type.toLowerCase() === t.toLowerCase())
       if (opts.limit != null) rows = rows.slice(0, opts.limit)
-      return rows.map((r): BenchTask => ({ id: r.id, prompt: r.instruction, metadata: r.meta as unknown as Record<string, unknown> }))
+      return rows.map((r): BenchTask => ({ id: r.id, payload: { prompt: r.instruction }, metadata: r.meta as unknown as Record<string, unknown> }))
     },
 
-    async goldArtifact() {
-      return undefined // no reference bpy script ships with the benchmark
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = task.metadata as unknown as CadBenchMeta
       const criteria = meta.criteria ?? []
-      if (!artifact.trim()) return { resolved: false, score: 0, detail: 'empty artifact' }
-      if (criteria.length === 0) return { resolved: false, score: 0, detail: 'task has no criteria' }
+      if (!artifact.trim()) return { passed: false, score: 0, notes: 'empty artifact', raw: {} }
+      if (criteria.length === 0) return { passed: false, score: 0, notes: 'task has no criteria', raw: {} }
       const r = await renderBpy(artifact, { views: 4 })
-      if (!r.built) return { resolved: false, score: 0, detail: `did not build/render: ${r.error ?? 'no mesh'}` }
-      const { passed, note } = await judgeCriteria(task.prompt, artifact, criteria, r.renders)
+      if (!r.built) return { passed: false, score: 0, notes: `did not build/render: ${r.error ?? 'no mesh'}`, raw: {} }
+      const { passed, note } = await judgeCriteria(task.payload.prompt, artifact, criteria, r.renders)
       const score = passed.filter(Boolean).length / criteria.length
-      return { resolved: score === 1, score, detail: note }
+      return { passed: score === 1, score, notes: note, raw: {} }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        const { execFile } = await import('node:child_process')
+        const { promisify } = await import('node:util')
+        const exec = promisify(execFile)
+        try {
+          await exec('xvfb-run', ['-a', 'blender', '--version'], { timeout: 30_000 })
+        } catch (err) {
+          throw new Error(
+            `cadbench preflight failed: ${(err instanceof Error ? err.message : String(err)).slice(0, 200)}\n` +
+              `Fix: install Blender + Xvfb (sudo apt-get install -y blender xvfb). The judge runs \`xvfb-run -a blender --background --python\`.`,
+          )
+        }
+        await load()
+      },
+
+      async goldArtifact() {
+        return undefined // no reference bpy script ships with the benchmark
+      },
+    },
+  })
 }

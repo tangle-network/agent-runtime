@@ -27,7 +27,6 @@ const dynamicNonModelFetchOwners = new Set([
   'bench/src/search-tool.ts',
   'bench/src/benchmarks/aec-bench.ts',
   'bench/src/benchmarks/commit0.ts',
-  'bench/src/benchmarks/enterpriseops-gym.ts',
   'bench/src/benchmarks/finsearchcomp.ts',
   'bench/src/benchmarks/humaneval.ts',
   'bench/src/benchmarks/programbench.ts',

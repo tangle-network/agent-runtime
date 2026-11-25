@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'agentbench-dbbench.json')
 const DEFAULT_SPLIT = 'dev'
@@ -69,18 +69,20 @@ function rowToTask(row: AgentBenchDbRow, index: number, split: string): BenchTas
   }
   return {
     id: `dbbench-${split}-${index}`,
-    split,
-    prompt: [
-      'Answer this AgentBench DBBench question using the table below.',
-      'Return only the answer value.',
-      '',
-      `Question: ${row.description}`,
-      row.table?.table_name ? `Table: ${row.table.table_name}` : undefined,
-      columns ? `Columns: ${columns}` : undefined,
-      sampleRows ? `Rows JSON: ${JSON.stringify(sampleRows)}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    payload: {
+      subset: split,
+      prompt: [
+        'Answer this AgentBench DBBench question using the table below.',
+        'Return only the answer value.',
+        '',
+        `Question: ${row.description}`,
+        row.table?.table_name ? `Table: ${row.table.table_name}` : undefined,
+        columns ? `Columns: ${columns}` : undefined,
+        sampleRows ? `Rows JSON: ${JSON.stringify(sampleRows)}` : undefined,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -88,7 +90,7 @@ function rowToTask(row: AgentBenchDbRow, index: number, split: string): BenchTas
 function readMeta(task: BenchTask): AgentBenchMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.labels)) {
-    throw new Error(`agentbench task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`agentbench task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as AgentBenchMeta
 }
@@ -120,44 +122,49 @@ async function loadFixtures(opts: LoadOptions, split: string): Promise<BenchTask
   return selectRows(rows, opts, split)
 }
 
-export function createAgentBenchAdapter(): BenchmarkAdapter {
+export function createAgentBenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.AGENTBENCH_FIXTURES === '1'
 
-  return {
-    name: 'agentbench',
-    output: agentbenchAnswerOutput,
+  return runtimeBenchmark({
+    id: 'agentbench',
 
-    async preflight() {
-      if (fixturesMode) return
-      const dir = agentbenchDir()
-      if (!dir) {
-        throw new Error('AGENTBENCH_DIR is required. Fix: clone https://github.com/THUDM/AgentBench and set AGENTBENCH_DIR=/path/to/AgentBench.')
-      }
-      await loadJsonl(join(dir, 'data', 'dbbench', `${DEFAULT_SPLIT}.jsonl`))
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
-      const split = opts.split ?? DEFAULT_SPLIT
+    async loadAll(opts: LoadOptions = {}) {
+      const split = opts.subset ?? DEFAULT_SPLIT
       if (fixturesMode) return loadFixtures(opts, split)
       const dir = agentbenchDir()
       if (!dir) throw new Error('AGENTBENCH_DIR is required to load AgentBench DBBench tasks')
       return selectRows(await loadJsonl(join(dir, 'data', 'dbbench', `${split}.jsonl`)), opts, split)
     },
 
-    async goldArtifact(task: BenchTask) {
-      return readMeta(task).labels[0]
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const got = normalizeAnswer(artifact)
       const expected = meta.labels.map(normalizeAnswer)
       const resolved = expected.includes(got)
+      const raw = { subset: meta.subset, split: meta.split, expected: meta.labels, got: artifact }
       return {
-        resolved,
+        passed: resolved,
         score: resolved ? 1 : 0,
-        detail: JSON.stringify({ subset: meta.subset, split: meta.split, expected: meta.labels, got: artifact }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      output: agentbenchAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) return
+        const dir = agentbenchDir()
+        if (!dir) {
+          throw new Error('AGENTBENCH_DIR is required. Fix: clone https://github.com/THUDM/AgentBench and set AGENTBENCH_DIR=/path/to/AgentBench.')
+        }
+        await loadJsonl(join(dir, 'data', 'dbbench', `${DEFAULT_SPLIT}.jsonl`))
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return readMeta(task).labels[0]
+      },
+    },
+  })
 }

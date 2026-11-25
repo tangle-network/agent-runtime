@@ -79,20 +79,20 @@ test('DABSTEP_DATASET_CSV lets the checkout and the released rows live apart, en
       { DABSTEP_FIXTURES: undefined, DABSTEP_DIR: dir, DABSTEP_DATASET_CSV: dataset },
       async () => {
         const adapter = createDabstepAdapter()
-        await adapter.preflight()
-        const tasks = await adapter.loadTasks({ split: 'easy' })
+        await adapter.runtime.preflight!()
+        const tasks = await adapter.loadAll({ subset: 'easy' })
         assert.deepEqual(
           tasks.map((task) => task.id),
           ['7', '8'],
         )
         const meta = tasks[0].metadata as Record<string, unknown>
         assert.equal(meta.resourceRoot, join(dir, 'files'))
-        assert.equal(await adapter.goldArtifact(tasks[0]), '42')
-        const pass = await adapter.judge(tasks[0], '42')
-        assert.equal(pass.resolved, true)
+        assert.equal(await adapter.runtime.goldArtifact!(tasks[0]), '42')
+        const pass = await adapter.evaluate(tasks[0], '42')
+        assert.equal(pass.passed, true)
         assert.equal(pass.score, 1)
-        const fail = await adapter.judge(tasks[0], 'dog')
-        assert.equal(fail.resolved, false)
+        const fail = await adapter.evaluate(tasks[0], 'dog')
+        assert.equal(fail.passed, false)
         assert.equal(fail.score, 0)
       },
     )
@@ -108,7 +108,7 @@ test('a relative DABSTEP_DATASET_CSV is refused before any load', async () => {
     await withEnv(
       { DABSTEP_FIXTURES: undefined, DABSTEP_DIR: dir, DABSTEP_DATASET_CSV: 'relative/dataset.csv' },
       async () => {
-        await assert.rejects(() => createDabstepAdapter().preflight(), /DABSTEP_DATASET_CSV must be an absolute path/)
+        await assert.rejects(() => createDabstepAdapter().runtime.preflight!(), /DABSTEP_DATASET_CSV must be an absolute path/)
       },
     )
   } finally {

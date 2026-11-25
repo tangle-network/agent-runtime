@@ -30,7 +30,7 @@ test('a dirty upstream checkout is refused before any task load', async () => {
 
     delete process.env.TAU3_FIXTURES
     process.env.TAU3_BENCH_DIR = dir
-    await assert.rejects(() => createTau3BankingAdapter().loadTasks({ limit: 1 }), /uncommitted changes/)
+    await assert.rejects(() => createTau3BankingAdapter().loadAll({ limit: 1 }), /uncommitted changes/)
   } finally {
     if (previous === undefined) delete process.env.TAU3_BENCH_DIR
     else process.env.TAU3_BENCH_DIR = previous

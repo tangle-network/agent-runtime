@@ -95,7 +95,7 @@ test('runStagedJudge durably captures exact evaluator and process bytes with has
           await readFile(join(dir, 'logs/run_evaluation/run/model/task/test_output.txt')),
           perTestBytes,
         )
-        return { resolved: true, score: 1 }
+        return { passed: true, score: 1, raw: {} }
       },
     })
 

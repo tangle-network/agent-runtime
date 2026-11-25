@@ -8,7 +8,7 @@
  *
  * Requires: an isolated bench `.venv-terminal-bench` with `terminal-bench`
  * installed + a running Docker daemon (per-task images are built on first run).
- * Override with TERMINAL_BENCH_VENV. loadTasks caches the dataset from the
+ * Override with TERMINAL_BENCH_VENV. loadAll caches the dataset from the
  * Terminal-Bench registry on first run.
  *
  * Process/Docker/report plumbing is shared via ./_harness; this file owns the
@@ -28,7 +28,7 @@ import {
   venvBinAt,
   venvPythonAt,
 } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 // Terminal-Bench imports LiteLLM/Pydantic-2 APIs, while AppWorld pins Pydantic 1.
 // Keep it out of the shared bench .venv. Resolved at call-time so tests/runs can
@@ -106,38 +106,25 @@ print(json.dumps(out))
   return JSON.parse(stdout) as TbTaskRow[]
 }
 
-export function createTerminalBenchAdapter(): BenchmarkAdapter {
-  return {
-    name: 'terminal-bench',
+export function createTerminalBenchAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'terminal-bench',
 
-    async preflight() {
-      await preflightVenvImports({
-        modules: ['terminal_bench'],
-        requireDocker: true,
-        python: terminalBenchPython(),
-        fix:
-          `Fix: (1) python3 -m venv bench/${terminalBenchVenvDir()} && ` +
-          `bench/${terminalBenchVenvDir()}/bin/pip install terminal-bench ` +
-          `(an ISOLATED venv — Terminal-Bench/LiteLLM require Pydantic 2 while AppWorld pins Pydantic 1; ` +
-          `override the dir with TERMINAL_BENCH_VENV) ; ` +
-          `(2) ensure the Docker daemon is running (the judge builds per-task images on first run). ` +
-          `The ${DATASET_REF} dataset is cached from the Terminal-Bench registry on first loadTasks.`,
-      })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       const rows = await loadRows(opts)
       if (rows.length === 0) {
         throw new Error(
-          `terminal-bench loadTasks returned no tasks for ${JSON.stringify(opts)} ` +
+          `terminal-bench loadAll returned no tasks for ${JSON.stringify(opts)} ` +
             `(dataset ${DATASET_REF}). Check the requested ids exist in the dataset.`,
         )
       }
       return rows.map(
         (r): BenchTask => ({
           id: r.id,
-          split: DATASET_VERSION,
-          prompt: r.instruction,
+          payload: {
+            subset: DATASET_VERSION,
+            prompt: r.instruction,
+          },
           metadata: {
             dataset: DATASET,
             datasetVersion: DATASET_VERSION,
@@ -150,15 +137,7 @@ export function createTerminalBenchAdapter(): BenchmarkAdapter {
       )
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold = the task's solution.sh (the oracle script). solution.yaml tasks have
-      // no shell-script artifact form here, so they return undefined (cannot be
-      // verify-judged via the script-replay seam — use a .sh-solution task).
-      const sol = task.metadata?.solution
-      return typeof sol === 'string' ? sol : undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const runId = safeRunId('bench', `${task.id}-${Date.now()}`)
       return runStagedJudge({
         tmpPrefix: 'tbench-',
@@ -187,12 +166,38 @@ export function createTerminalBenchAdapter(): BenchmarkAdapter {
           const resolved = (report.resolved_ids ?? []).includes(task.id)
           const trial = report.results?.find((r) => r.task_id === task.id)
           return {
-            resolved,
+            passed: resolved,
             score: resolved ? 1 : 0,
-            detail: JSON.stringify(trial?.parser_results ?? report.resolved_ids ?? {}),
+            notes: JSON.stringify(trial?.parser_results ?? report.resolved_ids ?? {}),
+            raw: {},
           }
         },
       })
     },
-  }
+
+    runtime: {
+      async preflight() {
+        await preflightVenvImports({
+          modules: ['terminal_bench'],
+          requireDocker: true,
+          python: terminalBenchPython(),
+          fix:
+            `Fix: (1) python3 -m venv bench/${terminalBenchVenvDir()} && ` +
+            `bench/${terminalBenchVenvDir()}/bin/pip install terminal-bench ` +
+            `(an ISOLATED venv — Terminal-Bench/LiteLLM require Pydantic 2 while AppWorld pins Pydantic 1; ` +
+            `override the dir with TERMINAL_BENCH_VENV) ; ` +
+            `(2) ensure the Docker daemon is running (the judge builds per-task images on first run). ` +
+            `The ${DATASET_REF} dataset is cached from the Terminal-Bench registry on first loadAll.`,
+        })
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold = the task's solution.sh (the oracle script). solution.yaml tasks have
+        // no shell-script artifact form here, so they return undefined (cannot be
+        // verify-judged via the script-replay seam — use a .sh-solution task).
+        const sol = task.metadata?.solution
+        return typeof sol === 'string' ? sol : undefined
+      },
+    },
+  })
 }

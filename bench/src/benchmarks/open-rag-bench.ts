@@ -9,11 +9,11 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 import {
   FINAL_ANSWER_SENTINEL,
   allStrings,
-  answerScoreToBenchScore,
+  answerScoreToEvaluation,
   contextBlock,
   contextsFrom,
   firstString,
@@ -70,19 +70,21 @@ function rowToTask(raw: unknown, index: number): BenchTask {
   }
   return {
     id,
-    split: stringFrom(raw.split) ?? modality,
-    prompt: [
-      'Answer this Open RAG Bench PDF question using the supplied document context.',
-      'Use tables, text, and image-derived notes when present.',
-      'End with a single final line: `FINAL ANSWER: <answer>`.',
-      '',
-      `Question: ${query}`,
-      `Document: ${documentId}`,
-      `Modality: ${modality}`,
-      contexts.length > 0 ? `\nDocument context:\n${contextBlock(contexts)}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    payload: {
+      subset: stringFrom(raw.split) ?? modality,
+      prompt: [
+        'Answer this Open RAG Bench PDF question using the supplied document context.',
+        'Use tables, text, and image-derived notes when present.',
+        'End with a single final line: `FINAL ANSWER: <answer>`.',
+        '',
+        `Question: ${query}`,
+        `Document: ${documentId}`,
+        `Modality: ${modality}`,
+        contexts.length > 0 ? `\nDocument context:\n${contextBlock(contexts)}` : undefined,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -90,7 +92,7 @@ function rowToTask(raw: unknown, index: number): BenchTask {
 function readMeta(task: BenchTask): OpenRagBenchMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.goldAnswers)) {
-    throw new Error(`Open RAG Bench task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`Open RAG Bench task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as OpenRagBenchMeta
 }
@@ -107,47 +109,50 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return selectTasks(rows.map(rowToTask), opts, 'Open RAG Bench')
 }
 
-export function createOpenRagBenchAdapter(): BenchmarkAdapter {
+export function createOpenRagBenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.OPEN_RAG_BENCH_FIXTURES === '1'
 
-  return {
-    name: 'open-rag-bench',
-    output: ragAnswerOutput,
+  return runtimeBenchmark({
+    id: 'open-rag-bench',
 
-    async preflight() {
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8')
-        return
-      }
-      const path = dataFile()
-      if (!path) {
-        throw new Error(
-          'OPEN_RAG_BENCH_DATA_FILE is required. Fix: export vectara/open-rag-bench rows to JSONL and set OPEN_RAG_BENCH_DATA_FILE=/path/to/open-rag-bench.jsonl, or set OPEN_RAG_BENCH_FIXTURES=1 for adapter plumbing.',
-        )
-      }
-      await loadRows(path)
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const path = dataFile()
       if (!path) throw new Error('OPEN_RAG_BENCH_DATA_FILE is required to load Open RAG Bench tasks')
       return selectTasks((await loadRows(path)).map(rowToTask), opts, 'Open RAG Bench')
     },
 
-    async goldArtifact(task: BenchTask) {
-      return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const score = scoreAnswerArtifact(artifact, meta.goldAnswers)
-      return answerScoreToBenchScore(score, {
+      return answerScoreToEvaluation(score, {
         benchmark: meta.benchmark,
         documentId: meta.documentId,
         modality: meta.modality,
         contextCount: meta.contexts.length,
       })
     },
-  }
+
+    runtime: {
+      output: ragAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8')
+          return
+        }
+        const path = dataFile()
+        if (!path) {
+          throw new Error(
+            'OPEN_RAG_BENCH_DATA_FILE is required. Fix: export vectara/open-rag-bench rows to JSONL and set OPEN_RAG_BENCH_DATA_FILE=/path/to/open-rag-bench.jsonl, or set OPEN_RAG_BENCH_FIXTURES=1 for adapter plumbing.',
+          )
+        }
+        await loadRows(path)
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
+      },
+    },
+  })
 }

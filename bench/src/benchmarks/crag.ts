@@ -9,11 +9,11 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 import {
   FINAL_ANSWER_SENTINEL,
   allStrings,
-  answerScoreToBenchScore,
+  answerScoreToEvaluation,
   firstString,
   isObject,
   ragAnswerOutput,
@@ -56,17 +56,19 @@ function rowToTask(raw: unknown, index: number): BenchTask {
   }
   return {
     id,
-    split: stringFrom(raw.split) ?? domain,
-    prompt: [
-      'Answer this CRAG factual question.',
-      'Return a concise answer and do not guess when the evidence is insufficient.',
-      'End with a single final line: `FINAL ANSWER: <answer>`.',
-      '',
-      `Question: ${query}`,
-      `Domain: ${domain}`,
-      `Question type: ${questionType}`,
-      `Dynamism: ${dynamism}`,
-    ].join('\n'),
+    payload: {
+      subset: stringFrom(raw.split) ?? domain,
+      prompt: [
+        'Answer this CRAG factual question.',
+        'Return a concise answer and do not guess when the evidence is insufficient.',
+        'End with a single final line: `FINAL ANSWER: <answer>`.',
+        '',
+        `Question: ${query}`,
+        `Domain: ${domain}`,
+        `Question type: ${questionType}`,
+        `Dynamism: ${dynamism}`,
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -74,7 +76,7 @@ function rowToTask(raw: unknown, index: number): BenchTask {
 function readMeta(task: BenchTask): CragMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.goldAnswers)) {
-    throw new Error(`CRAG task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`CRAG task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as CragMeta
 }
@@ -91,47 +93,50 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return selectTasks(rows.map(rowToTask), opts, 'CRAG')
 }
 
-export function createCragAdapter(): BenchmarkAdapter {
+export function createCragAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.CRAG_FIXTURES === '1'
 
-  return {
-    name: 'crag',
-    output: ragAnswerOutput,
+  return runtimeBenchmark({
+    id: 'crag',
 
-    async preflight() {
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8')
-        return
-      }
-      const path = dataFile()
-      if (!path) {
-        throw new Error(
-          'CRAG_DATA_FILE is required. Fix: export facebookresearch/CRAG rows to JSONL and set CRAG_DATA_FILE=/path/to/crag.jsonl, or set CRAG_FIXTURES=1 for adapter plumbing.',
-        )
-      }
-      await loadRows(path)
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const path = dataFile()
       if (!path) throw new Error('CRAG_DATA_FILE is required to load CRAG tasks')
       return selectTasks((await loadRows(path)).map(rowToTask), opts, 'CRAG')
     },
 
-    async goldArtifact(task: BenchTask) {
-      return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const score = scoreAnswerArtifact(artifact, meta.goldAnswers)
-      return answerScoreToBenchScore(score, {
+      return answerScoreToEvaluation(score, {
         benchmark: meta.benchmark,
         domain: meta.domain,
         questionType: meta.questionType,
         dynamism: meta.dynamism,
       })
     },
-  }
+
+    runtime: {
+      output: ragAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8')
+          return
+        }
+        const path = dataFile()
+        if (!path) {
+          throw new Error(
+            'CRAG_DATA_FILE is required. Fix: export facebookresearch/CRAG rows to JSONL and set CRAG_DATA_FILE=/path/to/crag.jsonl, or set CRAG_FIXTURES=1 for adapter plumbing.',
+          )
+        }
+        await loadRows(path)
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
+      },
+    },
+  })
 }

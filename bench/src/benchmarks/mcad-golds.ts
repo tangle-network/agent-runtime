@@ -4,7 +4,7 @@
  * These are CALIBRATION artifacts, not exemplar answers: their whole job is to
  * prove the judge's accept direction fires, so they are written plain (no clever
  * parametrics, `$fn=96` on round features) and every one of them has been run
- * through `createMcadBenchAdapter().judge()` on this host. A task is marked
+ * through `createMcadBenchAdapter().evaluate()` on this host. A task is marked
  * `calibrated: true` in `mcad-tasks.ts` only when its gold below scores 1.0.
  *
  * Where a gold deviates from the prompt's literal dimensions, the deviation is

@@ -27,7 +27,14 @@ pnpm add -D @tangle-network/agent-bench
 import { resolveAdapter } from '@tangle-network/agent-bench'
 
 const crag = resolveAdapter('crag')
+const [task] = await crag.loadAll({ limit: 1 })
+const verdict = await crag.evaluate(task, artifact) // { passed, score, notes, raw }
 ```
+
+Every adapter is an agent-eval `BenchmarkAdapter` (`RuntimeBenchmark`), so agent-eval's benchmark runners take it as is.
+Its `runtime` hooks are what an agent-runtime worker needs: `prompt`, `preflight`, the deliverable parser `output`, `workspaceSetup` and `workspaceExtract` in the box, and `worker` where the benchmark's own protocol is the worker.
+`loadAll` returns every task in the publisher's order (`limit`, `ids`, and the publisher's `subset`: a domain, category or language), ignoring agent-eval's search/dev/holdout splits; `loadDataset(split)` serves the same tasks by agent-eval's `deterministicSplit`.
+Build a new one with `runtimeBenchmark({ id, loadAll, evaluate, runtime })`.
 
 ## Published benchmarks through their own runners
 
@@ -40,7 +47,7 @@ agent-bench list
 
 - `model:<router model>` calls the Tangle Router; a `:free` model takes its free test lane.
 - `profile:<harness/model>` runs that harness with its own loop and tools through a CLI Bridge (`AGENT_BENCH_BRIDGE_URL`, default `http://127.0.0.1:3344/v1`, key in `AGENT_BENCH_BRIDGE_KEY`); the benchmark's tools reach it as caller-executed MCP tools, so the run measures `own-loop`.
-- `app:` targets are refused until the agent gateway and the sandbox sidecar forward the caller's tools; the refusal names them.
+- `app:<app>@<harness/model>` runs an agent app's executable profile on that harness through the same CLI Bridge, with the app's production model replaced by the harness model; the run records both.
 - Each run records `measured` (`model-shaped`: the target as a model calling the benchmark's tools; `own-loop`: the agent with its own loop and tools), the judge, and `official: false` whenever a judge was substituted.
 - Arguments after `--` go to the publisher's runner unchanged. Publisher checkouts are cached in `~/.cache/agent-bench/published`.
 
@@ -66,7 +73,7 @@ const adapter = createSweBenchAdapter({
     destination: path.join(runDirectory, taskId, String(attemptSequence)),
   }),
 })
-const score = await adapter.judge(task, patch)
+const score = await adapter.evaluate(task, patch)
 console.log(score.judgeArtifacts?.manifestPath)
 ```
 
@@ -99,7 +106,7 @@ The public [adyen/DABstep](https://huggingface.co/datasets/adyen/DABstep) releas
 Point `DABSTEP_DATASET_CSV` at an absolute row-file path when the checkout and the rows live apart.
 
 **FinResearchBench.**
-The judge is a model call, so its score records the exact judge turn usage on `BenchScore.judgeUsage` (tokens, cost, model).
+The judge is a model call, so its score records the exact judge turn usage on `BenchEvaluation.judgeUsage` (tokens, cost, model).
 `tokensKnown: false` and `usdKnown: false` survive verbatim; an unknown judge cost never reads as zero spend.
 `FINRESEARCHBENCH_JUDGE_MODEL` (or `JUDGE_MODEL`) selects the judge; `FINRESEARCHBENCH_PASS_THRESHOLD` moves the resolve bar from 0.8.
 

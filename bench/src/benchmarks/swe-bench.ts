@@ -23,7 +23,7 @@ import {
   stageFile,
   type StagedRunCaptureSpec,
 } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 /** Root-level directories are not writable in every sandbox; use the session workspace. */
 const SWE_REPO_DIR = './swe-bench-repo'
@@ -31,7 +31,7 @@ const SWE_REPO_DIR = './swe-bench-repo'
 /**
  * The SWE deliverable's FALLBACK parser, from the agent's event STREAM.
  *
- * The PRIMARY deliverable is `boxExtract` below: a `git diff` of the agent's
+ * The PRIMARY deliverable is `workspaceExtract` below: a `git diff` of the agent's
  * actual edits, read from the cloned repo's STATE inside the box (standard
  * SWE-bench practice). This event-stream parse only runs when that diff is empty
  * — a model that edited the source correctly but never printed a fenced diff (the
@@ -116,7 +116,7 @@ function stringIds(report: Record<string, unknown>, key: keyof SweReport): strin
 }
 
 /** Convert one official report into a score without turning evaluator failures into agent failures. */
-export function scoreSweReport(taskId: string, value: unknown): BenchScore {
+export function scoreSweReport(taskId: string, value: unknown): BenchEvaluation {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('swe-bench: report must be an object')
   }
@@ -152,7 +152,7 @@ export function scoreSweReport(taskId: string, value: unknown): BenchScore {
     throw new Error(`swe-bench: report lacks a completed evaluation for ${taskId}`)
   }
   const resolved = outcomes[0]
-  return { resolved, score: resolved ? 1 : 0, detail: JSON.stringify(report) }
+  return { passed: resolved, score: resolved ? 1 : 0, notes: JSON.stringify(report), raw: report }
 }
 
 export function sweEvaluationArgv(args: {
@@ -200,7 +200,7 @@ function sweMetadata(task: BenchTask): { repo: string; base: string } {
   return { repo, base }
 }
 
-export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): BenchmarkAdapter {
+export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): RuntimeBenchmark {
   if (
     options.timeoutMs !== undefined
     && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs <= 0)
@@ -213,45 +213,12 @@ export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): Ben
   ) throw new Error('swe-bench: captureEvaluatorArtifacts must be a function')
   let attemptSequence = 0
   let legacyFlags: boolean | undefined
-  return {
-    name: 'swe-bench-verified',
-    output: swePatchOutput,
+  return runtimeBenchmark({
+    id: 'swe-bench-verified',
 
-    // Extract the patch from repo STATE, not printed text: stage every edit the
-    // agent made in the cloned repo and diff it against the checked-out
-    // base_commit (`HEAD`). Test files are excluded — the judge applies the gold
-    // `test_patch` itself, so an agent edit to a test would collide on apply. The
-    // paths come out `a/<repo-relative>` (cwd = repo root), matching the gold
-    // patch format the swebench judge's `git apply` expects.
-    // Pre-stage: clone the instance repo at base_commit into SWE_REPO_DIR so the
-    // agent only edits (the harness owns the checkout — a stochastic model can't be
-    // trusted to clone to an exact path). `--quiet` keeps the exec output small.
-    boxSetup(task) {
-      const { repo, base } = sweMetadata(task)
-      return {
-        command: `rm -rf ${shellQuote(SWE_REPO_DIR)} && git clone --quiet ${shellQuote(`https://github.com/${repo}`)} ${shellQuote(SWE_REPO_DIR)} && git -C ${shellQuote(SWE_REPO_DIR)} checkout --quiet ${shellQuote(base)}`,
-      }
-    },
-    boxExtract() {
-      return {
-        command: `git -C ${shellQuote(SWE_REPO_DIR)} add -A && git -C ${shellQuote(SWE_REPO_DIR)} diff --cached -- . ${TEST_FILE_EXCLUDES}`,
-      }
-    },
-
-    async preflight() {
-      await preflightVenvImports({
-        modules: ['swebench'],
-        requireDocker: true,
-        fix:
-          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install 'swebench>=4,<6' ; ` +
-          `(2) ensure the Docker daemon is running (the judge builds per-instance images).`,
-      })
-      legacyFlags = await detectLegacyFlags()
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       const limit = opts.limit ?? 10
-      const split = opts.split ?? 'test'
+      const split = opts.subset ?? 'test'
       // Dump instances as JSON via the datasets loader (HF download on first run).
       const script = `
 import json, sys
@@ -277,29 +244,26 @@ print(json.dumps(out))
       return rows.map(
         (r): BenchTask => ({
           id: String(r.instance_id),
-          split,
-          prompt: [
-            `Repository: ${r.repo} @ ${r.base_commit}`,
-            '',
-            `The repository is ALREADY cloned at ${SWE_REPO_DIR} relative to your initial session workspace, checked out at commit ${r.base_commit}. Work there directly (\`cd ${SWE_REPO_DIR}\`); do not re-clone.`,
-            '',
-            'Resolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests on a fresh checkout, so editing tests does not count. Keep the change minimal and confined to the cloned repo.',
-            'Work iteratively: reproduce the issue, implement the fix in the source, and re-run the relevant tests until they pass. You do NOT need to print the diff — the harness reads your source edits directly from the repo, including uncommitted changes.',
-            '',
-            '--- Issue ---',
-            String(r.problem_statement ?? ''),
-          ].join('\n'),
+          payload: {
+            subset: split,
+            prompt: [
+              `Repository: ${r.repo} @ ${r.base_commit}`,
+              '',
+              `The repository is ALREADY cloned at ${SWE_REPO_DIR} relative to your initial session workspace, checked out at commit ${r.base_commit}. Work there directly (\`cd ${SWE_REPO_DIR}\`); do not re-clone.`,
+              '',
+              'Resolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests on a fresh checkout, so editing tests does not count. Keep the change minimal and confined to the cloned repo.',
+              'Work iteratively: reproduce the issue, implement the fix in the source, and re-run the relevant tests until they pass. You do NOT need to print the diff — the harness reads your source edits directly from the repo, including uncommitted changes.',
+              '',
+              '--- Issue ---',
+              String(r.problem_statement ?? ''),
+            ].join('\n'),
+          },
           metadata: r,
         }),
       )
     },
 
-    async goldArtifact(task: BenchTask) {
-      const gold = task.metadata?.patch
-      return typeof gold === 'string' ? gold : undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const useLegacyFlags = await ensureLegacyFlags()
       const runId = safeRunId('bench', task.id)
       const capture = options.captureEvaluatorArtifacts?.({
@@ -338,7 +302,48 @@ print(json.dumps(out))
         },
       })
     },
-  }
+
+    runtime: {
+      output: swePatchOutput,
+
+      // Extract the patch from repo STATE, not printed text: stage every edit the
+      // agent made in the cloned repo and diff it against the checked-out
+      // base_commit (`HEAD`). Test files are excluded — the judge applies the gold
+      // `test_patch` itself, so an agent edit to a test would collide on apply. The
+      // paths come out `a/<repo-relative>` (cwd = repo root), matching the gold
+      // patch format the swebench judge's `git apply` expects.
+      // Pre-stage: clone the instance repo at base_commit into SWE_REPO_DIR so the
+      // agent only edits (the harness owns the checkout — a stochastic model can't be
+      // trusted to clone to an exact path). `--quiet` keeps the exec output small.
+      workspaceSetup(task) {
+        const { repo, base } = sweMetadata(task)
+        return {
+          command: `rm -rf ${shellQuote(SWE_REPO_DIR)} && git clone --quiet ${shellQuote(`https://github.com/${repo}`)} ${shellQuote(SWE_REPO_DIR)} && git -C ${shellQuote(SWE_REPO_DIR)} checkout --quiet ${shellQuote(base)}`,
+        }
+      },
+      workspaceExtract() {
+        return {
+          command: `git -C ${shellQuote(SWE_REPO_DIR)} add -A && git -C ${shellQuote(SWE_REPO_DIR)} diff --cached -- . ${TEST_FILE_EXCLUDES}`,
+        }
+      },
+
+      async preflight() {
+        await preflightVenvImports({
+          modules: ['swebench'],
+          requireDocker: true,
+          fix:
+            `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install 'swebench>=4,<6' ; ` +
+            `(2) ensure the Docker daemon is running (the judge builds per-instance images).`,
+        })
+        legacyFlags = await detectLegacyFlags()
+      },
+
+      async goldArtifact(task: BenchTask) {
+        const gold = task.metadata?.patch
+        return typeof gold === 'string' ? gold : undefined
+      },
+    },
+  })
 
   async function detectLegacyFlags(): Promise<boolean> {
     const script = `

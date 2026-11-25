@@ -9,11 +9,11 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 import {
   FINAL_ANSWER_SENTINEL,
   allStrings,
-  answerScoreToBenchScore,
+  answerScoreToEvaluation,
   contextBlock,
   contextsFrom,
   firstString,
@@ -83,19 +83,21 @@ function rowToTask(raw: unknown, index: number): BenchTask {
   }
   return {
     id,
-    split: stringFrom(raw.split) ?? subset,
-    prompt: [
-      'Answer this T2-RAGBench text-and-table financial question.',
-      'Do the required numerical reasoning from the supplied context before giving the final value.',
-      'End with a single final line: `FINAL ANSWER: <answer>`.',
-      '',
-      `Question: ${query}`,
-      `Document: ${documentId}`,
-      `Subset: ${subset}`,
-      contexts.length > 0 ? `\nContext:\n${contextBlock(contexts)}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    payload: {
+      subset: stringFrom(raw.split) ?? subset,
+      prompt: [
+        'Answer this T2-RAGBench text-and-table financial question.',
+        'Do the required numerical reasoning from the supplied context before giving the final value.',
+        'End with a single final line: `FINAL ANSWER: <answer>`.',
+        '',
+        `Question: ${query}`,
+        `Document: ${documentId}`,
+        `Subset: ${subset}`,
+        contexts.length > 0 ? `\nContext:\n${contextBlock(contexts)}` : undefined,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -103,7 +105,7 @@ function rowToTask(raw: unknown, index: number): BenchTask {
 function readMeta(task: BenchTask): T2RagBenchMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.goldAnswers)) {
-    throw new Error(`T2-RAGBench task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`T2-RAGBench task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as T2RagBenchMeta
 }
@@ -120,47 +122,50 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return selectTasks(rows.map(rowToTask), opts, 'T2-RAGBench')
 }
 
-export function createT2RagBenchAdapter(): BenchmarkAdapter {
+export function createT2RagBenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.T2_RAGBENCH_FIXTURES === '1'
 
-  return {
-    name: 't2-ragbench',
-    output: ragAnswerOutput,
+  return runtimeBenchmark({
+    id: 't2-ragbench',
 
-    async preflight() {
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8')
-        return
-      }
-      const path = dataFile()
-      if (!path) {
-        throw new Error(
-          'T2_RAGBENCH_DATA_FILE is required. Fix: export T2-RAGBench rows to JSONL and set T2_RAGBENCH_DATA_FILE=/path/to/t2-ragbench.jsonl, or set T2_RAGBENCH_FIXTURES=1 for adapter plumbing.',
-        )
-      }
-      await loadRows(path)
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const path = dataFile()
       if (!path) throw new Error('T2_RAGBENCH_DATA_FILE is required to load T2-RAGBench tasks')
       return selectTasks((await loadRows(path)).map(rowToTask), opts, 'T2-RAGBench')
     },
 
-    async goldArtifact(task: BenchTask) {
-      return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const score = scoreAnswerArtifact(artifact, meta.goldAnswers, { numericTolerance: 0.01 })
-      return answerScoreToBenchScore(score, {
+      return answerScoreToEvaluation(score, {
         benchmark: meta.benchmark,
         subset: meta.subset,
         documentId: meta.documentId,
         contextCount: meta.contexts.length,
       })
     },
-  }
+
+    runtime: {
+      output: ragAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8')
+          return
+        }
+        const path = dataFile()
+        if (!path) {
+          throw new Error(
+            'T2_RAGBENCH_DATA_FILE is required. Fix: export T2-RAGBench rows to JSONL and set T2_RAGBENCH_DATA_FILE=/path/to/t2-ragbench.jsonl, or set T2_RAGBENCH_FIXTURES=1 for adapter plumbing.',
+          )
+        }
+        await loadRows(path)
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
+      },
+    },
+  })
 }

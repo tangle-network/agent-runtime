@@ -11,9 +11,9 @@
  *            temperature 0), fired ONLY when Tier 1 misses, to absorb the
  *            paraphrase/alias equivalence FRAMES intends to allow.
  *
- * score is binary (resolved ? 1 : 0) — FRAMES has no partial credit. The judge
+ * score is binary (passed ? 1 : 0) — FRAMES has no partial credit. The judge
  * resolves strictly on the Answer value; wiki_links are a SOFT signal surfaced
- * in `detail` for the critic, never a hard pass criterion.
+ * in `notes` for the critic, never a hard pass criterion.
  *
  * Requires for a live run: the bench `.venv` with `datasets` installed and a
  * JUDGE_MODEL router key. For offline/CI verification set FRAMES_FIXTURES=1 to
@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { runBenchRouterTurn } from '../router-turn'
 import { FINAL_ANSWER_SENTINEL, parseCitations, parseFinalAnswer } from './rag-shared'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -338,8 +338,7 @@ function rowToTask(row: FramesRow, index: number): BenchTask {
   }
   return {
     id: `frames-${index}`,
-    split: 'test',
-    prompt: row.Prompt + WORKER_CONTRACT,
+    payload: { prompt: row.Prompt + WORKER_CONTRACT, subset: 'test' },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -347,7 +346,7 @@ function rowToTask(row: FramesRow, index: number): BenchTask {
 function readMeta(task: BenchTask): FramesMeta {
   const md = task.metadata
   if (!md || typeof md.gold !== 'string') {
-    throw new Error(`FRAMES task ${task.id} missing metadata.gold — loadTasks did not populate it`)
+    throw new Error(`FRAMES task ${task.id} missing metadata.gold — loadAll did not populate it`)
   }
   return md as unknown as FramesMeta
 }
@@ -365,40 +364,13 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return tasks
 }
 
-export function createFramesAdapter(): BenchmarkAdapter {
+export function createFramesAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.FRAMES_FIXTURES === '1'
 
-  return {
-    name: 'frames',
+  return runtimeBenchmark({
+    id: 'frames',
 
-    async preflight() {
-      // Tier-2 judge router config must be present in both modes — the loop's
-      // citation-coverage stop gate is meaningless without the equivalence judge.
-      judgeRouter()
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8').catch((err) => {
-          throw new Error(`FRAMES_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`)
-        })
-        return
-      }
-      try {
-        await py(
-          `from datasets import load_dataset
-load_dataset(${JSON.stringify(DATASET)}, split='test', revision=${JSON.stringify(DATASET_REVISION)})
-print('ok')`,
-        )
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `frames preflight failed: ${msg}\n` +
-            `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install datasets ; ` +
-            `(2) ensure network access to Hugging Face for ${DATASET} ; ` +
-            `or set FRAMES_FIXTURES=1 to run against the committed fixtures offline.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const limit = opts.limit ?? 10
       const script = `
@@ -427,15 +399,7 @@ print(json.dumps(out))
       return rows.map((r) => rowToTask(r, r._index))
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold artifact = the worker-contract serialization of the gold Answer, so
-      // verify-judge proves gold→resolved through the SAME parse path the real
-      // artifact takes (Tier-1 short-circuits with no model tokens).
-      const meta = readMeta(task)
-      return `${FINAL_ANSWER_SENTINEL} ${meta.gold}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const finalAnswer = parseFinalAnswer(artifact)
       const citations = parseCitations(artifact)
@@ -443,45 +407,88 @@ print(json.dumps(out))
 
       if (finalAnswer.length === 0) {
         // Fail-closed: distinguish prompt-adherence failure from a wrong answer.
+        const raw = {
+          tier: 'none',
+          reason: 'no parseable answer',
+          normalizedGold: normalizeFramesAnswer(meta.gold),
+          citationCoverage: coverage,
+        }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({
-            tier: 'none',
-            reason: 'no parseable answer',
-            normalizedGold: normalizeFramesAnswer(meta.gold),
-            citationCoverage: coverage,
-          }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
 
       // Tier 1 — free, deterministic.
       if (tier1Match(finalAnswer, meta.gold)) {
+        const raw = {
+          tier: 1,
+          normalizedAnswer: normalizeFramesAnswer(finalAnswer),
+          normalizedGold: normalizeFramesAnswer(meta.gold),
+          citationCoverage: coverage,
+        }
         return {
-          resolved: true,
+          passed: true,
           score: 1,
-          detail: JSON.stringify({
-            tier: 1,
-            normalizedAnswer: normalizeFramesAnswer(finalAnswer),
-            normalizedGold: normalizeFramesAnswer(meta.gold),
-            citationCoverage: coverage,
-          }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
 
       // Tier 2 — constrained LLM equivalence gate (fail loud on unparseable output).
       const verdict = await tier2Judge(meta.rawPrompt, meta.gold, finalAnswer, judgeRouter())
+      const raw = {
+        tier: 2,
+        normalizedAnswer: normalizeFramesAnswer(finalAnswer),
+        normalizedGold: normalizeFramesAnswer(meta.gold),
+        judgeVerdict: verdict ? 'correct' : 'incorrect',
+        citationCoverage: coverage,
+      }
       return {
-        resolved: verdict,
+        passed: verdict,
         score: verdict ? 1 : 0,
-        detail: JSON.stringify({
-          tier: 2,
-          normalizedAnswer: normalizeFramesAnswer(finalAnswer),
-          normalizedGold: normalizeFramesAnswer(meta.gold),
-          judgeVerdict: verdict ? 'correct' : 'incorrect',
-          citationCoverage: coverage,
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        // Tier-2 judge router config must be present in both modes — the loop's
+        // citation-coverage stop gate is meaningless without the equivalence judge.
+        judgeRouter()
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8').catch((err) => {
+            throw new Error(`FRAMES_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`)
+          })
+          return
+        }
+        try {
+          await py(
+            `from datasets import load_dataset
+load_dataset(${JSON.stringify(DATASET)}, split='test', revision=${JSON.stringify(DATASET_REVISION)})
+print('ok')`,
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `frames preflight failed: ${msg}\n` +
+              `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install datasets ; ` +
+              `(2) ensure network access to Hugging Face for ${DATASET} ; ` +
+              `or set FRAMES_FIXTURES=1 to run against the committed fixtures offline.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold artifact = the worker-contract serialization of the gold Answer, so
+        // verify-judge proves gold→passed through the SAME parse path the real
+        // artifact takes (Tier-1 short-circuits with no model tokens).
+        const meta = readMeta(task)
+        return `${FINAL_ANSWER_SENTINEL} ${meta.gold}`
+      },
+    },
+  })
 }

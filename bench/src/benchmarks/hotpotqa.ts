@@ -5,8 +5,8 @@
  * Judge is the official HotpotQA / SQuAD-style metric, FULLY DETERMINISTIC — no
  * LLM. Both the predicted final answer and the gold are normalized (lowercase,
  * strip articles a/an/the, strip punctuation, collapse whitespace), then scored
- * by exact-match (EM) and token-level F1. resolved = EM OR F1 >= HOTPOTQA_F1_PASS
- * (default 0.6); score = the F1 (0..1). detail carries em + f1. This gives the
+ * by exact-match (EM) and token-level F1. passed = EM OR F1 >= HOTPOTQA_F1_PASS
+ * (default 0.6); score = the F1 (0..1). notes carries em + f1. This gives the
  * suite a judge that needs no model tokens at all.
  *
  * metadata carries the gold answer + supporting_facts (the title/sent_id pairs of
@@ -24,7 +24,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { FINAL_ANSWER_SENTINEL, parseFinalAnswer } from './rag-shared'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const execFileAsync = promisify(execFile)
 const BENCH_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -154,8 +154,7 @@ function rowToTask(row: HotpotRow): BenchTask {
   }
   return {
     id: `hotpotqa-${row.id}`,
-    split: DATASET_SPLIT,
-    prompt: row.question + WORKER_CONTRACT,
+    payload: { prompt: row.question + WORKER_CONTRACT, subset: DATASET_SPLIT },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -163,7 +162,7 @@ function rowToTask(row: HotpotRow): BenchTask {
 function readMeta(task: BenchTask): HotpotMeta {
   const md = task.metadata
   if (!md || typeof md.gold !== 'string') {
-    throw new Error(`HotpotQA task ${task.id} missing metadata.gold — loadTasks did not populate it`)
+    throw new Error(`HotpotQA task ${task.id} missing metadata.gold — loadAll did not populate it`)
   }
   return md as unknown as HotpotMeta
 }
@@ -183,41 +182,15 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return tasks
 }
 
-export function createHotpotqaAdapter(): BenchmarkAdapter {
+export function createHotpotqaAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.HOTPOTQA_FIXTURES === '1'
   // Validate the threshold at construction so a malformed env fails before any run.
   f1PassThreshold()
 
-  return {
-    name: 'hotpotqa',
+  return runtimeBenchmark({
+    id: 'hotpotqa',
 
-    async preflight() {
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8').catch((err) => {
-          throw new Error(
-            `HOTPOTQA_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`,
-          )
-        })
-        return
-      }
-      try {
-        await py(
-          `from datasets import load_dataset
-load_dataset(${JSON.stringify(DATASET)}, ${JSON.stringify(DATASET_CONFIG)}, split=${JSON.stringify(DATASET_SPLIT)})
-print('ok')`,
-        )
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        throw new Error(
-          `hotpotqa preflight failed: ${msg}\n` +
-            `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install datasets ; ` +
-            `(2) ensure network access to Hugging Face for ${DATASET} (${DATASET_CONFIG}) ; ` +
-            `or set HOTPOTQA_FIXTURES=1 to run against the committed fixtures offline.`,
-        )
-      }
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const limit = opts.limit ?? 10
       const script = `
@@ -251,29 +224,23 @@ print(json.dumps(out))
       return rows.map(rowToTask)
     },
 
-    async goldArtifact(task: BenchTask) {
-      // Gold artifact = the worker-contract serialization of the gold answer, so
-      // verify-judge proves gold→resolved through the SAME parse path the real
-      // artifact takes.
-      const meta = readMeta(task)
-      return `${FINAL_ANSWER_SENTINEL} ${meta.gold}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const finalAnswer = parseFinalAnswer(artifact)
 
       if (finalAnswer.length === 0) {
         // Fail-closed: distinguish prompt-adherence failure from a wrong answer.
+        const raw = {
+          reason: 'no parseable answer',
+          em: false,
+          f1: 0,
+          normalizedGold: normalizeHotpotAnswer(meta.gold),
+        }
         return {
-          resolved: false,
+          passed: false,
           score: 0,
-          detail: JSON.stringify({
-            reason: 'no parseable answer',
-            em: false,
-            f1: 0,
-            normalizedGold: normalizeHotpotAnswer(meta.gold),
-          }),
+          notes: JSON.stringify(raw),
+          raw,
         }
       }
 
@@ -281,20 +248,58 @@ print(json.dumps(out))
       const f1 = hotpotTokenF1(finalAnswer, meta.gold)
       const threshold = f1PassThreshold()
       const resolved = em || f1 >= threshold
+      const raw = {
+        em,
+        f1,
+        threshold,
+        normalizedAnswer: normalizeHotpotAnswer(finalAnswer),
+        normalizedGold: normalizeHotpotAnswer(meta.gold),
+        type: meta.type,
+        level: meta.level,
+        supportingFacts: meta.supportingFacts,
+      }
       return {
-        resolved,
+        passed: resolved,
         score: f1,
-        detail: JSON.stringify({
-          em,
-          f1,
-          threshold,
-          normalizedAnswer: normalizeHotpotAnswer(finalAnswer),
-          normalizedGold: normalizeHotpotAnswer(meta.gold),
-          type: meta.type,
-          level: meta.level,
-          supportingFacts: meta.supportingFacts,
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      async preflight() {
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8').catch((err) => {
+            throw new Error(
+              `HOTPOTQA_FIXTURES=1 but ${FIXTURES} unreadable: ${err instanceof Error ? err.message : err}`,
+            )
+          })
+          return
+        }
+        try {
+          await py(
+            `from datasets import load_dataset
+load_dataset(${JSON.stringify(DATASET)}, ${JSON.stringify(DATASET_CONFIG)}, split=${JSON.stringify(DATASET_SPLIT)})
+print('ok')`,
+          )
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `hotpotqa preflight failed: ${msg}\n` +
+              `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install datasets ; ` +
+              `(2) ensure network access to Hugging Face for ${DATASET} (${DATASET_CONFIG}) ; ` +
+              `or set HOTPOTQA_FIXTURES=1 to run against the committed fixtures offline.`,
+          )
+        }
+      },
+
+      async goldArtifact(task: BenchTask) {
+        // Gold artifact = the worker-contract serialization of the gold answer, so
+        // verify-judge proves gold→passed through the SAME parse path the real
+        // artifact takes.
+        const meta = readMeta(task)
+        return `${FINAL_ANSWER_SENTINEL} ${meta.gold}`
+      },
+    },
+  })
 }

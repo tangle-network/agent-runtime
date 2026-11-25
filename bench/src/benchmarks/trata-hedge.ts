@@ -17,8 +17,8 @@
  *   Task 2: per-move coverage check (ground truth + agent answer + flagged claims)
  *   Task 3: synthesis check (ground truth + agent answer)
  * Score 0–4: themes_covered == num_themes && synthesis → 4, all themes → 3,
- * ≥2 themes → 2, ≥1 theme → 1, else → 0. Normalized to 0..1 for BenchScore;
- * resolved = score 4 (sparse reward).
+ * ≥2 themes → 2, ≥1 theme → 1, else → 0. Normalized to 0..1 for BenchEvaluation;
+ * passed = score 4 (sparse reward).
  *
  * Requires TANGLE_API_KEY and TRATA_BENCH_ROOT=/tmp/trata-hedge-bench.
  * Clone: git clone --depth 1 https://github.com/Trata-Inc/trata-hedge-bench /tmp/trata-hedge-bench
@@ -27,7 +27,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { runBenchRouterTurn } from '../router-turn'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const DEFAULT_BENCH_ROOT = '/tmp/trata-hedge-bench'
 const MAX_FILE_BYTES = 8_000
@@ -289,9 +289,10 @@ async function task3SynthesisCheck(
   return (result as Task3Result) ?? { synthesis_found: null }
 }
 
-async function runTriataJudge(meta: TrataTaskMeta, answer: string, router: JudgeRouter): Promise<BenchScore> {
+async function runTriataJudge(meta: TrataTaskMeta, answer: string, router: JudgeRouter): Promise<BenchEvaluation> {
   if (!answer.trim()) {
-    return { resolved: false, score: 0, detail: JSON.stringify({ error: 'empty answer' }) }
+    const raw = { error: 'empty answer' }
+    return { passed: false, score: 0, notes: JSON.stringify(raw), raw }
   }
 
   // Stage 1: hallucination check (serial — feeds into stage 2).
@@ -334,18 +335,20 @@ async function runTriataJudge(meta: TrataTaskMeta, answer: string, router: Judge
   const hallRaw = t1.hallucinations_detected
   const hallucinations = hallRaw === true || hallRaw === 'true'
 
+  const raw = {
+    rawScore,
+    themesHit,
+    themesMissed,
+    hallucinations,
+    unverifiableClaims: flaggedClaims.length,
+    synthesis: synth ?? null,
+    judgeModel: router.model,
+  }
   return {
-    resolved: rawScore === 4,
+    passed: rawScore === 4,
     score: numThemes > 0 ? rawScore / 4 : 0,
-    detail: JSON.stringify({
-      rawScore,
-      themesHit,
-      themesMissed,
-      hallucinations,
-      unverifiableClaims: flaggedClaims.length,
-      synthesis: synth ?? null,
-      judgeModel: router.model,
-    }),
+    notes: JSON.stringify(raw),
+    raw,
   }
 }
 
@@ -398,7 +401,7 @@ function loadTask(taskId: string): { task: BenchTask; meta: TrataTaskMeta } {
   // Store meta in the BenchTask so the judge can access it without re-reading.
   const task: BenchTask = {
     id: taskId,
-    prompt,
+    payload: { prompt },
     metadata: meta as unknown as Record<string, unknown>,
   }
 
@@ -447,34 +450,11 @@ function extractAnalysis(artifact: string): string {
 
 // ── adapter factory ───────────────────────────────────────────────────────────
 
-export function createTrataHedgeAdapter(): BenchmarkAdapter {
-  return {
-    name: 'trata-hedge',
+export function createTrataHedgeAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'trata-hedge',
 
-    async preflight() {
-      const root = benchRoot()
-      const envDir = join(root, 'environments')
-      try {
-        const stat = statSync(envDir)
-        if (!stat.isDirectory()) throw new Error('not a directory')
-      } catch {
-        throw new Error(
-          `Trata hedge-bench not found at ${envDir}.\n` +
-            `Clone: git clone --depth 1 https://github.com/Trata-Inc/trata-hedge-bench ${root}`,
-        )
-      }
-      // Validate judge router connectivity.
-      judgeRouter()
-      const ids = listTaskIds(root)
-      if (ids.length === 0) throw new Error(`No task directories found under ${envDir}`)
-      console.warn(
-        `[trata-hedge] ${ids.length} tasks loaded from ${root}. ` +
-          `Worker model reads embedded data inline (Harbor/Docker not required). ` +
-          `Judge uses ${process.env.JUDGE_MODEL ?? JUDGE_MODEL} via Tangle router.`,
-      )
-    },
-
-    async loadTasks(opts: LoadOptions = {}): Promise<BenchTask[]> {
+    async loadAll(opts: LoadOptions = {}): Promise<BenchTask[]> {
       const root = benchRoot()
       let ids = listTaskIds(root)
       if (opts.ids) {
@@ -486,17 +466,42 @@ export function createTrataHedgeAdapter(): BenchmarkAdapter {
       return ids.map((id) => loadTask(id).task)
     },
 
-    async goldArtifact(_task: BenchTask): Promise<string | undefined> {
-      // No single gold answer: the score comes from rubric theme coverage, not
-      // string-match against a reference response. Return undefined — the bench
-      // harness will skip judge self-verification for this adapter.
-      return undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const answer = extractAnalysis(artifact)
       return runTriataJudge(meta, answer, judgeRouter())
     },
-  }
+
+    runtime: {
+      async preflight() {
+        const root = benchRoot()
+        const envDir = join(root, 'environments')
+        try {
+          const stat = statSync(envDir)
+          if (!stat.isDirectory()) throw new Error('not a directory')
+        } catch {
+          throw new Error(
+            `Trata hedge-bench not found at ${envDir}.\n` +
+              `Clone: git clone --depth 1 https://github.com/Trata-Inc/trata-hedge-bench ${root}`,
+          )
+        }
+        // Validate judge router connectivity.
+        judgeRouter()
+        const ids = listTaskIds(root)
+        if (ids.length === 0) throw new Error(`No task directories found under ${envDir}`)
+        console.warn(
+          `[trata-hedge] ${ids.length} tasks loaded from ${root}. ` +
+            `Worker model reads embedded data inline (Harbor/Docker not required). ` +
+            `Judge uses ${process.env.JUDGE_MODEL ?? JUDGE_MODEL} via Tangle router.`,
+        )
+      },
+
+      async goldArtifact(_task: BenchTask): Promise<string | undefined> {
+        // No single gold answer: the score comes from rubric theme coverage, not
+        // string-match against a reference response. Return undefined — the bench
+        // harness will skip judge self-verification for this adapter.
+        return undefined
+      },
+    },
+  })
 }

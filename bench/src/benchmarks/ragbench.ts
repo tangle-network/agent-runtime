@@ -11,11 +11,11 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 import {
   FINAL_ANSWER_SENTINEL,
   allStrings,
-  answerScoreToBenchScore,
+  answerScoreToEvaluation,
   contextBlock,
   contextsFrom,
   firstString,
@@ -91,16 +91,18 @@ function rowToTask(raw: unknown, index: number): BenchTask {
   }
   return {
     id,
-    split: stringFrom(raw.split) ?? dataset ?? 'ragbench',
-    prompt: [
-      'Answer this RAGBench question using the supplied retrieved context.',
-      'End with a single final line: `FINAL ANSWER: <answer>`.',
-      '',
-      `Question: ${query}`,
-      contexts.length > 0 ? `\nRetrieved context:\n${contextBlock(contexts)}` : undefined,
-    ]
-      .filter(Boolean)
-      .join('\n'),
+    payload: {
+      subset: stringFrom(raw.split) ?? dataset ?? 'ragbench',
+      prompt: [
+        'Answer this RAGBench question using the supplied retrieved context.',
+        'End with a single final line: `FINAL ANSWER: <answer>`.',
+        '',
+        `Question: ${query}`,
+        contexts.length > 0 ? `\nRetrieved context:\n${contextBlock(contexts)}` : undefined,
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -108,7 +110,7 @@ function rowToTask(raw: unknown, index: number): BenchTask {
 function readMeta(task: BenchTask): RagBenchMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.goldAnswers)) {
-    throw new Error(`RAGBench task ${task.id} missing metadata — loadTasks did not populate it`)
+    throw new Error(`RAGBench task ${task.id} missing metadata — loadAll did not populate it`)
   }
   return md as unknown as RagBenchMeta
 }
@@ -125,47 +127,50 @@ async function loadFixtures(opts: LoadOptions): Promise<BenchTask[]> {
   return selectTasks(rows.map(rowToTask), opts, 'RAGBench')
 }
 
-export function createRagBenchAdapter(): BenchmarkAdapter {
+export function createRagBenchAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.RAGBENCH_FIXTURES === '1'
 
-  return {
-    name: 'ragbench',
-    output: ragAnswerOutput,
+  return runtimeBenchmark({
+    id: 'ragbench',
 
-    async preflight() {
-      if (fixturesMode) {
-        await readFile(FIXTURES, 'utf8')
-        return
-      }
-      const path = dataFile()
-      if (!path) {
-        throw new Error(
-          'RAGBENCH_DATA_FILE is required. Fix: export rungalileo/ragbench rows to JSONL and set RAGBENCH_DATA_FILE=/path/to/ragbench.jsonl, or set RAGBENCH_FIXTURES=1 for adapter plumbing.',
-        )
-      }
-      await loadRows(path)
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const path = dataFile()
       if (!path) throw new Error('RAGBENCH_DATA_FILE is required to load RAGBench tasks')
       return selectTasks((await loadRows(path)).map(rowToTask), opts, 'RAGBench')
     },
 
-    async goldArtifact(task: BenchTask) {
-      return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const score = scoreAnswerArtifact(artifact, meta.goldAnswers)
-      return answerScoreToBenchScore(score, {
+      return answerScoreToEvaluation(score, {
         benchmark: meta.benchmark,
         dataset: meta.dataset ?? null,
         traceLabels: meta.traceLabels,
         contextCount: meta.contexts.length,
       })
     },
-  }
+
+    runtime: {
+      output: ragAnswerOutput,
+
+      async preflight() {
+        if (fixturesMode) {
+          await readFile(FIXTURES, 'utf8')
+          return
+        }
+        const path = dataFile()
+        if (!path) {
+          throw new Error(
+            'RAGBENCH_DATA_FILE is required. Fix: export rungalileo/ragbench rows to JSONL and set RAGBENCH_DATA_FILE=/path/to/ragbench.jsonl, or set RAGBENCH_FIXTURES=1 for adapter plumbing.',
+          )
+        }
+        await loadRows(path)
+      },
+
+      async goldArtifact(task: BenchTask) {
+        return `${FINAL_ANSWER_SENTINEL} ${readMeta(task).goldAnswers[0] ?? ''}`
+      },
+    },
+  })
 }

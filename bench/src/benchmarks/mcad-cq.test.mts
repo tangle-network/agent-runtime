@@ -180,14 +180,14 @@ describe('mcad-cq delivery gates', () => {
 describe('mcad-cq task loading', () => {
   it('carries spec/source/calibrated metadata and a CadQuery gold for every task', async () => {
     const a = createMcadCqAdapter()
-    const tasks = await a.loadTasks()
+    const tasks = await a.loadAll()
     expect(tasks).toHaveLength(MCAD_TASKS.length)
     for (const t of tasks) {
       const md = t.metadata as { spec: unknown; source: string; calibrated: boolean }
       expect(md.spec, t.id).toBeTruthy()
       expect(typeof md.source).toBe('string')
       expect(md.calibrated, t.id).toBe(!MCAD_CQ_UNCALIBRATED.has(t.id))
-      const gold = await a.goldArtifact(t)
+      const gold = await a.runtime.goldArtifact!(t)
       expect(typeof gold, t.id).toBe('string')
       expect(gold, t.id).toContain('import cadquery as cq')
       expect(gold, t.id).toContain('cq.exporters.export(result, "part.step")')
@@ -197,17 +197,17 @@ describe('mcad-cq task loading', () => {
 
   it('honours ids and limit', async () => {
     const a = createMcadCqAdapter()
-    expect((await a.loadTasks({ ids: ['l-bracket'] })).map((t) => t.id)).toEqual(['l-bracket'])
-    expect(await a.loadTasks({ limit: 3 })).toHaveLength(3)
+    expect((await a.loadAll({ ids: ['l-bracket'] })).map((t) => t.id)).toEqual(['l-bracket'])
+    expect(await a.loadAll({ limit: 3 })).toHaveLength(3)
   })
 
   it('scores an empty artifact 0 without starting an interpreter', async () => {
     const a = createMcadCqAdapter()
-    const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-    const s = await a.judge(t!, '   ')
-    expect(s.resolved).toBe(false)
+    const [t] = await a.loadAll({ ids: ['calibration-block'] })
+    const s = await a.evaluate(t!, '   ')
+    expect(s.passed).toBe(false)
     expect(s.score).toBe(0)
-    expect(s.detail).toBe('empty artifact')
+    expect(s.notes).toBe('empty artifact')
   })
 })
 
@@ -252,7 +252,7 @@ const NO_STEP_EXPORT = MCAD_CQ_GOLDS['calibration-block']!.replace('cq.exporters
 
 describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
   it('preflight passes when the interpreter is present', async () => {
-    await expect(createMcadCqAdapter().preflight()).resolves.toBeUndefined()
+    await expect(createMcadCqAdapter().runtime.preflight!()).resolves.toBeUndefined()
   }, JUDGE_TIMEOUT)
 
   for (const task of MCAD_TASKS.filter((t) => !MCAD_CQ_UNCALIBRATED.has(t.id))) {
@@ -260,15 +260,15 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
       `gold for ${task.id} resolves at score 1.0`,
       async () => {
         const a = createMcadCqAdapter()
-        const [t] = await a.loadTasks({ ids: [task.id] })
-        const gold = await a.goldArtifact(t!)
+        const [t] = await a.loadAll({ ids: [task.id] })
+        const gold = await a.runtime.goldArtifact!(t!)
         expect(typeof gold).toBe('string')
-        const s = await a.judge(t!, gold as string)
-        const detail = JSON.parse(s.detail ?? '{}')
-        expect(detail.failed ?? [], `failed checks: ${s.detail}`).toEqual([])
+        const s = await a.evaluate(t!, gold as string)
+        const detail = JSON.parse(s.notes ?? '{}')
+        expect(detail.failed ?? [], `failed checks: ${s.notes}`).toEqual([])
         expect(detail.checks?.stepEmitted).toBe(true)
         expect(s.score).toBe(1)
-        expect(s.resolved).toBe(true)
+        expect(s.passed).toBe(true)
       },
       JUDGE_TIMEOUT,
     )
@@ -278,10 +278,10 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
     'grades a fenced answer identically — the fence is a formatting slip, not geometry',
     async () => {
       const a = createMcadCqAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, `\`\`\`python\n${MCAD_CQ_GOLDS['calibration-block']!.trim()}\n\`\`\``)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, `\`\`\`python\n${MCAD_CQ_GOLDS['calibration-block']!.trim()}\n\`\`\``)
       expect(s.score).toBe(1)
-      expect(s.resolved).toBe(true)
+      expect(s.passed).toBe(true)
     },
     JUDGE_TIMEOUT,
   )
@@ -290,12 +290,12 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
     'MUST REJECT: one bore of four deleted fails its named probes and nothing else',
     async () => {
       const a = createMcadCqAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, BLOCK_MISSING_ONE_BORE)
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, BLOCK_MISSING_ONE_BORE)
+      expect(s.passed).toBe(false)
       expect(s.score).toBeGreaterThan(0)
       expect(s.score).toBeLessThan(1)
-      const failed = (JSON.parse(s.detail as string).failed as Array<{ name: string }>).map((f) => f.name)
+      const failed = (JSON.parse(s.notes as string).failed as Array<{ name: string }>).map((f) => f.name)
       // the deleted bore is the (35, 20) one: its centre probe and the 3 mm-off
       // probe both now sit in solid material
       expect(failed).toContain('probeOutside[0] (35, 20, 10)')
@@ -314,13 +314,13 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
     'MUST REJECT: a script that writes no part.stl scores 0 and the detail says so',
     async () => {
       const a = createMcadCqAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, STEP_ONLY)
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, STEP_ONLY)
+      expect(s.passed).toBe(false)
       expect(s.score).toBe(0)
-      expect(s.detail).toMatch(/wrote no part\.stl/)
+      expect(s.notes).toMatch(/wrote no part\.stl/)
       // it DID write the STEP file, and the detail says that too
-      expect(s.detail).toMatch(/stepEmitted true/)
+      expect(s.notes).toMatch(/stepEmitted true/)
     },
     JUDGE_TIMEOUT,
   )
@@ -329,11 +329,11 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
     'MUST REJECT: a binary STL is a format miss, not a parse problem',
     async () => {
       const a = createMcadCqAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, BINARY_STL)
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, BINARY_STL)
+      expect(s.passed).toBe(false)
       expect(s.score).toBe(0)
-      expect(s.detail).toMatch(/not ASCII/)
+      expect(s.notes).toMatch(/not ASCII/)
     },
     JUDGE_TIMEOUT,
   )
@@ -342,10 +342,10 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
     'MUST REJECT: dropping the STEP export costs exactly the stepEmitted check',
     async () => {
       const a = createMcadCqAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, NO_STEP_EXPORT)
-      expect(s.resolved).toBe(false)
-      const detail = JSON.parse(s.detail as string) as {
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, NO_STEP_EXPORT)
+      expect(s.passed).toBe(false)
+      const detail = JSON.parse(s.notes as string) as {
         failed: Array<{ name: string }>
         checks: Record<string, boolean>
         stepEmitted: boolean
@@ -374,12 +374,12 @@ describe.skipIf(!CADQUERY)('mcad-cq judge, live cadquery', () => {
     'MUST REJECT: a script that raises is scored 0 with its traceback in the detail',
     async () => {
       const a = createMcadCqAdapter()
-      const [t] = await a.loadTasks({ ids: ['calibration-block'] })
-      const s = await a.judge(t!, 'import cadquery as cq\nraise SystemExit("no model here")\n')
-      expect(s.resolved).toBe(false)
+      const [t] = await a.loadAll({ ids: ['calibration-block'] })
+      const s = await a.evaluate(t!, 'import cadquery as cq\nraise SystemExit("no model here")\n')
+      expect(s.passed).toBe(false)
       expect(s.score).toBe(0)
-      expect(s.detail).toMatch(/script failed:/)
-      expect(s.detail).toMatch(/no model here/)
+      expect(s.notes).toMatch(/script failed:/)
+      expect(s.notes).toMatch(/no model here/)
     },
     JUDGE_TIMEOUT,
   )

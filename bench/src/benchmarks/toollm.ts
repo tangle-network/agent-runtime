@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const FIXTURES = join(benchRoot, 'fixtures', 'toollm.json')
 const DEFAULT_QUERY_REL = join('data_example', 'instruction', 'G1_query.json')
@@ -65,16 +65,18 @@ function rowToTask(row: ToolBenchRow): BenchTask {
   }
   return {
     id: String(row.query_id),
-    prompt: [
-      'Solve this ToolLLM/ToolBench API-use task.',
-      'Use only the listed APIs/tools and return the completed tool-use trace plus final answer.',
-      '',
-      `Query: ${row.query}`,
-      '',
-      `Available APIs: ${JSON.stringify(row.api_list ?? [], null, 2)}`,
-      '',
-      'Return the APIs you used as JSON: {"api_calls":[{"tool_name":"...","api_name":"..."}]}.',
-    ].join('\n'),
+    payload: {
+      prompt: [
+        'Solve this ToolLLM/ToolBench API-use task.',
+        'Use only the listed APIs/tools and return the completed tool-use trace plus final answer.',
+        '',
+        `Query: ${row.query}`,
+        '',
+        `Available APIs: ${JSON.stringify(row.api_list ?? [], null, 2)}`,
+        '',
+        'Return the APIs you used as JSON: {"api_calls":[{"tool_name":"...","api_name":"..."}]}.',
+      ].join('\n'),
+    },
     metadata: meta as unknown as Record<string, unknown>,
   }
 }
@@ -107,7 +109,7 @@ function normalizeApiPairs(value: unknown): Array<[string, string]> {
 function readMeta(task: BenchTask): ToolBenchMeta {
   const md = task.metadata
   if (!md || !Array.isArray(md.relevantApis)) {
-    throw new Error(`ToolLLM task ${task.id} missing metadata — loadTasks did not populate deterministic API-selection labels`)
+    throw new Error(`ToolLLM task ${task.id} missing metadata — loadAll did not populate deterministic API-selection labels`)
   }
   return md as unknown as ToolBenchMeta
 }
@@ -186,7 +188,7 @@ function extractCalledApis(text: string, expected: readonly [string, string][]):
   }
 }
 
-function scoreApiSelection(task: BenchTask, artifact: string): BenchScore {
+function scoreApiSelection(task: BenchTask, artifact: string): BenchEvaluation {
   const meta = readMeta(task)
   if (meta.relevantApis.length === 0) {
     throw new Error(`ToolLLM task ${task.id} has no deterministic API-selection labels; refusing to score`)
@@ -200,55 +202,60 @@ function scoreApiSelection(task: BenchTask, artifact: string): BenchScore {
   const recall = truePositives / expected.size
   const score = expected.size === 0 ? 0 : recall
   const resolved = extracted.source === 'structured-json' && recall === 1 && precision === 1
+  const raw = {
+    scoring: 'api-selection-only',
+    extractionSource: extracted.source,
+    queryId: meta.queryId,
+    expected: meta.relevantApis,
+    called: calledPairs,
+    precision,
+    recall,
+    fullToolEvalScore: null,
+  }
   return {
-    resolved,
+    passed: resolved,
     score,
-    detail: JSON.stringify({
-      scoring: 'api-selection-only',
-      extractionSource: extracted.source,
-      queryId: meta.queryId,
-      expected: meta.relevantApis,
-      called: calledPairs,
-      precision,
-      recall,
-      fullToolEvalScore: null,
-    }),
+    notes: JSON.stringify(raw),
+    raw,
   }
 }
 
-export function createToolLlmAdapter(): BenchmarkAdapter {
+export function createToolLlmAdapter(): RuntimeBenchmark {
   const fixturesMode = process.env.TOOLLM_FIXTURES === '1'
 
-  return {
-    name: 'toollm',
-    output: toollmOutput,
+  return runtimeBenchmark({
+    id: 'toollm',
 
-    async preflight() {
-      if (fixturesMode) return
-      const dir = toolbenchDir()
-      if (!dir) {
-        throw new Error('TOOLBENCH_DIR is required. Fix: clone https://github.com/OpenBMB/ToolBench and set TOOLBENCH_DIR=/path/to/ToolBench.')
-      }
-      await loadOfficialTasks(dir, { limit: 1 })
-    },
-
-    async loadTasks(opts: LoadOptions = {}) {
+    async loadAll(opts: LoadOptions = {}) {
       if (fixturesMode) return loadFixtures(opts)
       const dir = toolbenchDir()
       if (!dir) throw new Error('TOOLBENCH_DIR is required to load ToolLLM tasks')
       return loadOfficialTasks(dir, opts)
     },
 
-    async goldArtifact(task: BenchTask) {
-      const meta = readMeta(task)
-      if (meta.relevantApis.length === 0) return undefined
-      return JSON.stringify({
-        api_calls: meta.relevantApis.map(([tool_name, api_name]) => ({ tool_name, api_name })),
-      }, null, 2)
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       return scoreApiSelection(task, artifact)
     },
-  }
+
+    runtime: {
+      output: toollmOutput,
+
+      async preflight() {
+        if (fixturesMode) return
+        const dir = toolbenchDir()
+        if (!dir) {
+          throw new Error('TOOLBENCH_DIR is required. Fix: clone https://github.com/OpenBMB/ToolBench and set TOOLBENCH_DIR=/path/to/ToolBench.')
+        }
+        await loadOfficialTasks(dir, { limit: 1 })
+      },
+
+      async goldArtifact(task: BenchTask) {
+        const meta = readMeta(task)
+        if (meta.relevantApis.length === 0) return undefined
+        return JSON.stringify({
+          api_calls: meta.relevantApis.map(([tool_name, api_name]) => ({ tool_name, api_name })),
+        }, null, 2)
+      },
+    },
+  })
 }

@@ -6,16 +6,16 @@
  * evaluator: a driver runs the solution in a fresh `AppWorld(task_id=...)` world,
  * then `world.evaluate().to_dict()` reports `success` (binary TGC), `num_tests`
  * (per-requirement total) and the `passes`/`failures` lists. Score =
- * passes / num_tests — GRADED; resolved = success. Fully deterministic — no LLM judge.
+ * passes / num_tests — GRADED; passed = success. Fully deterministic — no LLM judge.
  *
- * loadTasks enumerates the real task suite via `load_task_ids(split)`
+ * loadAll enumerates the real task suite via `load_task_ids(split)`
  * (train|dev|test_normal|test_challenge); the prompt = `world.task.instruction`.
  * The OutputAdapter is stream-only, so the worker emits its solution as a fenced
  * ```python block which the driver executes.
  *
  * Requires for a live run: the bench `.venv` with `appworld` installed + the
  * unpacked engine + downloaded data (`appworld install` ; `appworld download
- * data`). preflight + loadTasks + judge all fail loud with the exact step when the
+ * data`). preflight + loadAll + evaluate all fail loud with the exact step when the
  * engine/data is absent — never a fabricated score.
  */
 
@@ -30,7 +30,7 @@ import {
   type ToolSpec,
 } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, preflightVenvImports, runVenvScriptStdin, venvPython } from './_harness'
-import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
+import { type BenchEvaluation, type BenchTask, type LoadOptions, type RuntimeBenchmark, runtimeBenchmark } from './types'
 
 const DRIVER = join(benchRoot, 'scripts', 'appworld_driver.py')
 
@@ -66,7 +66,7 @@ const WORKER_CONTRACT = [
 function readMeta(task: BenchTask): AppWorldMeta {
   const md = task.metadata
   if (!md || typeof md.taskId !== 'string') {
-    throw new Error(`appworld task ${task.id} missing metadata.taskId — loadTasks did not populate it`)
+    throw new Error(`appworld task ${task.id} missing metadata.taskId — loadAll did not populate it`)
   }
   return md as unknown as AppWorldMeta
 }
@@ -91,25 +91,12 @@ async function driver(args: string[], input = ''): Promise<unknown> {
   return parsed
 }
 
-export function createAppWorldAdapter(): BenchmarkAdapter {
-  return {
-    name: 'appworld',
-    output: appworldSolutionOutput,
+export function createAppWorldAdapter(): RuntimeBenchmark {
+  return runtimeBenchmark({
+    id: 'appworld',
 
-    async preflight() {
-      await preflightVenvImports({
-        modules: ['appworld'],
-        requireDocker: false,
-        fix:
-          'Fix: bench/.venv/bin/pip install appworld ; ' +
-          'bench/.venv/bin/appworld install ; bench/.venv/bin/appworld download data ' +
-          '(unpacks the engine + downloads the simulated-app data/tasks). ' +
-          'Set APPWORLD_ROOT to the data root if not the default.',
-      })
-    },
-
-    async loadTasks(opts: LoadOptions = {}): Promise<BenchTask[]> {
-      const split = opts.split ?? DEFAULT_SPLIT
+    async loadAll(opts: LoadOptions = {}): Promise<BenchTask[]> {
+      const split = opts.subset ?? DEFAULT_SPLIT
       const out = (await driver([
         'load',
         '--split', split,
@@ -118,29 +105,21 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
       ])) as { tasks?: Array<{ task_id: string; instruction: string }> }
       const tasks = out.tasks ?? []
       if (tasks.length === 0) {
-        throw new Error(`appworld loadTasks returned no tasks for split=${split} ${JSON.stringify(opts)}`)
+        throw new Error(`appworld loadAll returned no tasks for split=${split} ${JSON.stringify(opts)}`)
       }
       return tasks.map(
         (t): BenchTask => ({
           id: t.task_id,
-          split,
-          prompt: t.instruction + WORKER_CONTRACT,
+          payload: {
+            subset: split,
+            prompt: t.instruction + WORKER_CONTRACT,
+          },
           metadata: { taskId: t.task_id, split } as unknown as Record<string, unknown>,
         }),
       )
     },
 
-    async goldArtifact() {
-      // Reference solution code ships only for train/dev, and only inside the
-      // engine's decrypted `.bundle` (it is not a portable string this adapter can
-      // emit across splits). The test splits are evaluation-only. So verify-judge
-      // here requires a real solve on a train/dev task through the live engine
-      // rather than a synthetic gold — returning a fabricated artifact would be a
-      // fake. Returns undefined.
-      return undefined
-    },
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       const out = (await driver(['evaluate', '--task-id', meta.taskId, '--split', meta.split], artifact)) as {
         success?: boolean
@@ -157,22 +136,50 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
       const total = out.num_tests ?? passes + fails
       const score = total > 0 ? passes / total : 0
       // failure_names = WHICH sub-tests failed — the evidence a trace analyst
-      // steers on. Carried in `detail` so it reaches the verdict's `notes`.
+      // steers on. Carried in `raw` (and `notes`) so it reaches the verdict.
       const failures = Array.isArray(out.failure_names) ? out.failure_names : []
+      const raw = {
+        taskId: meta.taskId,
+        success: out.success,
+        passes,
+        fails,
+        total,
+        ...(failures.length ? { failures } : {}),
+      }
       return {
-        resolved: out.success === true,
+        passed: out.success === true,
         score,
-        detail: JSON.stringify({
-          taskId: meta.taskId,
-          success: out.success,
-          passes,
-          fails,
-          total,
-          ...(failures.length ? { failures } : {}),
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
-  }
+
+    runtime: {
+      output: appworldSolutionOutput,
+
+      async preflight() {
+        await preflightVenvImports({
+          modules: ['appworld'],
+          requireDocker: false,
+          fix:
+            'Fix: bench/.venv/bin/pip install appworld ; ' +
+            'bench/.venv/bin/appworld install ; bench/.venv/bin/appworld download data ' +
+            '(unpacks the engine + downloads the simulated-app data/tasks). ' +
+            'Set APPWORLD_ROOT to the data root if not the default.',
+        })
+      },
+
+      async goldArtifact() {
+        // Reference solution code ships only for train/dev, and only inside the
+        // engine's decrypted `.bundle` (it is not a portable string this adapter can
+        // emit across splits). The test splits are evaluation-only. So verify-judge
+        // here requires a real solve on a train/dev task through the live engine
+        // rather than a synthetic gold — returning a fabricated artifact would be a
+        // fake. Returns undefined.
+        return undefined
+      },
+    },
+  })
 }
 
 /**
@@ -193,7 +200,7 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
  * line 1; everything after line 1 is the steer (an analyst correction, a push
  * directive) appended to the system prompt — so the existing arms steer this
  * worker without modification. The artifact is the episode evaluation JSON
- * (AppWorld's evaluator ran in-world); judge() parses it, never re-executes.
+ * (AppWorld's evaluator ran in-world); evaluate() parses it, never re-executes.
  */
 
 export interface ReactResult {
@@ -488,29 +495,28 @@ const reactEpisodeOutput: OutputAdapter<string> = {
   },
 }
 
-export function createAppWorldReactAdapter(): BenchmarkAdapter {
+export function createAppWorldReactAdapter(): RuntimeBenchmark {
   const base = createAppWorldAdapter()
-  return {
-    name: 'appworld-react',
-    output: reactEpisodeOutput,
-    preflight: () => base.preflight(),
+  return runtimeBenchmark({
+    id: 'appworld-react',
 
-    async loadTasks(opts: LoadOptions = {}): Promise<BenchTask[]> {
-      const tasks = await base.loadTasks(opts)
+    async loadAll(opts: LoadOptions = {}): Promise<BenchTask[]> {
+      const tasks = await base.loadAll(opts)
       return tasks.map((t) => {
         const meta = readMeta(t)
         return {
           ...t,
-          // Header carries task identity to the leaf; the body (empty at round 0)
-          // is the directive slot the arms append their steer into.
-          prompt: `@appworld-react ${meta.taskId} ${meta.split}\n`,
+          payload: {
+            ...t.payload,
+            // Header carries task identity to the leaf; the body (empty at round 0)
+            // is the directive slot the arms append their steer into.
+            prompt: `@appworld-react ${meta.taskId} ${meta.split}\n`,
+          },
         }
       })
     },
 
-    goldArtifact: () => Promise.resolve(undefined),
-
-    async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+    async evaluate(task: BenchTask, artifact: string): Promise<BenchEvaluation> {
       const meta = readMeta(task)
       let out: ReactResult
       try {
@@ -528,22 +534,29 @@ export function createAppWorldReactAdapter(): BenchmarkAdapter {
       const passes = out.passes ?? 0
       const total = out.num_tests
       const failures = Array.isArray(out.failure_names) ? out.failure_names : []
+      const raw = {
+        taskId: meta.taskId,
+        success: out.success,
+        passes,
+        fails: out.fails ?? 0,
+        total,
+        turns: out.turns,
+        ...(failures.length ? { failures } : {}),
+        ...(out.transcript ? { transcriptTail: out.transcript.slice(-800) } : {}),
+      }
       return {
-        resolved: out.success === true,
+        passed: out.success === true,
         score: total > 0 ? passes / total : 0,
-        detail: JSON.stringify({
-          taskId: meta.taskId,
-          success: out.success,
-          passes,
-          fails: out.fails ?? 0,
-          total,
-          turns: out.turns,
-          ...(failures.length ? { failures } : {}),
-          ...(out.transcript ? { transcriptTail: out.transcript.slice(-800) } : {}),
-        }),
+        notes: JSON.stringify(raw),
+        raw,
       }
     },
 
-    leafClient: (c) => appworldToolLoopClient(c),
-  }
+    runtime: {
+      output: reactEpisodeOutput,
+      preflight: async () => base.runtime.preflight?.(),
+      goldArtifact: () => Promise.resolve(undefined),
+      worker: (c) => appworldToolLoopClient(c),
+    },
+  })
 }

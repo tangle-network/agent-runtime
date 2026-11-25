@@ -15,12 +15,12 @@ process.env.DABSTEP_FIXTURES = '1'
 type Events = Parameters<typeof dabstepAnswerOutput.parse>[0]
 const stream = (text: string): Events => [{ data: { finalText: text } }] as unknown as Events
 
-test('loadTasks fixtures expose DABStep prompt and resource metadata shape', async () => {
+test('loadAll fixtures expose DABStep prompt and resource metadata shape', async () => {
   const adapter = createDabstepAdapter()
-  const tasks = await adapter.loadTasks({ ids: ['1'] })
+  const tasks = await adapter.loadAll({ ids: ['1'] })
   assert.equal(tasks.length, 1)
   assert.equal(tasks[0].id, '1')
-  assert.match(tasks[0].prompt, /DABStep data-analysis task/)
+  assert.match(tasks[0].payload.prompt, /DABStep data-analysis task/)
   const meta = tasks[0].metadata as Record<string, unknown>
   assert.equal(meta.taskId, 1)
   assert.equal(Array.isArray(meta.golds), true)
@@ -33,25 +33,25 @@ test('answer OutputAdapter extracts final fenced answer when present', () => {
 
 test('goldArtifact exposes the fixture oracle without scoring it as a benchmark result', async () => {
   const adapter = createDabstepAdapter()
-  const [task] = await adapter.loadTasks({ ids: ['1'] })
-  const gold = await adapter.goldArtifact(task)
+  const [task] = await adapter.loadAll({ ids: ['1'] })
+  const gold = await adapter.runtime.goldArtifact!(task)
   assert.equal(gold, '42')
 })
 
-test('judge fails loud without an official DABSTEP_DIR/grade.py', async () => {
+test('evaluate fails loud without an official DABSTEP_DIR/grade.py', async () => {
   const adapter = createDabstepAdapter()
-  const [task] = await adapter.loadTasks({ ids: ['1'] })
+  const [task] = await adapter.loadAll({ ids: ['1'] })
   delete process.env.DABSTEP_DIR
-  await assert.rejects(adapter.judge(task, '42'), /DABSTEP_DIR is required/)
+  await assert.rejects(adapter.evaluate(task, '42'), /DABSTEP_DIR is required/)
 })
 
 test('preflight is fixture-safe and live mode fails loud without DABSTEP_DIR', async () => {
   const fixtureAdapter = createDabstepAdapter()
-  await fixtureAdapter.preflight()
+  await fixtureAdapter.runtime.preflight!()
   delete process.env.DABSTEP_FIXTURES
   delete process.env.DABSTEP_DIR
   const liveAdapter = createDabstepAdapter()
-  await assert.rejects(liveAdapter.preflight(), /DABSTEP_DIR is required/)
+  await assert.rejects(liveAdapter.runtime.preflight!(), /DABSTEP_DIR is required/)
   process.env.DABSTEP_FIXTURES = '1'
 })
 
@@ -61,7 +61,7 @@ test('live preflight fails loud when the checkout is missing released dataset.cs
   process.env.DABSTEP_DIR = dir
   try {
     const adapter = createDabstepAdapter()
-    await assert.rejects(adapter.preflight(), /released dataset\.csv/)
+    await assert.rejects(adapter.runtime.preflight!(), /released dataset\.csv/)
   } finally {
     process.env.DABSTEP_FIXTURES = '1'
     delete process.env.DABSTEP_DIR

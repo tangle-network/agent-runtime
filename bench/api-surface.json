@@ -5,22 +5,23 @@
       "ADAPTERS": "value 373728f5643d",
       "BenchCell": "type 743fc45d7bfb",
       "BenchCellTaskResult": "type 58ad08f8bd06",
+      "BenchEvaluation": "type 7cc3caf6be6e",
       "BenchExecution": "type f00a4340bb48",
       "BenchExecutionContext": "type b7724bfcf806",
       "BenchLeaderboardRow": "type 2edc04934a63",
+      "BenchPayload": "type 06fe53fcee48",
       "BenchPromptResult": "type bbb3ce204675",
-      "BenchScore": "type cf218b2b9327",
-      "BenchShot": "type 1bb3bb1dee56",
+      "BenchRuntime": "type 6af76ad57989",
+      "BenchShot": "type eab7953206e5",
       "BenchShotResult": "type b7d8eb11010b",
-      "BenchTask": "type 025d9b2f2116",
-      "BenchmarkAdapter": "type a9f9f6645ec5",
+      "BenchTask": "type 4e78bfc8dc11",
       "ExecutePreparedPierCandidateOptions": "type 9f2831557234",
       "FINAL_ANSWER_SENTINEL": "value b0c5dfafb7f1",
       "FilePierCandidateTrialController": "value 31b5e817e32b",
       "FilePierCandidateTrialControllerOptions": "type b4e157ebb484",
       "JudgeArtifactFileReceipt": "type 67ada5ffc471",
       "JudgeArtifactReceipt": "type ced5ee7ef823",
-      "LoadOptions": "type 1c4063b95847",
+      "LoadOptions": "type ffd2014bcff9",
       "PierCandidateGraderPort": "type c93a64f25227",
       "PierCandidateOfficialResult": "type 9ffd6ccdf8f1",
       "PierCandidateProcessSpec": "type a93ecdd9723a",
@@ -33,55 +34,58 @@
       "RagAnswerScore": "type dcc71dc5fdfd",
       "RagContext": "type 3d965af96dc7",
       "ResearchAnswer": "type a099b3b1cabf",
-      "RunBenchmarksOptions": "type e8e8307df3c7",
+      "RunBenchmarksOptions": "type 586db8c2d667",
       "RunBenchmarksReport": "type f3ac75211350",
+      "RuntimeBenchmark": "type 9af449f2f35d",
+      "RuntimeBenchmarkSpec": "type 0e5c4031226f",
       "StagedJudgeError": "value e8a9a9f9b22a",
       "StagedPierCandidateExecution": "type f68f8e15bf50",
       "StagedRunCaptureSpec": "type 1067b4fdf836",
-      "StagedRunSpec": "type f9dc1384de8a",
+      "StagedRunSpec": "type e63da005e2a0",
       "SweBenchAdapterOptions": "type f9f39f610b19",
       "SweBenchArtifactCaptureContext": "type c9504477653f",
       "SweBenchCacheLevel": "type 0a1a02002f02",
-      "answerScoreToBenchScore": "value ed51667ffaae",
+      "answerScoreToEvaluation": "value 4e11be367f72",
       "contextBlock": "value 824d8a4af2e9",
       "contextsFrom": "value 35531fc38a65",
-      "createCragAdapter": "value cb4e742d9a39",
-      "createNoMiraclAdapter": "value cb4e742d9a39",
-      "createOpenRagBenchAdapter": "value cb4e742d9a39",
+      "createCragAdapter": "value b9fddfd3a9cf",
+      "createNoMiraclAdapter": "value b9fddfd3a9cf",
+      "createOpenRagBenchAdapter": "value b9fddfd3a9cf",
       "createPierCandidateRecoveryExecutor": "value 70a8650179d2",
       "createPierResultGrader": "value d2f04bcfd88f",
-      "createRagBenchAdapter": "value cb4e742d9a39",
-      "createSweBenchAdapter": "value bb707bd68479",
-      "createT2RagBenchAdapter": "value cb4e742d9a39",
+      "createRagBenchAdapter": "value b9fddfd3a9cf",
+      "createSweBenchAdapter": "value d2478daabbbc",
+      "createT2RagBenchAdapter": "value b9fddfd3a9cf",
       "executePreparedPierCandidate": "value 425966b6f9e8",
       "normalizeAnswer": "value 8b2ddb657a6c",
       "parseCitations": "value e3d8ef3e402f",
       "parseFinalAnswer": "value 083c8ae0aa78",
       "printBenchmarksReport": "value c8dd9686ee0e",
       "ragAnswerOutput": "value 373728f5643d",
-      "resolveAdapter": "value 8de37af4c953",
+      "resolveAdapter": "value bbb39b725fc8",
       "runBenchmarks": "value 5306c0190fd2",
-      "runStagedJudge": "value fe6d6b4d0aec",
+      "runStagedJudge": "value a185486cdfc0",
+      "runtimeBenchmark": "value f3c45f310fc3",
       "scoreAnswerArtifact": "value 70f66d0d7881",
-      "scoreSweReport": "value 17ca3b647ae6",
+      "scoreSweReport": "value 2242b46e7454",
       "sweEvaluationArgv": "value 5dbd5ca7ba5d",
       "swePatchOutput": "value 373728f5643d",
       "tokenF1": "value e296535d0047"
     },
     "./adapters": {
       "ADAPTERS": "value 373728f5643d",
-      "resolveAdapter": "value 8de37af4c953"
+      "resolveAdapter": "value bbb39b725fc8"
     },
     "./benchmarks/_harness": {
       "StagedJudgeError": "value e8a9a9f9b22a",
-      "StagedRunCaptureSpec": "value 1067b4fdf836",
-      "StagedRunSpec": "value f9dc1384de8a",
+      "StagedRunCaptureSpec": "type 1067b4fdf836",
+      "StagedRunSpec": "type e63da005e2a0",
       "benchRoot": "value 373728f5643d",
       "bigBuffer": "value 373728f5643d",
       "preflightVenvImports": "value bde83e4adca2",
       "readJsonReport": "value 38ee10cdc735",
       "resolveBenchPython": "value 1527ad84730f",
-      "runStagedJudge": "value fe6d6b4d0aec",
+      "runStagedJudge": "value a185486cdfc0",
       "runVenvPython": "value 936f668f2120",
       "runVenvScriptStdin": "value 4786fd9065d2",
       "safeRunId": "value b2f79e57d13c",
@@ -92,89 +96,85 @@
       "venvPythonAt": "value 373728f5643d"
     },
     "./benchmarks/aec-bench": {
-      "createAecBenchAdapter": "value cb4e742d9a39"
+      "createAecBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/agentbench": {
       "agentbenchAnswerOutput": "value 373728f5643d",
-      "createAgentBenchAdapter": "value cb4e742d9a39"
+      "createAgentBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/appworld": {
-      "ReactResult": "value 85f2675097bc",
+      "ReactResult": "type 85f2675097bc",
       "appworldReactResultWithUsage": "value c621486c98b6",
       "appworldReactUsageEvent": "value 38a16b087288",
       "appworldSolutionOutput": "value 373728f5643d",
       "appworldToolLoopClient": "value 0d0d63cb330b",
-      "createAppWorldAdapter": "value cb4e742d9a39",
-      "createAppWorldReactAdapter": "value cb4e742d9a39"
+      "createAppWorldAdapter": "value b9fddfd3a9cf",
+      "createAppWorldReactAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/bfcl": {
       "bfclOutput": "value 373728f5643d",
-      "createBfclAdapter": "value cb4e742d9a39"
+      "createBfclAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/cad-design": {
-      "CadSpec": "value 999d2be64bf9",
-      "createCadDesignAdapter": "value cb4e742d9a39"
+      "CadSpec": "type 999d2be64bf9",
+      "createCadDesignAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/cadbench": {
-      "createCadBenchAdapter": "value cb4e742d9a39"
+      "createCadBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/cadgenbench": {
-      "createCadGenBenchAdapter": "value cb4e742d9a39"
+      "createCadGenBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/commit0": {
       "commit0DiffOutput": "value 373728f5643d",
-      "createCommit0Adapter": "value cb4e742d9a39"
+      "createCommit0Adapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/crag": {
-      "createCragAdapter": "value cb4e742d9a39"
+      "createCragAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/dabstep": {
-      "createDabstepAdapter": "value cb4e742d9a39",
+      "createDabstepAdapter": "value b9fddfd3a9cf",
       "dabstepAnswerOutput": "value 373728f5643d"
     },
-    "./benchmarks/enterpriseops-gym": {
-      "createEnterpriseOpsGymAdapter": "value cb4e742d9a39",
-      "enterpriseOpsTranscriptOutput": "value 373728f5643d"
-    },
     "./benchmarks/finresearchbench": {
-      "createFinResearchBenchAdapter": "value cb4e742d9a39",
-      "scoreOfficialJudgeTurn": "value c5edeaa3cf4a"
+      "createFinResearchBenchAdapter": "value b9fddfd3a9cf",
+      "scoreOfficialJudgeTurn": "value 42163da291e6"
     },
     "./benchmarks/finsearchcomp": {
-      "T1Seam": "value 4b51454e4922",
-      "createFinsearchcompAdapter": "value cb4e742d9a39"
+      "T1Seam": "type 4b51454e4922",
+      "createFinsearchcompAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/frames": {
-      "FramesTask": "value 858d0ac430ee",
-      "createFramesAdapter": "value cb4e742d9a39",
+      "FramesTask": "type 858d0ac430ee",
+      "createFramesAdapter": "value b9fddfd3a9cf",
       "normalizeFramesAnswer": "value 8b2ddb657a6c"
     },
     "./benchmarks/hotpotqa": {
-      "createHotpotqaAdapter": "value cb4e742d9a39",
+      "createHotpotqaAdapter": "value b9fddfd3a9cf",
       "exactMatch": "value 88380c225175",
       "hotpotTokenF1": "value 4ef56f0767f0",
       "normalizeHotpotAnswer": "value 8b2ddb657a6c"
     },
     "./benchmarks/humaneval": {
-      "CheckResult": "value bd6e3b592363",
-      "HumanEvalTask": "value 048e24e97fb0",
-      "PythonProgramResult": "value 079d2aa6b6cd",
+      "CheckResult": "type bd6e3b592363",
+      "HumanEvalTask": "type 048e24e97fb0",
+      "PythonProgramResult": "type 079d2aa6b6cd",
       "basePrompt": "value 676e7f6671b3",
-      "createHumanEvalAdapter": "value cb4e742d9a39",
+      "createHumanEvalAdapter": "value b9fddfd3a9cf",
       "extractCode": "value 2be00a4bf33b",
       "loadHumanEval": "value bcdd6bf601ad",
       "runChecker": "value d8d15324c655",
       "runPythonProgram": "value 97a332ea8642"
     },
     "./benchmarks/mcad-bench": {
-      "McadCheck": "value 4059e092b69e",
-      "McadGeometry": "value 872a849ea822",
-      "McadScoring": "value a11f500e5e2d",
-      "McadTaskMeta": "value 8a15117f5b65",
-      "Tri": "value ab24409b1732",
-      "Vec3": "value 9b5d27dcd768",
+      "McadCheck": "type 4059e092b69e",
+      "McadGeometry": "type 872a849ea822",
+      "McadScoring": "type a11f500e5e2d",
+      "McadTaskMeta": "type 8a15117f5b65",
+      "Tri": "type ab24409b1732",
+      "Vec3": "type 9b5d27dcd768",
       "compileAndMeasure": "value 3ac702e8abe6",
-      "createMcadBenchAdapter": "value cb4e742d9a39",
+      "createMcadBenchAdapter": "value b9fddfd3a9cf",
       "measureMesh": "value 398eaedb11ba",
       "parseAsciiStl": "value d8a80c99cd1d",
       "pointInSolid": "value a11d615c5d6c",
@@ -187,13 +187,13 @@
       "MCAD_CQ_DELIVERABLE": "value 373728f5643d",
       "MCAD_CQ_DELIVERABLE_MULTIBODY": "value 373728f5643d",
       "MCAD_CQ_TIMEOUT_MS": "value aa0bcb4338e9",
-      "McadCqBuild": "value e7136ef98eb6",
+      "McadCqBuild": "type e7136ef98eb6",
       "STEP_MAGIC": "value 0db2f8d60a26",
       "STEP_NAME": "value 74450e62fed9",
       "STL_NAME": "value 4a78334b17f3",
       "asciiStlProblem": "value 5776fad8ccde",
       "cadqueryMissingError": "value 53becdb85dd8",
-      "createMcadCqAdapter": "value cb4e742d9a39",
+      "createMcadCqAdapter": "value b9fddfd3a9cf",
       "resolveCadqueryPython": "value 051437218d2e",
       "runAndMeasureCadQuery": "value a4052a37b95d",
       "stepFileEmitted": "value 0e2e3180a393",
@@ -211,30 +211,30 @@
       "MCAD_DELIVERABLE": "value 373728f5643d",
       "MCAD_DELIVERABLE_MULTIBODY": "value 373728f5643d",
       "MCAD_TASKS": "value 373728f5643d",
-      "McadSpec": "value ef42df6419b7",
-      "McadTask": "value b2992679ef2a"
+      "McadSpec": "type ef42df6419b7",
+      "McadTask": "type b2992679ef2a"
     },
     "./benchmarks/mind2web": {
-      "createMind2WebAdapter": "value cb4e742d9a39",
+      "createMind2WebAdapter": "value b9fddfd3a9cf",
       "parseAction": "value c503a751485d"
     },
     "./benchmarks/nomiracl": {
-      "createNoMiraclAdapter": "value cb4e742d9a39"
+      "createNoMiraclAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/open-rag-bench": {
-      "createOpenRagBenchAdapter": "value cb4e742d9a39"
+      "createOpenRagBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/programbench": {
-      "createProgrambenchAdapter": "value cb4e742d9a39",
+      "createProgrambenchAdapter": "value b9fddfd3a9cf",
       "programbenchSubmissionOutput": "value 373728f5643d"
     },
     "./benchmarks/rag-shared": {
       "FINAL_ANSWER_SENTINEL": "value b0c5dfafb7f1",
-      "RagAnswerScore": "value dcc71dc5fdfd",
-      "RagContext": "value 3d965af96dc7",
-      "ResearchAnswer": "value a099b3b1cabf",
+      "RagAnswerScore": "type dcc71dc5fdfd",
+      "RagContext": "type 3d965af96dc7",
+      "ResearchAnswer": "type a099b3b1cabf",
       "allStrings": "value a53fb37fb9af",
-      "answerScoreToBenchScore": "value ed51667ffaae",
+      "answerScoreToEvaluation": "value 4e11be367f72",
       "contextBlock": "value 824d8a4af2e9",
       "contextsFrom": "value 35531fc38a65",
       "firstString": "value 15371b9bb05d",
@@ -251,60 +251,179 @@
       "tokenF1": "value e296535d0047"
     },
     "./benchmarks/ragbench": {
-      "createRagBenchAdapter": "value cb4e742d9a39"
+      "createRagBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/simpleqa": {
-      "SimpleQaTask": "value e39092793568",
-      "createSimpleQaAdapter": "value cb4e742d9a39"
+      "SimpleQaTask": "type e39092793568",
+      "createSimpleQaAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/swe-bench": {
-      "SweBenchAdapterOptions": "value f9f39f610b19",
-      "SweBenchArtifactCaptureContext": "value c9504477653f",
-      "SweBenchCacheLevel": "value 0a1a02002f02",
-      "createSweBenchAdapter": "value bb707bd68479",
-      "scoreSweReport": "value 17ca3b647ae6",
+      "SweBenchAdapterOptions": "type f9f39f610b19",
+      "SweBenchArtifactCaptureContext": "type c9504477653f",
+      "SweBenchCacheLevel": "type 0a1a02002f02",
+      "createSweBenchAdapter": "value d2478daabbbc",
+      "scoreSweReport": "value 2242b46e7454",
       "sweEvaluationArgv": "value 5dbd5ca7ba5d",
       "swePatchOutput": "value 373728f5643d"
     },
     "./benchmarks/t2-ragbench": {
-      "createT2RagBenchAdapter": "value cb4e742d9a39"
+      "createT2RagBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/tau-bench-shared": {
-      "TauBenchConfig": "value a3043cfaa2ee",
-      "TauUpstreamPin": "value 40ac24939a72",
+      "TauBenchConfig": "type a3043cfaa2ee",
+      "TauUpstreamPin": "type 40ac24939a72",
       "assertTauUpstreamPinUnchanged": "value a70de1a21068",
-      "createTauBenchAdapter": "value e54e717d5123",
+      "createTauBenchAdapter": "value 0790f64c4fc1",
       "tauResultsOutput": "value 373728f5643d"
     },
     "./benchmarks/tau2-bench": {
-      "createTau2BenchAdapter": "value cb4e742d9a39",
+      "createTau2BenchAdapter": "value b9fddfd3a9cf",
       "tau2ResultsOutput": "value 373728f5643d"
     },
     "./benchmarks/tau3-banking": {
-      "createTau3BankingAdapter": "value cb4e742d9a39"
+      "createTau3BankingAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/terminal-bench": {
-      "createTerminalBenchAdapter": "value cb4e742d9a39"
+      "createTerminalBenchAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/toollm": {
-      "createToolLlmAdapter": "value cb4e742d9a39",
+      "createToolLlmAdapter": "value b9fddfd3a9cf",
       "toollmOutput": "value 373728f5643d"
     },
     "./benchmarks/trata-hedge": {
-      "createTrataHedgeAdapter": "value cb4e742d9a39"
+      "createTrataHedgeAdapter": "value b9fddfd3a9cf"
     },
     "./benchmarks/types": {
-      "BenchScore": "value cf218b2b9327",
-      "BenchTask": "value 025d9b2f2116",
-      "BenchmarkAdapter": "value a9f9f6645ec5",
-      "JudgeArtifactFileReceipt": "value 67ada5ffc471",
-      "JudgeArtifactReceipt": "value ced5ee7ef823",
-      "LoadOptions": "value 1c4063b95847"
+      "BenchEvaluation": "type 7cc3caf6be6e",
+      "BenchPayload": "type 06fe53fcee48",
+      "BenchRuntime": "type 6af76ad57989",
+      "BenchTask": "type 4e78bfc8dc11",
+      "JudgeArtifactFileReceipt": "type 67ada5ffc471",
+      "JudgeArtifactReceipt": "type ced5ee7ef823",
+      "LoadOptions": "type ffd2014bcff9",
+      "RuntimeBenchmark": "type 9af449f2f35d",
+      "RuntimeBenchmarkSpec": "type 0e5c4031226f",
+      "runtimeBenchmark": "value f3c45f310fc3"
     },
     "./benchmarks/webarena-verified": {
-      "createWebArenaVerifiedAdapter": "value cb4e742d9a39",
+      "createWebArenaVerifiedAdapter": "value b9fddfd3a9cf",
       "webarenaOutputDirOutput": "value 373728f5643d"
     }
   },
-  "assets": []
+  "assets": [],
+  "structure": {
+    "048e24e97fb0": {"taskId":"473287f8","prompt":"473287f8","test":"473287f8","entryPoint":"473287f8","canonicalSolution?":"473287f8","~form":"TSInterfaceDeclaration"},
+    "051437218d2e": {"~form":"function","@0":["05143721",{"(0?)":"48fae235","=>":"473287f8"}]},
+    "06fe53fcee48": {"prompt":"473287f8","subset?":"473287f8","~form":"TSInterfaceDeclaration"},
+    "0790f64c4fc1": {"~form":"function","@0":["0790f64c",{"(0)":"5fe49d35","=>":"1e33e9bf"}]},
+    "079d2aa6b6cd": {"exitCode":"12886f9d","stdout":"473287f8","stderr":"473287f8","~form":"TSInterfaceDeclaration"},
+    "083c8ae0aa78": {"~form":"function","@0":["083c8ae0",{"(0)":"473287f8","=>":"473287f8"}]},
+    "0a1a02002f02": {"|30a0924a":1,"|751bbc00":1,"|4147dd2e":1,"|bd1496ce":1,"~form":"TSTypeAliasDeclaration"},
+    "0cd63baa2088": {"~form":"function","@0":["0cd63baa",{"(0)":"b23a6a84","=>":["742bc7c4",{"|473287f8":1,"|eb045d78":1}]}]},
+    "0d0d63cb330b": {"~form":"function","@0":["0d0d63cb",{"(0)":["2e8ec676",{"model":"473287f8","routerBaseUrl":"473287f8","routerKey":"473287f8","maxTurns?":"12886f9d","runWorldSession?":"2ef95f9e","complete?":["ca8a6796",{"(0)":"00831351","(1?)":["eeeafdb5",{"readonly headers":"de2f7368","readonly signal?":"b3da7007"}],"=>":["ee8522b5",{"Promise<>":"b23a6a84"}]}]}],"=>":"b23a6a84"}]},
+    "0e2e3180a393": {"~form":"function","@0":["0e2e3180",{"(0)":"473287f8","=>":["6d945c7f",{"Promise<>":"bf84d3d6"}]}]},
+    "0e5c4031226f": {"&db85bbfb":1,"assignSplit?":"6a91302b","runtime?":["2501f3c3",{"&c9fc7f89":1,"&442767d6":1}],"~form":"TSTypeAliasDeclaration"},
+    "1067b4fdf836": {"destination":"473287f8","~form":"TSInterfaceDeclaration"},
+    "1527ad84730f": {"~form":"function","@0":["1527ad84",{"(0?)":"8d603870","(1?)":"473287f8","=>":"473287f8"}]},
+    "15371b9bb05d": {"~form":"function","@0":["15371b9b",{"(0)":"00831351","(1)":["95fd5e34",{"~readonly-array":"473287f8"}],"=>":"473287f8"}]},
+    "1b27bb970dd4": {"~form":"function","@0":["1b27bb97",{"(0)":"473287f8","=>":["2c2deec3",{"Promise<>":"b0089278"}]}]},
+    "2242b46e7454": {"~form":"function","@0":["2242b46e",{"(0)":"473287f8","(1)":"b23a6a84","=>":"26fcccd3"}]},
+    "247ff85f32ec": {"~form":"function","@0":["247ff85f",{"(0)":"30469635","=>":"473287f8"}]},
+    "2be00a4bf33b": {"~form":"function","@0":["2be00a4b",{"(0)":"473287f8","=>":"473287f8"}]},
+    "2edc04934a63": {"readonly benchmark":"473287f8","readonly cell":"473287f8","readonly n":"12886f9d","readonly resolved":"12886f9d","readonly errored":"12886f9d","readonly resolveRate":"12886f9d","readonly meanScore":"12886f9d","~form":"TSInterfaceDeclaration"},
+    "35531fc38a65": {"~form":"function","@0":["35531fc3",{"(0)":"b23a6a84","=>":"75ad03e1"}]},
+    "373728f5643d": {"@0":["373728f5",{"(0)":"473287f8","=>":"473287f8"}],"~form":"VariableDeclaration:const"},
+    "38a16b087288": {"~form":"function","@0":["38a16b08",{"(0)":"82e304ef","(1)":"473287f8","=>":["667afc2b",{"|56c6419b":["56c6419b",{"type":"d603b108","data":"00831351"}],"|eb045d78":1}]}]},
+    "38ee10cdc735": {"~form":"function","@0":["38ee10cd",{"<>":"e1c7b043","(0)":"473287f8","=>":["8ddf2b8e",{"Promise<>":"e632b709"}]}]},
+    "398eaedb11ba": {"~form":"function","@0":["398eaedb",{"(0)":"70f1a6a5","=>":"6ace487e"}]},
+    "3ac702e8abe6": {"~form":"function","@0":["3ac702e8",{"(0)":"473287f8","=>":["9ad3308d",{"Promise<>":["3241d733",{"|tag:[\"ok\",true]":["6694ac84",{"ok":"b5bea41b","geo":"6ace487e","tris":"70f1a6a5","stlPath":"473287f8"}],"|tag:[\"ok\",false]":["cde02a8a",{"ok":"fcbcf165","detail":"473287f8"}]}]}]}]},
+    "3d965af96dc7": {"id":"473287f8","text":"473287f8","title?":"473287f8","source?":"473287f8","relevant?":"bf84d3d6","~form":"TSInterfaceDeclaration"},
+    "4059e092b69e": {"name":"473287f8","ok":"bf84d3d6","measured":"473287f8","expected":"473287f8","~form":"TSInterfaceDeclaration"},
+    "40ac24939a72": {"upstreamCommit":"473287f8","upstreamVersion":"473287f8","~form":"TSInterfaceDeclaration"},
+    "42163da291e6": {"~form":"function","@0":["42163da2",{"(0)":"8f530449","(1)":"2e757fd7","(2)":"473287f8","=>":"26fcccd3"}]},
+    "425966b6f9e8": {"~form":"function","@0":["425966b6",{"(0)":"49194ce7","=>":["c9004a3b",{"Promise<>":"281daef6"}]}]},
+    "44c845d83812": {"readonly id":"473287f8","readonly env":"1c038de2","~form":"TSInterfaceDeclaration"},
+    "4786fd9065d2": {"~form":"function","@0":["4786fd90",{"(0)":"473287f8","(1)":"5444db16","(2)":"473287f8","(3?)":["8fd32bed",{"cwd?":"473287f8","timeoutMs?":"12886f9d","python?":"473287f8"}],"=>":["23b00a23",{"Promise<>":"473287f8"}]}]},
+    "4b51454e4922": {"promptId":"473287f8","resolveGroundTruth()":["c1bf4d9b",{"(0)":"473287f8","=>":["23b00a23",{"Promise<>":"473287f8"}]}],"~form":"TSInterfaceDeclaration"},
+    "4d9f82630a03": {"~form":"function","@0":["4d9f8263",{"(0)":"6ace487e","(1)":"70f1a6a5","(2)":"4f648202","=>":"9bedec79"}]},
+    "4e11be367f72": {"~form":"function","@0":["4e11be36",{"(0)":"d62b7fbc","(1)":"00831351","=>":"26fcccd3"}]},
+    "4ef56f0767f0": {"~form":"function","@0":["4ef56f07",{"(0)":"473287f8","(1)":"473287f8","=>":"12886f9d"}]},
+    "5306c0190fd2": {"~form":"function","@0":["5306c019",{"(0)":"e600e590","=>":["fe157bfe",{"Promise<>":"70e8bcaa"}]}]},
+    "53b7ffc82f05": {"~form":"function","@0":["53b7ffc8",{"(0)":"b23a6a84","=>":"17511d3a"}]},
+    "53becdb85dd8": {"~form":"function","@0":["53becdb8",{"(0)":"473287f8","(1?)":"473287f8","=>":"54a0e8c1"}]},
+    "5776fad8ccde": {"~form":"function","@0":["5776fad8",{"(0)":"e44193fd","=>":["742bc7c4",{"|473287f8":1,"|eb045d78":1}]}]},
+    "586db8c2d667": {"readonly benchmarks":["95fd5e34",{"~readonly-array":"473287f8"}],"readonly cells":["8a402970",{"~readonly-array":"c386c7a1"}],"readonly routerBaseUrl":"473287f8","readonly routerKey":"473287f8","readonly modelApiKey?":"473287f8","readonly bridgeUrl?":"473287f8","readonly bridgeBearer?":"473287f8","readonly sandboxBaseUrl?":"473287f8","readonly n?":"12886f9d","readonly ids?":"5444db16","readonly subset?":"473287f8","readonly reps?":"12886f9d","readonly concurrency?":"12886f9d","readonly timeoutMs?":"12886f9d","readonly signal?":"b3da7007","readonly resolveClient?":"66544558","readonly loopAttempts?":"12886f9d","readonly verifyJudge?":"bf84d3d6","readonly execute?":"5f83cf8e","readonly runShot?":"68913d29","readonly resolveAdapter?":["871942be",{"(0)":"473287f8","=>":"1e33e9bf"}],"readonly onResult?":["4744d516",{"(0)":"0ae5b25d","=>":"445be54d"}],"~form":"TSInterfaceDeclaration"},
+    "58ad08f8bd06": {"readonly benchmark":"473287f8","readonly cell":"473287f8","readonly taskId":"473287f8","readonly rep":"12886f9d","readonly resolved":"bf84d3d6","readonly score":"12886f9d","readonly ok":"bf84d3d6","readonly execution?":"7d7784a7","readonly measurement?":["2711cf84",{"|8b7092cc":1,"|ec833b19":1}],"readonly detail?":"473287f8","readonly wallMs":"12886f9d","readonly artifact?":"473287f8","readonly usage?":"29a4ab29","readonly events?":["044df8e7",{"~readonly-array":"d03114c9"}],"readonly prompts?":["4850cb2e",{"~readonly-array":"3ca3b5f1"}],"~form":"TSInterfaceDeclaration"},
+    "5acfb8761941": {"readonly value":"b23a6a84","readonly resultBytes":"70f87281","readonly taskPatch":"70f87281","~form":"TSInterfaceDeclaration"},
+    "5b60d6579621": {"~form":"function","@0":["5b60d657",{"(0)":"473287f8","=>":"473287f8"}]},
+    "5dbd5ca7ba5d": {"~form":"function","@0":["5dbd5ca7",{"(0)":["c9f1d7e9",{"readonly predictionsPath":"473287f8","readonly runId":"473287f8","readonly instanceId":"473287f8","readonly cacheLevel":"d607dd21","readonly namespace?":["37bfbb95",{"|c7f701a0":1,"|30a0924a":1}]}],"=>":"5444db16"}]},
+    "676e7f6671b3": {"~form":"function","@0":["676e7f66",{"(0)":"a608e60b","=>":"473287f8"}]},
+    "67ada5ffc471": {"path":"473287f8","byteLength":"12886f9d","sha256":"c669fc16","kind":["8a24ea1d",{"|bfdde6f5":1,"|36f374cf":1}],"~form":"TSInterfaceDeclaration"},
+    "70a8650179d2": {"~form":"function","@0":["70a86501",{"(0)":"f2be44d9","=>":"25031351"}]},
+    "70f66d0d7881": {"~form":"function","@0":["70f66d0d",{"(0)":"473287f8","(1)":["95fd5e34",{"~readonly-array":"473287f8"}],"(2?)":["107598d8",{"threshold?":"12886f9d","numericTolerance?":"12886f9d"}],"=>":"d62b7fbc"}]},
+    "743fc45d7bfb": {"readonly label":"473287f8","readonly model":"473287f8","readonly harness?":"473287f8","readonly backend?":"473287f8","readonly searchProvider?":"473287f8","readonly profile?":"22bc0623","~form":"TSInterfaceDeclaration"},
+    "7faac4d7cec2": {"~form":"function","@0":["7faac4d7",{"(0)":"473287f8","(1)":"473287f8","=>":"473287f8"}]},
+    "824d8a4af2e9": {"~form":"function","@0":["824d8a4a",{"(0)":["6ca241cf",{"~readonly-array":"fe926b29"}],"=>":"473287f8"}]},
+    "858d0ac430ee": {"id":"473287f8","question":"473287f8","gold":"473287f8","goldSources":"5444db16","reasoningTypes":"473287f8","~form":"TSInterfaceDeclaration"},
+    "85f2675097bc": {"success?":"bf84d3d6","passes?":"12886f9d","fails?":"12886f9d","num_tests?":"12886f9d","failure_names?":"5444db16","turns?":"12886f9d","input_tokens?":"12886f9d","output_tokens?":"12886f9d","cost_usd?":"12886f9d","transcript?":"473287f8","~form":"TSInterfaceDeclaration"},
+    "872a849ea822": {"triangles":"12886f9d","openEdges":"12886f9d","watertight":"bf84d3d6","degenerateFaces":"12886f9d","volume":"12886f9d","solids":"12886f9d","bbox":["bc1c39f1",{"min":"06f92f18","max":"06f92f18","size":"06f92f18"}],"~form":"TSInterfaceDeclaration"},
+    "88380c225175": {"~form":"function","@0":["88380c22",{"(0)":"473287f8","(1)":"473287f8","=>":"bf84d3d6"}]},
+    "8b2ddb657a6c": {"~form":"function","@0":["8b2ddb65",{"(0)":"473287f8","=>":"473287f8"}]},
+    "936f668f2120": {"~form":"function","@0":["936f668f",{"(0)":"473287f8","(1?)":"5444db16","(2?)":"12886f9d","(3?)":"473287f8","=>":["23b00a23",{"Promise<>":"473287f8"}]}]},
+    "93cef5a52e48": {"readonly processExited":"b5bea41b","readonly containersRemoved":"b5bea41b","~form":"TSInterfaceDeclaration"},
+    "97a332ea8642": {"~form":"function","@0":["97a332ea",{"(0)":"473287f8","(1?)":"12886f9d","=>":["723540c7",{"Promise<>":"72d7aaa5"}]}]},
+    "97af51031212": {"readonly identity":"36ea4d56","readonly result":["806778d3",{"Promise<>":"ea3e7677"}],"readonly terminateAndWait":["93017ba0",{"=>":["caa10425",{"Promise<>":"7b53ce10"}]}],"~form":"TSInterfaceDeclaration"},
+    "99392a0b5d6e": {"~form":"function","@0":["99392a0b",{"(0)":"473287f8","(1)":"473287f8","=>":["8a626d4e",{"Promise<>":"445be54d"}]}]},
+    "999d2be64bf9": {"volumes?":"76e2e819","bbox?":["3cba0f49",{"x?":"76e2e819","y?":"76e2e819","z?":"76e2e819"}],"minTriangles?":"12886f9d","pitchedRoof?":"12886f9d","hollowBelow?":"12886f9d","~form":"TSInterfaceDeclaration"},
+    "9b5d27dcd768": {"x":"12886f9d","y":"12886f9d","z":"12886f9d","~form":"TSInterfaceDeclaration"},
+    "9f2831557234": {"readonly prepared":"20fe2be2","readonly directory":"473287f8","readonly pierVersion":"473287f8","readonly traceStore":"abcc95ef","readonly claimStore":"a34a0ecb","readonly outputArtifacts":"633a5af6","readonly grader":"da0cc761","readonly controller":"f2be44d9","~form":"TSInterfaceDeclaration"},
+    "9ffd6ccdf8f1": {"readonly value":"b23a6a84","readonly bytes":"70f87281","~form":"TSInterfaceDeclaration"},
+    "a099b3b1cabf": {"finalAnswer":"473287f8","citations":"5444db16","~form":"TSInterfaceDeclaration"},
+    "a11d615c5d6c": {"~form":"function","@0":["a11d615c",{"(0)":"70f1a6a5","(1)":"06f92f18","=>":"bf84d3d6"}]},
+    "a11f500e5e2d": {"checks":"dd8f20a0","failed":"dd8f20a0","score":"12886f9d","resolved":"bf84d3d6","~form":"TSInterfaceDeclaration"},
+    "a185486cdfc0": {"~form":"function","@0":["a185486c",{"(0)":"4964dc81","=>":["0a12af77",{"Promise<>":"26fcccd3"}]}]},
+    "a3043cfaa2ee": {"name":"473287f8","fixturePath":"473287f8","fixturesEnv":"473287f8","dirEnv":"473287f8","domainEnv":"473287f8","defaultDomain":"473287f8","installHint":"473287f8","taskIntro":"473287f8","~form":"TSInterfaceDeclaration"},
+    "a4052a37b95d": {"~form":"function","@0":["a4052a37",{"(0)":"473287f8","(1?)":"12886f9d","=>":["8fa83f21",{"Promise<>":"d01de1ef"}]}]},
+    "a53fb37fb9af": {"~form":"function","@0":["a53fb37f",{"(0)":"00831351","(1)":["95fd5e34",{"~readonly-array":"473287f8"}],"=>":"5444db16"}]},
+    "a70de1a21068": {"~form":"function","@0":["a70de1a2",{"(0)":"473287f8","(1)":"473287f8","(2)":"a8fb5a7d","(3)":"803fb0d5","=>":"445be54d"}]},
+    "a93ecdd9723a": {"readonly command":"473287f8","readonly args":["95fd5e34",{"~readonly-array":"473287f8"}],"readonly cwd":"473287f8","readonly env":"1c038de2","readonly jobsDirectory":"473287f8","readonly jobName":"473287f8","readonly dockerCommand?":"473287f8","readonly readResult":["31eebcb6",{"=>":["806778d3",{"Promise<>":"ea3e7677"}]}],"~form":"TSInterfaceDeclaration"},
+    "b2992679ef2a": {"id":"473287f8","prompt":"473287f8","spec":"4f648202","source":"473287f8","calibrated":"bf84d3d6","~form":"TSInterfaceDeclaration"},
+    "b2f79e57d13c": {"~form":"function","@0":["b2f79e57",{"(0)":"473287f8","(1)":"473287f8","=>":"473287f8"}]},
+    "b4e157ebb484": {"readonly directory":"473287f8","readonly launch?":["a36b31e5",{"(0)":"a176c350","(1)":["eae6516c",{"readonly request":"c5bf10cf","readonly traceStore":"abcc95ef","readonly signal":"b3da7007","readonly deadlineAtMs":"12886f9d"}],"=>":"1c3711f3"}],"readonly readResult?":["5ace7329",{"(0)":["d1d3a6c5",{"readonly jobsDirectory":"473287f8","readonly jobName":"473287f8"}],"=>":["4fb8e9a7",{"Promise<>":["c1b2261b",{"|ea3e7677":1,"|eb045d78":1}]}]}],"readonly dockerConnection?":"4ce57869","readonly supervisorPath?":"473287f8","readonly pollIntervalMs?":"12886f9d","~form":"TSInterfaceDeclaration"},
+    "b7724bfcf806": {"readonly prompt":"473287f8","readonly profile":"22bc0623","readonly benchmark":"473287f8","readonly taskId":"473287f8","readonly attempt":"12886f9d","readonly signal":"b3da7007","readonly run":["e6e1d552",{"&e6e1d552":1}],"~form":"TSInterfaceDeclaration"},
+    "b7d8eb11010b": {"readonly artifact":"473287f8","readonly ok":"bf84d3d6","readonly detail?":"473287f8","readonly usage?":"29a4ab29","readonly events?":["044df8e7",{"~readonly-array":"d03114c9"}],"readonly prompts?":["4850cb2e",{"~readonly-array":"3ca3b5f1"}],"readonly execution?":["908ab8f5",{"readonly phase":["f07d0a7b",{"|6b646f88":1,"|66967c3c":1,"|eb8bf0d8":1}],"readonly terminalOutcome":"156b881d"}],"readonly artifactAvailable?":"bf84d3d6","~form":"TSInterfaceDeclaration"},
+    "b9fddfd3a9cf": {"~form":"function","@0":["b9fddfd3",{"=>":"1e33e9bf"}]},
+    "bbb39b725fc8": {"~form":"function","@0":["bbb39b72",{"(0)":"473287f8","=>":"1e33e9bf"}]},
+    "bbb3ce204675": {"readonly attempt":"12886f9d","readonly index":"12886f9d","readonly method":["203acb4b",{"|a92ae961":1,"|d1c375c5":1}],"readonly prompt":"473287f8","readonly sessionId?":"473287f8","readonly outcome?":"fe7222ba","readonly events":["044df8e7",{"~readonly-array":"d03114c9"}],"readonly usage":"29a4ab29","readonly readError?":"473287f8","readonly error?":"473287f8","~form":"TSInterfaceDeclaration"},
+    "bcdd6bf601ad": {"~form":"function","@0":["bcdd6bf6",{"(0)":"12886f9d","(1?)":"12886f9d","=>":["7ea69d07",{"Promise<>":"1f6f1927"}]}]},
+    "bd6e3b592363": {"pass":"12886f9d","detail?":"473287f8","~form":"TSInterfaceDeclaration"},
+    "bde83e4adca2": {"~form":"function","@0":["bde83e4a",{"(0)":["aa24101d",{"modules":"5444db16","requireDocker?":"bf84d3d6","fix":"473287f8","python?":"473287f8"}],"=>":["8a626d4e",{"Promise<>":"445be54d"}]}]},
+    "c12328905141": {"start()":["cb31aa3c",{"(0)":"a176c350","(1)":["eae6516c",{"readonly request":"c5bf10cf","readonly traceStore":"abcc95ef","readonly signal":"b3da7007","readonly deadlineAtMs":"12886f9d"}],"=>":"10649362"}],"terminateAndWait()":["9b41f25e",{"(0)":"36ea4d56","=>":["caa10425",{"Promise<>":"7b53ce10"}]}],"captureResult()":["428a16a4",{"(0)":"36ea4d56","=>":["4fb8e9a7",{"Promise<>":["c1b2261b",{"|ea3e7677":1,"|eb045d78":1}]}]}],"~form":"TSInterfaceDeclaration"},
+    "c46947e0ec8a": {"~form":"function","@0":["c46947e0",{"(0)":"b23a6a84","=>":"5444db16"}]},
+    "c503a751485d": {"~form":"function","@0":["c503a751",{"(0)":"473287f8","=>":["89ef9acc",{"|9e2b93bd":["9e2b93bd",{"elementId":"473287f8","op":"473287f8","value":"473287f8"}],"|74234e98":1}]}]},
+    "c621486c98b6": {"~form":"function","@0":["c621486c",{"(0)":"82e304ef","(1)":["72b46bd8",{"input":"12886f9d","output":"12886f9d","costUsd?":"12886f9d","tokensKnown?":"bf84d3d6","usdKnown?":"bf84d3d6"}],"(2)":["dc4b6520",{"|12886f9d":1,"|eb045d78":1}],"(3)":"473287f8","=>":"82e304ef"}]},
+    "c8dd9686ee0e": {"~form":"function","@0":["c8dd9686",{"(0)":"70e8bcaa","=>":"473287f8"}]},
+    "c93a64f25227": {"readonly name":"473287f8","readonly version":"473287f8","readonly artifact":"f6410250","run()":["e9b337bb",{"(0)":["2fb1ce61",{"&77de4ba8":1,"readonly officialResult":"8cf68690"}],"=>":["001a7872",{"Promise<>":"dc1d8fce"}]}],"~form":"TSInterfaceDeclaration"},
+    "c9504477653f": {"readonly taskId":"473287f8","readonly runId":"473287f8","readonly attemptSequence":"12886f9d","~form":"TSInterfaceDeclaration"},
+    "cc92e6773cf3": {"~form":"function","@0":["cc92e677",{"(0)":"9bedec79","(1)":"bf84d3d6","=>":"9bedec79"}]},
+    "ced5ee7ef823": {"schema":"a6123831","directory":"473287f8","evaluatorDirectory":"473287f8","manifestPath":"473287f8","evaluatorSucceeded":"bf84d3d6","files":"62d965f8","fileCount":"12886f9d","byteLength":"12886f9d","treeSha256":"c669fc16","~form":"TSInterfaceDeclaration"},
+    "d2478daabbbc": {"~form":"function","@0":["d2478daa",{"(0?)":"9b4a45a0","=>":"1e33e9bf"}]},
+    "d2f04bcfd88f": {"~form":"function","@0":["d2f04bcf",{"(0)":["e95641c2",{"&e95641c2":1}],"=>":"da0cc761"}]},
+    "d8a80c99cd1d": {"~form":"function","@0":["d8a80c99",{"(0)":"473287f8","=>":"70f1a6a5"}]},
+    "d8d15324c655": {"~form":"function","@0":["d8d15324",{"(0)":"a608e60b","(1)":"473287f8","=>":["fd6f3c59",{"Promise<>":"4c74ca58"}]}]},
+    "dcc71dc5fdfd": {"resolved":"bf84d3d6","score":"12886f9d","finalAnswer":"473287f8","bestGold":["5eeb3f06",{"|473287f8":1,"|74234e98":1}],"exact":"bf84d3d6","numeric":"bf84d3d6","f1":"12886f9d","threshold":"12886f9d","~form":"TSInterfaceDeclaration"},
+    "decac47ed738": {"~form":"function","@0":["decac47e",{"(0)":"b0490874","(1)":"a91f12c7","(2)":"473287f8","=>":"b0490874"}]},
+    "e296535d0047": {"~form":"function","@0":["e296535d",{"(0)":"473287f8","(1)":"473287f8","=>":"12886f9d"}]},
+    "e39092793568": {"id":"473287f8","question":"473287f8","gold":"473287f8","goldSources":"5444db16","topic":"473287f8","answerType":"473287f8","~form":"TSInterfaceDeclaration"},
+    "e3d8ef3e402f": {"~form":"function","@0":["e3d8ef3e",{"(0)":"473287f8","=>":"5444db16"}]},
+    "e63da005e2a0": {"tmpPrefix":"473287f8","stage()":["5f32a255",{"(0)":"473287f8","=>":["8a626d4e",{"Promise<>":"445be54d"}]}],"bin?":"473287f8","argv()":["9fbb8d31",{"(0)":"473287f8","=>":"5444db16"}],"cwd?()":["36bef247",{"(0)":"473287f8","=>":"473287f8"}],"timeoutMs?":"12886f9d","parseReport()":["1fea8978",{"(0)":"473287f8","=>":["0a12af77",{"Promise<>":"26fcccd3"}]}],"capture?":"c95206f5","keepTmp?":"bf84d3d6","~form":"TSInterfaceDeclaration"},
+    "e7136ef98eb6": {"|tag:[\"ok\",true]":["37bf248c",{"ok":"b5bea41b","geo":"6ace487e","tris":"70f1a6a5","dir":"473287f8","stlPath":"473287f8","stepEmitted":"bf84d3d6"}],"|tag:[\"ok\",false]":["1daa3779",{"ok":"fcbcf165","detail":"473287f8","dir":"473287f8","stepEmitted":"bf84d3d6"}],"~form":"TSTypeAliasDeclaration"},
+    "eab7953206e5": {"(0)":["f540668b",{"readonly adapter":"1e33e9bf","readonly task":"8f530449","readonly cell":"c386c7a1","readonly prompt?":"473287f8","readonly attempt?":"12886f9d","readonly execute?":"5f83cf8e","readonly routerBaseUrl":"473287f8","readonly routerKey":"473287f8","readonly modelApiKey?":"473287f8","readonly bridgeUrl?":"473287f8","readonly bridgeBearer?":"473287f8","readonly sandboxBaseUrl?":"473287f8","readonly timeoutMs?":"12886f9d","readonly signal?":"b3da7007","readonly resolveClient?":"66544558"}],"=>":["7dc6b530",{"Promise<>":"00905ab1"}],"~form":"TSTypeAliasDeclaration"},
+    "ef42df6419b7": {"bbox?":["3cba0f49",{"x?":"76e2e819","y?":"76e2e819","z?":"76e2e819"}],"volume?":"76e2e819","solids?":"76e2e819","minTriangles?":"12886f9d","probesInsideSolid?":"46d4943b","probesOutsideSolid?":"46d4943b","~form":"TSInterfaceDeclaration"},
+    "f00a4340bb48": {"(0)":"0c820d07","=>":["8a626d4e",{"Promise<>":"445be54d"}],"~form":"TSTypeAliasDeclaration"},
+    "f3ac75211350": {"readonly rows":["fb880407",{"~readonly-array":"edd7da85"}],"readonly perTask":["31fba84b",{"~readonly-array":"0ae5b25d"}],"readonly benchmarks":["95fd5e34",{"~readonly-array":"473287f8"}],"readonly cells":["95fd5e34",{"~readonly-array":"473287f8"}],"readonly unavailable":["2332da95",{"~readonly-array":["c354bc33",{"readonly benchmark":"473287f8","readonly reason":"473287f8"}]}],"~form":"TSInterfaceDeclaration"},
+    "f3c45f310fc3": {"~form":"function","@0":["f3c45f31",{"(0)":"41d966f1","=>":"1e33e9bf"}]},
+    "f68f8e15bf50": {"readonly executionId":"473287f8","readonly directory":"473287f8","readonly taskDirectory":"473287f8","readonly candidateDirectory?":"473287f8","readonly profileDirectory":"473287f8","readonly planPath":"473287f8","readonly receiptPath":"473287f8","readonly agentArgs":["95fd5e34",{"~readonly-array":"473287f8"}],"readonly evaluatorEnv":"de2f7368","readonly attemptArgs":"9f236acc","~form":"TSInterfaceDeclaration"},
+    "f9f39f610b19": {"readonly timeoutMs?":"12886f9d","readonly cacheLevel?":"d607dd21","readonly captureEvaluatorArtifacts?":["31679837",{"(0)":"abef53ef","=>":["14b32cd6",{"|c95206f5":1,"|eb045d78":1}]}],"~form":"TSInterfaceDeclaration"}
+  }
 }

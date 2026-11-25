@@ -13,7 +13,7 @@
  *   # live: real benchmarks graded by their real graders
  *   TANGLE_API_KEY=... BENCHMARKS=humaneval tsx src/examples/benchmark-matrix.mts
  */
-import type { BenchmarkAdapter, BenchScore, BenchTask } from '../benchmarks/types'
+import { type BenchEvaluation, type BenchTask, type RuntimeBenchmark, runtimeBenchmark } from '../benchmarks/types'
 import { type BenchCell, type BenchShot, printBenchmarksReport, runBenchmarks } from '../run-benchmarks'
 
 /** The matrix: three cells spanning harnesses, models, and transports. */
@@ -46,22 +46,25 @@ async function live(): Promise<void> {
 /** Offline proof: a stub registry whose judge is deterministic, and a stub shot whose "ability"
  *  differs per cell — so the leaderboard ORDER reflects the cells, with no model or sandbox. */
 async function demo(): Promise<void> {
-  const stub = (name: string, n: number): BenchmarkAdapter => ({
-    name,
-    preflight: async () => {},
-    loadTasks: async (o) =>
+  const stub = (name: string, n: number): RuntimeBenchmark => runtimeBenchmark({
+    id: name,
+    loadAll: async (o) =>
       Array.from({ length: o?.limit ?? n }, (_, i) => ({
         id: `${name}-${i}`,
-        prompt: `task ${i}`,
+        payload: { prompt: `task ${i}` },
         metadata: { gold: `G-${name}-${i}` },
       })),
-    judge: async (t: BenchTask, a: string): Promise<BenchScore> => ({
-      resolved: a === t.metadata?.gold,
+    evaluate: async (t: BenchTask, a: string): Promise<BenchEvaluation> => ({
+      passed: a === t.metadata?.gold,
       score: a === t.metadata?.gold ? 1 : 0,
+      raw: {},
     }),
-    goldArtifact: async (t: BenchTask) => String(t.metadata?.gold),
+    runtime: {
+      preflight: async () => {},
+      goldArtifact: async (t: BenchTask) => String(t.metadata?.gold),
+    },
   })
-  const registry: Record<string, BenchmarkAdapter> = {
+  const registry: Record<string, RuntimeBenchmark> = {
     'demo-coding': stub('demo-coding', 8),
     'demo-research': stub('demo-research', 8),
   }
