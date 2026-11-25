@@ -27,11 +27,27 @@ os.symlink(checkout, os.path.join(package_root, 'simple_evals'))
 sys.path.insert(0, package_root)
 
 from openai import OpenAI  # noqa: E402
+from openai.types.completion_usage import CompletionTokensDetails, PromptTokensDetails  # noqa: E402
 from simple_evals.healthbench_eval import HealthBenchEval, calculate_length_adjusted_score  # noqa: E402
 from simple_evals.sampler.chat_completion_sampler import OPENAI_SYSTEM_MESSAGE_API, ChatCompletionSampler  # noqa: E402
 from simple_evals.sampler.responses_sampler import ResponsesSampler  # noqa: E402
 
 CENTER, PENALTY_PER_500 = 2000.0, 0.0147
+
+
+class EndpointSampler(ChatCompletionSampler):
+    """The publisher's sampler. HealthBench's usage reader requires the cached and reasoning token details OpenAI returns;
+    an endpoint that omits them (a CLI Bridge does) gets them as unknown, never as zero."""
+
+    def __call__(self, message_list):
+        response = super().__call__(message_list)
+        usage = response.response_metadata.get('usage')
+        if usage is not None:
+            if getattr(usage, 'prompt_tokens_details', None) is None:
+                usage.prompt_tokens_details = PromptTokensDetails(cached_tokens=None)
+            if getattr(usage, 'completion_tokens_details', None) is None:
+                usage.completion_tokens_details = CompletionTokensDetails(reasoning_tokens=None)
+        return response
 
 rows = [json.loads(line) for line in open(data, encoding='utf-8') if line.strip()]
 wanted = [task for task in ids.split(',') if task]
@@ -59,7 +75,7 @@ with open(converted, 'w', encoding='utf-8') as handle:
 
 # The publisher's samplers build a default OpenAI client on construction; each is replaced with its endpoint's client below.
 os.environ.setdefault('OPENAI_API_KEY', 'replaced-per-sampler')
-target = ChatCompletionSampler(model=model, system_message=OPENAI_SYSTEM_MESSAGE_API, max_tokens=2048)
+target = EndpointSampler(model=model, system_message=OPENAI_SYSTEM_MESSAGE_API, max_tokens=2048)
 target.client = OpenAI(base_url=base, api_key=os.environ[keyvar])
 if judge_url == '-':
     grader = ResponsesSampler(model=judge_model, reasoning_model=True, reasoning_effort='low')
