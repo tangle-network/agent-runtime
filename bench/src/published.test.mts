@@ -473,7 +473,7 @@ test('HealthBench Professional: the publisher\'s rubric grader, with a substitut
   }
 })
 
-/** Chat completions for the MLCR target and a substituted judge: the judge finds the answered run complete and accurate,
+/** Chat completions for the MLCR target and a substituted jury: each member finds the answered run complete and accurate,
  *  and the other neither. The target answers briefly, inside the publisher's conciseness gate. */
 function mlcrStandIn(answered: boolean) {
   const seen = { target: 0, judge: 0 }
@@ -514,7 +514,7 @@ test('MLCR: the publisher\'s runner and scorer, with a substituted judge, pass t
         assert.equal(result.tasks, 1, JSON.stringify(result.taskScores))
         assert.equal(result.official, false)
         assert.equal(result.publisherJudge, PUBLISHED_BENCHMARKS.mlcr!.judge)
-        assert.ok(seen.target === 1 && seen.judge === 1, JSON.stringify(seen))
+        assert.ok(seen.target === 1 && seen.judge === 3, `a substituted jury has three members: ${JSON.stringify(seen)}`)
         const [row] = (await readFile(result.runRecords, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { scenarioId: string })
         assert.equal(row!.scenarioId, `mlcr:${result.taskScores[0]!.id}`)
         verdicts.push(result.taskScores[0]!)

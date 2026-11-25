@@ -2,7 +2,7 @@
 
 The runner reaches models through providers registered by name (Vertex, Anthropic on GCP, Azure OpenAI). As its README's
 "Adding a new provider" describes, this registers one more for an OpenAI-compatible endpoint: `agent_bench_endpoint` for the
-target and `agent_bench_judge` for a substituted judge, each referenced from a model config written beside the publisher's in
+target and `agent_bench_judge` for a substituted judge, each referenced from model configs written beside the publisher's in
 configs/models (agent-bench-*.yaml, rewritten every run). No publisher file changes.
 
 The experiment is the publisher's configs/experiments/smoke.yaml, its committed experiment, with `models` set to the target and
@@ -10,9 +10,11 @@ the worker count set for the endpoint; `--limit N` keeps the first N matrix rows
 Wisedocs/mlcr-dataset release at a pinned revision, written into the git-ignored cases/ and filler_files/ trees by the
 publisher's own download code, in this checkout only: it carries no license, so it is never committed or redistributed.
 
-Scoring is the publisher's score_run: the conciseness gate, then the jury. The publisher's jury is its three judges on their own
-providers and credentials; a substituted judge is one model on its own endpoint, a jury of one. Thinking levels are not sent to
-an OpenAI-compatible endpoint. Only ids, verdicts and counts are written.
+Scoring is the publisher's score_run: the conciseness gate, then the jury, which needs two of at least two valid votes. The
+publisher's jury is its three judges on their own providers and credentials. A substituted jury is three members on the
+substituted judge's endpoint, each its own model config (the jury keys votes by config id) and sampling independently at the
+publisher's judge temperature, 1.0, so the publisher's majority rule applies unchanged. Thinking levels are not sent to an
+OpenAI-compatible endpoint. Only ids, verdicts and counts are written.
 
 Usage: python mlcr_run.py <checkout> <base url> <model> <key env var> <task count|all> <judge model|publisher> <judge url|-> <out.json>
 """
@@ -84,8 +86,10 @@ if not marker.exists():
 models = checkout / 'configs' / 'models'
 # The publisher's GPT configs: 16384 output tokens at temperature 1.0.
 (models / 'agent-bench-target.yaml').write_text(yaml.safe_dump({'id': 'agent-bench-target', 'provider': 'agent_bench_endpoint', 'model': model, 'max_output_tokens': 16384, 'temperature': 1.0}))
+JURY = [f'agent-bench-judge-{seat}' for seat in (1, 2, 3)]
 if judge_url != '-':
-    (models / 'agent-bench-judge.yaml').write_text(yaml.safe_dump({'id': 'agent-bench-judge', 'provider': 'agent_bench_judge', 'model': judge_model, 'max_output_tokens': 16384, 'temperature': 1.0}))
+    for seat in JURY:
+        (models / f'{seat}.yaml').write_text(yaml.safe_dump({'id': seat, 'provider': 'agent_bench_judge', 'model': judge_model, 'max_output_tokens': 16384, 'temperature': 1.0}))
 
 experiment = yaml.safe_load((checkout / 'configs' / 'experiments' / 'smoke.yaml').read_text())
 workers = max(1, int(os.environ.get('AGENT_BENCH_MAX_CONCURRENCY') or 2))
@@ -102,7 +106,7 @@ if code:
     sys.exit(f'mlcr run exited {code}')
 [run_dir] = [path for path in runs.iterdir() if path not in before]
 
-judges = [models / f'{name}.yaml' for name in _DEFAULT_JUDGE_MODELS] if judge_url == '-' else [models / 'agent-bench-judge.yaml']
+judges = [models / f'{name}.yaml' for name in (_DEFAULT_JUDGE_MODELS if judge_url == '-' else JURY)]
 score_run(run_dir, judge_model_configs=judges, max_workers=workers)
 
 # results_scoring.csv follows responses.csv, one row per results/<row_id>/result.json in sorted order.

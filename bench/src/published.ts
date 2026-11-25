@@ -353,6 +353,7 @@ export const PUBLISHED_BENCHMARKS: Readonly<Record<string, PublishedBenchmark>> 
     version: 'v1.1 (ca822de, the release commit; no tag), data Wisedocs/mlcr-dataset@1198206e',
     license: 'none: neither the code nor the Wisedocs/mlcr-dataset release carries a license (the dataset card says "other")',
     terms: 'No license: run locally for evaluation only, never committed, redistributed, or used for training or prompt optimization. The dataset is not gated and is fetched from Hugging Face at the pinned revision at run time.',
+    // A substituted judge sits all three jury seats, each sampling independently, so the publisher's two-of-three rule applies.
     judge: "jury of gemini-3.1-pro-preview, claude-opus-4-8-gcp and gpt-5.5 (majority vote, medium thinking) on the publisher's Vertex, Anthropic-on-GCP and Azure OpenAI providers, after a conciseness gate",
     judgeSubstitutable: true,
     measured: 'model-shaped',
