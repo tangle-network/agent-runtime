@@ -430,7 +430,8 @@ function healthbenchStandIn(answered: boolean) {
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ id: 'chatcmpl-stand-in', object: 'chat.completion', created: 0, model: body.model,
       choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }))
+      // The full OpenAI usage shape: the publisher reads the cached and reasoning token details.
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 0 } } }))
   })
   return { server, seen }
 }
