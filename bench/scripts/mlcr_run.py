@@ -17,6 +17,7 @@ an OpenAI-compatible endpoint. Only ids, verdicts and counts are written.
 Usage: python mlcr_run.py <checkout> <base url> <model> <key env var> <task count|all> <judge model|publisher> <judge url|-> <out.json>
 """
 import csv
+import io
 import json
 import os
 import sys
@@ -94,6 +95,8 @@ config.write_text(yaml.safe_dump(experiment, sort_keys=False))
 
 runs = checkout / 'agent-bench-runs'
 before = set(runs.iterdir()) if runs.is_dir() else set()
+# The runner asks for confirmation on stdin before it calls a model; this run is unattended, so it confirms.
+sys.stdin = io.StringIO('y\n')
 code = mlcr(['run', str(config), '--repo-root', str(checkout), '--no-previous-runs', *([] if limit == 'all' else ['--limit', limit])])
 if code:
     sys.exit(f'mlcr run exited {code}')
