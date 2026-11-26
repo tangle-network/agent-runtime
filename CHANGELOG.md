@@ -1,3 +1,9 @@
+## 10.0.17
+
+Interrupted graph command checks resume through their original check executor when the host supplies a model recovery backend.
+
+A resume refused because its host is full (`HOST_SLOT_UNAVAILABLE`) is a capacity wait for the supervisor, not a `terminal-error` stop, even when an older controller answered it as a 500.
+
 ## 10.0.16
 
 A graph with a small iteration budget can start a worker when one whole turn fits alongside the manager's reservation. The default per-worker allocation previously rounded a two-iteration graph down to zero worker turns.
