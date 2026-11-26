@@ -1,12 +1,13 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   checkJavaScript,
   checkPython,
   checkShell,
   findSourceFiles,
+  scanRepository,
 } from './check-model-execution-boundary.mjs'
 
 describe('model execution boundary source check', () => {
@@ -255,7 +256,7 @@ const generator = {
   it('allows a test fetch to a loopback host on a templated port, and only in a test file', () => {
     const source = 'await fetch(`http://127.0.0.1:${port}/health`)'
     expect(checkJavaScript('bench/src/published.test.mts', source)).toEqual([])
-    expect(checkJavaScript('bench/src/published.ts', source)).toHaveLength(1)
+    expect(checkJavaScript('bench/src/other.ts', source)).toHaveLength(1)
   })
 
   it('rejects executable Python and shell calls but ignores comments and docstrings', () => {
@@ -328,5 +329,62 @@ const generator = {
     } finally {
       rmSync(fixture, { force: true, recursive: true })
     }
+  })
+
+  describe('Python clients that reach only the bench endpoint', () => {
+    const root = resolve(import.meta.dirname, '..')
+    const publisherShims = [
+      'harvey-lab-judge.py',
+      'healthbench_professional_run.py',
+      'mlcr_run.py',
+      'prbench_run.py',
+    ]
+    const withFile = (name, source, run) => {
+      const fixture = mkdtempSync(join(tmpdir(), 'model-boundary-py-'))
+      try {
+        const file = join(fixture, name)
+        writeFileSync(file, source)
+        return run(readFileSync(file, 'utf8'))
+      } finally {
+        rmSync(fixture, { force: true, recursive: true })
+      }
+    }
+
+    it.each(publisherShims)('passes the publisher shim %s as committed', (name) => {
+      const text = readFileSync(join(root, 'bench', 'scripts', name), 'utf8')
+      expect(checkPython(text)).toEqual([])
+    })
+
+    it('passes the whole repository', () => {
+      expect(scanRepository()).toEqual([])
+    })
+
+    it('fails a client built on a literal provider host', () => {
+      const source = `import os\nimport openai\nclient = openai.OpenAI(base_url='https://api.openai.com/v1', api_key=os.environ['AGENT_BENCH_JUDGE_KEY'])\n`
+      expect(withFile('literal_host.py', source, checkPython).length).toBeGreaterThan(0)
+      const viaVariable = `import sys\nimport openai\nbase = 'https://api.anthropic.com'\nclient = openai.OpenAI(base_url=base)\n`
+      expect(withFile('literal_variable.py', viaVariable, checkPython).length).toBeGreaterThan(0)
+    })
+
+    it('fails a script that reads a provider key variable beside the endpoint variable', () => {
+      const source = `import os\nfrom openai import OpenAI\nclient = OpenAI(base_url=os.environ['AGENT_BENCH_JUDGE_URL'], api_key=os.environ['OPENAI_API_KEY'])\n`
+      expect(withFile('provider_key.py', source, checkPython).length).toBeGreaterThan(0)
+      const withoutEndpoint = `import os\nfrom openai import OpenAI\nclient = OpenAI(api_key=os.environ['OPENAI_API_KEY'])\n`
+      expect(withFile('provider_key_only.py', withoutEndpoint, checkPython).length).toBeGreaterThan(0)
+    })
+
+    it('fails a client with no base URL, a literal one, or a parameter a caller fills with one', () => {
+      expect(checkPython(`from openai import OpenAI\nclient = OpenAI(api_key='x')\n`).length).toBeGreaterThan(0)
+      expect(
+        checkPython(`from openai import OpenAI\nclient = OpenAI(base_url='http://127.0.0.1:1/v1')\n`).length,
+      ).toBeGreaterThan(0)
+      const wrapped = `import sys\nfrom openai import OpenAI\nclass Provider:\n    def __init__(self, url):\n        self.client = OpenAI(base_url=url)\nProvider(sys.argv[1])\nProvider('https://example.test/v1')\n`
+      expect(checkPython(wrapped).length).toBeGreaterThan(0)
+    })
+
+    it('passes a new runner whose clients take their base URL from the bench endpoint', () => {
+      const source = `import os\nimport sys\nfrom openai import AsyncOpenAI\nbase, key = sys.argv[1:3]\nclass Judge:\n    def __init__(self, url):\n        self.client = AsyncOpenAI(base_url=url, api_key='loopback')\nJudge(base)\nJudge(os.environ['AGENT_BENCH_JUDGE_URL'])\n`
+      expect(checkPython(source)).toEqual([])
+    })
   })
 })

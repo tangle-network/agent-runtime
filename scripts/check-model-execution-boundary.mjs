@@ -24,6 +24,8 @@ const dynamicNonModelFetchOwners = new Set([
   'scripts/lib/npm-registry.mjs',
   'scripts/prepare-release.mjs',
   'scripts/release-gate.mjs',
+  // A caller-supplied app profile URL (AGENT_BENCH_APPS): configuration, not inference.
+  'bench/src/published.ts',
   'bench/src/search-tool.ts',
   'bench/src/benchmarks/aec-bench.ts',
   'bench/src/benchmarks/commit0.ts',
@@ -623,9 +625,185 @@ const pythonProviderCall =
 const pythonHttpCall =
   /\b(?:requests|httpx|urllib3|session|client)\.(?:post|request|open|urlopen)\s*\(/i
 
+
+// A Python file may import a provider SDK when it only builds clients for the bench's own endpoint: the Bridge or
+// Router the bench serves. The check verifies that, it does not list files. Every client the file constructs must take
+// `base_url=` from AGENT_BENCH_JUDGE_URL or from a command-line argument (the bench's documented base-URL arguments),
+// reached through plain assignments or a parameter whose every call site in the file passes such a value. The file
+// names no provider host, and reads no provider key variable (it may set one to a literal placeholder, because a
+// publisher's sampler builds a default client on construction). Anything else, a client with no base_url included,
+// is a direct provider call and fails as before.
+const providerClientConstructor =
+  /(?<![\w.])(?:(?:[A-Za-z_]\w*\.)*(?:(?:Async)?(?:OpenAI|AzureOpenAI|Anthropic|AnthropicBedrock|AnthropicVertex)|Groq|AsyncGroq|Mistral|Cohere|CohereV2|ClientV2)|(?:[A-Za-z_]\w*\.)*genai\.Client|GenerativeModel)\s*\(/g
+const providerHostLiteral =
+  /(?:api\.openai\.com|openai\.azure\.com|api\.anthropic\.com|googleapis\.com|api\.groq\.com|api\.mistral\.ai|api\.cohere\.(?:ai|com)|api\.x\.ai|openrouter\.ai|api\.deepseek\.com)/i
+const providerKeyVariable =
+  /\b(?:OPENAI_API_KEY|OPENAI_BASE_URL|OPENAI_API_BASE|AZURE_OPENAI_\w+|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|GOOGLE_API_KEY|GEMINI_API_KEY|GROQ_API_KEY|MISTRAL_API_KEY|COHERE_API_KEY|XAI_API_KEY|OPENROUTER_API_KEY|DEEPSEEK_API_KEY)\b/g
+const moduleLevelProviderCall = /(?<![\w.])(?:openai|anthropic)\.(?:chat|responses|completions|messages|ChatCompletion|Completion)\b/
+const benchEndpointVariable = 'AGENT_BENCH_JUDGE_URL'
+
+/** The text between the parenthesis at `open` and its match, and the index after it. */
+function balancedCall(text, open) {
+  let depth = 0
+  let quote = null
+  for (let index = open; index < text.length; index++) {
+    const char = text[index]
+    if (quote !== null) {
+      if (char === '\\') index++
+      else if (char === quote) quote = null
+      continue
+    }
+    if (char === "'" || char === '"') quote = char
+    else if (char === '(' || char === '[' || char === '{') depth++
+    else if (char === ')' || char === ']' || char === '}') {
+      depth--
+      if (depth === 0) return { inside: text.slice(open + 1, index), end: index + 1 }
+    }
+  }
+  return undefined
+}
+
+/** Top-level comma-separated parts of a call's argument text. */
+function splitArguments(text) {
+  const parts = []
+  let depth = 0
+  let quote = null
+  let start = 0
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]
+    if (quote !== null) {
+      if (char === '\\') index++
+      else if (char === quote) quote = null
+      continue
+    }
+    if (char === "'" || char === '"') quote = char
+    else if (char === '(' || char === '[' || char === '{') depth++
+    else if (char === ')' || char === ']' || char === '}') depth--
+    else if (char === ',' && depth === 0) {
+      parts.push(text.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+  const last = text.slice(start).trim()
+  if (last.length > 0) parts.push(last)
+  return parts
+}
+
+/** Whether a Python expression is the bench's endpoint: its env variable, a command-line argument, or a name bound to one. */
+function isBenchEndpoint(expression, scope) {
+  const text = expression.trim()
+  if (
+    new RegExp(
+      `^(?:os\\.environ\\[\\s*['"]${benchEndpointVariable}['"]\\s*\\]|os\\.(?:environ\\.get|getenv)\\(\\s*['"]${benchEndpointVariable}['"]\\s*(?:,[^()]*)?\\))$`,
+    ).test(text)
+  )
+    return true
+  if (/^sys\.argv\[[^\]]+\]$/.test(text)) return true
+  if (!/^[A-Za-z_]\w*$/.test(text) || scope.seen.has(text)) return false
+  const seen = new Set(scope.seen).add(text)
+  const next = { ...scope, seen }
+  const bound = scope.bindings.get(text)
+  if (bound !== undefined) return bound.every((value) => isBenchEndpoint(value, next))
+  return scope.parameterIsBenchEndpoint(text, next)
+}
+
+/** The names bound by plain assignments, each with every expression assigned to it. */
+function pythonBindings(code) {
+  const bindings = new Map()
+  const bind = (name, value) => bindings.set(name, [...(bindings.get(name) ?? []), value])
+  for (const line of code.split('\n')) {
+    const unpack = /^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)+)\s*=\s*(sys\.argv\[[^\]]*:[^\]]*\])\s*$/.exec(line.trim())
+    if (unpack) {
+      for (const name of unpack[1].split(',')) bind(name.trim(), 'sys.argv[0]')
+      continue
+    }
+    const single = /^([A-Za-z_]\w*)\s*=\s*(?!=)(.+)$/.exec(line.trim())
+    if (single) bind(single[1], single[2])
+  }
+  return bindings
+}
+
+/** The enclosing function of an offset, its parameters, and the name callers use for it (the class for `__init__`). */
+function enclosingDefinition(code, offset) {
+  const before = code.slice(0, offset)
+  const definitions = [...before.matchAll(/^([ \t]*)def\s+([A-Za-z_]\w*)\s*\(/gm)]
+  for (const match of definitions.reverse()) {
+    const open = match.index + match[0].length - 1
+    const call = balancedCall(code, open)
+    if (call === undefined || call.end > offset) continue
+    const parameters = splitArguments(call.inside).map((part) => part.split(/[:=]/)[0].trim())
+    let callee = match[2]
+    if (callee === '__init__') {
+      const classes = [...before.slice(0, match.index).matchAll(/^class\s+([A-Za-z_]\w*)/gm)]
+      callee = classes.at(-1)?.[1] ?? callee
+    }
+    return { parameters, callee, defined: match.index }
+  }
+  return undefined
+}
+
+/** Whether every `callee(...)` in the file passes a bench endpoint at the position of `parameter`. */
+function parameterIsEndpointAtEveryCall(code, definition, parameter, scope) {
+  const method = definition.parameters[0] === 'self' ? 1 : 0
+  const position = definition.parameters.indexOf(parameter) - method
+  if (position < 0) return false
+  const pattern = new RegExp(`(?<![\\w.])${definition.callee}\\s*\\(`, 'g')
+  let seenCall = false
+  for (const call of code.matchAll(pattern)) {
+    const before = code.slice(Math.max(0, call.index - 12), call.index)
+    if (/\b(?:def|class)\s+$/.test(before)) continue
+    const parsed = balancedCall(code, call.index + call[0].length - 1)
+    if (parsed === undefined) return false
+    seenCall = true
+    const args = splitArguments(parsed.inside)
+    const named = args.find((part) => new RegExp(`^${parameter}\\s*=`).test(part))
+    const argument = named ? named.slice(named.indexOf('=') + 1) : args[position]
+    if (argument === undefined || !isBenchEndpoint(argument, scope)) return false
+  }
+  return seenCall
+}
+
+/** Whether a Python file builds at least one provider client and only for the bench's endpoint (see the rule above). */
+export function pythonClientsReachOnlyBenchEndpoint(text) {
+  const code = executablePythonLines(text).join('\n')
+  if (providerHostLiteral.test(code) || moduleLevelProviderCall.test(code)) return false
+  for (const line of code.split('\n')) {
+    for (const key of line.matchAll(providerKeyVariable)) {
+      const placeholder = new RegExp(
+        `^\\s*os\\.environ(?:\\.setdefault\\(\\s*['"]${key[0]}['"]\\s*,|\\[\\s*['"]${key[0]}['"]\\s*\\]\\s*=)\\s*['"][^'"]*['"]\\s*\\)?\\s*$`,
+      )
+      if (!placeholder.test(line)) return false
+    }
+  }
+  const bindings = pythonBindings(code)
+  const constructors = [...code.matchAll(providerClientConstructor)]
+  if (constructors.length === 0) return false
+  for (const constructor of constructors) {
+    const call = balancedCall(code, constructor.index + constructor[0].length - 1)
+    if (call === undefined) return false
+    const baseUrl = splitArguments(call.inside).find((part) => /^base_url\s*=/.test(part))
+    if (baseUrl === undefined) return false
+    const scope = {
+      bindings,
+      seen: new Set(),
+      parameterIsBenchEndpoint: (name, next) => {
+        const definition = enclosingDefinition(code, constructor.index)
+        return (
+          definition !== undefined &&
+          definition.parameters.includes(name) &&
+          parameterIsEndpointAtEveryCall(code, definition, name, next)
+        )
+      },
+    }
+    if (!isBenchEndpoint(baseUrl.slice(baseUrl.indexOf('=') + 1), scope)) return false
+  }
+  return true
+}
+
 export function checkPython(text) {
   const failures = []
   const lines = executablePythonLines(text)
+  const benchEndpointOnly = pythonClientsReachOnlyBenchEndpoint(text)
   const expressions = new Map()
   const modelCallBindings = new Set()
   const processLaunchBindings = new Set(['call', 'check_call', 'check_output', 'Popen', 'run'])
@@ -634,7 +812,7 @@ export function checkPython(text) {
     const code = line.trim()
     if (code.length === 0) continue
 
-    let violation = pythonProviderImport.test(code)
+    let violation = pythonProviderImport.test(code) && !benchEndpointOnly
     const subprocessImport = /^from\s+subprocess\s+import\s+(.+)$/.exec(code)
     if (subprocessImport) {
       for (const binding of subprocessImport[1].split(',')) {
@@ -678,8 +856,7 @@ export function checkPython(text) {
         new RegExp(`(?:^|[^A-Za-z0-9_])${name}\\s*\\(`).test(code),
       )
     violation ||=
-      pythonProviderCall.test(code) ||
-      modelAliasCall ||
+      (!benchEndpointOnly && (pythonProviderCall.test(code) || modelAliasCall)) ||
       (pythonHttpCall.test(code) && namesComputedModelEndpoint(expanded)) ||
       (processCall && namesModelCliInvocation(expanded))
     if (violation) {
