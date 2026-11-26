@@ -986,6 +986,22 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         retryable: false,
       })
     }
+    // A controller from before the 503 answered a resume its host had no room for as a 500 that
+    // carried the host-slot code; its body is the Worker's flat shape, not the catalog's.
+    if (
+      scenario === 'json-observation-long-host-full-success' &&
+      request.method === 'GET' &&
+      state.runs.length > 0 &&
+      !state.finish
+    ) {
+      note('retained-read-refused', { environmentId: id, status: 500 })
+      return json(response, 500, {
+        error: 'Failed to resume project',
+        details:
+          'Failed to start container box-1: Host capacity reservation failed before resume: container box-1 host CPU admits no further box',
+        code: 'HOST_SLOT_UNAVAILABLE',
+      })
+    }
     if (request.method === 'GET' && capacityRefused(response, id, 'acquisition')) return
     note('get', { environmentId: id, absent: state.lost.includes(id) })
     return json(

@@ -282,7 +282,8 @@ export function classifyDriverFailure(
   if (materializationTimedOut(error)) return 'terminal'
   if (error instanceof CheckUnavailableError || error instanceof CoordinationUnreachableError)
     return 'unavailable'
-  // A broken or nonretryable reader needs repair; stopping it never resolves retained work.
+  // A broken or nonretryable reader needs repair; stopping it never resolves retained work. A
+  // named capacity refusal is neither: a wait clears it, whatever retryability its transport gave it.
   if (
     error instanceof RetainedExecutionPendingError &&
     (error.pendingCause === 'provider-contract' ||
@@ -290,6 +291,7 @@ export function classifyDriverFailure(
         try {
           return (
             cause instanceof Error &&
+            !UNAVAILABLE_CODES.has(ownCode(cause)?.toLowerCase() ?? '') &&
             (Reflect.get(cause, 'retryable') === false ||
               [401, 403].includes(errorHttpStatus(cause) ?? 0))
           )

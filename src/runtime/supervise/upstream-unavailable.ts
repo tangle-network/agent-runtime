@@ -3,11 +3,12 @@ import { causeChain } from './error-message'
 import { turnFailureOf, turnFailurePolicy } from './executor-outcome'
 /** Shared capacity recognition and pause policy for drivers and retained leaves. */
 
-/** Sandbox: a create its same key gets placed by later. No host has room now; or the create is
- *  paced, its existence probe failed or its box is in transfer (the SDK re-POSTs this whole family
- *  for its 150 s deploy window only); or an earlier attempt under the key is still reconciling,
- *  which Sandbox answers until its reconciler's grace ends and the SDK never retries. Acquisition
- *  and the driver both wait on these under the same key, within the run's deadline. */
+/** Sandbox: a create its same key gets placed by later. No host has room now, or a parked box's own
+ *  host has none to resume it; or the create is paced, its existence probe failed or its box is in
+ *  transfer (the SDK re-POSTs this whole family for its 150 s deploy window only); or an earlier
+ *  attempt under the key is still reconciling, which Sandbox answers until its reconciler's grace
+ *  ends and the SDK never retries. Acquisition and the driver both wait on these under the same
+ *  key, within the run's deadline. */
 export const PLACEMENT_SIGNALS: ReadonlySet<string> = new Set([
   'capacity_exhausted',
   'host_pressure',
@@ -18,6 +19,10 @@ export const PLACEMENT_SIGNALS: ReadonlySet<string> = new Set([
   'idempotent_create_probe_failed',
   'sandbox_transfer_pending',
   'sandbox_create_reconciling',
+  // A parked sandbox's host has no room to start it ("host CPU admits no further box"); the
+  // sandbox and its files remain and a wait clears it. An older controller answers it 500, which
+  // the SDK reads as non-retryable, so the code decides before the status does.
+  'host_slot_unavailable',
 ])
 
 /** The cause in `error`'s chain whose own code is a placement refusal, if any. */

@@ -214,3 +214,85 @@ it.each([
   },
   15_000,
 )
+
+it('waits out a resume refused because its host is full, though the SDK reads the 500 as nonretryable', async () => {
+  const fixture = await ProcessFixture.start(
+    'json-observation-long-host-full-success',
+    executables,
+    { coordinator: false },
+  )
+  try {
+    const provider = createTangleProvider({
+      client: new Sandbox({
+        apiKey: 'offline-not-a-secret',
+        baseUrl: fixture.url,
+        platformUrl: fixture.url,
+        trustLocalCliAuth: false,
+        directExec: false,
+      }),
+    })
+    const original = await startRetainedRun({
+      provider,
+      environment: {
+        idempotencyKey: 'retained-host-full',
+        profile: {
+          name: 'fetch-pr',
+          harness: 'opencode',
+          model: { provider: 'offline', default: 'offline-test-model' },
+        },
+      },
+      turn: { turnId: 'original-turn', prompt: 'Read local evidence.' },
+      journalRoot: join(fixture.directory, 'admissions'),
+      onAdmission: (admission) =>
+        appendCommittedJsonLine(join(fixture.directory, 'admissions.jsonl'), admission),
+    })
+    const records: DriverAttemptRecord[] = []
+    let drives = 0
+    await runDriverWithRetry({
+      async drive() {
+        drives++
+        try {
+          await reconnectRetainedRun({ provider, controlRef: original.controlRef })
+        } catch (cause) {
+          throw new RetainedExecutionPendingError(cause)
+        }
+      },
+      progress: () => ({ poolTokensSpent: 0, settledCount: 0, submitted: false }),
+      budget: () => ({
+        tokensLeft: 100,
+        tokensKnown: true,
+        cacheBreakdownKnown: true,
+        usdLeft: 0,
+        usdCapped: false,
+        usdKnown: true,
+        iterationsLeft: 10,
+        deadlineMs: 0,
+        reservedTokens: 0,
+      }),
+      signal: AbortSignal.timeout(30_000),
+      policy: {
+        initialBackoffMs: 1,
+        maxBackoffMs: 1,
+        transientOutageMs: 0,
+        unavailablePauseMs: 1,
+        maxUnavailablePauseMs: 1,
+      },
+      async resolvePending() {
+        return false
+      },
+      async onAttempt(record) {
+        records.push(record)
+        // The host has room again once the run has waited once.
+        await fixture.control({ finish: true })
+      },
+    })
+    // The refusal paused the run and the next drive reached the box; it did not end as terminal.
+    expect(records[0]).toMatchObject({ classification: 'unavailable' })
+    expect(records.map((record) => record.stop)).not.toContain('terminal-error')
+    expect(drives).toBe(2)
+    const state = await fixture.state()
+    expect(state.requests.filter((row) => row.kind === 'retained-read-refused')).toHaveLength(1)
+  } finally {
+    await fixture.close()
+  }
+}, 60_000)
