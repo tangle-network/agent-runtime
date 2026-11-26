@@ -216,9 +216,11 @@ it.each([
 )
 
 it('waits out a resume refused because its host is full, though the SDK reads the 500 as nonretryable', async () => {
-  const fixture = await ProcessFixture.start('json-observation-long-host-full-success', executables, {
-    coordinator: false,
-  })
+  const fixture = await ProcessFixture.start(
+    'json-observation-long-host-full-success',
+    executables,
+    { coordinator: false },
+  )
   try {
     const provider = createTangleProvider({
       client: new Sandbox({
