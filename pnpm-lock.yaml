@@ -195,9 +195,6 @@ catalogs:
     '@modelcontextprotocol/sdk':
       specifier: 1.32.2
       version: 1.32.2
-    '@tangle-network/agent-eval':
-      specifier: ^2.0.11
-      version: 2.0.11
     '@tangle-network/agent-interface':
       specifier: ^5.10.28
       version: 5.10.28
@@ -351,7 +348,7 @@ importers:
   bench:
     dependencies:
       '@tangle-network/agent-eval':
-        specifier: 'catalog:'
+        specifier: ^2.0.11
         version: 2.0.11(@modelcontextprotocol/sdk@1.32.2(supports-color@10.2.2)(zod@4.6.7))
       '@tangle-network/agent-interface':
         specifier: 'catalog:'
