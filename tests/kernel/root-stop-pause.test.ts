@@ -229,6 +229,79 @@ describe('an opted-in root pauses where it used to stop', () => {
     expect(result.continuation).toMatchObject({ ended: 'aborted', stopPauses: 2 })
   }, 60_000)
 
+  it('ends a barren pause on a steer and tells the steered turn the time it waited', async () => {
+    // board-debruijn-cert-glm54-on-20261127a (2026-11-27): six barren re-entries paused its opted-in
+    // root for 60 minutes at 21:04:52Z. The Lab's interrupting note reached the root's inbox at
+    // 21:50:31Z, and the root slept on to 22:04:52Z, so the Lab stopped the run as silent.
+    const dir = await runDirectory()
+    const runId = 'barren-steer'
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    const pauses: Array<Extract<SpawnEvent, { kind: 'barren-pause' }>> = []
+    class SteeredJournal extends FileSpawnJournal {
+      override async appendEvent(root: string, event: SpawnEvent): Promise<void> {
+        await super.appendEvent(root, event)
+        if (event.kind !== 'barren-pause' || pauses.push(event) > 1) return
+        writeWorkerSteer(dir, runId, runId, {
+          operationId: 'silence-note',
+          message: 'Say in one line what you are waiting on, then continue.',
+        })
+        // A pause the steer leaves standing ends on the clock, so the red case still settles.
+        setTimeout(() => vi.advanceTimersByTime(event.pauseMs), 15_000)
+      }
+    }
+    const journal = new SteeredJournal(join(dir, 'spawn-journal.jsonl'))
+    const drives: Array<{ readonly at: number; readonly task: string }> = []
+    const result = (await supervise(
+      testAgentProfile('barren-root', {
+        harness: 'codex',
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
+      'Deliver the word done.',
+      {
+        runDir: dir,
+        runId,
+        journal,
+        steerDir: supervisorRunDir(dir, runId),
+        budget: { maxIterations: 100, maxTokens: 10_000 },
+        perWorker: { maxIterations: 10, maxTokens: 1_000 },
+        makeWorkerAgent: noWorkers,
+        teardownConfirmMs: 0,
+        // Every drive delivers nothing; the drive after the pause stops the run.
+        driveHarness: async ({ scope, task }) => {
+          drives.push({ at: Date.now(), task: String(task) })
+          if (pauses.length === 0) return
+          cancelRun(dir, 'stop-barren', { operator: 'test-operator', reason: 'steer read' })
+          await awaitAbortable(new Promise(() => {}), scope.signal)
+        },
+        driverRetry: { pauseRootStops: true, initialBackoffMs: 1, maxBackoffMs: 1 },
+        deliverable: { describe: 'The word done.', check: (out: unknown) => out === 'done' },
+        continuation: openContinuation(),
+      },
+    )) as SupervisedResult<unknown>
+
+    // The second barren re-entry at maxBarren 2 paces the root for 5 minutes.
+    expect(pauses.map((pause) => [pause.streak, minutes(pause.pauseMs)])).toEqual([[2, 5]])
+    // The steer ended the pause: the drive after it began within a minute, not at its resumeAt.
+    const pausedAt = Date.parse(pauses[0]!.at)
+    const steered = drives.find((drive) => drive.task.includes('delivered nothing'))
+    expect(steered).toBeDefined()
+    expect(steered!.at - pausedAt).toBeLessThan(60_000)
+    expect(steered!.task).toContain('lead-message')
+    // The turn is told the wait it had, not the pause the ladder planned.
+    expect(steered!.task).toContain('Runtime waited 0 minutes before this turn.')
+    const records = ((await journal.loadTree(runId)) ?? []).flatMap((event) =>
+      event.kind === 'driver-attempt' ? [event.record as DriverAttemptRecord] : [],
+    )
+    const paced = records.filter((record) => record.barrenPauseMs !== undefined)
+    expect(paced).toHaveLength(1)
+    expect(paced[0]!.barrenPauseMs).toBeLessThan(60_000)
+    expect(result).toMatchObject({
+      kind: 'no-winner',
+      reason: 'cancelled',
+      operator: 'test-operator',
+    })
+  }, 60_000)
+
   it('settles an unchanged pending invocation even when root pauses are enabled', async () => {
     const dir = await runDirectory()
     const proxy = await coordinationProxy()
