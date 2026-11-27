@@ -18,6 +18,7 @@ import {
   type runtimeOwnedPendingExecutorMaterialization,
 } from './materialization'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
+import { RetainedExecutionPendingError } from './retained-executor'
 import type { scopeRetainedOwnerContext } from './retained-scope-owner'
 import {
   meterRuntimeOwnedAccounting,
@@ -574,19 +575,28 @@ export class DriverExecutionAttempt {
         },
       )
     }
+    // A drive with no provider attempt on record either never reached the provider or lost its
+    // evidence. A retained execution refused before it ran says which: nothing was dispatched, so
+    // its spend is a known zero rather than an unknown floor.
+    const refused = this.meteredProviderAttempts === 0 && refusedBeforeItRan(this.failure)
     if (this.meteredProviderAttempts === 0) {
       await meterRuntimeOwnedProviderAttempt(
         scope,
-        withBudgetResources(unmeteredSpend(0), scope.budget),
+        withBudgetResources(refused ? zeroSpend() : unmeteredSpend(0), scope.budget, refused),
         this.nextProviderEvidence(),
-        { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
+        {
+          role: 'driver',
+          runtime: executor.runtime,
+          telemetry: refused ? 'known-zero-before-dispatch' : 'unknown-after-failure',
+        },
       )
     }
     const attempts = runtimeOwnedExecutorProviderEvidence(executor)?.attempts
     const provenNotStarted =
-      attempts !== undefined &&
-      attempts.length > 0 &&
-      attempts.every((attempt) => attempt.providerDispatch === 'not_started')
+      refused ||
+      (attempts !== undefined &&
+        attempts.length > 0 &&
+        attempts.every((attempt) => attempt.providerDispatch === 'not_started'))
     if (scope.budget.resources !== undefined && !provenNotStarted) {
       await meterRuntimeOwnedAccounting(scope, withBudgetResources(zeroSpend(), scope.budget), {
         role: 'driver',
@@ -595,4 +605,16 @@ export class DriverExecutionAttempt {
       })
     }
   }
+}
+
+/** The first retained execution in the failure's cause chain says it was refused before it ran
+ *  (`request-rejected`): the provider admitted nothing, so no model call was made. */
+function refusedBeforeItRan(failure: unknown): boolean {
+  let link = failure
+  for (let steps = 0; steps < 12 && typeof link === 'object' && link !== null; steps += 1) {
+    if (link instanceof RetainedExecutionPendingError)
+      return link.pendingCause === 'request-rejected'
+    link = (link as { cause?: unknown }).cause
+  }
+  return false
 }
