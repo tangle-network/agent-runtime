@@ -834,6 +834,27 @@ describe('supervised root with a pending retained turn', () => {
     expect(run.dispatched).toHaveLength(1)
   })
 
+  it('settles a root refused before its first turn ran with a known zero of tokens', async () => {
+    // Discovery canary-continuity-20261121a (2026-11-21): Sandbox refused the root's first dispatch
+    // with HTTP 402 (balance exhausted) and the run settled `tokens.status: unknown,
+    // unknownAttempts: 1` though no model call was made.
+    const run = await superviseRoot({
+      beforeDispatch: () => {
+        throw Object.assign(
+          new Error('HTTP 402: Compute already used on this account could not be charged'),
+          { name: 'SandboxError', status: 402 },
+        )
+      },
+      submitOn: Number.POSITIVE_INFINITY,
+    })
+    expect(run.result.kind).toBe('no-winner')
+    expect(run.attempts.at(-1)?.error).toContain('refused before it ran')
+    expect(run.dispatched).toHaveLength(0)
+    expect(run.result.spentTotal.tokensKnown).not.toBe(false)
+    expect(run.result.spentTotal.tokens).toMatchObject({ input: 0, output: 0 })
+    expect(run.result.spendGaps ?? []).toEqual([])
+  })
+
   it('abandons a turn the provider can no longer resolve and finishes in a new invocation', async () => {
     const run = await superviseRoot({
       unresolvable: (dispatched) => dispatched === 2,
