@@ -544,6 +544,13 @@ describe('retained environments at root settlement', () => {
     expect(live?.kind).toBe('down')
     if (live?.kind !== 'down') return
     expect(live.retainedPendingCause).toBe(scenario.cause)
+    // Refused before it ran: nothing was dispatched, so the run's tokens are a known zero, not an
+    // unknown attempt (Discovery canary-continuity-20261121a: HTTP 402 at admission, settled
+    // `tokens.status: unknown, unknownAttempts: 1`). A lost transport stays in doubt.
+    if (scenario.cause === 'request-rejected') {
+      expect(result.spentTotal.tokensKnown).not.toBe(false)
+      expect(result.spentTotal.tokens).toMatchObject({ input: 0, output: 0 })
+    }
     const expected = {
       ...scenario.failure,
       providerCode: scenario.code,

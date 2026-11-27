@@ -18,6 +18,7 @@ import {
   type runtimeOwnedPendingExecutorMaterialization,
 } from './materialization'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
+import { refusedBeforeItRan } from './retained-executor'
 import type { scopeRetainedOwnerContext } from './retained-scope-owner'
 import {
   meterRuntimeOwnedAccounting,
@@ -551,12 +552,17 @@ export class DriverExecutionAttempt {
   // unknown-cost marker per unmetered attempt, so an earlier model never looks homogeneous.
   private async meterUnmeteredAttempts(): Promise<void> {
     const { scope, executor } = this
+    // A retained execution refused at admission ran nothing: an attempt that observed no served
+    // model under it is a known zero, not an unknown floor.
+    const refused = refusedBeforeItRan(this.failure)
     for (;;) {
       const evidence = runtimeOwnedExecutorProviderEvidence(executor)
       const attempts = evidence?.attempts.length ?? 0
       if (attempts <= this.meteredProviderAttempts) break
+      const attempt = evidence?.attempts[this.meteredProviderAttempts]
       const providerDispatchDidNotStart =
-        evidence?.attempts[this.meteredProviderAttempts]?.providerDispatch === 'not_started'
+        attempt?.providerDispatch === 'not_started' ||
+        (refused && attempt?.observations.length === 0 && attempt.identityConflict !== true)
       await meterRuntimeOwnedProviderAttempt(
         scope,
         withBudgetResources(
@@ -577,16 +583,21 @@ export class DriverExecutionAttempt {
     if (this.meteredProviderAttempts === 0) {
       await meterRuntimeOwnedProviderAttempt(
         scope,
-        withBudgetResources(unmeteredSpend(0), scope.budget),
+        withBudgetResources(refused ? zeroSpend() : unmeteredSpend(0), scope.budget, refused),
         this.nextProviderEvidence(),
-        { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
+        {
+          role: 'driver',
+          runtime: executor.runtime,
+          telemetry: refused ? 'known-zero-before-dispatch' : 'unknown-after-failure',
+        },
       )
     }
     const attempts = runtimeOwnedExecutorProviderEvidence(executor)?.attempts
     const provenNotStarted =
-      attempts !== undefined &&
-      attempts.length > 0 &&
-      attempts.every((attempt) => attempt.providerDispatch === 'not_started')
+      refused ||
+      (attempts !== undefined &&
+        attempts.length > 0 &&
+        attempts.every((attempt) => attempt.providerDispatch === 'not_started'))
     if (scope.budget.resources !== undefined && !provenNotStarted) {
       await meterRuntimeOwnedAccounting(scope, withBudgetResources(zeroSpend(), scope.budget), {
         role: 'driver',
