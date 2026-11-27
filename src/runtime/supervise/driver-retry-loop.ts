@@ -22,6 +22,7 @@ import type {
   DriverReentry,
   DriverRetryPolicy,
   DriverRetryRun,
+  DriverStopPause,
 } from './driver-retry'
 import { causeChain, errMessage, errorStack, providerTraceId } from './error-message'
 import { turnFailureOf } from './executor-outcome'
@@ -344,16 +345,7 @@ export class DriverRetryLoop {
       retryInMs: pauseMs,
       resumeAt: new Date(pausedAt + pauseMs).toISOString(),
     })
-    // A steer ends every pause, a budget pause included: it is how an operator changes a live
-    // run. `steered` answers each steer once, so a pool still spent pauses again on its ladder.
-    const steered = new AbortController()
-    const wait = AbortSignal.any([run.signal, steered.signal])
-    void steering.steered(wait).then(() => steered.abort())
-    try {
-      await limits.sleep(pauseMs, wait)
-    } finally {
-      steered.abort()
-    }
+    await this.sleepUntilSteered(steering, pauseMs)
     const ended = run.signal.aborted
       ? abortStop(run.signal)
       : limits.now() >= this.deadlineAt()
@@ -697,8 +689,26 @@ export class DriverRetryLoop {
     return barren === undefined ? { steer } : { steer, barren }
   }
 
+  /**
+   * Sleep through a pause that a cancel or a root steer ends early; true when a steer ended it. A
+   * steer ends every pause, a budget or barren pause included: it is how an operator changes a live
+   * run. `steered` answers each steer once, so a pool still spent pauses again on its ladder.
+   */
+  private async sleepUntilSteered(steering: DriverStopPause, pauseMs: number): Promise<boolean> {
+    const steered = new AbortController()
+    const wait = AbortSignal.any([this.run.signal, steered.signal])
+    void steering.steered(wait).then(() => steered.abort())
+    try {
+      await this.limits.sleep(pauseMs, wait)
+      return steered.signal.aborted && !this.run.signal.aborted
+    } finally {
+      steered.abort()
+    }
+  }
+
   /** A barren streak at `maxBarren` paces the run and never ends it: journal the pause and sleep
-   *  through it, never past the earlier deadline; the caller reads the bounds again after. */
+   *  through it, never past the earlier deadline; the caller reads the bounds again after. An
+   *  opted-in root's steer ends the pause, and the next turn is told the time it actually waited. */
   private async barrenPause(
     policy: DriverContinuationPolicy,
     attempt: number,
@@ -718,8 +728,13 @@ export class DriverRetryLoop {
       lastProgressAt: new Date(this.lastProgressAt).toISOString(),
     }
     await run.onBarrenPause?.(pause)
-    await this.limits.sleep(pauseMs, run.signal)
-    return { streak: this.barrenReentries, pausedMs: pauseMs }
+    if (run.stopPause === undefined) {
+      await this.limits.sleep(pauseMs, run.signal)
+      return { streak: this.barrenReentries, pausedMs: pauseMs }
+    }
+    const steered = await this.sleepUntilSteered(run.stopPause, pauseMs)
+    const pausedMs = steered ? Math.max(0, this.limits.now() - pausedAt) : pauseMs
+    return { streak: this.barrenReentries, pausedMs }
   }
 
   /** Read a completed drive: wait, continue, or end the loop. True re-enters the driver. */
