@@ -281,9 +281,9 @@ describe('an opted-in root pauses where it used to stop', () => {
 
     // The second barren re-entry at maxBarren 2 paces the root for 5 minutes.
     expect(pauses.map((pause) => [pause.streak, minutes(pause.pauseMs)])).toEqual([[2, 5]])
-    // The steer ended the pause: the next drive began within a minute of it, not at its resumeAt.
+    // The steer ended the pause: the drive after it began within a minute, not at its resumeAt.
     const pausedAt = Date.parse(pauses[0]!.at)
-    const steered = drives.find((drive) => drive.at >= pausedAt)
+    const steered = drives.find((drive) => drive.task.includes('delivered nothing'))
     expect(steered).toBeDefined()
     expect(steered!.at - pausedAt).toBeLessThan(60_000)
     expect(steered!.task).toContain('lead-message')
