@@ -10,7 +10,7 @@ import { errMessage } from './error-message'
 import { executorFailure, executorFailureInfra } from './executor-outcome'
 import { runtimeOwnedExecutorProviderEvidence } from './materialization'
 import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
-import { RetainedExecutionPendingError } from './retained-executor'
+import { RetainedExecutionPendingError, refusedBeforeItRan } from './retained-executor'
 import { ChildExecutionAttempt } from './scope-child-attempt'
 import type { ChildAdmission, LiveChild, PreSeqSettled } from './scope-contract'
 import { detachedSnapshot } from './snapshot'
@@ -309,17 +309,20 @@ async function settleRetainedPending<C>(
   if (!attempt.reconciled) {
     const accounting = executor.accounting?.()
     const ms = Math.max(0, now() - live.startedAt)
+    // Refused at admission, nothing ran: the observed spend is the whole spend.
+    const refused = accounting === undefined && refusedBeforeItRan(err)
+    const floor = refused ? (spend: Spend) => spend : unknownFloor
     live.spent = {
-      ...unknownFloor(
+      ...floor(
         withBudgetResources(
           accounting?.reported ?? live.spent,
           opts.budget,
-          accounting !== undefined,
+          accounting !== undefined || refused,
         ),
       ),
       ms,
     }
-    attempt.reconcile({ ...unknownFloor(accounting?.reservation ?? live.spent), ms })
+    attempt.reconcile({ ...floor(accounting?.reservation ?? live.spent), ms })
   }
   // The slot stays open, so no terminal record carries an overspend yet and the floor is not the
   // final spend; reporting it here would make live views disagree with replay. The pool did

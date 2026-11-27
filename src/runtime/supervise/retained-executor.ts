@@ -430,6 +430,18 @@ export class RetainedExecutionPendingError extends Error {
   }
 }
 
+/** The first retained execution in the failure's cause chain was refused at admission
+ *  (`request-rejected`): the provider admitted nothing, so no model call was made. */
+export function refusedBeforeItRan(failure: unknown): boolean {
+  let link = failure
+  for (let steps = 0; steps < 12 && typeof link === 'object' && link !== null; steps += 1) {
+    if (link instanceof RetainedExecutionPendingError)
+      return link.pendingCause === 'request-rejected' && link.phase === 'admission'
+    link = Reflect.get(link, 'cause')
+  }
+  return false
+}
+
 /** @internal Validated original invocation selected for live adoption by the supervisor. */
 export interface RetainedChildRecovery {
   readonly spawned: Extract<SpawnEvent, { kind: 'spawned' }>
