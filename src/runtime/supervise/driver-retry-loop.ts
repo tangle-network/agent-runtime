@@ -638,7 +638,10 @@ export class DriverRetryLoop {
     if (
       !spentCreateKey(pending) &&
       (this.sameIdle === undefined ||
-        !(stop === 'no-progress' || (stop === undefined && this.pendingTries >= SAME_PENDING_LIMIT)))
+        !(
+          stop === 'no-progress' ||
+          (stop === undefined && this.pendingTries >= SAME_PENDING_LIMIT)
+        ))
     ) {
       return false
     }
