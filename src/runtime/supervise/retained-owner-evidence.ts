@@ -518,7 +518,7 @@ export function unusableEnvironmentIds(owned: readonly SpawnEvent[]): ReadonlySe
   return new Set(
     owned.flatMap((event) =>
       event.kind === 'environment-terminal' ||
-      (event.kind === 'environment-teardown' && event.destroyed)
+      (event.kind === 'environment-teardown' && (event.destroyed || event.retired === true))
         ? [event.environmentId]
         : [],
     ),

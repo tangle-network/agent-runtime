@@ -52,7 +52,11 @@ export function driveHarnessFromBackend(
     state.managerArtifact = undefined
     manager.switchedProviderCheckpointAt = undefined
     // A seat pause retires the box of the backend bound before it.
-    await bindDriveRetainedOwner(manager, args)
+    const bound = await bindDriveRetainedOwner(manager, args)
+    // A restarted or reopened run first retires an environment whose release began and that no
+    // longer runs, so neither its next seat nor its next invocation is sent back there.
+    if (bound !== undefined && args.reentry?.reason.reason === 'run-reentered')
+      await reconcileScopeRetainedOwnerEnvironment(scope)
     await manager.selectSeat(args, seatSelection, executionId, now)
     const retainedOwner = await bindDriveRetainedOwner(manager, args)
     const driveTask =
@@ -179,10 +183,11 @@ async function reentryDriveTask(
   priorCommittedArtifact: ExecutorResult<unknown> | undefined,
 ): Promise<unknown> {
   const { activeSeat, switchedProviderCheckpointAt } = manager
-  // Recovery reconciles its own invocation before proving continuation.
+  // Recovery reconciles its own invocation before proving continuation; only a lost environment
+  // is known before it.
   const proven: ReentryContinuity =
     reentry.reason.reason === 'run-reentered'
-      ? UNPROVEN_CONTINUITY
+      ? await recoveredContinuity(manager.state.boundBackend, scope, retainedOwner)
       : switchedProviderCheckpointAt === undefined
         ? await reentryContinuity(manager.state.boundBackend, scope, retainedOwner)
         : {
@@ -192,7 +197,8 @@ async function reentryDriveTask(
             checkpointAt: switchedProviderCheckpointAt,
           }
   if (
-    activeSeat?.previous &&
+    activeSeat?.nativeTurnGrant === true &&
+    activeSeat.previous &&
     activeSeat.previous.seat !== activeSeat.seat &&
     activeSeat.previous.provider === activeSeat.stage.provider &&
     activeSeat.previous.harness === activeSeat.stage.harness &&
@@ -254,19 +260,37 @@ async function reentryContinuity(
       workspace: 'kept',
     }
   }
-  if (environment.state === 'lost') {
-    // The replacement starts from the lost environment's latest checkpoint when there is one.
-    const restorePoint = await scopeRetainedOwnerRestorePoint(scope)
-    return {
-      session: 'new',
-      environment: 'replaced',
-      previousEnvironmentId: environment.environmentId,
-      ...(restorePoint === undefined
-        ? { workspace: 'lost' as const }
-        : { workspace: 'restored' as const, checkpointAt: restorePoint.takenAt }),
-    }
-  }
+  if (environment.state === 'lost') return replacedContinuity(scope, environment.environmentId)
   return UNPROVEN_CONTINUITY
+}
+
+/** A restarted run proves only a loss: its own recovery decides whether anything else continues. */
+async function recoveredContinuity(
+  backend: ExecutorConfig,
+  scope: Scope<unknown>,
+  retainedOwner: boolean,
+): Promise<ReentryContinuity> {
+  if (backend.backend !== 'provider' || !retainedOwner) return UNPROVEN_CONTINUITY
+  const environment = await reconcileScopeRetainedOwnerEnvironment(scope)
+  return environment.state === 'lost'
+    ? replacedContinuity(scope, environment.environmentId)
+    : UNPROVEN_CONTINUITY
+}
+
+/** The replacement starts from the lost environment's latest checkpoint when there is one. */
+async function replacedContinuity(
+  scope: Scope<unknown>,
+  previousEnvironmentId: string,
+): Promise<ReentryContinuity> {
+  const restorePoint = await scopeRetainedOwnerRestorePoint(scope)
+  return {
+    session: 'new',
+    environment: 'replaced',
+    previousEnvironmentId,
+    ...(restorePoint === undefined
+      ? { workspace: 'lost' as const }
+      : { workspace: 'restored' as const, checkpointAt: restorePoint.takenAt }),
+  }
 }
 
 export interface DriverSessionState {

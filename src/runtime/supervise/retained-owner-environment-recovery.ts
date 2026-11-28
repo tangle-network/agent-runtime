@@ -3,6 +3,7 @@ import { ValidationError } from '../../errors'
 import { ENVIRONMENT_LOOKUP_TIMEOUT_MS } from '../retained-interactive-lifecycle'
 import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { runAbortable } from './abortable'
+import { errMessage } from './error-message'
 import type { CheckpointEvent } from './retained-owner-checkpoint-requests'
 import { unusableEnvironmentIds } from './retained-owner-evidence'
 import { owners } from './retained-owner-state'
@@ -90,9 +91,21 @@ type RetainedOwnerEnvironmentState =
   /** The provider could not say. Nothing is concluded and nothing is journaled. */
   | { readonly state: 'unknown'; readonly environmentId: string }
 
-/** Observe exact environment loss before replacing its invocation; preserve uncertain work. */
+/**
+ * Observe exact environment loss before replacing its invocation; preserve uncertain work.
+ *
+ * An environment whose release Runtime already receipted unconfirmed (`environment-teardown`,
+ * `destroyed: false`) is continued only while the provider confirms it running: a reopened run
+ * continued in such a box and the Sandbox refused every attempt (real-work-benchmark-20261127a:
+ * HTTP 501 "Native seat continuation requires the running retained environment";
+ * claim-cycle-count-gcd-20261117a: HTTP 503 "Exact resume admission cleanup remains
+ * unconfirmed" 58 times in 31 minutes). `mustRun` asks the same of any environment, for a seat
+ * change that would checkpoint it. Such an environment is retired, never retried: the next
+ * invocation starts in a new one, restored from the newest checkpoint, without the conversation.
+ */
 export async function reconcileScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
+  mustRun = false,
 ): Promise<RetainedOwnerEnvironmentState> {
   const state = owners.get(scope)
   if (!state?.provider) return { state: 'none' }
@@ -104,9 +117,16 @@ export async function reconcileScopeRetainedOwnerEnvironment(
   if (continued === undefined) return { state: 'none' }
   const environmentId = continued.admission.environmentId
   if (unusableEnvironmentIds(owned).has(environmentId)) return { state: 'lost', environmentId }
+  const released = owned.some(
+    (event) =>
+      event.kind === 'environment-teardown' &&
+      event.environmentId === environmentId &&
+      !event.destroyed,
+  )
   if (!provider.get) return { state: 'unknown', environmentId }
   let environment: Awaited<ReturnType<NonNullable<AgentEnvironmentProvider['get']>>>
   let terminalStatus: 'failed' | 'expired' | undefined
+  let status: string | undefined
   try {
     environment = await runAbortable(
       () => provider.get!(environmentId),
@@ -117,18 +137,28 @@ export async function reconcileScopeRetainedOwnerEnvironment(
       const found = environment
       if (found.id !== environmentId || found.provider !== provider.name)
         return { state: 'unknown', environmentId }
-      const status = await runAbortable(
+      status = await runAbortable(
         () => found.status(),
         AbortSignal.any([scope.signal, AbortSignal.timeout(ENVIRONMENT_LOOKUP_TIMEOUT_MS)]),
         'retained owner environment status timed out',
       )
       if (status === 'failed' || status === 'expired') terminalStatus = status
     }
-  } catch {
-    return { state: 'unknown', environmentId }
+  } catch (error) {
+    scope.signal.throwIfAborted()
+    // A provider that cannot answer for a box whose release began has not confirmed it running.
+    if (!released) return { state: 'unknown', environmentId }
+    return retireOwnerEnvironment(
+      scope,
+      environmentId,
+      `the provider could not confirm it running: ${errMessage(error).slice(0, 300)}`,
+    )
   }
-  if (environment !== null && terminalStatus === undefined)
+  if (environment !== null && terminalStatus === undefined) {
+    if (status !== 'running' && (released || mustRun))
+      return retireOwnerEnvironment(scope, environmentId, `the provider reports it ${status}`)
     return { state: 'live', environmentId, inFlight: continued.inFlight }
+  }
   scope.signal.throwIfAborted()
   await args.journal.appendEvent(
     args.rootId,
@@ -154,6 +184,28 @@ export async function reconcileScopeRetainedOwnerEnvironment(
           at: new Date(args.now()).toISOString(),
         },
   )
+  return { state: 'lost', environmentId }
+}
+
+/** Journal that Runtime will not continue in `environmentId`; its destroy is still owed. */
+async function retireOwnerEnvironment(
+  scope: Scope<unknown>,
+  environmentId: string,
+  why: string,
+): Promise<RetainedOwnerEnvironmentState> {
+  const { provider, args, nextSequence } = owners.get(scope)!
+  scope.signal.throwIfAborted()
+  await args.journal.appendEvent(args.rootId, {
+    kind: 'environment-teardown',
+    id: args.nodeId,
+    provider: provider!.name,
+    environmentId,
+    destroyed: false,
+    retired: true,
+    detail: `retired, not running: ${why}. The next invocation starts in a new environment and a new harness session, so the conversation context is not carried`,
+    seq: nextSequence(),
+    at: new Date(args.now()).toISOString(),
+  })
   return { state: 'lost', environmentId }
 }
 
