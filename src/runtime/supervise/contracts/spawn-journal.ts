@@ -141,7 +141,8 @@ export type SpawnEvent =
       /**
        * Runtime stopped reconciling this node's unfinished retained invocation: it failed
        * reconciliation with the same pending cause on consecutive drives, or once when that
-       * failure would otherwise have ended the run, so the next drive starts a new invocation
+       * failure would otherwise have ended the run, or the provider refused its create key as
+       * spent (no box exists for it, nor ever will), so the next drive starts a new invocation
        * instead of repeating the refusal. Written only for an invocation with no committed result. No admission or result of the abandoned
        * invocation is accepted afterwards, so an execution that does finish later can never be
        * accepted beside its replacement.
@@ -158,7 +159,8 @@ export type SpawnEvent =
       detail: string
       /**
        * What the provider confirmed about the abandoned execution. `stopped`: the provider
-       * stopped it or reported it not live, so nothing of it still runs. `uncertain`: nothing
+       * stopped it or reported it not live, or refused its undispatched create key as spent, so
+       * nothing of it still runs. `uncertain`: nothing
        * could be confirmed; it may have run, may still be running, and its spend is unknown.
        */
       outcome: 'stopped' | 'uncertain'

@@ -208,6 +208,21 @@ export const isProvisioningRefusal = (value: object): boolean =>
   (value instanceof Error && TEXT_REFUSALS.test(errorProperty(value, 'message') ?? ''))
 
 /**
+ * Sandbox's refusal of a keyed create whose recorded box no longer exists (409): "The keyed
+ * create's recorded project is unavailable; use a new key". The key can never create again, and a
+ * create under another key is not refused. A box deleted after its create spends its key: the
+ * Tangle provider deletes a box that fails its post-create checks, and Sandbox rolls back a box
+ * whose GPU attach failed.
+ */
+const SPENT_CREATE_KEY_REFUSALS: ReadonlyMap<string, number> = new Map([
+  ['CREATION_RESULT_UNAVAILABLE', 409],
+])
+
+/** True for an error that is itself Sandbox's refusal of a spent create key (see above). */
+export const isSpentCreateKeyRefusal = (value: object): boolean =>
+  refusedAs(SPENT_CREATE_KEY_REFUSALS, value)
+
+/**
  * Platform refusals the orchestrator answers BEFORE it forwards a dispatch, by machine code and
  * the HTTP status it is sent with. Run 002f69d5: `HUB_CREDENTIAL_REFRESH_FAILED` at 503 left no
  * effect, yet read as a lost transport. Any other 5xx stays a transport failure, in doubt.

@@ -3,6 +3,7 @@ import { ValidationError } from '../../errors'
 import { stopRetainedNativeExecution } from '../retained-native-stop'
 import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
+import { spentCreateKey } from './driver-attempt-evidence'
 import { errMessage, errorText } from './error-message'
 import { notifyExecutionAdmitted } from './executor-observation'
 import { executorFailureReason } from './executor-outcome'
@@ -298,8 +299,11 @@ export async function abandonScopeRetainedOwnerInvocation(
         })
   scope.signal.throwIfAborted()
   const stopped = stop?.effect === 'cancelled' || stop?.effect === 'not_live'
+  // Sandbox refused this invocation's create key because no box exists for it: nothing was
+  // dispatched, and nothing of the invocation runs.
+  const keySpent = dispatched === undefined && spentCreateKey(failure)
   // A timeout cannot prove the keyed create ended. Do not open a new key beside it.
-  if (!stopped) return false
+  if (!stopped && !keySpent) return false
   await args.journal.appendEvent(args.rootId, {
     kind: 'execution-abandoned',
     id: args.nodeId,
