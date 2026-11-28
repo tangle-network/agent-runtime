@@ -255,3 +255,160 @@ it.each(['same seat', 'next stage'] as const)(
   },
   240_000,
 )
+
+/**
+ * A run whose next turn was admitted for its kept box while the box no longer answered, and that
+ * was reopened once the provider no longer held the box. board-conference-matrix-glm54-on-20261127a:
+ * the turn at spawn journal row 132 continued the kept box and was admitted as an intent only,
+ * because Sandbox refused the box's resume for 14 minutes with HTTP 503 "No host has capacity for
+ * this sandbox; retry later" (row 136); settlement could not destroy the box (rows 140-147).
+ * Reopened on Runtime 10.0.18, the box was found gone (row 152), and recovery replayed that turn
+ * into a new box, which was refused three times as "retained run intent conflicts with replay
+ * material" (rows 156-162) before the run settled with no model work.
+ */
+it('a reopened run whose last turn never reached its lost kept box starts a new turn in a fresh environment', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'retired-owner-intent-'))
+  onTestFinished(() => rm(directory, { recursive: true, force: true }))
+  const runId = 'retired-owner-intent'
+  const runDir = join(directory, 'run')
+  // first: one turn runs in the box, and settlement cannot destroy it (retention hold).
+  // stalled: the box answers the reopened run's checks, then refuses to resume once a turn is
+  //   admitted for it.
+  // gone: the provider no longer holds the box.
+  let phase: 'first' | 'stalled' | 'gone' = 'first'
+  let kept: string | undefined
+  let inputsBefore = 0
+  const journal = async () =>
+    (await createFileRunContext(runDir).journal.loadTree(runId)) ?? ([] as SpawnEvent[])
+  const turnAdmittedSince = async () => {
+    const events = await journal()
+    const inputs = ofKind(events, 'execution-input')
+    const latest = inputs.at(-1)
+    return (
+      latest !== undefined &&
+      inputs.length > inputsBefore &&
+      events.slice(events.indexOf(latest)).some((event) => event.kind === 'execution-admitted')
+    )
+  }
+  const native = nativeSeatProvider(directory, { recordOutput: true })
+  const provider: AgentEnvironmentProvider = {
+    ...native,
+    capabilities: async () => ({
+      ...(await native.capabilities()),
+      create: { runtimeAttachments: { mcp: true } },
+    }),
+    get: async (id, options) => {
+      if (id === kept && phase === 'gone') return null
+      if (id === kept && phase === 'stalled' && (await turnAdmittedSince()))
+        throw Object.assign(new Error('No host has capacity for this sandbox; retry later'), {
+          name: 'ServerError',
+          status: 503,
+        })
+      const environment = await native.get!(id, options)
+      if (environment === null || phase === 'gone') return environment
+      return {
+        ...environment,
+        destroy: async () => {
+          throw Object.assign(new Error('sandbox is under retention hold'), {
+            code: 'RETENTION_HOLD',
+            status: 409,
+          })
+        },
+      }
+    },
+  }
+  const backend = { backend: 'provider' as const, provider }
+  const profile = testAgentProfile('root', {
+    harness: 'opencode',
+    model: { provider: 'fixture', default: 'fixture/native' },
+  })
+  const receipts = async (): Promise<Array<{ control: { environmentId: string } }>> =>
+    (await readFile(join(directory, 'native-receipts.jsonl'), 'utf8').catch(() => ''))
+      .trim()
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => JSON.parse(line))
+  const attempts: DriverAttemptRecord[] = []
+  const options = {
+    pursuitId: runId,
+    runId,
+    runDir,
+    backend,
+    driverBackend: backend,
+    budget: { maxTokens: 1000, maxIterations: 20 },
+    driverRetry: { enabled: false },
+    continuation: testContinuation(),
+    maxDepth: 0,
+    coordination: {
+      authentication: {
+        signingKeys: {
+          activeKeyId: 'integration',
+          keys: { integration: 'integration-secret-'.repeat(4) },
+        },
+      },
+      publicUrl: (address: { port: number }) => `http://127.0.0.1:${address.port}/manager`,
+    },
+    finalizer: () => {
+      if (phase === 'first')
+        cancelRun(runDir, 'first-stop', { operator: 'integration', reason: 'stop first segment' })
+      return 'done'
+    },
+    deliverable: {
+      check: async (value: unknown) =>
+        value === 'done' && phase === 'gone' && (await receipts()).length >= 2,
+    },
+    onDriverAttempt: (record: DriverAttemptRecord) => {
+      attempts.push(record)
+    },
+  }
+  const task = 'Produce one checked native result.'
+  const reopen = (operationId: string) => ({
+    ...options,
+    reopen: { operator: 'integration', reason: 'continue checked work', operationId },
+  })
+
+  await supervisePursuit(profile, task, options)
+  kept = (await receipts())[0]?.control.environmentId
+  expect(kept).toBeDefined()
+  inputsBefore = ofKind(await journal(), 'execution-input').length
+
+  phase = 'stalled'
+  await supervisePursuit(profile, task, reopen('reopen-stalled'))
+  // The stalled turn was admitted for the kept box as an intent and went no further.
+  const stalled = await journal()
+  const stalledInput = ofKind(stalled, 'execution-input').at(-1)!
+  expect(
+    ofKind(stalled.slice(stalled.indexOf(stalledInput)), 'execution-admitted').map(
+      (event) => event.admission.phase,
+    ),
+  ).toEqual(['intent'])
+  expect(await receipts()).toHaveLength(1)
+
+  phase = 'gone'
+  const attemptsBefore = attempts.length
+  const reopened = await supervisePursuit(profile, task, reopen('reopen-gone'))
+  const replayRefusals = attempts
+    .slice(attemptsBefore)
+    .flatMap((record) =>
+      record.error?.includes('intent conflicts with replay material') ? [record.error] : [],
+    )
+  expect(replayRefusals).toEqual([])
+  expect(reopened.result.kind, JSON.stringify(reopened.result)).toBe('winner')
+
+  // A new turn ran in a new box; the stalled turn was not replayed anywhere.
+  const ran = await receipts()
+  expect(ran).toHaveLength(2)
+  expect(ran[1]?.control.environmentId).not.toBe(kept)
+  const events = await journal()
+  const lost = ofKind(events, 'environment-teardown').filter(
+    (event) => event.environmentId === kept && event.destroyed,
+  )
+  expect(lost).toHaveLength(1)
+  const afterLoss = events.slice(events.indexOf(lost[0]!))
+  expect(ofKind(afterLoss, 'execution-input')).toHaveLength(1)
+  expect(
+    ofKind(afterLoss, 'execution-admitted').flatMap((event) =>
+      event.admission.phase === 'environment' ? [event.admission.environmentId] : [],
+    ),
+  ).not.toContain(kept)
+}, 240_000)
