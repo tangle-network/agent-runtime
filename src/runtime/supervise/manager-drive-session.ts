@@ -231,7 +231,7 @@ export class ManagerDriveSession {
           // retired as it is, and the new one restores the newest checkpoint it left.
           if (
             !sameEnvironment &&
-            (await reconcileScopeRetainedOwnerEnvironment(scope, true)).state === 'lost'
+            (await reconcileScopeRetainedOwnerEnvironment(scope, 'running')).state === 'lost'
           )
             return
           const checkpointAt = await prepareScopeRetainedOwnerSeatSwitch(

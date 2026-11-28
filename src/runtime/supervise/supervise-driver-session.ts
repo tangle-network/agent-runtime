@@ -56,7 +56,7 @@ export function driveHarnessFromBackend(
     // A restarted or reopened run first retires an environment whose release began and that no
     // longer runs, so neither its next seat nor its next invocation is sent back there.
     if (bound !== undefined && args.reentry?.reason.reason === 'run-reentered')
-      await reconcileScopeRetainedOwnerEnvironment(scope)
+      await reconcileScopeRetainedOwnerEnvironment(scope, 'released')
     await manager.selectSeat(args, seatSelection, executionId, now)
     const retainedOwner = await bindDriveRetainedOwner(manager, args)
     const driveTask =
@@ -271,7 +271,7 @@ async function recoveredContinuity(
   retainedOwner: boolean,
 ): Promise<ReentryContinuity> {
   if (backend.backend !== 'provider' || !retainedOwner) return UNPROVEN_CONTINUITY
-  const environment = await reconcileScopeRetainedOwnerEnvironment(scope)
+  const environment = await reconcileScopeRetainedOwnerEnvironment(scope, 'released')
   return environment.state === 'lost'
     ? replacedContinuity(scope, environment.environmentId)
     : UNPROVEN_CONTINUITY

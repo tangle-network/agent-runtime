@@ -99,13 +99,15 @@ type RetainedOwnerEnvironmentState =
  * continued in such a box and the Sandbox refused every attempt (real-work-benchmark-20261127a:
  * HTTP 501 "Native seat continuation requires the running retained environment";
  * claim-cycle-count-gcd-20261117a: HTTP 503 "Exact resume admission cleanup remains
- * unconfirmed" 58 times in 31 minutes). `mustRun` asks the same of any environment, for a seat
+ * unconfirmed" 58 times in 31 minutes). `running` asks the same of any environment, for a seat
  * change that would checkpoint it. Such an environment is retired, never retried: the next
  * invocation starts in a new one, restored from the newest checkpoint, without the conversation.
+ * `released` asks the provider only about an environment whose release began, for a restarted
+ * run whose own recovery reconciles any other; that other reads `unknown`.
  */
 export async function reconcileScopeRetainedOwnerEnvironment(
   scope: Scope<unknown>,
-  mustRun = false,
+  need: 'continue' | 'running' | 'released' = 'continue',
 ): Promise<RetainedOwnerEnvironmentState> {
   const state = owners.get(scope)
   if (!state?.provider) return { state: 'none' }
@@ -123,7 +125,8 @@ export async function reconcileScopeRetainedOwnerEnvironment(
       event.environmentId === environmentId &&
       !event.destroyed,
   )
-  if (!provider.get) return { state: 'unknown', environmentId }
+  if (!provider.get || (need === 'released' && !released))
+    return { state: 'unknown', environmentId }
   let environment: Awaited<ReturnType<NonNullable<AgentEnvironmentProvider['get']>>>
   let terminalStatus: 'failed' | 'expired' | undefined
   let status: string | undefined
@@ -155,7 +158,7 @@ export async function reconcileScopeRetainedOwnerEnvironment(
     )
   }
   if (environment !== null && terminalStatus === undefined) {
-    if (status !== 'running' && (released || mustRun))
+    if (status !== 'running' && (released || need === 'running'))
       return retireOwnerEnvironment(scope, environmentId, `the provider reports it ${status}`)
     return { state: 'live', environmentId, inFlight: continued.inFlight }
   }
