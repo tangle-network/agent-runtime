@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -495,6 +495,45 @@ describe('supervisePursuit durable terminal records', () => {
       [1, 'done', false],
     ])
     expect(replayed.runs[0]?.error).toMatch(/deadlineMs/)
+  })
+
+  it('names the Runtime failure and the observer refusal when the failure cannot be journaled', async () => {
+    // claim-cycle-count-gcd-20261117a, 2026-11-17: a durable write on the run's storage timed out, and
+    // 16 of the 21 supervisors that exited that night printed only "Runtime failed and durable
+    // observer completeness could not be proven", which names neither failure.
+    const runId = 'run:record:observer-refused'
+    const observerPath = join(runDir, 'observer.jsonl')
+    let armed = false
+    let refused = false
+    const file = new FileSpawnJournal(join(runDir, 'spawn-journal.jsonl'))
+    const journal: SpawnJournal = {
+      beginTree: file.beginTree.bind(file),
+      appendEvent: file.appendEvent.bind(file),
+      loadTree: async (root) => {
+        if (!armed) return file.loadTree(root)
+        // The run fails at settlement, and the observer journal's path stops taking appends.
+        if (!refused) {
+          refused = true
+          rmSync(observerPath)
+          mkdirSync(observerPath)
+        }
+        throw new Error(
+          'durable writer did not answer closeStreamFile within 180000 ms; the writer is still running',
+        )
+      },
+    }
+    const failed = await run(runDir, runId, {
+      journal,
+      finalizer: () => {
+        armed = true
+        return undefined
+      },
+    }).catch((error) => error)
+    expect(failed).toBeInstanceOf(Error)
+    const message = (failed as Error).message
+    expect(message).toMatch(/durable observer completeness could not be proven/)
+    expect(message).toMatch(/durable writer did not answer closeStreamFile within 180000 ms/)
+    expect(message).toMatch(/EISDIR/)
   })
 
   it('leaves a queued cancel to the live holder: a second entry is refused before it settles anything', async () => {
