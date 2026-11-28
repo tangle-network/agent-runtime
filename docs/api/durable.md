@@ -5513,13 +5513,14 @@ The current parked root, read without loading its journal.
 
 > `readonly` `optional` **retainedEnvironmentId?**: `string`
 
-Last admitted environment without a confirmed destroy receipt. Check live capability before reuse.
+Last admitted environment that is not destroyed, terminal or retired. Check live capability before reuse.
 
 ##### requiresNativeTurnGrant
 
 > `readonly` **requiresNativeTurnGrant**: `boolean`
 
-This selection must grant a different credential on the retained native session.
+This selection must grant a different credential on the retained native session. Never
+ without `retainedEnvironmentId`: a seat with no environment to continue starts in a new one.
 
 ##### resumeSeatId?
 
