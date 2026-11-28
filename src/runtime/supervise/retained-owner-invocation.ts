@@ -1,7 +1,7 @@
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
 import { stopRetainedNativeExecution } from '../retained-native-stop'
-import type { RetainedRunEnvironmentAdmission } from '../retained-run-types'
+import type { RetainedRunAdmission, RetainedRunEnvironmentAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
 import { errMessage, errorText } from './error-message'
 import { notifyExecutionAdmitted } from './executor-observation'
@@ -221,6 +221,26 @@ function committedSession(
   }
 }
 
+/**
+ * The environment an invocation runs in: the one it was admitted into, or, before any, the one its
+ * intent continued. A turn that continues a kept box is admitted with that box's idempotency key
+ * and journals no environment admission until the provider returns the box.
+ * board-conference-matrix-glm54-on-20261127a (spawn journal rows 132-136): Sandbox refused the
+ * kept box's resume for 14 minutes, so the turn held only its intent when the run stopped.
+ */
+function invocationTarget(
+  admissions: readonly RetainedRunAdmission[],
+  owned: readonly SpawnEvent[],
+  inputIndex: number,
+): string | undefined {
+  const environment = admissions.find((admission) => admission.phase === 'environment')
+  if (environment?.phase === 'environment') return environment.environmentId
+  const intent = admissions.find((admission) => admission.phase === 'intent')
+  if (intent?.phase !== 'intent' || inputIndex < 0) return undefined
+  const continued = committedSession(owned, inputIndex)
+  return continued?.idempotencyKey === intent.idempotencyKey ? continued.environmentId : undefined
+}
+
 const ABANDON_STOP_TIMEOUT_MS = 30_000
 
 async function releaseDeadRetainedExecution(
@@ -343,13 +363,14 @@ export async function prepareScopeRetainedOwnerTask(
     await abandonInputAdmittedIntoDebt(state, indebted)
   }
   const unusable = unusableEnvironmentIds(owned)
-  const currentEnvironment = state.admissions.find((admission) => admission.phase === 'environment')
-  if (
-    state.acceptedRef === undefined &&
-    currentEnvironment?.phase === 'environment' &&
-    unusable.has(currentEnvironment.environmentId)
-  ) {
-    // Only loss of this invocation's admitted target closes it.
+  const target = invocationTarget(
+    state.admissions,
+    owned,
+    latestInput === undefined ? -1 : owned.indexOf(latestInput),
+  )
+  if (state.acceptedRef === undefined && target !== undefined && unusable.has(target)) {
+    // Only loss of this invocation's target closes it. A turn whose intent named a box that is
+    // now lost or retired cannot run there, and replaying it into a new box is another request.
     delete state.inputSequence
     delete state.taskRef
     state.admissions.length = 0
