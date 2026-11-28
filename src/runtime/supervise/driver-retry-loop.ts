@@ -9,6 +9,7 @@ import {
   DriverAttemptsExhaustedError,
   type DriverRepromptRefusal,
   HarnessTurnFailedError,
+  spentCreateKey,
   transientFailureKind,
   undispatchedCredentialExit,
   upstreamUnavailableSignal,
@@ -617,7 +618,8 @@ export class DriverRetryLoop {
 
   // A pending invocation that failed reconciliation the same way twice, or that would now end the
   // run, is abandoned instead of retried (recording what the provider confirmed), and the next
-  // drive starts a new invocation. Abandonments in a row without progress are bounded too.
+  // drive starts a new invocation. A spent create key is abandoned at its first refusal: it can
+  // never create again. Abandonments in a row without progress are bounded too.
   private async abandonPending(
     failure: DriverFailure,
     stop: DriverAttemptStop | undefined,
@@ -626,16 +628,26 @@ export class DriverRetryLoop {
     const { pending } = failure
     if (
       pending === undefined ||
-      this.sameIdle === undefined ||
       run.resolvePending === undefined ||
       !limits.retryEnabled ||
       run.signal.aborted ||
-      this.abandonments >= limits.maxConsecutive ||
-      !(stop === 'no-progress' || (stop === undefined && this.pendingTries >= SAME_PENDING_LIMIT))
+      this.abandonments >= limits.maxConsecutive
     ) {
       return false
     }
-    const abandoned = await run.resolvePending(pending, this.pendingTries)
+    // A spent key's refusal is final at once, so its one failure is the whole streak.
+    const spent = spentCreateKey(pending)
+    if (
+      !spent &&
+      (this.sameIdle === undefined ||
+        !(
+          stop === 'no-progress' ||
+          (stop === undefined && this.pendingTries >= SAME_PENDING_LIMIT)
+        ))
+    ) {
+      return false
+    }
+    const abandoned = await run.resolvePending(pending, spent ? 1 : this.pendingTries)
     if (abandoned) {
       this.abandonments += 1
       this.pendingTries = 0

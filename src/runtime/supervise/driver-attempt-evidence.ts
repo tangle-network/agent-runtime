@@ -18,6 +18,7 @@ import {
   DISPATCH_NOT_ADMITTED_CODE,
   isProvisioningRefusal,
   isSchemaRejection,
+  isSpentCreateKeyRefusal,
   RetainedExecutionPendingError,
   type RetainedPendingCause,
 } from './retained-executor'
@@ -123,12 +124,32 @@ export type DriverRepromptRefusal =
   | 'closed'
   | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
 
-/** Abandon only `unobservable` or `nested-recovery`. Transport and capacity stay; a refused request and a contract violation do not start a second execution. */
+/**
+ * Abandon only `unobservable` or `nested-recovery`, or a spent create key. Transport and capacity
+ * stay; a refused request and a contract violation do not start a second execution.
+ */
 export function abandonablePending(error: unknown): RetainedExecutionPendingError | undefined {
   return error instanceof RetainedExecutionPendingError &&
-    (error.pendingCause === 'unobservable' || error.pendingCause === 'nested-recovery')
+    (error.pendingCause === 'unobservable' ||
+      error.pendingCause === 'nested-recovery' ||
+      spentCreateKey(error))
     ? error
     : undefined
+}
+
+/**
+ * Sandbox refused this invocation's create key because no box exists for it, nor ever will
+ * ({@link isSpentCreateKeyRefusal}). Nothing ran, and only the key is refused: a new invocation,
+ * under a new key, is not. claim-designated-summands-20261116a (spawn journal rows 145-153)
+ * replayed a key whose box the provider had deleted and settled failed on the refusal.
+ */
+export function spentCreateKey(error: unknown): error is RetainedExecutionPendingError {
+  return (
+    error instanceof RetainedExecutionPendingError &&
+    error.phase === 'admission' &&
+    error.pendingCause === 'request-rejected' &&
+    causeChain(error.cause).some(isSpentCreateKeyRefusal)
+  )
 }
 
 /** Deterministic bridge refusals remain terminal even when transport omits HTTP status. */

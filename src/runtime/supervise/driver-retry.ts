@@ -213,8 +213,9 @@ export interface DriverRetryRun {
   /**
    * Abandon the unfinished retained invocation a failed drive left pending; answers whether it was.
    * Asked when it failed reconciliation with the same cause twice in a row or would otherwise end
-   * the run (terraform-dc-tokens-20261006d repeated one on 20 drives over 16 minutes). Only an
-   * `unobservable` or `nested-recovery` pending is offered. Omit = never.
+   * the run (terraform-dc-tokens-20261006d repeated one on 20 drives over 16 minutes), or at once
+   * when the provider refused its create key as spent. Only an `unobservable` or
+   * `nested-recovery` pending, or a spent create key, is offered. Omit = never.
    */
   readonly resolvePending?: (
     failure: RetainedExecutionPendingError,
