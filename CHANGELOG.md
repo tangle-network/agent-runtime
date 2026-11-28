@@ -1,3 +1,7 @@
+## 10.0.19
+
+A reopened or restarted run whose last turn was admitted for a kept environment, but never reached it, no longer replays that turn into a new environment once the kept one is lost or retired. Runtime closes the turn and starts a new one in a fresh environment restored from the newest checkpoint. Before, each attempt was refused with "retained run intent conflicts with replay material", and the run settled with no model work.
+
 ## 10.0.18
 
 A root steer now ends an opted-in root's barren pause (`driverRetry.pauseRootStops`), as it already ended the root's stop pauses. The steered turn is told how long it actually waited. Before this, an operator's note to a root in its 60-minute barren pause waited out the full hour.
