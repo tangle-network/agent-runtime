@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import { runtimeFailureCause } from '../runtime/failure-cause'
 import { FileCoordinationLog } from '../runtime/supervise/coordination-log'
-import { causeChain, providerTraceId } from '../runtime/supervise/error-message'
+import { causeChain, errMessage, providerTraceId } from '../runtime/supervise/error-message'
 import {
   type AgentGraph,
   type GraphResult,
@@ -372,8 +372,9 @@ async function runDurablePursuit<Result>(
           )
           pursuit = projectPursuit(await observer.journal.read())
         } catch (observerError) {
+          // A process log keeps only the message, so the message names both failures.
           throw new Error(
-            'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
+            `supervisePursuit: Runtime failed (${errMessage(error)}) and durable observer completeness could not be proven (${errMessage(observerError)})`,
             { cause: new AggregateError([error, observerError]) },
           )
         }
@@ -397,7 +398,7 @@ async function runDurablePursuit<Result>(
           })
         } catch (recordError) {
           throw new Error(
-            `supervisePursuit: Runtime failed and the failure record ${failurePath} could not be written`,
+            `supervisePursuit: Runtime failed (${errMessage(error)}) and the failure record ${failurePath} could not be written (${errMessage(recordError)})`,
             { cause: new AggregateError([error, recordError]) },
           )
         }
@@ -412,7 +413,7 @@ async function runDurablePursuit<Result>(
         await writeSettleRecord(runDir, terminal)
       } catch (cause) {
         throw new Error(
-          `supervisePursuit: Runtime settled but the settle record ${settlePath} could not be written`,
+          `supervisePursuit: Runtime settled but the settle record ${settlePath} could not be written (${errMessage(cause)})`,
           { cause },
         )
       }
