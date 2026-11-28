@@ -9,6 +9,7 @@ import { releaseScopeRetainedOwnerForSeatPause } from './retained-owner-seat-swi
 import {
   consumeScopeRetainedOwnerResult,
   prepareScopeRetainedOwnerSeatSwitch,
+  reconcileScopeRetainedOwnerEnvironment,
   scopeRetainedOwnerJournalRoot,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
@@ -219,10 +220,20 @@ export class ManagerDriveSession {
       (segment, phase) => seatSelection.onSegment(scope.view.root, segment, phase),
       async (selection, previous) => {
         if (!previous || previous.seat === selection.seat) return
+        // Only a granted native turn continues in the old environment; any other seat change
+        // starts in a new one.
         const sameEnvironment =
+          selection.nativeTurnGrant === true &&
           previous.provider === selection.stage.provider &&
           previous.harness === selection.stage.harness
         try {
+          // An environment the provider does not confirm running cannot be checkpointed. It is
+          // retired as it is, and the new one restores the newest checkpoint it left.
+          if (
+            !sameEnvironment &&
+            (await reconcileScopeRetainedOwnerEnvironment(scope, 'running')).state === 'lost'
+          )
+            return
           const checkpointAt = await prepareScopeRetainedOwnerSeatSwitch(
             scope,
             sameEnvironment ? 'same-environment' : 'replace-environment',

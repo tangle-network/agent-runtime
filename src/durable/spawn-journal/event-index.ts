@@ -204,7 +204,8 @@ export class SpawnEventIndex {
       this.nodes.set(event.id, node)
     }
     if (event.kind === 'environment-teardown') {
-      if (event.destroyed) node.unusableEnvironments.add(event.environmentId)
+      if (event.destroyed || event.retired === true)
+        node.unusableEnvironments.add(event.environmentId)
       return
     }
     if (event.kind === 'environment-terminal') {
@@ -257,9 +258,9 @@ export class SpawnEventIndex {
     if (event.kind === 'execution-input') {
       if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
       if (node.inputs.has(event.seq)) fail('has duplicate input sequence')
-      // An unfinished invocation may be replaced only once its environment is gone, the provider
-      // reports its compute terminal, or Runtime abandoned it: then nothing of the old turn can
-      // be accepted, because every later admission or result of it is refused below.
+      // An unfinished invocation may be replaced only once its environment is gone or retired,
+      // the provider reports its compute terminal, or Runtime abandoned it: then nothing of the
+      // old turn can be accepted, because every later admission or result of it is refused below.
       const environment = node.admissions.get('environment')
       const ranIn =
         environment?.phase === 'environment' ? environment.environmentId : node.lastEnvironmentId

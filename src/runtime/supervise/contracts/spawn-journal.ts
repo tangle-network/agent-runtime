@@ -499,6 +499,14 @@ export type SpawnEvent =
       detail?: string
       /** Present when the environment was held after a budget stop: why the hold ended. */
       heldRelease?: HeldRelease
+      /** Runtime stopped continuing in this environment without destroying it, outside any
+       *  release: its release was already receipted unconfirmed, or a seat change needed it
+       *  running, and the provider did not confirm it running (`detail` says what it answered).
+       *  The next invocation starts in a new environment and a new harness session, restored
+       *  from the newest checkpoint, so the conversation context is not carried. Like a
+       *  destroyed one, it is never continued again. `destroyed` stays false: settlement still
+       *  owes it a destroy. */
+      retired?: true
       seq: number
       at: string
     }

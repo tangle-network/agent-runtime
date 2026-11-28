@@ -1,5 +1,6 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
+import { unusableEnvironmentIds } from './retained-owner-evidence'
 import type { ExecutorConfig } from './runtime'
 import type { NodeId, SpawnEvent, SpawnJournal } from './types'
 
@@ -24,9 +25,10 @@ export interface SeatSelectionInput {
   readonly segmentIndex: number
   readonly excludedSeatIds: readonly string[]
   readonly previous?: Pick<SeatSegment, 'seat' | 'harness' | 'provider' | 'model'>
-  /** Last admitted environment without a confirmed destroy receipt. Check live capability before reuse. */
+  /** Last admitted environment that is not destroyed, terminal or retired. Check live capability before reuse. */
   readonly retainedEnvironmentId?: string
-  /** This selection must grant a different credential on the retained native session. */
+  /** This selection must grant a different credential on the retained native session. Never
+   *  without `retainedEnvironmentId`: a seat with no environment to continue starts in a new one. */
   readonly requiresNativeTurnGrant: boolean
   /** Rebind the exact prior seat after coordinator restart, never choose another implicitly. */
   readonly resumeSeatId?: string
@@ -99,14 +101,8 @@ export class SeatChain {
       (event): event is Extract<SpawnEvent, { kind: 'seat-segment' }> =>
         event.kind === 'seat-segment' && event.id === this.nodeId,
     )
-    const destroyed = new Set(
-      allEvents
-        .filter(
-          (event): event is Extract<SpawnEvent, { kind: 'environment-teardown' }> =>
-            event.kind === 'environment-teardown' && event.id === this.nodeId && event.destroyed,
-        )
-        .map((event) => event.environmentId),
-    )
+    // Destroyed, terminal or retired: the provider cannot continue a native session there.
+    const unusable = unusableEnvironmentIds(allEvents.filter((event) => event.id === this.nodeId))
     let admittedEnvironmentId: string | undefined
     for (const event of allEvents) {
       if (
@@ -118,7 +114,7 @@ export class SeatChain {
       }
     }
     const retainedEnvironmentId =
-      admittedEnvironmentId !== undefined && !destroyed.has(admittedEnvironmentId)
+      admittedEnvironmentId !== undefined && !unusable.has(admittedEnvironmentId)
         ? admittedEnvironmentId
         : undefined
     await this.reconcile(events)
@@ -152,8 +148,11 @@ export class SeatChain {
               model: last.model,
             }
       const preceding = resume ? starts.at(-2) : last
+      // A native session continues only in its retained environment. Without one, the seat starts
+      // in a new environment: asking for a grant there was refused every time.
       const requiresNativeTurnGrant = Boolean(
-        preceding &&
+        retainedEnvironmentId !== undefined &&
+          preceding &&
           preceding.provider === stage.provider &&
           preceding.harness === stage.harness &&
           (!rebind || preceding.seat !== last.seat),
@@ -186,10 +185,9 @@ export class SeatChain {
         throw new ValidationError('selectSeat: selected an exhausted seat')
       }
       if (
+        requiresNativeTurnGrant &&
         preceding &&
         preceding.seat !== selection.seat &&
-        preceding.provider === stage.provider &&
-        preceding.harness === stage.harness &&
         selection.nativeTurnGrant !== true
       ) {
         throw new ValidationError(
