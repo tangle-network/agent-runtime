@@ -635,8 +635,10 @@ export class DriverRetryLoop {
     ) {
       return false
     }
+    // A spent key's refusal is final at once, so its one failure is the whole streak.
+    const spent = spentCreateKey(pending)
     if (
-      !spentCreateKey(pending) &&
+      !spent &&
       (this.sameIdle === undefined ||
         !(
           stop === 'no-progress' ||
@@ -645,7 +647,7 @@ export class DriverRetryLoop {
     ) {
       return false
     }
-    const abandoned = await run.resolvePending(pending, this.pendingTries)
+    const abandoned = await run.resolvePending(pending, spent ? 1 : this.pendingTries)
     if (abandoned) {
       this.abandonments += 1
       this.pendingTries = 0
