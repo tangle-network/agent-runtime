@@ -124,7 +124,10 @@ export type DriverRepromptRefusal =
   | 'closed'
   | Extract<DriverAttemptStop, 'aborted' | 'budget-exhausted' | 'deadline' | 'max-attempts'>
 
-/** Abandon only `unobservable` or `nested-recovery`, or a spent create key. Transport and capacity stay; a refused request and a contract violation do not start a second execution. */
+/**
+ * Abandon only `unobservable` or `nested-recovery`, or a spent create key. Transport and capacity
+ * stay; a refused request and a contract violation do not start a second execution.
+ */
 export function abandonablePending(error: unknown): RetainedExecutionPendingError | undefined {
   return error instanceof RetainedExecutionPendingError &&
     (error.pendingCause === 'unobservable' ||
