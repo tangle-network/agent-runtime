@@ -1,3 +1,11 @@
+## 10.0.18
+
+A root steer now ends an opted-in root's barren pause (`driverRetry.pauseRootStops`), as it already ended the root's stop pauses. The steered turn is told how long it actually waited. Before this, an operator's note to a root in its 60-minute barren pause waited out the full hour.
+
+A retained execution the provider refused at admission (`request-rejected`) now settles its tokens as a known zero, at the root driver and at a worker. Before this, it settled `tokens.status: unknown`. A lost transport still settles as an unknown floor.
+
+A run no longer continues in a kept environment its provider does not confirm running: when a reopened or restarted run, or a seat change, finds the owner's environment released but not destroyed and not running, Runtime journals it retired (`environment-teardown` with `retired: true`), never sends a seat or invocation back there, and continues in a new environment and harness session restored from the newest checkpoint, without the conversation. A seat asks for a native turn grant only when a retained environment remains to continue.
+
 ## 10.0.17
 
 Interrupted graph command checks resume through their original check executor when the host supplies a model recovery backend.
